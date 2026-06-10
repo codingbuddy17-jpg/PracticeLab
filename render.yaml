@@ -1,0 +1,38 @@
+services:
+  - type: web
+    name: chart-viewer-api
+    env: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: chart-viewer-db
+          property: connectionString
+      - key: STORAGE_ENDPOINT_URL
+        sync: false
+      - key: STORAGE_ACCESS_KEY
+        sync: false
+      - key: STORAGE_SECRET_KEY
+        sync: false
+      - key: STORAGE_BUCKET_NAME
+        sync: false
+      - key: STORAGE_PUBLIC_URL
+        sync: false
+      - key: MASTER_ADMIN_PASSPHRASE
+        sync: false
+      - key: CORS_ORIGINS
+        value: https://chart-viewer-ui.onrender.com
+
+  - type: web
+    name: chart-viewer-ui
+    env: static
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+
+databases:
+  - name: chart-viewer-db
+    databaseName: chartviewer
+    plan: free

@@ -1,0 +1,101 @@
+from pydantic import BaseModel
+from typing import Optional, List
+from datetime import datetime
+from models import Specialty, Difficulty, ChartStatus
+
+
+class ChartFileOut(BaseModel):
+    id: int
+    storage_key: str
+    original_filename: str
+    page_order: int
+    total_pages: int
+    uploaded_by: str
+    uploaded_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class AuditLogOut(BaseModel):
+    id: int
+    action: str
+    actor: str
+    details: Optional[str]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ChartOut(BaseModel):
+    id: int
+    chart_number: str
+    specialty: Specialty
+    category: str
+    difficulty: Difficulty
+    status: ChartStatus
+    uploaded_by: str
+    view_count: int
+    created_at: datetime
+    updated_at: Optional[datetime]
+    files: List[ChartFileOut] = []
+
+    class Config:
+        from_attributes = True
+
+
+class ChartWithRationale(ChartOut):
+    rationale: Optional[str]
+    audit_logs: List[AuditLogOut] = []
+
+
+class ChartUpdate(BaseModel):
+    category: Optional[str] = None
+    difficulty: Optional[Difficulty] = None
+    rationale: Optional[str] = None
+
+
+class BulkUploadItem(BaseModel):
+    original_filename: str
+    specialty: Specialty
+    category: str
+    difficulty: Difficulty
+    rationale: Optional[str] = None
+
+
+class BulkUploadResult(BaseModel):
+    filename: str
+    chart_number: Optional[str]
+    status: str
+    message: str
+
+
+class RetireRequest(BaseModel):
+    actor: str
+    passphrase: Optional[str] = None
+
+
+class SearchParams(BaseModel):
+    q: Optional[str] = None
+    specialty: Optional[Specialty] = None
+    category: Optional[str] = None
+    difficulty: Optional[Difficulty] = None
+    status: ChartStatus = ChartStatus.ACTIVE
+    page: int = 1
+    page_size: int = 20
+
+
+class ReportParams(BaseModel):
+    specialty: Optional[Specialty] = None
+    category: Optional[str] = None
+    difficulty: Optional[Difficulty] = None
+    status: Optional[ChartStatus] = None
+    uploaded_by: Optional[str] = None
+    date_from: Optional[datetime] = None
+    date_to: Optional[datetime] = None
+
+
+class CategorySuggestion(BaseModel):
+    category: str
+    count: int
