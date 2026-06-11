@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from database import init_db
 from config import settings
-from routers import charts, upload, reports, feedback
+from routers import charts, upload, reports, feedback, practicelab
 
 
 @asynccontextmanager
@@ -26,6 +26,7 @@ app.include_router(charts.router)
 app.include_router(upload.router)
 app.include_router(reports.router)
 app.include_router(feedback.router)
+app.include_router(practicelab.router)
 
 
 @app.get("/health")

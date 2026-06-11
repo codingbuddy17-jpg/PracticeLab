@@ -46,6 +46,85 @@ def _run_migrations():
             resolved_at TIMESTAMPTZ,
             created_at TIMESTAMPTZ DEFAULT NOW()
         )""",
+        # PracticeLab tables
+        """CREATE TABLE IF NOT EXISTS answer_keys (
+            id SERIAL PRIMARY KEY,
+            chart_id INTEGER REFERENCES charts(id) UNIQUE NOT NULL,
+            specialty VARCHAR(50) NOT NULL,
+            pdx_code VARCHAR(20),
+            pdx_poa VARCHAR(5),
+            sdx JSONB DEFAULT '[]',
+            pcs JSONB DEFAULT '[]',
+            cpt JSONB DEFAULT '[]',
+            entered_by VARCHAR(100) NOT NULL,
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            updated_at TIMESTAMPTZ
+        )""",
+        """CREATE TABLE IF NOT EXISTS batches (
+            id SERIAL PRIMARY KEY,
+            name VARCHAR(200) NOT NULL,
+            specialty VARCHAR(50) NOT NULL,
+            categories JSONB DEFAULT '[]',
+            difficulties JSONB DEFAULT '[]',
+            charts_per_coder INTEGER NOT NULL,
+            created_by VARCHAR(100) NOT NULL,
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            status VARCHAR(20) DEFAULT 'Draft'
+        )""",
+        """CREATE TABLE IF NOT EXISTS batch_coders (
+            id SERIAL PRIMARY KEY,
+            batch_id INTEGER REFERENCES batches(id) NOT NULL,
+            coder_name VARCHAR(100) NOT NULL,
+            excel_generated_at TIMESTAMPTZ
+        )""",
+        """CREATE TABLE IF NOT EXISTS batch_charts (
+            id SERIAL PRIMARY KEY,
+            batch_id INTEGER REFERENCES batches(id) NOT NULL,
+            coder_name VARCHAR(100) NOT NULL,
+            chart_id INTEGER REFERENCES charts(id) NOT NULL,
+            submission_status VARCHAR(20) DEFAULT 'Pending'
+        )""",
+        """CREATE TABLE IF NOT EXISTS submissions (
+            id SERIAL PRIMARY KEY,
+            batch_id INTEGER REFERENCES batches(id) NOT NULL,
+            coder_name VARCHAR(100) NOT NULL,
+            chart_id INTEGER REFERENCES charts(id) NOT NULL,
+            specialty VARCHAR(50) NOT NULL,
+            pdx_code VARCHAR(20),
+            pdx_poa VARCHAR(5),
+            sdx JSONB DEFAULT '[]',
+            pcs JSONB DEFAULT '[]',
+            cpt JSONB DEFAULT '[]',
+            submitted_at TIMESTAMPTZ DEFAULT NOW()
+        )""",
+        """CREATE TABLE IF NOT EXISTS grading_results (
+            id SERIAL PRIMARY KEY,
+            batch_id INTEGER REFERENCES batches(id) NOT NULL,
+            submission_id INTEGER REFERENCES submissions(id),
+            coder_name VARCHAR(100) NOT NULL,
+            chart_id INTEGER REFERENCES charts(id) NOT NULL,
+            specialty VARCHAR(50) NOT NULL,
+            pdx_score INTEGER DEFAULT 0,
+            sdx_score INTEGER DEFAULT 0,
+            pcs_score INTEGER,
+            cpt_score INTEGER,
+            drg_score INTEGER,
+            drg_flag BOOLEAN DEFAULT FALSE,
+            drg_reviewed BOOLEAN DEFAULT FALSE,
+            drg_override VARCHAR(5),
+            total_score INTEGER,
+            pass_fail VARCHAR(10),
+            graded_at TIMESTAMPTZ DEFAULT NOW()
+        )""",
+        """CREATE TABLE IF NOT EXISTS grading_feedback (
+            id SERIAL PRIMARY KEY,
+            result_id INTEGER REFERENCES grading_results(id) NOT NULL,
+            section VARCHAR(10) NOT NULL,
+            issue_type VARCHAR(30) NOT NULL,
+            ak_code VARCHAR(50),
+            coder_code VARCHAR(50),
+            detail VARCHAR(200)
+        )""",
     ]
     with engine.connect() as conn:
         for sql in migrations:

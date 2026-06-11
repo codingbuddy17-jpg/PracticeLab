@@ -7,6 +7,7 @@ import { TrainerCharts } from './pages/TrainerCharts'
 import { TrainerReports } from './pages/TrainerReports'
 import { TrainerAnalytics } from './pages/TrainerAnalytics'
 import { TrainerFeedback } from './pages/TrainerFeedback'
+import { TrainerPracticeLab } from './pages/TrainerPracticeLab'
 
 export default function App() {
   return (
@@ -20,6 +21,7 @@ export default function App() {
         <Route path="/trainer/reports" element={<TrainerReports />} />
         <Route path="/trainer/analytics" element={<TrainerAnalytics />} />
         <Route path="/trainer/feedback" element={<TrainerFeedback />} />
+        <Route path="/trainer/practicelab" element={<TrainerPracticeLab />} />
       </Routes>
     </BrowserRouter>
   )

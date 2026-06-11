@@ -1,6 +1,6 @@
 from sqlalchemy import (
     Column, String, Integer, Text, DateTime, Boolean,
-    ForeignKey, Enum as SAEnum, func
+    ForeignKey, Enum as SAEnum, func, JSON
 )
 from sqlalchemy.orm import relationship
 import enum
@@ -117,3 +117,163 @@ class ChartSequence(Base):
 
     prefix = Column(String(10), primary_key=True)
     last_number = Column(Integer, default=0, nullable=False)
+
+
+# ── PracticeLab Assessment Module ────────────────────────────────────────────
+
+class BatchStatus(str, enum.Enum):
+    DRAFT = "Draft"
+    ACTIVE = "Active"
+    GRADING = "Grading"
+    COMPLETE = "Complete"
+
+
+class SubmissionStatus(str, enum.Enum):
+    PENDING = "Pending"
+    SUBMITTED = "Submitted"
+
+
+class PassFail(str, enum.Enum):
+    PASS = "PASS"
+    FAIL = "FAIL"
+
+
+class IssueType(str, enum.Enum):
+    MISSED = "Missed"
+    WRONG_CODE = "Wrong_Code"
+    WRONG_POA = "Wrong_POA"
+    WRONG_MODIFIER = "Wrong_Modifier"
+    OVER_CODED = "Over_coded"
+
+
+class GradingSection(str, enum.Enum):
+    PDX = "PDx"
+    SDX = "SDx"
+    PCS = "PCS"
+    CPT = "CPT"
+
+
+class AnswerKey(Base):
+    """Master answer key per chart — permanent, one per chart number."""
+    __tablename__ = "answer_keys"
+
+    id = Column(Integer, primary_key=True, index=True)
+    chart_id = Column(Integer, ForeignKey("charts.id"), nullable=False, unique=True)
+    specialty = Column(SAEnum(Specialty), nullable=False)
+    # IP + OP
+    pdx_code = Column(String(20), nullable=True)
+    pdx_poa = Column(String(5), nullable=True)          # IP only: Y/N/U/W/1
+    # JSON arrays:
+    # IP sdx: [{code, poa, ccmcc}]   OP sdx: [{code}]
+    sdx = Column(JSON, nullable=True, default=list)
+    # IP pcs: [{code}]
+    pcs = Column(JSON, nullable=True, default=list)
+    # OP cpt: [{code, modifier}]
+    cpt = Column(JSON, nullable=True, default=list)
+    entered_by = Column(String(100), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    chart = relationship("Chart")
+
+
+class Batch(Base):
+    __tablename__ = "batches"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(200), nullable=False)
+    specialty = Column(SAEnum(Specialty), nullable=False)
+    categories = Column(JSON, nullable=True, default=list)   # [] means all categories
+    difficulties = Column(JSON, nullable=True, default=list) # [] means all difficulties
+    charts_per_coder = Column(Integer, nullable=False)
+    created_by = Column(String(100), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    status = Column(SAEnum(BatchStatus), default=BatchStatus.DRAFT, nullable=False, index=True)
+
+    coders = relationship("BatchCoder", back_populates="batch", cascade="all, delete-orphan")
+    chart_assignments = relationship("BatchChart", back_populates="batch", cascade="all, delete-orphan")
+    results = relationship("GradingResult", back_populates="batch", cascade="all, delete-orphan")
+
+
+class BatchCoder(Base):
+    __tablename__ = "batch_coders"
+
+    id = Column(Integer, primary_key=True, index=True)
+    batch_id = Column(Integer, ForeignKey("batches.id"), nullable=False)
+    coder_name = Column(String(100), nullable=False)
+    excel_generated_at = Column(DateTime(timezone=True), nullable=True)
+
+    batch = relationship("Batch", back_populates="coders")
+
+
+class BatchChart(Base):
+    __tablename__ = "batch_charts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    batch_id = Column(Integer, ForeignKey("batches.id"), nullable=False)
+    coder_name = Column(String(100), nullable=False)
+    chart_id = Column(Integer, ForeignKey("charts.id"), nullable=False)
+    submission_status = Column(SAEnum(SubmissionStatus), default=SubmissionStatus.PENDING, nullable=False)
+
+    batch = relationship("Batch", back_populates="chart_assignments")
+    chart = relationship("Chart")
+
+
+class Submission(Base):
+    __tablename__ = "submissions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    batch_id = Column(Integer, ForeignKey("batches.id"), nullable=False)
+    coder_name = Column(String(100), nullable=False)
+    chart_id = Column(Integer, ForeignKey("charts.id"), nullable=False)
+    specialty = Column(SAEnum(Specialty), nullable=False)
+    pdx_code = Column(String(20), nullable=True)
+    pdx_poa = Column(String(5), nullable=True)
+    sdx = Column(JSON, nullable=True, default=list)
+    pcs = Column(JSON, nullable=True, default=list)
+    cpt = Column(JSON, nullable=True, default=list)
+    submitted_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    chart = relationship("Chart")
+    result = relationship("GradingResult", back_populates="submission", uselist=False)
+
+
+class GradingResult(Base):
+    __tablename__ = "grading_results"
+
+    id = Column(Integer, primary_key=True, index=True)
+    batch_id = Column(Integer, ForeignKey("batches.id"), nullable=False)
+    submission_id = Column(Integer, ForeignKey("submissions.id"), nullable=True)
+    coder_name = Column(String(100), nullable=False)
+    chart_id = Column(Integer, ForeignKey("charts.id"), nullable=False)
+    specialty = Column(SAEnum(Specialty), nullable=False)
+    pdx_score = Column(Integer, default=0)
+    sdx_score = Column(Integer, default=0)
+    pcs_score = Column(Integer, nullable=True)    # IP only
+    cpt_score = Column(Integer, nullable=True)    # OP only
+    drg_score = Column(Integer, nullable=True)    # IP only, null until reviewed
+    drg_flag = Column(Boolean, default=False)
+    drg_reviewed = Column(Boolean, default=False)
+    drg_override = Column(String(5), nullable=True)  # Y/N trainer decision
+    total_score = Column(Integer, nullable=True)  # null until finalized
+    pass_fail = Column(SAEnum(PassFail), nullable=True)
+    graded_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    batch = relationship("Batch", back_populates="results")
+    submission = relationship("Submission", back_populates="result")
+    chart = relationship("Chart")
+    feedback = relationship("GradingFeedback", back_populates="result", cascade="all, delete-orphan")
+
+
+class GradingFeedback(Base):
+    __tablename__ = "grading_feedback"
+
+    id = Column(Integer, primary_key=True, index=True)
+    result_id = Column(Integer, ForeignKey("grading_results.id"), nullable=False)
+    section = Column(SAEnum(GradingSection), nullable=False)
+    issue_type = Column(SAEnum(IssueType), nullable=False)
+    ak_code = Column(String(50), nullable=True)
+    coder_code = Column(String(50), nullable=True)
+    detail = Column(String(200), nullable=True)
+
+    result = relationship("GradingResult", back_populates="feedback")

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { Upload, BarChart2, FileText, Settings, BookOpen, Flag } from 'lucide-react'
+import { Upload, BarChart2, FileText, Settings, BookOpen, Flag, GraduationCap } from 'lucide-react'
 import { getUnresolvedCount } from '../api'
 
 export function TrainerHome() {
@@ -16,6 +16,7 @@ export function TrainerHome() {
     { to: '/trainer/reports', icon: <FileText size={26} />, title: 'Reports', desc: 'Filter, view and export the chart library', color: '#16a34a', light: '#dcfce7', badge: null },
     { to: '/trainer/analytics', icon: <BarChart2 size={26} />, title: 'Analytics', desc: 'Most viewed, least viewed, specialty breakdown', color: '#d97706', light: '#fef3c7', badge: null },
     { to: '/trainer/feedback', icon: <Flag size={26} />, title: 'Feedback', desc: 'Review issues flagged by coders on charts', color: '#dc2626', light: '#fee2e2', badge: unresolvedCount > 0 ? unresolvedCount : null },
+    { to: '/trainer/practicelab', icon: <GraduationCap size={26} />, title: 'PracticeLab', desc: 'Create batches, grade assessments, view results', color: '#0f766e', light: '#ccfbf1', badge: null },
   ]
 
   return (

@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     STORAGE_BUCKET_NAME: str
     STORAGE_PUBLIC_URL: str
     MASTER_ADMIN_PASSPHRASE: str = "changeme2024"
+    FRONTEND_URL: str = "http://localhost:5173"
     CORS_ORIGINS: str = "http://localhost:5173"
 
     @property

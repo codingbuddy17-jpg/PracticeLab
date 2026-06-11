@@ -102,6 +102,120 @@ export async function reopenFeedback(id: number) {
   return data
 }
 
+// ── PracticeLab ──────────────────────────────────────────────────────────────
+
+export function downloadAnswerKeyTemplate(specialty: string) {
+  window.open(`${import.meta.env.VITE_API_URL || '/api'}/practicelab/answer-key/template?specialty=${specialty}`)
+}
+
+export async function uploadAnswerKeys(file: File, specialty: string, enteredBy: string) {
+  const form = new FormData()
+  form.append('file', file)
+  form.append('specialty', specialty)
+  form.append('entered_by', enteredBy)
+  const { data } = await api.post('/practicelab/answer-key/upload', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  return data as { stored: string[]; skipped_duplicates: string[]; not_found: string[] }
+}
+
+export async function deleteAnswerKey(chartId: number, passphrase: string) {
+  const { data } = await api.delete(`/practicelab/answer-key/${chartId}`, { params: { passphrase } })
+  return data
+}
+
+export async function getAnswerKeyStatus(specialty?: string) {
+  const { data } = await api.get('/practicelab/answer-key/status', { params: { specialty } })
+  return data as { total_charts: number; with_answer_key: number; without_answer_key: number }
+}
+
+export async function getPoolPreview(specialty: string, categories?: string, difficulties?: string) {
+  const { data } = await api.get('/practicelab/batches/pool-preview', {
+    params: { specialty, categories, difficulties },
+  })
+  return data as { total_matching: number; with_answer_key: number }
+}
+
+export async function createBatch(payload: {
+  name: string; specialty: string; categories: string[]; difficulties: string[];
+  charts_per_coder: number; coders: string[]; created_by: string;
+}) {
+  const { data } = await api.post('/practicelab/batches', payload)
+  return data as { batch_id: number; name: string; pool_size: number }
+}
+
+export async function listBatches(status?: string, specialty?: string) {
+  const { data } = await api.get('/practicelab/batches', { params: { status, specialty } })
+  return data as Array<{
+    id: number; name: string; specialty: string; charts_per_coder: number;
+    status: string; created_by: string; created_at: string; coder_count: number;
+  }>
+}
+
+export async function getBatch(batchId: number) {
+  const { data } = await api.get(`/practicelab/batches/${batchId}`)
+  return data
+}
+
+export function downloadBatchExcel(batchId: number) {
+  window.open(`${import.meta.env.VITE_API_URL || '/api'}/practicelab/batches/${batchId}/generate-excel`, '_blank')
+}
+
+export async function gradeSubmissions(batchId: number, files: File[]) {
+  const form = new FormData()
+  files.forEach(f => form.append('files', f))
+  const { data } = await api.post(`/practicelab/batches/${batchId}/grade`, form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  return data as { graded: string[]; errors: string[] }
+}
+
+export async function getDRGReview(batchId: number) {
+  const { data } = await api.get(`/practicelab/batches/${batchId}/drg-review`)
+  return data
+}
+
+export async function submitDRGDecision(resultId: number, drgError: boolean, reviewer: string) {
+  const { data } = await api.post(`/practicelab/results/${resultId}/drg-decision`, {
+    drg_error: drgError, reviewer,
+  })
+  return data
+}
+
+export async function getBatchResults(batchId: number) {
+  const { data } = await api.get(`/practicelab/batches/${batchId}/results`)
+  return data
+}
+
+export function downloadBatchResultsExcel(batchId: number) {
+  window.open(`${import.meta.env.VITE_API_URL || '/api'}/practicelab/batches/${batchId}/results/export`, '_blank')
+}
+
+export async function getPLAnalyticsOverview() {
+  const { data } = await api.get('/practicelab/analytics/overview')
+  return data
+}
+
+export async function getPLAnalyticsBySpecialty() {
+  const { data } = await api.get('/practicelab/analytics/by-specialty')
+  return data
+}
+
+export async function getPLAnalyticsByChart() {
+  const { data } = await api.get('/practicelab/analytics/by-chart')
+  return data
+}
+
+export async function getPLAnalyticsByBatch() {
+  const { data } = await api.get('/practicelab/analytics/by-batch')
+  return data
+}
+
+export async function getCoderTrend(coderName: string) {
+  const { data } = await api.get('/practicelab/analytics/coder-trend', { params: { coder_name: coderName } })
+  return data
+}
+
 // ── Reports ──────────────────────────────────────────────────────────────────
 
 export async function getReportSummary() {
