@@ -34,6 +34,18 @@ def _run_migrations():
     """Safe additive migrations — only adds missing columns, never drops."""
     migrations = [
         "ALTER TABLE chart_files ADD COLUMN IF NOT EXISTS page_text TEXT",
+        """CREATE TABLE IF NOT EXISTS chart_feedback (
+            id SERIAL PRIMARY KEY,
+            chart_id INTEGER REFERENCES charts(id),
+            chart_number VARCHAR(20) NOT NULL,
+            reporter VARCHAR(100) NOT NULL,
+            issues VARCHAR(500) NOT NULL,
+            notes TEXT,
+            status VARCHAR(20) DEFAULT 'Open',
+            resolved_by VARCHAR(100),
+            resolved_at TIMESTAMPTZ,
+            created_at TIMESTAMPTZ DEFAULT NOW()
+        )""",
     ]
     with engine.connect() as conn:
         for sql in migrations:

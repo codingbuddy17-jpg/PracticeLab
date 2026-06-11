@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Copy, Check, Search, ChevronUp, ChevronDown } from 'lucide-react'
-import { getChartPages, searchInChart } from '../api'
+import { X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Copy, Check, Search, ChevronUp, ChevronDown, Flag } from 'lucide-react'
+import toast from 'react-hot-toast'
+import { getChartPages, searchInChart, submitFeedback } from '../api'
 import type { Chart } from '../types'
 import { SPECIALTY_COLORS, DIFFICULTY_COLORS } from '../theme'
 
@@ -18,6 +19,45 @@ export function ChartViewer({ chart, viewerName = 'anonymous', onClose }: Props)
   const [copied, setCopied] = useState(false)
   const [showThumbs, setShowThumbs] = useState(true)
   const thumbsRef = useRef<HTMLDivElement>(null)
+
+  // Feedback
+  const [showFeedback, setShowFeedback] = useState(false)
+  const [selectedIssues, setSelectedIssues] = useState<string[]>([])
+  const [feedbackNotes, setFeedbackNotes] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  const ISSUE_OPTIONS = [
+    '🔍 Chart is illegible / poor scan quality',
+    '🔒 Possible PHI visible',
+    '📄 Missing pages',
+    '❌ Wrong chart / incorrect content',
+    '💬 Other',
+  ]
+
+  const toggleIssue = (issue: string) => {
+    setSelectedIssues(prev => prev.includes(issue) ? prev.filter(i => i !== issue) : [...prev, issue])
+  }
+
+  const handleSubmitFeedback = async () => {
+    if (selectedIssues.length === 0) { toast.error('Select at least one issue'); return }
+    setSubmitting(true)
+    try {
+      await submitFeedback({
+        chart_id: chart.id,
+        reporter: viewerName,
+        issues: selectedIssues,
+        notes: feedbackNotes.trim() || undefined,
+      })
+      toast.success('Feedback submitted — thank you!')
+      setShowFeedback(false)
+      setSelectedIssues([])
+      setFeedbackNotes('')
+    } catch {
+      toast.error('Failed to submit feedback')
+    } finally {
+      setSubmitting(false)
+    }
+  }
 
   // In-chart search
   const [searchQuery, setSearchQuery] = useState('')
@@ -111,6 +151,13 @@ export function ChartViewer({ chart, viewerName = 'anonymous', onClose }: Props)
             </button>
             <button style={styles.iconBtn} onClick={() => setZoom(z => Math.min(z + 0.25, 3))} title="Zoom in"><ZoomIn size={15} /></button>
             <button style={styles.iconBtn} onClick={() => setZoom(z => Math.max(z - 0.25, 0.5))} title="Zoom out"><ZoomOut size={15} /></button>
+            <button
+              style={{ ...styles.iconBtn, borderColor: showFeedback ? '#fca5a5' : '#e5e7eb', background: showFeedback ? '#fff5f5' : '#fff' }}
+              onClick={() => setShowFeedback(s => !s)}
+              title="Report an issue with this chart"
+            >
+              <Flag size={15} color={showFeedback ? '#dc2626' : '#6b7280'} />
+            </button>
             <button style={{ ...styles.iconBtn, ...styles.closeBtn }} onClick={onClose} title="Close (Esc)"><X size={17} /></button>
           </div>
         </div>
@@ -142,6 +189,40 @@ export function ChartViewer({ chart, viewerName = 'anonymous', onClose }: Props)
             {searchResults.length === 0 && searchQuery && !searching && (
               <span style={styles.noMatch}>No matches found</span>
             )}
+          </div>
+        )}
+
+        {/* Feedback panel */}
+        {showFeedback && (
+          <div style={styles.feedbackPanel}>
+            <div style={styles.feedbackTitle}><Flag size={14} color="#dc2626" /> Report an issue with {chart.chart_number}</div>
+            <div style={styles.issueList}>
+              {ISSUE_OPTIONS.map(issue => (
+                <label key={issue} style={styles.issueRow}>
+                  <input
+                    type="checkbox"
+                    checked={selectedIssues.includes(issue)}
+                    onChange={() => toggleIssue(issue)}
+                  />
+                  <span style={styles.issueLabel}>{issue}</span>
+                </label>
+              ))}
+            </div>
+            <textarea
+              style={styles.feedbackNotes}
+              placeholder="Additional notes (optional)"
+              value={feedbackNotes}
+              onChange={e => setFeedbackNotes(e.target.value)}
+              rows={2}
+            />
+            <div style={styles.feedbackActions}>
+              <button style={styles.submitBtn} onClick={handleSubmitFeedback} disabled={submitting}>
+                {submitting ? 'Submitting...' : 'Submit Feedback'}
+              </button>
+              <button style={styles.cancelFeedbackBtn} onClick={() => { setShowFeedback(false); setSelectedIssues([]); setFeedbackNotes('') }}>
+                Cancel
+              </button>
+            </div>
           </div>
         )}
 
@@ -258,4 +339,13 @@ const styles: Record<string, React.CSSProperties> = {
   pageInfo: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 },
   pageLabel: { fontSize: 13, fontWeight: 600, color: '#374151' },
   keyHint: { fontSize: 11, color: '#c4c4c4', marginLeft: 'auto' },
+  feedbackPanel: { background: '#fff5f5', borderBottom: '1px solid #fecaca', padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: 10 },
+  feedbackTitle: { display: 'flex', alignItems: 'center', gap: 7, fontWeight: 700, fontSize: 13, color: '#dc2626' },
+  issueList: { display: 'flex', flexDirection: 'column', gap: 6 },
+  issueRow: { display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' },
+  issueLabel: { fontSize: 13, color: '#374151' },
+  feedbackNotes: { padding: '8px 10px', border: '1px solid #fecaca', borderRadius: 6, fontSize: 13, resize: 'vertical' as const, fontFamily: 'inherit', background: '#fff' },
+  feedbackActions: { display: 'flex', gap: 8 },
+  submitBtn: { padding: '8px 18px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 700, fontSize: 13 },
+  cancelFeedbackBtn: { padding: '8px 14px', background: '#fff', border: '1px solid #fecaca', borderRadius: 6, cursor: 'pointer', fontSize: 13, color: '#6b7280' },
 }

@@ -1,14 +1,23 @@
+import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { Upload, BarChart2, FileText, Settings, BookOpen } from 'lucide-react'
-
-const cards = [
-  { to: '/trainer/upload', icon: <Upload size={26} />, title: 'Upload Charts', desc: 'Bulk upload new charts with metadata', color: '#4f46e5', light: '#ede9fe' },
-  { to: '/trainer/charts', icon: <Settings size={26} />, title: 'Manage Charts', desc: 'Edit, retire, restore and add files to charts', color: '#0891b2', light: '#cffafe' },
-  { to: '/trainer/reports', icon: <FileText size={26} />, title: 'Reports', desc: 'Filter, view and export the chart library', color: '#16a34a', light: '#dcfce7' },
-  { to: '/trainer/analytics', icon: <BarChart2 size={26} />, title: 'Analytics', desc: 'Most viewed, least viewed, specialty breakdown', color: '#d97706', light: '#fef3c7' },
-]
+import { Upload, BarChart2, FileText, Settings, BookOpen, Flag } from 'lucide-react'
+import { getUnresolvedCount } from '../api'
 
 export function TrainerHome() {
+  const [unresolvedCount, setUnresolvedCount] = useState(0)
+
+  useEffect(() => {
+    getUnresolvedCount().then(setUnresolvedCount).catch(() => {})
+  }, [])
+
+  const cards = [
+    { to: '/trainer/upload', icon: <Upload size={26} />, title: 'Upload Charts', desc: 'Bulk upload new charts with metadata', color: '#4f46e5', light: '#ede9fe', badge: null },
+    { to: '/trainer/charts', icon: <Settings size={26} />, title: 'Manage Charts', desc: 'Edit, retire, restore and add files to charts', color: '#0891b2', light: '#cffafe', badge: null },
+    { to: '/trainer/reports', icon: <FileText size={26} />, title: 'Reports', desc: 'Filter, view and export the chart library', color: '#16a34a', light: '#dcfce7', badge: null },
+    { to: '/trainer/analytics', icon: <BarChart2 size={26} />, title: 'Analytics', desc: 'Most viewed, least viewed, specialty breakdown', color: '#d97706', light: '#fef3c7', badge: null },
+    { to: '/trainer/feedback', icon: <Flag size={26} />, title: 'Feedback', desc: 'Review issues flagged by coders on charts', color: '#dc2626', light: '#fee2e2', badge: unresolvedCount > 0 ? unresolvedCount : null },
+  ]
+
   return (
     <div style={styles.container}>
       <div style={styles.topBar}>
@@ -20,7 +29,10 @@ export function TrainerHome() {
         <div style={styles.grid}>
           {cards.map(c => (
             <Link key={c.to} to={c.to} style={styles.card}>
-              <div style={{ ...styles.iconWrap, background: c.light, color: c.color }}>{c.icon}</div>
+              <div style={styles.cardTop}>
+                <div style={{ ...styles.iconWrap, background: c.light, color: c.color }}>{c.icon}</div>
+                {c.badge !== null && <span style={styles.cardBadge}>{c.badge}</span>}
+              </div>
               <div style={styles.cardTitle}>{c.title}</div>
               <div style={styles.cardDesc}>{c.desc}</div>
             </Link>
@@ -41,7 +53,9 @@ const styles: Record<string, React.CSSProperties> = {
   welcomeText: { fontSize: 22, fontWeight: 800, color: '#111', marginBottom: 24, letterSpacing: -0.5 },
   grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 18 },
   card: { background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: '24px 20px', display: 'flex', flexDirection: 'column', gap: 10, textDecoration: 'none', color: 'inherit', cursor: 'pointer', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', transition: 'box-shadow 0.15s, transform 0.1s' },
+  cardTop: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' },
   iconWrap: { width: 50, height: 50, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center' },
+  cardBadge: { background: '#fee2e2', color: '#dc2626', fontSize: 12, fontWeight: 800, padding: '3px 9px', borderRadius: 20, minWidth: 24, textAlign: 'center' as const },
   cardTitle: { fontWeight: 800, fontSize: 16, color: '#111' },
   cardDesc: { fontSize: 13, color: '#6b7280', lineHeight: 1.5 },
 }

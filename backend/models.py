@@ -91,6 +91,26 @@ class AuditLog(Base):
     chart = relationship("Chart", back_populates="audit_logs")
 
 
+class FeedbackStatus(str, enum.Enum):
+    OPEN = "Open"
+    RESOLVED = "Resolved"
+
+
+class ChartFeedback(Base):
+    __tablename__ = "chart_feedback"
+
+    id = Column(Integer, primary_key=True, index=True)
+    chart_id = Column(Integer, ForeignKey("charts.id"), nullable=False)
+    chart_number = Column(String(20), nullable=False)
+    reporter = Column(String(100), nullable=False)
+    issues = Column(String(500), nullable=False)
+    notes = Column(Text, nullable=True)
+    status = Column(SAEnum(FeedbackStatus), default=FeedbackStatus.OPEN, nullable=False, index=True)
+    resolved_by = Column(String(100), nullable=True)
+    resolved_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
 class ChartSequence(Base):
     """Tracks the last used sequence number per specialty prefix."""
     __tablename__ = "chart_sequences"
