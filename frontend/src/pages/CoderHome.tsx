@@ -49,7 +49,8 @@ export function CoderHome() {
         page: p,
         page_size: 20,
       })
-      setResults(Array.isArray(res.results) ? res.results : [])
+      const incoming = Array.isArray(res.results) ? res.results : []
+      setResults(prev => p === 1 ? incoming : [...prev, ...incoming])
       setTotal(res.total ?? 0)
       setPage(p)
     } finally {

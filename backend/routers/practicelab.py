@@ -426,7 +426,7 @@ def get_batch(batch_id: int, db: Session = Depends(get_db)):
 
 # ── Excel generation ──────────────────────────────────────────────────────────
 
-@router.post("/batches/{batch_id}/generate-excel")
+@router.get("/batches/{batch_id}/generate-excel")
 def generate_excel(batch_id: int, db: Session = Depends(get_db)):
     """Generate coder answer sheet ZIP for a batch."""
     batch = db.query(Batch).filter(Batch.id == batch_id).first()
@@ -492,8 +492,24 @@ def grade_submissions(
 
     for upload in files:
         filename = upload.filename or "unknown"
-        # Derive coder name from filename: CoderName_Assessment.xlsx
-        coder_name = filename.replace("_Assessment.xlsx", "").replace("_", " ").strip()
+        # Derive coder identity from filename.
+        # Format is either "{emp_id}_{Name}_Assessment.xlsx" (when emp_id present)
+        # or "{Name}_Assessment.xlsx". Look up by emp_id first so we get the exact
+        # stored coder_name rather than reconstructing it from the stem.
+        stem = filename.replace("_Assessment.xlsx", "")
+        parts = stem.split("_", 1)
+        coder_name: str = ""
+        if len(parts) == 2:
+            # Try treating parts[0] as an emp_id
+            bc_by_emp = (db.query(BatchCoder)
+                         .filter(BatchCoder.batch_id == batch_id,
+                                 BatchCoder.emp_id == parts[0])
+                         .first())
+            if bc_by_emp:
+                coder_name = bc_by_emp.coder_name
+        if not coder_name:
+            # Fall back: whole stem with underscores → spaces
+            coder_name = stem.replace("_", " ").strip()
 
         try:
             file_bytes = upload.file.read()
@@ -509,6 +525,16 @@ def grade_submissions(
                 ak_rec = db.query(AnswerKey).filter(AnswerKey.chart_id == chart.id).first()
                 if not ak_rec:
                     errors.append(f"{filename}: no answer key for {chart_num}")
+                    continue
+
+                # Skip if already graded for this coder+chart in this batch
+                existing = (db.query(GradingResult)
+                            .filter(GradingResult.batch_id == batch_id,
+                                    GradingResult.coder_name == coder_name,
+                                    GradingResult.chart_id == chart.id)
+                            .first())
+                if existing:
+                    errors.append(f"{filename}: {chart_num} already graded for {coder_name} — skipped")
                     continue
 
                 # Store submission
