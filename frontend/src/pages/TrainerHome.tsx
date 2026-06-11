@@ -22,6 +22,11 @@ export function TrainerHome() {
 
   return (
     <div style={styles.container}>
+      {/* Decorative blobs — give the glass cards something to refract */}
+      <div style={styles.blob1} />
+      <div style={styles.blob2} />
+      <div style={styles.blob3} />
+
       <div style={styles.topBar}>
         <div style={styles.logo}>
           <BookOpen size={22} color="#4f46e5" />
@@ -111,7 +116,10 @@ export function TrainerHome() {
 }
 
 const styles: Record<string, React.CSSProperties> = {
-  container: { minHeight: '100vh', background: 'linear-gradient(135deg, #eef2ff 0%, #f0fdf4 40%, #eff6ff 100%)', fontFamily: 'system-ui, sans-serif' },
+  container: { minHeight: '100vh', background: 'linear-gradient(135deg, #dbeafe 0%, #ede9fe 40%, #d1fae5 100%)', fontFamily: 'system-ui, sans-serif', position: 'relative', overflow: 'hidden' },
+  blob1: { position: 'absolute', top: -80, left: -80, width: 360, height: 360, borderRadius: '50%', background: 'radial-gradient(circle, #818cf8 0%, #6366f1 60%, transparent 100%)', opacity: 0.25, filter: 'blur(60px)', pointerEvents: 'none' },
+  blob2: { position: 'absolute', top: 160, right: -60, width: 300, height: 300, borderRadius: '50%', background: 'radial-gradient(circle, #34d399 0%, #059669 60%, transparent 100%)', opacity: 0.2, filter: 'blur(60px)', pointerEvents: 'none' },
+  blob3: { position: 'absolute', bottom: 40, left: '38%', width: 280, height: 280, borderRadius: '50%', background: 'radial-gradient(circle, #f472b6 0%, #a855f7 60%, transparent 100%)', opacity: 0.18, filter: 'blur(60px)', pointerEvents: 'none' },
   topBar: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 28px', background: 'rgba(255,255,255,0.75)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', borderBottom: '1px solid rgba(255,255,255,0.5)', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' },
   logo: { display: 'flex', alignItems: 'center', gap: 8 },
   logoText: { fontWeight: 800, fontSize: 18, color: '#111', letterSpacing: -0.5 },
@@ -121,7 +129,7 @@ const styles: Record<string, React.CSSProperties> = {
 
   // Utility cards
   grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 16 },
-  card: { background: 'rgba(255,255,255,0.62)', backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)', border: '1px solid rgba(255,255,255,0.5)', borderRadius: 14, padding: '22px 18px', display: 'flex', flexDirection: 'column', gap: 10, textDecoration: 'none', color: 'inherit', cursor: 'pointer', boxShadow: '0 4px 24px rgba(0,0,0,0.07)', transition: 'box-shadow 0.2s, transform 0.2s' },
+  card: { background: 'rgba(255,255,255,0.45)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.65)', borderRadius: 16, padding: '22px 18px', display: 'flex', flexDirection: 'column', gap: 10, textDecoration: 'none', color: 'inherit', cursor: 'pointer', boxShadow: '0 8px 32px rgba(99,102,241,0.1), 0 1px 0 rgba(255,255,255,0.8) inset', transition: 'box-shadow 0.2s, transform 0.2s' },
   cardTop: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' },
   iconWrap: { width: 46, height: 46, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' },
   cardBadge: { background: '#fee2e2', color: '#dc2626', fontSize: 12, fontWeight: 800, padding: '3px 9px', borderRadius: 20, minWidth: 24, textAlign: 'center' as const },
@@ -141,13 +149,13 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 10,
   },
   bentoCell: {
-    borderRadius: 14, border: '1px solid rgba(255,255,255,0.5)',
+    borderRadius: 16, border: '1px solid rgba(255,255,255,0.65)',
     textDecoration: 'none', color: 'inherit',
     padding: '22px 24px', display: 'flex', flexDirection: 'column',
     gap: 8, cursor: 'pointer',
     transition: 'border-color 0.15s, box-shadow 0.2s',
-    boxShadow: '0 4px 24px rgba(0,0,0,0.07)',
-    backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)',
+    boxShadow: '0 8px 32px rgba(99,102,241,0.1), 0 1px 0 rgba(255,255,255,0.8) inset',
+    backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
   },
   // Main cell — spans 2 rows
   bentoCellMain: {
@@ -185,8 +193,8 @@ const styles: Record<string, React.CSSProperties> = {
   // Pass rate cell — spans 2 cols
   bentoCellPassRate: {
     gridColumn: '2 / 4',
-    background: 'rgba(240,253,244,0.65)',
-    border: '1px solid rgba(187,247,208,0.7)',
+    background: 'rgba(240,253,244,0.45)',
+    border: '1px solid rgba(255,255,255,0.65)',
     padding: '18px 22px',
   },
   bentoPassRateRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 20 },
