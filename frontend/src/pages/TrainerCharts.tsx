@@ -1,40 +1,52 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ChevronLeft, Edit2, Archive, RotateCcw, PlusCircle, Eye } from 'lucide-react'
+import { ChevronLeft, Edit2, Archive, RotateCcw, PlusCircle, Eye, BookOpen, ChevronRight } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { searchCharts, updateChart, retireChart, restoreChart, addFilesToChart, getChartTrainer } from '../api'
 import { RationaleEditor } from '../components/RationaleEditor'
+import { useLocalStorage } from '../hooks/useLocalStorage'
 import type { Chart, ChartStatus, Specialty, Difficulty } from '../types'
 import { SPECIALTIES, DIFFICULTIES } from '../types'
+import { SPECIALTY_COLORS, DIFFICULTY_COLORS } from '../theme'
+
+const PAGE_SIZE = 25
 
 export function TrainerCharts() {
   const navigate = useNavigate()
+  const [trainerName] = useLocalStorage<string>('trainer_name', '')
   const [status, setStatus] = useState<ChartStatus>('Active')
   const [specialty, setSpecialty] = useState<Specialty | ''>('')
   const [charts, setCharts] = useState<Chart[]>([])
   const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(false)
+  const [selected, setSelected] = useState<Set<number>>(new Set())
+
   const [editing, setEditing] = useState<Chart | null>(null)
   const [editForm, setEditForm] = useState<{ category: string; difficulty: Difficulty; rationale: string }>({ category: '', difficulty: 'Beginner', rationale: '' })
-  const [actor, setActor] = useState('')
-  const [passphrase, setPassphrase] = useState('')
+  const [actor, setActor] = useState(trainerName)
   const [addingFiles, setAddingFiles] = useState<Chart | null>(null)
   const [viewingRationale, setViewingRationale] = useState<{ chart: Chart; rationale: string } | null>(null)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (p = 1) => {
     setLoading(true)
+    setSelected(new Set())
     try {
-      const res = await searchCharts({ specialty: specialty || undefined, status, page: 1, page_size: 100 })
+      const res = await searchCharts({ specialty: specialty || undefined, status, page: p, page_size: PAGE_SIZE })
       setCharts(res.results)
       setTotal(res.total)
+      setPage(p)
     } finally { setLoading(false) }
   }, [specialty, status])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { load(1) }, [load])
+
+  const totalPages = Math.ceil(total / PAGE_SIZE)
 
   const startEdit = (c: Chart) => {
     setEditing(c)
     setEditForm({ category: c.category, difficulty: c.difficulty, rationale: '' })
+    setActor(trainerName)
   }
 
   const saveEdit = async () => {
@@ -43,31 +55,51 @@ export function TrainerCharts() {
       await updateChart(editing.id, actor, editForm)
       toast.success('Chart updated')
       setEditing(null)
-      load()
+      load(page)
     } catch { toast.error('Update failed') }
   }
 
   const handleRetire = async (c: Chart) => {
-    const name = prompt('Your name:')
+    const name = actor || prompt('Your name:') || ''
     if (!name) return
     let pw: string | null = null
     if (c.uploaded_by !== name) pw = prompt('This chart belongs to another trainer. Enter master admin passphrase:')
     try {
       await retireChart(c.id, name, pw ?? undefined)
       toast.success(`${c.chart_number} retired`)
-      load()
+      load(page)
     } catch { toast.error('Failed — check passphrase') }
   }
 
+  const handleBulkRetire = async () => {
+    if (selected.size === 0) return
+    if (!window.confirm(`Retire ${selected.size} selected chart${selected.size !== 1 ? 's' : ''}?`)) return
+    const name = trainerName || prompt('Your name:') || ''
+    if (!name) return
+    let successCount = 0
+    for (const id of selected) {
+      const c = charts.find(ch => ch.id === id)
+      if (!c) continue
+      try {
+        let pw: string | null = null
+        if (c.uploaded_by !== name) pw = prompt(`Passphrase needed for ${c.chart_number} (uploaded by ${c.uploaded_by}):`)
+        await retireChart(id, name, pw ?? undefined)
+        successCount++
+      } catch { /* skip */ }
+    }
+    toast.success(`${successCount} chart${successCount !== 1 ? 's' : ''} retired`)
+    load(page)
+  }
+
   const handleRestore = async (c: Chart) => {
-    const name = prompt('Your name:')
+    const name = actor || prompt('Your name:') || ''
     if (!name) return
     let pw: string | null = null
     if (c.uploaded_by !== name) pw = prompt('Enter master admin passphrase:')
     try {
       await restoreChart(c.id, name, pw ?? undefined)
       toast.success(`${c.chart_number} restored`)
-      load()
+      load(page)
     } catch { toast.error('Failed — check passphrase') }
   }
 
@@ -84,162 +116,233 @@ export function TrainerCharts() {
       const res = await addFilesToChart(addingFiles.id, Array.from(files), actor)
       toast.success(res.message)
       setAddingFiles(null)
-      load()
+      load(page)
     } catch { toast.error('Failed to add files') }
+  }
+
+  const toggleSelect = (id: number) => {
+    setSelected(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  const toggleSelectAll = () => {
+    setSelected(prev => prev.size === charts.length ? new Set() : new Set(charts.map(c => c.id)))
   }
 
   return (
     <div style={styles.container}>
-      <div style={styles.topBar}>
-        <button style={styles.backBtn} onClick={() => navigate('/trainer')}><ChevronLeft size={16} /> Back</button>
-        <span style={styles.title}>Manage Charts</span>
-      </div>
+      <PageHeader title="Manage Charts" onBack={() => navigate('/trainer')} />
 
       <div style={styles.content}>
-        <div style={styles.filterRow}>
-          <select style={styles.select} value={status} onChange={e => setStatus(e.target.value as ChartStatus)}>
-            <option value="Active">Active</option>
-            <option value="Retired">Retired</option>
-          </select>
-          <select style={styles.select} value={specialty} onChange={e => setSpecialty(e.target.value as Specialty | '')}>
-            <option value="">All Specialties</option>
-            {SPECIALTIES.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-          <span style={styles.count}>{total} chart{total !== 1 ? 's' : ''}</span>
+        <div style={styles.toolbar}>
+          <div style={styles.filters}>
+            <select style={styles.select} value={status} onChange={e => setStatus(e.target.value as ChartStatus)}>
+              <option value="Active">Active</option>
+              <option value="Retired">Retired</option>
+            </select>
+            <select style={styles.select} value={specialty} onChange={e => setSpecialty(e.target.value as Specialty | '')}>
+              <option value="">All Specialties</option>
+              {SPECIALTIES.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <span style={styles.count}>{total} chart{total !== 1 ? 's' : ''}</span>
+          </div>
+          {selected.size > 0 && status === 'Active' && (
+            <button style={styles.bulkRetireBtn} onClick={handleBulkRetire}>
+              <Archive size={14} /> Retire {selected.size} selected
+            </button>
+          )}
         </div>
 
-        {loading ? <div style={styles.center}>Loading...</div> : (
-          <div style={styles.tableWrap}>
-            <table style={styles.table}>
-              <thead>
-                <tr>
-                  {['Chart #', 'Specialty', 'Category', 'Difficulty', 'Uploaded By', 'Views', 'Actions'].map(h => (
-                    <th key={h} style={styles.th}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {charts.map(c => (
-                  <tr key={c.id} style={styles.tr}>
-                    <td style={styles.td}><strong>{c.chart_number}</strong></td>
-                    <td style={styles.td}>{c.specialty}</td>
-                    <td style={styles.td}>{c.category}</td>
-                    <td style={styles.td}>{c.difficulty}</td>
-                    <td style={styles.td}>{c.uploaded_by}</td>
-                    <td style={styles.td}>{c.view_count}</td>
-                    <td style={styles.td}>
-                      <div style={styles.actions}>
-                        <button style={styles.actionBtn} title="View rationale" onClick={() => handleViewRationale(c)}><Eye size={14} /></button>
-                        <button style={styles.actionBtn} title="Edit" onClick={() => startEdit(c)}><Edit2 size={14} /></button>
-                        <button style={styles.actionBtn} title="Add files" onClick={() => { setAddingFiles(c); setActor('') }}>
-                          <PlusCircle size={14} />
-                        </button>
-                        {status === 'Active' ? (
-                          <button style={{ ...styles.actionBtn, color: '#dc2626' }} title="Retire" onClick={() => handleRetire(c)}>
-                            <Archive size={14} />
-                          </button>
-                        ) : (
-                          <button style={{ ...styles.actionBtn, color: '#16a34a' }} title="Restore" onClick={() => handleRestore(c)}>
-                            <RotateCcw size={14} />
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        {loading ? (
+          <div style={styles.loadingWrap}>
+            {[...Array(5)].map((_, i) => <div key={i} style={styles.skeletonRow} />)}
           </div>
+        ) : (
+          <>
+            <div style={styles.tableWrap}>
+              <table style={styles.table}>
+                <thead>
+                  <tr>
+                    <th style={{ ...styles.th, width: 36 }}>
+                      <input type="checkbox" checked={selected.size === charts.length && charts.length > 0} onChange={toggleSelectAll} />
+                    </th>
+                    {['Chart #', 'Specialty', 'Category', 'Difficulty', 'Uploaded By', 'Views', 'Actions'].map(h => (
+                      <th key={h} style={styles.th}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {charts.map(c => {
+                    const sc = SPECIALTY_COLORS[c.specialty]
+                    const dc = DIFFICULTY_COLORS[c.difficulty]
+                    return (
+                      <tr key={c.id} style={{ ...styles.tr, background: selected.has(c.id) ? '#f5f3ff' : undefined }}>
+                        <td style={styles.td}>
+                          <input type="checkbox" checked={selected.has(c.id)} onChange={() => toggleSelect(c.id)} />
+                        </td>
+                        <td style={styles.td}>
+                          <div style={styles.chartNumCell}>
+                            <div style={{ ...styles.colorDot, background: sc.bg }} />
+                            <strong>{c.chart_number}</strong>
+                          </div>
+                        </td>
+                        <td style={styles.td}><span style={{ ...styles.specBadge, background: sc.light, color: sc.bg }}>{c.specialty}</span></td>
+                        <td style={styles.td}>{c.category}</td>
+                        <td style={styles.td}><span style={{ ...styles.diffBadge, ...dc }}>{c.difficulty}</span></td>
+                        <td style={styles.td}>{c.uploaded_by}</td>
+                        <td style={styles.td}><span style={styles.viewCount}>{c.view_count}</span></td>
+                        <td style={styles.td}>
+                          <div style={styles.actions}>
+                            <button style={styles.actionBtn} title="View rationale" onClick={() => handleViewRationale(c)}><Eye size={13} /></button>
+                            <button style={styles.actionBtn} title="Edit" onClick={() => startEdit(c)}><Edit2 size={13} /></button>
+                            <button style={styles.actionBtn} title="Add files" onClick={() => { setAddingFiles(c); setActor(trainerName) }}><PlusCircle size={13} /></button>
+                            {status === 'Active'
+                              ? <button style={{ ...styles.actionBtn, color: '#dc2626' }} title="Retire" onClick={() => handleRetire(c)}><Archive size={13} /></button>
+                              : <button style={{ ...styles.actionBtn, color: '#16a34a' }} title="Restore" onClick={() => handleRestore(c)}><RotateCcw size={13} /></button>
+                            }
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div style={styles.pagination}>
+                <button style={styles.pageBtn} disabled={page === 1} onClick={() => load(page - 1)}><ChevronLeft size={15} /></button>
+                <span style={styles.pageInfo}>Page {page} of {totalPages}</span>
+                <button style={styles.pageBtn} disabled={page === totalPages} onClick={() => load(page + 1)}><ChevronRight size={15} /></button>
+              </div>
+            )}
+          </>
         )}
       </div>
 
+      {/* View rationale modal */}
+      {viewingRationale && (
+        <Modal title={`Rationale — ${viewingRationale.chart.chart_number}`} onClose={() => setViewingRationale(null)}>
+          <div style={styles.rationaleSubtitle}>{viewingRationale.chart.specialty} · {viewingRationale.chart.category} · {viewingRationale.chart.difficulty}</div>
+          <div style={styles.rationaleBody} dangerouslySetInnerHTML={{ __html: viewingRationale.rationale }} />
+          <div style={styles.modalActions}>
+            <button style={styles.primaryBtn} onClick={() => { setViewingRationale(null); startEdit(viewingRationale.chart) }}>Edit</button>
+            <button style={styles.cancelBtn} onClick={() => setViewingRationale(null)}>Close</button>
+          </div>
+        </Modal>
+      )}
+
       {/* Edit modal */}
       {editing && (
-        <div style={styles.overlay}>
-          <div style={styles.modal}>
-            <div style={styles.modalTitle}>Edit {editing.chart_number}</div>
-            <label style={styles.label}>Your Name</label>
-            <input style={styles.input} value={actor} onChange={e => setActor(e.target.value)} placeholder="Your name" />
-            <label style={styles.label}>Category</label>
-            <input style={styles.input} value={editForm.category} onChange={e => setEditForm(f => ({ ...f, category: e.target.value }))} />
-            <label style={styles.label}>Difficulty</label>
+        <Modal title={`Edit ${editing.chart_number}`} onClose={() => setEditing(null)}>
+          <Field label="Your Name"><input style={styles.input} value={actor} onChange={e => setActor(e.target.value)} placeholder="Your name" /></Field>
+          <Field label="Category"><input style={styles.input} value={editForm.category} onChange={e => setEditForm(f => ({ ...f, category: e.target.value }))} /></Field>
+          <Field label="Difficulty">
             <select style={styles.select} value={editForm.difficulty} onChange={e => setEditForm(f => ({ ...f, difficulty: e.target.value as Difficulty }))}>
               {DIFFICULTIES.map(d => <option key={d} value={d}>{d}</option>)}
             </select>
-            <label style={styles.label}>Rationale</label>
+          </Field>
+          <Field label="Rationale">
             <RationaleEditor content={editForm.rationale} onChange={v => setEditForm(f => ({ ...f, rationale: v }))} />
-            <div style={styles.modalActions}>
-              <button style={styles.primaryBtn} onClick={saveEdit}>Save</button>
-              <button style={styles.cancelBtn} onClick={() => setEditing(null)}>Cancel</button>
-            </div>
+          </Field>
+          <div style={styles.modalActions}>
+            <button style={styles.primaryBtn} onClick={saveEdit}>Save</button>
+            <button style={styles.cancelBtn} onClick={() => setEditing(null)}>Cancel</button>
           </div>
-        </div>
-      )}
-
-      {/* View rationale modal */}
-      {viewingRationale && (
-        <div style={styles.overlay}>
-          <div style={styles.modal}>
-            <div style={styles.modalTitle}>Rationale — {viewingRationale.chart.chart_number}</div>
-            <div style={styles.rationaleSubtitle}>
-              {viewingRationale.chart.specialty} · {viewingRationale.chart.category} · {viewingRationale.chart.difficulty}
-            </div>
-            <div
-              style={styles.rationaleBody}
-              dangerouslySetInnerHTML={{ __html: viewingRationale.rationale }}
-            />
-            <div style={styles.modalActions}>
-              <button style={styles.primaryBtn} onClick={() => { setViewingRationale(null); startEdit(viewingRationale.chart) }}>Edit</button>
-              <button style={styles.cancelBtn} onClick={() => setViewingRationale(null)}>Close</button>
-            </div>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {/* Add files modal */}
       {addingFiles && (
-        <div style={styles.overlay}>
-          <div style={styles.modal}>
-            <div style={styles.modalTitle}>Add Files to {addingFiles.chart_number}</div>
-            <label style={styles.label}>Your Name</label>
-            <input style={styles.input} value={actor} onChange={e => setActor(e.target.value)} placeholder="Your name" />
-            <label style={styles.label}>Select Files to Append</label>
+        <Modal title={`Add Files to ${addingFiles.chart_number}`} onClose={() => setAddingFiles(null)}>
+          <Field label="Your Name"><input style={styles.input} value={actor} onChange={e => setActor(e.target.value)} placeholder="Your name" /></Field>
+          <Field label="Select Files to Append">
             <input type="file" multiple accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.tiff" onChange={e => handleAddFiles(e.target.files)} />
-            <div style={styles.modalActions}>
-              <button style={styles.cancelBtn} onClick={() => setAddingFiles(null)}>Cancel</button>
-            </div>
+          </Field>
+          <div style={styles.modalActions}>
+            <button style={styles.cancelBtn} onClick={() => setAddingFiles(null)}>Cancel</button>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   )
 }
 
+function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
+  return (
+    <div style={modalStyles.overlay}>
+      <div style={modalStyles.box}>
+        <div style={modalStyles.header}><span style={modalStyles.title}>{title}</span><button style={modalStyles.closeBtn} onClick={onClose}>✕</button></div>
+        <div style={modalStyles.body}>{children}</div>
+      </div>
+    </div>
+  )
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 5 }}><label style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase' as const, letterSpacing: 0.6 }}>{label}</label>{children}</div>
+}
+
+function PageHeader({ title, onBack }: { title: string; onBack: () => void }) {
+  return (
+    <div style={headerStyles.topBar}>
+      <button style={headerStyles.backBtn} onClick={onBack}><ChevronLeft size={16} /> Back</button>
+      <div style={headerStyles.logo}><BookOpen size={18} color="#4f46e5" /><span style={headerStyles.logoText}>Chart Viewer</span></div>
+      <span style={headerStyles.title}>{title}</span>
+    </div>
+  )
+}
+
+const headerStyles: Record<string, React.CSSProperties> = {
+  topBar: { display: 'flex', alignItems: 'center', gap: 14, padding: '13px 24px', background: '#fff', borderBottom: '1px solid #e5e7eb', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', position: 'sticky', top: 0, zIndex: 10 },
+  backBtn: { display: 'flex', alignItems: 'center', gap: 4, border: '1px solid #e5e7eb', background: '#fff', borderRadius: 7, padding: '6px 12px', cursor: 'pointer', fontSize: 13, color: '#374151' },
+  logo: { display: 'flex', alignItems: 'center', gap: 6 },
+  logoText: { fontWeight: 800, fontSize: 15, color: '#111' },
+  title: { fontWeight: 700, fontSize: 17, color: '#111', marginLeft: 4 },
+}
+
+const modalStyles: Record<string, React.CSSProperties> = {
+  overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999, backdropFilter: 'blur(2px)' },
+  box: { background: '#fff', borderRadius: 12, width: '90%', maxWidth: 560, boxShadow: '0 20px 40px rgba(0,0,0,0.2)', overflow: 'hidden' },
+  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', borderBottom: '1px solid #e5e7eb', background: '#fafafa' },
+  title: { fontWeight: 800, fontSize: 16 },
+  closeBtn: { border: 'none', background: 'none', cursor: 'pointer', color: '#9ca3af', fontSize: 18, padding: '2px 6px' },
+  body: { padding: 20, display: 'flex', flexDirection: 'column', gap: 14, maxHeight: '75vh', overflowY: 'auto' },
+}
+
 const styles: Record<string, React.CSSProperties> = {
-  container: { minHeight: '100vh', background: '#f9fafb', fontFamily: 'system-ui, sans-serif' },
-  topBar: { display: 'flex', alignItems: 'center', gap: 12, padding: '12px 24px', background: '#fff', borderBottom: '1px solid #e5e7eb' },
-  backBtn: { display: 'flex', alignItems: 'center', gap: 4, border: '1px solid #e5e7eb', background: '#fff', borderRadius: 6, padding: '6px 12px', cursor: 'pointer', fontSize: 13 },
-  title: { fontWeight: 700, fontSize: 18 },
-  content: { maxWidth: 1100, margin: '0 auto', padding: 24, display: 'flex', flexDirection: 'column', gap: 16 },
-  filterRow: { display: 'flex', gap: 10, alignItems: 'center' },
-  select: { padding: '8px 12px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 13, background: '#fff' },
-  count: { fontSize: 13, color: '#6b7280', marginLeft: 'auto' },
-  center: { textAlign: 'center', padding: 60, color: '#9ca3af' },
-  tableWrap: { overflowX: 'auto', background: '#fff', borderRadius: 8, border: '1px solid #e5e7eb' },
+  container: { minHeight: '100vh', background: '#f8fafc', fontFamily: 'system-ui, sans-serif' },
+  content: { maxWidth: 1150, margin: '0 auto', padding: '24px' },
+  toolbar: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
+  filters: { display: 'flex', gap: 10, alignItems: 'center' },
+  select: { padding: '8px 12px', border: '1px solid #e5e7eb', borderRadius: 7, fontSize: 13, background: '#fff' },
+  count: { fontSize: 13, color: '#6b7280' },
+  bulkRetireBtn: { display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', background: '#fff5f5', border: '1px solid #fca5a5', color: '#dc2626', borderRadius: 7, cursor: 'pointer', fontSize: 13, fontWeight: 600 },
+  loadingWrap: { display: 'flex', flexDirection: 'column', gap: 8 },
+  skeletonRow: { height: 44, borderRadius: 8, background: 'linear-gradient(90deg, #f3f4f6 25%, #e5e7eb 50%, #f3f4f6 75%)', backgroundSize: '200% 100%', animation: 'shimmer 1.4s infinite' },
+  tableWrap: { overflowX: 'auto', background: '#fff', borderRadius: 10, border: '1px solid #e5e7eb', boxShadow: '0 1px 4px rgba(0,0,0,0.04)' },
   table: { width: '100%', borderCollapse: 'collapse' },
-  th: { padding: '10px 14px', textAlign: 'left', fontSize: 12, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', borderBottom: '1px solid #e5e7eb', background: '#f9fafb' },
-  tr: { borderBottom: '1px solid #f3f4f6' },
+  th: { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid #e5e7eb', background: '#fafafa' },
+  tr: { borderBottom: '1px solid #f3f4f6', transition: 'background 0.1s' },
   td: { padding: '10px 14px', fontSize: 13, color: '#374151' },
-  actions: { display: 'flex', gap: 6 },
-  actionBtn: { border: '1px solid #e5e7eb', background: '#fff', borderRadius: 5, padding: '4px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center', color: '#374151' },
-  overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999 },
-  modal: { background: '#fff', borderRadius: 10, padding: 28, width: '90%', maxWidth: 560, display: 'flex', flexDirection: 'column', gap: 12 },
-  modalTitle: { fontWeight: 700, fontSize: 17, marginBottom: 4 },
-  modalActions: { display: 'flex', gap: 10, marginTop: 8 },
-  label: { fontSize: 12, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase' },
-  input: { padding: '8px 10px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 13 },
-  primaryBtn: { padding: '10px 20px', background: '#4f46e5', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 14 },
-  cancelBtn: { padding: '10px 20px', background: '#fff', border: '1px solid #e5e7eb', borderRadius: 6, cursor: 'pointer', fontSize: 14 },
-  rationaleSubtitle: { fontSize: 12, color: '#6b7280', marginTop: -8 },
-  rationaleBody: { padding: '12px', border: '1px solid #e5e7eb', borderRadius: 6, minHeight: 120, fontSize: 14, lineHeight: 1.7, background: '#fafafa', overflowY: 'auto' as const, maxHeight: 400 },
+  chartNumCell: { display: 'flex', alignItems: 'center', gap: 8 },
+  colorDot: { width: 8, height: 8, borderRadius: '50%', flexShrink: 0 },
+  specBadge: { fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 20, textTransform: 'uppercase' as const, letterSpacing: 0.4 },
+  diffBadge: { fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 20 },
+  viewCount: { fontWeight: 600, color: '#374151' },
+  actions: { display: 'flex', gap: 5 },
+  actionBtn: { border: '1px solid #e5e7eb', background: '#fff', borderRadius: 6, padding: '4px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center', color: '#374151', transition: 'all 0.1s' },
+  pagination: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14, marginTop: 16 },
+  pageBtn: { border: '1px solid #e5e7eb', background: '#fff', borderRadius: 7, padding: '6px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center' },
+  pageInfo: { fontSize: 13, color: '#374151', fontWeight: 600 },
+  rationaleSubtitle: { fontSize: 12, color: '#6b7280' },
+  rationaleBody: { padding: 14, border: '1px solid #e5e7eb', borderRadius: 8, minHeight: 100, fontSize: 14, lineHeight: 1.7, background: '#fafafa', overflowY: 'auto' as const, maxHeight: 360 },
+  modalActions: { display: 'flex', gap: 10, paddingTop: 4 },
+  primaryBtn: { padding: '10px 20px', background: '#4f46e5', color: '#fff', border: 'none', borderRadius: 7, cursor: 'pointer', fontWeight: 700, fontSize: 14 },
+  cancelBtn: { padding: '10px 20px', background: '#fff', border: '1px solid #e5e7eb', borderRadius: 7, cursor: 'pointer', fontSize: 14 },
+  input: { padding: '9px 11px', border: '1px solid #e5e7eb', borderRadius: 7, fontSize: 13 },
 }

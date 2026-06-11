@@ -5,9 +5,9 @@ from PIL import Image
 from typing import List, Tuple
 
 
-def process_file(filename: str, file_bytes: bytes) -> List[Tuple[bytes, str]]:
+def process_file(filename: str, file_bytes: bytes) -> List[Tuple[bytes, str, str]]:
     """
-    Convert any uploaded file to a list of (png_bytes, mime_type) tuples — one per page.
+    Convert any uploaded file to a list of (png_bytes, mime_type, page_text) tuples — one per page.
     Returns PNG images regardless of input format.
     """
     ext = filename.rsplit(".", 1)[-1].lower()
@@ -15,32 +15,35 @@ def process_file(filename: str, file_bytes: bytes) -> List[Tuple[bytes, str]]:
     if ext == "pdf":
         return _pdf_to_images(file_bytes)
     elif ext in ("png", "jpg", "jpeg", "tiff", "tif", "bmp", "webp"):
-        return _image_to_png(file_bytes)
+        return _image_to_png_with_text(file_bytes)
     elif ext in ("doc", "docx"):
         return _docx_to_images(file_bytes)
     else:
         raise ValueError(f"Unsupported file type: {ext}")
 
 
-def _pdf_to_images(data: bytes) -> List[Tuple[bytes, str]]:
+def _pdf_to_images(data: bytes) -> List[Tuple[bytes, str, str]]:
     doc = fitz.open(stream=data, filetype="pdf")
     pages = []
     for page in doc:
-        mat = fitz.Matrix(2.0, 2.0)  # 2x zoom for readability
+        mat = fitz.Matrix(2.0, 2.0)
         pix = page.get_pixmap(matrix=mat)
-        pages.append((pix.tobytes("png"), "image/png"))
+        text = page.get_text("text") or ""
+        pages.append((pix.tobytes("png"), "image/png", text.strip()))
     doc.close()
     return pages
 
 
-def _image_to_png(data: bytes) -> List[Tuple[bytes, str]]:
+def _image_to_png_with_text(data: bytes) -> List[Tuple[bytes, str, str]]:
     img = Image.open(io.BytesIO(data))
     buf = io.BytesIO()
     img.save(buf, format="PNG")
-    return [(buf.getvalue(), "image/png")]
+    return [(buf.getvalue(), "image/png", "")]
 
 
-def _docx_to_images(data: bytes) -> List[Tuple[bytes, str]]:
+
+
+def _docx_to_images(data: bytes) -> List[Tuple[bytes, str, str]]:
     """
     Converts docx to PDF via libreoffice if available, falls back to
     extracting embedded images or rendering as plain text page.
@@ -65,7 +68,7 @@ def _docx_to_images(data: bytes) -> List[Tuple[bytes, str]]:
                 pdf_bytes = pf.read()
             os.unlink(pdf_path)
             os.rmdir(out_dir)
-            return _pdf_to_images(pdf_bytes)
+            return _pdf_to_images(pdf_bytes)  # type: ignore
     except Exception:
         pass
 
@@ -79,7 +82,7 @@ def _docx_to_images(data: bytes) -> List[Tuple[bytes, str]]:
                 img = Image.open(io.BytesIO(img_bytes))
                 buf = io.BytesIO()
                 img.save(buf, format="PNG")
-                images.append((buf.getvalue(), "image/png"))
+                images.append((buf.getvalue(), "image/png", ""))
             except Exception:
                 continue
 
@@ -91,11 +94,11 @@ def _docx_to_images(data: bytes) -> List[Tuple[bytes, str]]:
     return _text_to_image(text)
 
 
-def _text_to_image(text: str) -> List[Tuple[bytes, str]]:
+def _text_to_image(text: str) -> List[Tuple[bytes, str, str]]:
     from PIL import ImageDraw, ImageFont
     img = Image.new("RGB", (1200, 1600), color="white")
     draw = ImageDraw.Draw(img)
     draw.text((40, 40), text[:3000], fill="black")
     buf = io.BytesIO()
     img.save(buf, format="PNG")
-    return [(buf.getvalue(), "image/png")]
+    return [(buf.getvalue(), "image/png", text)]

@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_, func
 from typing import Optional
 from database import get_db
-from models import Chart, ChartStatus, Specialty, Difficulty
+from models import Chart, ChartFile, ChartStatus, Specialty, Difficulty
 from schemas import ChartOut, ChartWithRationale, ChartUpdate
 from services.chart_service import get_chart_pages, increment_view, log_audit
 from config import settings
@@ -142,6 +142,26 @@ def restore_chart(
     log_audit(db, chart_id, "RESTORE", actor)
     db.commit()
     return {"message": f"Chart {chart.chart_number} restored"}
+
+
+@router.get("/{chart_id}/text-search")
+def search_in_chart(
+    chart_id: int,
+    q: str = Query(..., min_length=1),
+    db: Session = Depends(get_db),
+):
+    """Return page numbers where the search term appears in extracted text."""
+    files = db.query(ChartFile).filter(
+        ChartFile.chart_id == chart_id,
+        ChartFile.page_text.isnot(None),
+        ChartFile.page_text.ilike(f"%{q}%"),
+    ).order_by(ChartFile.page_order).all()
+
+    return {
+        "query": q,
+        "matching_pages": [f.page_order for f in files],
+        "total_matches": len(files),
+    }
 
 
 def _get_or_404(chart_id: int, db: Session) -> Chart:

@@ -23,6 +23,11 @@ export async function getCategories(specialty?: string): Promise<string[]> {
   return data
 }
 
+export async function searchInChart(chartId: number, q: string) {
+  const { data } = await api.get(`/charts/${chartId}/text-search`, { params: { q } })
+  return data as { query: string; matching_pages: number[]; total_matches: number }
+}
+
 // ── Trainer ──────────────────────────────────────────────────────────────────
 
 export async function getChartTrainer(chartId: number): Promise<ChartWithRationale> {

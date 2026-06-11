@@ -42,7 +42,7 @@ def ingest_file(
     pages = process_file(filename, file_bytes)
     total = len(pages)
 
-    for i, (png_bytes, mime) in enumerate(pages):
+    for i, (png_bytes, mime, page_text) in enumerate(pages):
         key = f"charts/{chart_id}/{page_order_start + i:04d}_{filename}.png"
         upload_bytes(key, png_bytes, mime)
 
@@ -52,6 +52,7 @@ def ingest_file(
             original_filename=filename,
             page_order=page_order_start + i,
             total_pages=total,
+            page_text=page_text or None,
             uploaded_by=uploaded_by,
         )
         db.add(cf)

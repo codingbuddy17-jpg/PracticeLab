@@ -71,6 +71,7 @@ class ChartFile(Base):
     original_filename = Column(String(255), nullable=False)
     page_order = Column(Integer, default=0, nullable=False)
     total_pages = Column(Integer, default=1, nullable=False)
+    page_text = Column(Text, nullable=True)
     uploaded_by = Column(String(100), nullable=False)
     uploaded_at = Column(DateTime(timezone=True), server_default=func.now())
 

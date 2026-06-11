@@ -1,10 +1,13 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Search, BookOpen, Clock } from 'lucide-react'
+import { Search, BookOpen, Clock, X, ArrowUpDown } from 'lucide-react'
 import { searchCharts, getCategories } from '../api'
 import { ChartViewer } from '../components/ChartViewer'
 import { useLocalStorage } from '../hooks/useLocalStorage'
 import type { Chart, Specialty, Difficulty } from '../types'
 import { SPECIALTIES, DIFFICULTIES } from '../types'
+import { SPECIALTY_COLORS, DIFFICULTY_COLORS } from '../theme'
+
+type SortOption = 'chart_number' | 'difficulty' | 'recent'
 
 export function CoderHome() {
   const [coderName, setCoderName] = useLocalStorage<string>('coder_name', '')
@@ -15,16 +18,19 @@ export function CoderHome() {
   const [specialty, setSpecialty] = useState<Specialty | ''>('')
   const [category, setCategory] = useState('')
   const [difficulty, setDifficulty] = useState<Difficulty | ''>('')
+  const [sort, setSort] = useState<SortOption>('chart_number')
   const [categories, setCategories] = useState<string[]>([])
+  const [hasSearched, setHasSearched] = useState(false)
 
   const [results, setResults] = useState<Chart[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(false)
-  const [hasSearched, setHasSearched] = useState(false)
 
   const [selectedChart, setSelectedChart] = useState<Chart | null>(null)
   const [recentlyViewed, setRecentlyViewed] = useLocalStorage<Chart[]>('recently_viewed', [])
+
+  const hasFilters = !!(specialty || category || difficulty)
 
   const doSearch = useCallback(async (p = 1) => {
     setLoading(true)
@@ -46,14 +52,22 @@ export function CoderHome() {
     }
   }, [query, specialty, category, difficulty])
 
-  useEffect(() => { if (hasSearched) doSearch(1) }, [specialty, category, difficulty])
+  useEffect(() => {
+    if (hasSearched) doSearch(1)
+  }, [specialty, category, difficulty])
 
   useEffect(() => {
     getCategories(specialty || undefined).then(d => setCategories(Array.isArray(d) ? d : []))
   }, [specialty])
 
-  const handleQueryKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') doSearch(1)
+  const clearFilters = () => {
+    setQuery('')
+    setSpecialty('')
+    setCategory('')
+    setDifficulty('')
+    setHasSearched(false)
+    setResults([])
+    setTotal(0)
   }
 
   const openChart = (chart: Chart) => {
@@ -61,13 +75,22 @@ export function CoderHome() {
     setRecentlyViewed([chart, ...recentlyViewed.filter(c => c.id !== chart.id)].slice(0, 10))
   }
 
+  const sortedResults = [...results].sort((a, b) => {
+    if (sort === 'difficulty') {
+      const order = { Beginner: 0, Intermediate: 1, Advanced: 2 }
+      return order[a.difficulty] - order[b.difficulty]
+    }
+    if (sort === 'recent') return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    return a.chart_number.localeCompare(b.chart_number)
+  })
+
   if (showNamePrompt) {
     return (
-      <div style={styles.namePromptOverlay}>
-        <div style={styles.namePromptBox}>
-          <BookOpen size={32} color="#4f46e5" />
-          <h2 style={styles.namePromptTitle}>Welcome to Chart Viewer</h2>
-          <p style={styles.namePromptSub}>Enter your name to get started. This helps track your practice session.</p>
+      <div style={styles.nameOverlay}>
+        <div style={styles.nameBox}>
+          <div style={styles.nameLogoWrap}><BookOpen size={36} color="#4f46e5" /></div>
+          <h2 style={styles.nameTitle}>Welcome to Chart Viewer</h2>
+          <p style={styles.nameSub}>Enter your name to track your practice session.</p>
           <input
             style={styles.nameInput}
             placeholder="Your name"
@@ -77,13 +100,13 @@ export function CoderHome() {
             autoFocus
           />
           <button
-            style={{ ...styles.primaryBtn, opacity: nameInput.trim() ? 1 : 0.5 }}
+            style={{ ...styles.primaryBtn, opacity: nameInput.trim() ? 1 : 0.5, width: '100%' }}
             disabled={!nameInput.trim()}
             onClick={() => { setCoderName(nameInput.trim()); setShowNamePrompt(false) }}
           >
             Continue
           </button>
-          <button style={styles.skipBtn} onClick={() => setShowNamePrompt(false)}>Skip</button>
+          <button style={styles.skipBtn} onClick={() => setShowNamePrompt(false)}>Skip for now</button>
         </div>
       </div>
     )
@@ -91,96 +114,144 @@ export function CoderHome() {
 
   return (
     <div style={styles.container}>
+      {/* Top bar */}
       <div style={styles.topBar}>
-        <div style={styles.logo}><BookOpen size={22} color="#4f46e5" /><span style={styles.logoText}>Chart Viewer</span></div>
-        {coderName && <span style={styles.coderTag}>Hi, {coderName}</span>}
+        <div style={styles.logo}>
+          <BookOpen size={22} color="#4f46e5" />
+          <span style={styles.logoText}>Chart Viewer</span>
+        </div>
+        {coderName && (
+          <div style={styles.coderChip}>
+            <span style={styles.coderDot} />
+            {coderName}
+          </div>
+        )}
       </div>
 
-      <div style={styles.searchSection}>
-        <div style={styles.searchRow}>
-          <div style={styles.searchWrap}>
-            <Search size={18} color="#9ca3af" style={styles.searchIcon} />
+      <div style={styles.main}>
+        {/* Search section */}
+        <div style={styles.searchSection}>
+          <div style={styles.searchRow}>
+            <div style={styles.searchWrap}>
+              <Search size={17} color="#9ca3af" style={styles.searchIcon} />
+              <input
+                style={styles.searchInput}
+                placeholder="Search by chart number (e.g. IP048) or keyword..."
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') doSearch(1) }}
+              />
+              {query && <button style={styles.clearInputBtn} onClick={() => setQuery('')}><X size={14} /></button>}
+            </div>
+            <button style={styles.searchBtn} onClick={() => doSearch(1)}>Search</button>
+          </div>
+
+          <div style={styles.filterRow}>
+            <select style={styles.select} value={specialty} onChange={e => setSpecialty(e.target.value as Specialty | '')}>
+              <option value="">All Specialties</option>
+              {SPECIALTIES.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+
             <input
-              style={styles.searchInput}
-              placeholder="Search by chart number (e.g. IP048) or keyword..."
-              value={query}
-              onChange={e => setQuery(e.target.value)}
-              onKeyDown={handleQueryKeyDown}
+              style={styles.filterInput}
+              list="category-list"
+              placeholder="Category"
+              value={category}
+              onChange={e => setCategory(e.target.value)}
             />
-          </div>
-          <button style={styles.primaryBtn} onClick={() => doSearch(1)}>Search</button>
-        </div>
+            <datalist id="category-list">
+              {categories.map(c => <option key={c} value={c} />)}
+            </datalist>
 
-        <div style={styles.filterRow}>
-          <select style={styles.select} value={specialty} onChange={e => setSpecialty(e.target.value as Specialty | '')}>
-            <option value="">All Specialties</option>
-            {SPECIALTIES.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
+            <select style={styles.select} value={difficulty} onChange={e => setDifficulty(e.target.value as Difficulty | '')}>
+              <option value="">All Difficulties</option>
+              {DIFFICULTIES.map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
 
-          <input
-            style={styles.filterInput}
-            list="category-list"
-            placeholder="Category"
-            value={category}
-            onChange={e => setCategory(e.target.value)}
-          />
-          <datalist id="category-list">
-            {categories.map(c => <option key={c} value={c} />)}
-          </datalist>
-
-          <select style={styles.select} value={difficulty} onChange={e => setDifficulty(e.target.value as Difficulty | '')}>
-            <option value="">All Difficulties</option>
-            {DIFFICULTIES.map(d => <option key={d} value={d}>{d}</option>)}
-          </select>
-        </div>
-      </div>
-
-      {/* Recently viewed */}
-      {recentlyViewed.length > 0 && results.length === 0 && !loading && (
-        <div style={styles.recentSection}>
-          <div style={styles.sectionLabel}><Clock size={14} /> Recently Viewed</div>
-          <div style={styles.recentList}>
-            {recentlyViewed.map(c => (
-              <button key={c.id} style={styles.recentChip} onClick={() => openChart(c)}>
-                {c.chart_number}
+            {hasFilters && (
+              <button style={styles.clearFiltersBtn} onClick={clearFilters}>
+                <X size={13} /> Clear filters
               </button>
-            ))}
+            )}
           </div>
         </div>
-      )}
 
-      {/* Results */}
-      <div style={styles.resultsSection}>
-        {!hasSearched ? (
-          <div style={styles.emptyState}>
-            <BookOpen size={40} color="#d1d5db" />
-            <div style={styles.emptyTitle}>Search for a chart to get started</div>
-            <div style={styles.emptySub}>Enter a chart number, or use the filters above to browse by specialty, category or difficulty.</div>
-          </div>
-        ) : loading ? (
-          <div style={styles.center}>Searching...</div>
-        ) : results.length === 0 ? (
-          <div style={styles.center}>No charts found. Try a different search.</div>
-        ) : (
-          <>
-            <div style={styles.resultsMeta}>{total} chart{total !== 1 ? 's' : ''} found</div>
-            <div style={styles.grid}>
-              {results.map(chart => (
-                <button key={chart.id} style={styles.card} onClick={() => openChart(chart)}>
-                  <div style={styles.cardNum}>{chart.chart_number}</div>
-                  <div style={styles.cardSpecialty}>{chart.specialty}</div>
-                  <div style={styles.cardCategory}>{chart.category}</div>
-                  <div style={styles.cardFooter}>
-                    <span style={{ ...styles.diffBadge, ...diffColor(chart.difficulty) }}>{chart.difficulty}</span>
-                  </div>
+        {/* Recently viewed */}
+        {recentlyViewed.length > 0 && !hasSearched && (
+          <div style={styles.recentSection}>
+            <div style={styles.sectionLabel}><Clock size={13} /> Recently Viewed</div>
+            <div style={styles.recentList}>
+              {recentlyViewed.map(c => (
+                <button
+                  key={c.id}
+                  style={{ ...styles.recentChip, background: SPECIALTY_COLORS[c.specialty].light, color: SPECIALTY_COLORS[c.specialty].bg }}
+                  onClick={() => openChart(c)}
+                >
+                  {c.chart_number}
                 </button>
               ))}
             </div>
-            {total > page * 20 && (
-              <button style={styles.loadMoreBtn} onClick={() => doSearch(page + 1)}>Load more</button>
-            )}
-          </>
+          </div>
         )}
+
+        {/* Results */}
+        <div style={styles.resultsSection}>
+          {!hasSearched ? (
+            <div style={styles.emptyState}>
+              <BookOpen size={44} color="#e5e7eb" />
+              <div style={styles.emptyTitle}>Search for a chart to get started</div>
+              <div style={styles.emptySub}>Enter a chart number, or use the filters above to browse by specialty, category or difficulty.</div>
+            </div>
+          ) : loading ? (
+            <div style={styles.skeletonGrid}>
+              {[...Array(6)].map((_, i) => <div key={i} style={styles.skeletonCard} />)}
+            </div>
+          ) : results.length === 0 ? (
+            <div style={styles.emptyState}>
+              <Search size={44} color="#e5e7eb" />
+              <div style={styles.emptyTitle}>No charts found</div>
+              <div style={styles.emptySub}>Try a different search term or adjust the filters.</div>
+            </div>
+          ) : (
+            <>
+              <div style={styles.resultsMeta}>
+                <span>{total} chart{total !== 1 ? 's' : ''} found</span>
+                <div style={styles.sortRow}>
+                  <ArrowUpDown size={13} color="#9ca3af" />
+                  <select style={styles.sortSelect} value={sort} onChange={e => setSort(e.target.value as SortOption)}>
+                    <option value="chart_number">Chart Number</option>
+                    <option value="difficulty">Difficulty</option>
+                    <option value="recent">Recently Added</option>
+                  </select>
+                </div>
+              </div>
+              <div style={styles.grid}>
+                {sortedResults.map(chart => {
+                  const sc = SPECIALTY_COLORS[chart.specialty]
+                  const dc = DIFFICULTY_COLORS[chart.difficulty]
+                  return (
+                    <button key={chart.id} style={styles.card} onClick={() => openChart(chart)}>
+                      <div style={{ ...styles.cardAccent, background: sc.bg }} />
+                      <div style={styles.cardBody}>
+                        <div style={styles.cardNum}>{chart.chart_number}</div>
+                        <div style={{ ...styles.cardSpecialtyBadge, background: sc.light, color: sc.bg }}>{chart.specialty}</div>
+                        <div style={styles.cardCategory}>{chart.category}</div>
+                        <div style={styles.cardFooter}>
+                          <span style={{ ...styles.diffBadge, ...dc }}>{chart.difficulty}</span>
+                        </div>
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+              {total > page * 20 && (
+                <button style={styles.loadMoreBtn} onClick={() => doSearch(page + 1)}>
+                  Load more charts
+                </button>
+              )}
+            </>
+          )}
+        </div>
       </div>
 
       {selectedChart && (
@@ -194,49 +265,54 @@ export function CoderHome() {
   )
 }
 
-function diffColor(d: Difficulty): React.CSSProperties {
-  if (d === 'Beginner') return { background: '#dcfce7', color: '#166534' }
-  if (d === 'Intermediate') return { background: '#fef9c3', color: '#854d0e' }
-  return { background: '#fee2e2', color: '#991b1b' }
-}
-
 const styles: Record<string, React.CSSProperties> = {
-  container: { minHeight: '100vh', background: '#f9fafb', fontFamily: 'system-ui, sans-serif' },
-  topBar: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 24px', background: '#fff', borderBottom: '1px solid #e5e7eb' },
+  container: { minHeight: '100vh', background: '#f8fafc', fontFamily: 'system-ui, sans-serif' },
+  topBar: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 28px', background: '#fff', borderBottom: '1px solid #e5e7eb', position: 'sticky', top: 0, zIndex: 10, boxShadow: '0 1px 3px rgba(0,0,0,0.05)' },
   logo: { display: 'flex', alignItems: 'center', gap: 8 },
-  logoText: { fontWeight: 700, fontSize: 18, color: '#111' },
-  coderTag: { fontSize: 14, color: '#6b7280' },
-  searchSection: { padding: '24px 24px 0', maxWidth: 900, margin: '0 auto' },
-  searchRow: { display: 'flex', gap: 8, marginBottom: 12 },
-  searchWrap: { flex: 1, position: 'relative' },
-  searchIcon: { position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)' },
-  searchInput: { width: '100%', padding: '10px 12px 10px 36px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 14, outline: 'none', boxSizing: 'border-box' },
-  filterRow: { display: 'flex', gap: 8, flexWrap: 'wrap' },
-  select: { padding: '8px 12px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 13, background: '#fff', cursor: 'pointer' },
-  filterInput: { padding: '8px 12px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 13 },
-  primaryBtn: { padding: '10px 20px', background: '#4f46e5', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 14 },
-  recentSection: { maxWidth: 900, margin: '16px auto 0', padding: '0 24px' },
-  sectionLabel: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#6b7280', marginBottom: 8 },
-  recentList: { display: 'flex', gap: 8, flexWrap: 'wrap' },
-  recentChip: { padding: '4px 12px', background: '#ede9fe', color: '#4f46e5', border: 'none', borderRadius: 20, cursor: 'pointer', fontSize: 13, fontWeight: 600 },
-  resultsSection: { maxWidth: 900, margin: '16px auto', padding: '0 24px' },
-  resultsMeta: { fontSize: 13, color: '#6b7280', marginBottom: 12 },
-  grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12 },
-  card: { background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: 16, cursor: 'pointer', textAlign: 'left', transition: 'box-shadow 0.15s', display: 'flex', flexDirection: 'column', gap: 4 },
-  cardNum: { fontWeight: 700, fontSize: 16, color: '#111' },
-  cardSpecialty: { fontSize: 12, color: '#6b7280' },
-  cardCategory: { fontSize: 13, color: '#374151', flex: 1 },
-  cardFooter: { marginTop: 8 },
-  diffBadge: { fontSize: 11, padding: '2px 8px', borderRadius: 20, fontWeight: 600 },
-  loadMoreBtn: { display: 'block', margin: '16px auto', padding: '8px 24px', border: '1px solid #e5e7eb', background: '#fff', borderRadius: 6, cursor: 'pointer' },
-  center: { textAlign: 'center', padding: '60px 0', color: '#9ca3af', fontSize: 14 },
-  emptyState: { textAlign: 'center', padding: '60px 0', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 },
-  emptyTitle: { fontSize: 16, fontWeight: 600, color: '#6b7280' },
-  emptySub: { fontSize: 13, color: '#9ca3af', maxWidth: 380, lineHeight: 1.6 },
-  namePromptOverlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999 },
-  namePromptBox: { background: '#fff', borderRadius: 12, padding: 32, maxWidth: 400, width: '90%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, textAlign: 'center' },
-  namePromptTitle: { margin: 0, fontSize: 20, fontWeight: 700 },
-  namePromptSub: { margin: 0, fontSize: 14, color: '#6b7280' },
-  nameInput: { width: '100%', padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 14, boxSizing: 'border-box' },
+  logoText: { fontWeight: 800, fontSize: 18, color: '#111', letterSpacing: -0.5 },
+  coderChip: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#374151', background: '#f3f4f6', padding: '5px 12px', borderRadius: 20, fontWeight: 500 },
+  coderDot: { width: 7, height: 7, borderRadius: '50%', background: '#22c55e' },
+  main: { maxWidth: 960, margin: '0 auto', padding: '24px 24px 60px' },
+  searchSection: { background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: 20, marginBottom: 20, boxShadow: '0 1px 4px rgba(0,0,0,0.04)' },
+  searchRow: { display: 'flex', gap: 10, marginBottom: 14 },
+  searchWrap: { flex: 1, position: 'relative', display: 'flex', alignItems: 'center' },
+  searchIcon: { position: 'absolute', left: 12 },
+  searchInput: { width: '100%', padding: '11px 36px 11px 38px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 14, outline: 'none', background: '#f9fafb', transition: 'border-color 0.15s', boxSizing: 'border-box' as const },
+  clearInputBtn: { position: 'absolute', right: 10, border: 'none', background: 'none', cursor: 'pointer', display: 'flex', color: '#9ca3af', padding: 4 },
+  searchBtn: { padding: '11px 24px', background: '#4f46e5', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 700, fontSize: 14, whiteSpace: 'nowrap' as const },
+  filterRow: { display: 'flex', gap: 8, flexWrap: 'wrap' as const, alignItems: 'center' },
+  select: { padding: '8px 12px', border: '1px solid #e5e7eb', borderRadius: 7, fontSize: 13, background: '#fff', cursor: 'pointer', color: '#374151' },
+  filterInput: { padding: '8px 12px', border: '1px solid #e5e7eb', borderRadius: 7, fontSize: 13, color: '#374151' },
+  clearFiltersBtn: { display: 'flex', alignItems: 'center', gap: 5, padding: '7px 12px', border: '1px solid #fca5a5', background: '#fff5f5', color: '#dc2626', borderRadius: 7, cursor: 'pointer', fontSize: 12, fontWeight: 600 },
+  recentSection: { marginBottom: 20 },
+  sectionLabel: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#9ca3af', marginBottom: 8, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.5 },
+  recentList: { display: 'flex', gap: 8, flexWrap: 'wrap' as const },
+  recentChip: { padding: '5px 14px', border: 'none', borderRadius: 20, cursor: 'pointer', fontSize: 13, fontWeight: 700 },
+  resultsSection: {},
+  resultsMeta: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13, color: '#6b7280', marginBottom: 14 },
+  sortRow: { display: 'flex', alignItems: 'center', gap: 6 },
+  sortSelect: { padding: '5px 10px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 12, background: '#fff', cursor: 'pointer' },
+  grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(195px, 1fr))', gap: 14 },
+  card: { background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, cursor: 'pointer', textAlign: 'left', overflow: 'hidden', display: 'flex', padding: 0, transition: 'box-shadow 0.15s, transform 0.1s', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' },
+  cardAccent: { width: 5, flexShrink: 0 },
+  cardBody: { padding: '14px 14px', display: 'flex', flexDirection: 'column', gap: 5, flex: 1 },
+  cardNum: { fontWeight: 800, fontSize: 17, color: '#111', letterSpacing: -0.5 },
+  cardSpecialtyBadge: { fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 20, alignSelf: 'flex-start', textTransform: 'uppercase' as const, letterSpacing: 0.4 },
+  cardCategory: { fontSize: 13, color: '#374151', flex: 1, lineHeight: 1.4 },
+  cardFooter: { marginTop: 6 },
+  diffBadge: { fontSize: 11, padding: '2px 9px', borderRadius: 20, fontWeight: 600 },
+  loadMoreBtn: { display: 'block', margin: '20px auto 0', padding: '10px 28px', border: '1px solid #e5e7eb', background: '#fff', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#374151' },
+  emptyState: { textAlign: 'center', padding: '70px 0', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 },
+  emptyTitle: { fontSize: 16, fontWeight: 700, color: '#6b7280' },
+  emptySub: { fontSize: 13, color: '#9ca3af', maxWidth: 380, lineHeight: 1.7 },
+  skeletonGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(195px, 1fr))', gap: 14 },
+  skeletonCard: { height: 120, borderRadius: 10, background: 'linear-gradient(90deg, #f3f4f6 25%, #e5e7eb 50%, #f3f4f6 75%)', backgroundSize: '200% 100%', animation: 'shimmer 1.4s infinite' },
+  nameOverlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999, backdropFilter: 'blur(4px)' },
+  nameBox: { background: '#fff', borderRadius: 14, padding: '36px 32px', maxWidth: 400, width: '90%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, textAlign: 'center', boxShadow: '0 20px 40px rgba(0,0,0,0.2)' },
+  nameLogoWrap: { background: '#ede9fe', borderRadius: '50%', padding: 14, display: 'flex' },
+  nameTitle: { margin: 0, fontSize: 22, fontWeight: 800, color: '#111' },
+  nameSub: { margin: 0, fontSize: 14, color: '#6b7280', lineHeight: 1.6 },
+  nameInput: { width: '100%', padding: '11px 14px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 14, boxSizing: 'border-box' as const, outline: 'none' },
+  primaryBtn: { padding: '11px 20px', background: '#4f46e5', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 700, fontSize: 14 },
   skipBtn: { background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', fontSize: 13 },
 }
