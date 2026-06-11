@@ -25,8 +25,12 @@ export function TrainerCharts() {
   const [editing, setEditing] = useState<Chart | null>(null)
   const [editForm, setEditForm] = useState<{ category: string; difficulty: Difficulty; rationale: string }>({ category: '', difficulty: 'Beginner', rationale: '' })
   const [actor, setActor] = useState(trainerName)
+  const [saving, setSaving] = useState(false)
   const [addingFiles, setAddingFiles] = useState<Chart | null>(null)
   const [viewingRationale, setViewingRationale] = useState<{ chart: Chart; rationale: string } | null>(null)
+  const [actionModal, setActionModal] = useState<{
+    chart: Chart; action: 'retire' | 'restore'; name: string; passphrase: string; loading: boolean
+  } | null>(null)
 
   const load = useCallback(async (p = 1) => {
     setLoading(true)
@@ -51,56 +55,63 @@ export function TrainerCharts() {
 
   const saveEdit = async () => {
     if (!editing || !actor.trim()) { toast.error('Enter your name'); return }
+    setSaving(true)
     try {
       await updateChart(editing.id, actor, editForm)
       toast.success('Chart updated')
       setEditing(null)
       load(page)
-    } catch { toast.error('Update failed') }
+    } catch { toast.error('Update failed') } finally { setSaving(false) }
   }
 
-  const handleRetire = async (c: Chart) => {
-    const name = actor || prompt('Your name:') || ''
-    if (!name) return
-    let pw: string | null = null
-    if (c.uploaded_by !== name) pw = prompt('This chart belongs to another trainer. Enter master admin passphrase:')
+  const handleRetire = (c: Chart) => {
+    setActionModal({ chart: c, action: 'retire', name: actor || trainerName, passphrase: '', loading: false })
+  }
+
+  const handleRestore = (c: Chart) => {
+    setActionModal({ chart: c, action: 'restore', name: actor || trainerName, passphrase: '', loading: false })
+  }
+
+  const submitAction = async () => {
+    if (!actionModal) return
+    const { chart, action, name, passphrase } = actionModal
+    if (!name.trim()) { toast.error('Enter your name'); return }
+    const needsPassphrase = chart.uploaded_by !== name
+    if (needsPassphrase && !passphrase.trim()) { toast.error('Master admin passphrase required'); return }
+    setActionModal(m => m ? { ...m, loading: true } : null)
     try {
-      await retireChart(c.id, name, pw ?? undefined)
-      toast.success(`${c.chart_number} retired`)
+      if (action === 'retire') {
+        await retireChart(chart.id, name, needsPassphrase ? passphrase : undefined)
+        toast.success(`${chart.chart_number} retired`)
+      } else {
+        await restoreChart(chart.id, name, needsPassphrase ? passphrase : undefined)
+        toast.success(`${chart.chart_number} restored`)
+      }
+      setActionModal(null)
       load(page)
-    } catch { toast.error('Failed — check passphrase') }
+    } catch {
+      toast.error('Failed — check passphrase')
+      setActionModal(m => m ? { ...m, loading: false } : null)
+    }
   }
 
   const handleBulkRetire = async () => {
     if (selected.size === 0) return
-    if (!window.confirm(`Retire ${selected.size} selected chart${selected.size !== 1 ? 's' : ''}?`)) return
-    const name = trainerName || prompt('Your name:') || ''
-    if (!name) return
+    if (!trainerName) { toast.error('Set your trainer name in Upload Charts first'); return }
+    const selectedCharts = charts.filter(c => selected.has(c.id))
+    const mine = selectedCharts.filter(c => c.uploaded_by === trainerName)
+    const others = selectedCharts.filter(c => c.uploaded_by !== trainerName)
+    const msg = others.length > 0
+      ? `${mine.length} chart(s) will be retired. ${others.length} belong to other trainers and will be skipped — use the row-level retire button for those. Continue?`
+      : `Retire ${mine.length} selected chart${mine.length !== 1 ? 's' : ''}?`
+    if (!window.confirm(msg)) return
     let successCount = 0
-    for (const id of selected) {
-      const c = charts.find(ch => ch.id === id)
-      if (!c) continue
-      try {
-        let pw: string | null = null
-        if (c.uploaded_by !== name) pw = prompt(`Passphrase needed for ${c.chart_number} (uploaded by ${c.uploaded_by}):`)
-        await retireChart(id, name, pw ?? undefined)
-        successCount++
-      } catch { /* skip */ }
+    for (const c of mine) {
+      try { await retireChart(c.id, trainerName); successCount++ } catch { /* skip individual */ }
     }
     toast.success(`${successCount} chart${successCount !== 1 ? 's' : ''} retired`)
+    if (others.length > 0) toast(`${others.length} chart(s) from other trainers skipped`, { icon: 'ℹ️' })
     load(page)
-  }
-
-  const handleRestore = async (c: Chart) => {
-    const name = actor || prompt('Your name:') || ''
-    if (!name) return
-    let pw: string | null = null
-    if (c.uploaded_by !== name) pw = prompt('Enter master admin passphrase:')
-    try {
-      await restoreChart(c.id, name, pw ?? undefined)
-      toast.success(`${c.chart_number} restored`)
-      load(page)
-    } catch { toast.error('Failed — check passphrase') }
   }
 
   const handleViewRationale = async (c: Chart) => {
@@ -250,8 +261,45 @@ export function TrainerCharts() {
             <RationaleEditor content={editForm.rationale} onChange={v => setEditForm(f => ({ ...f, rationale: v }))} />
           </Field>
           <div style={styles.modalActions}>
-            <button style={styles.primaryBtn} onClick={saveEdit}>Save</button>
+            <button style={{ ...styles.primaryBtn, opacity: saving ? 0.7 : 1 }} disabled={saving} onClick={saveEdit}>
+              {saving ? 'Saving...' : 'Save'}
+            </button>
             <button style={styles.cancelBtn} onClick={() => setEditing(null)}>Cancel</button>
+          </div>
+        </Modal>
+      )}
+
+      {/* Retire / Restore action modal */}
+      {actionModal && (
+        <Modal
+          title={actionModal.action === 'retire' ? `Retire ${actionModal.chart.chart_number}` : `Restore ${actionModal.chart.chart_number}`}
+          onClose={() => setActionModal(null)}
+        >
+          <Field label="Your Name">
+            <input style={styles.input} value={actionModal.name}
+              onChange={e => setActionModal(m => m ? { ...m, name: e.target.value } : null)}
+              placeholder="Your trainer name" />
+          </Field>
+          {actionModal.chart.uploaded_by !== actionModal.name && (
+            <div style={{ background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 7, padding: '10px 12px', fontSize: 13, color: '#78350f' }}>
+              This chart was uploaded by <strong>{actionModal.chart.uploaded_by}</strong>. Master admin passphrase required.
+            </div>
+          )}
+          {actionModal.chart.uploaded_by !== actionModal.name && (
+            <Field label="Master Admin Passphrase">
+              <input style={styles.input} type="password" value={actionModal.passphrase}
+                onChange={e => setActionModal(m => m ? { ...m, passphrase: e.target.value } : null)}
+                placeholder="Enter passphrase" />
+            </Field>
+          )}
+          <div style={styles.modalActions}>
+            <button
+              style={{ ...styles.primaryBtn, background: actionModal.action === 'retire' ? '#dc2626' : '#16a34a', opacity: actionModal.loading ? 0.7 : 1 }}
+              disabled={actionModal.loading}
+              onClick={submitAction}>
+              {actionModal.loading ? 'Processing...' : actionModal.action === 'retire' ? 'Retire Chart' : 'Restore Chart'}
+            </button>
+            <button style={styles.cancelBtn} onClick={() => setActionModal(null)}>Cancel</button>
           </div>
         </Modal>
       )}

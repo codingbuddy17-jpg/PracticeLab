@@ -28,6 +28,7 @@ export function TrainerFeedback() {
   const [items, setItems] = useState<FeedbackItem[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(false)
+  const [actioning, setActioning] = useState<number | null>(null)
 
   const load = async () => {
     setLoading(true)
@@ -46,21 +47,25 @@ export function TrainerFeedback() {
   useEffect(() => { load() }, [status, chartFilter])
 
   const handleResolve = async (item: FeedbackItem) => {
-    const resolver = trainerName || prompt('Your name:') || ''
-    if (!resolver) return
+    if (!trainerName) {
+      toast.error('Set your trainer name in Upload Charts before resolving feedback')
+      return
+    }
+    setActioning(item.id)
     try {
-      await resolveFeedback(item.id, resolver)
-      toast.success(`Marked as resolved`)
+      await resolveFeedback(item.id, trainerName)
+      toast.success('Marked as resolved')
       load()
-    } catch { toast.error('Failed to resolve') }
+    } catch { toast.error('Failed to resolve') } finally { setActioning(null) }
   }
 
   const handleReopen = async (item: FeedbackItem) => {
+    setActioning(item.id)
     try {
       await reopenFeedback(item.id)
       toast.success('Reopened')
       load()
-    } catch { toast.error('Failed to reopen') }
+    } catch { toast.error('Failed to reopen') } finally { setActioning(null) }
   }
 
   const openCount = items.filter(i => i.status === 'Open').length
@@ -132,12 +137,14 @@ export function TrainerFeedback() {
 
                 <div style={styles.cardActions}>
                   {item.status === 'Open' ? (
-                    <button style={styles.resolveBtn} onClick={() => handleResolve(item)}>
-                      <CheckCircle size={14} /> Mark Resolved
+                    <button style={{ ...styles.resolveBtn, opacity: actioning === item.id ? 0.6 : 1 }}
+                      disabled={actioning === item.id} onClick={() => handleResolve(item)}>
+                      <CheckCircle size={14} /> {actioning === item.id ? 'Saving...' : 'Mark Resolved'}
                     </button>
                   ) : (
-                    <button style={styles.reopenBtn} onClick={() => handleReopen(item)}>
-                      <RotateCcw size={14} /> Reopen
+                    <button style={{ ...styles.reopenBtn, opacity: actioning === item.id ? 0.6 : 1 }}
+                      disabled={actioning === item.id} onClick={() => handleReopen(item)}>
+                      <RotateCcw size={14} /> {actioning === item.id ? 'Saving...' : 'Reopen'}
                     </button>
                   )}
                 </div>

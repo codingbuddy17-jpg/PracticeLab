@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Upload, CheckCircle, XCircle, ChevronLeft, BookOpen } from 'lucide-react'
+import { Upload, CheckCircle, XCircle, ChevronLeft, BookOpen, AlertTriangle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { bulkUpload, previewChartNumbers } from '../api'
 import { RationaleEditor } from '../components/RationaleEditor'
@@ -8,7 +8,14 @@ import { useLocalStorage } from '../hooks/useLocalStorage'
 import type { BulkUploadMeta, BulkUploadResult, Specialty, Difficulty } from '../types'
 import { SPECIALTIES, DIFFICULTIES, detectSpecialtyFromFilename } from '../types'
 
-interface RowMeta extends BulkUploadMeta { file: File; complete: boolean }
+const ALLOWED_TYPES = new Set([
+  'application/pdf', 'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'image/png', 'image/jpeg', 'image/tiff',
+])
+const ALLOWED_EXTS = /\.(pdf|doc|docx|png|jpg|jpeg|tiff?|tif)$/i
+
+interface RowMeta extends BulkUploadMeta { file: File; complete: boolean; specialtyMismatch?: boolean }
 
 export function TrainerUpload() {
   const navigate = useNavigate()
@@ -19,6 +26,7 @@ export function TrainerUpload() {
   const [uploadProgress, setUploadProgress] = useState(0)
   const [preview, setPreview] = useState<{ filename: string; specialty: string; assigned_number: string }[]>([])
   const [loadingPreview, setLoadingPreview] = useState(false)
+  const [confirmOpen, setConfirmOpen] = useState(false)
 
   const isRowComplete = (r: Partial<RowMeta>) => !!(r.category?.trim() && r.specialty && r.difficulty)
 
@@ -29,28 +37,50 @@ export function TrainerUpload() {
       const items = updatedRows.map(r => ({ filename: r.file.name, specialty: r.specialty }))
       const res = await previewChartNumbers(items)
       setPreview(res)
-    } catch { /* silently skip */ }
+    } catch { toast.error('Could not load chart number preview') }
     finally { setLoadingPreview(false) }
   }
 
   const handleFiles = useCallback((files: FileList | null) => {
     if (!files) return
-    const newRows: RowMeta[] = Array.from(files).map(file => {
-      const specialty = detectSpecialtyFromFilename(file.name) ?? 'IP-DRG'
-      const row: RowMeta = { file, uploaded_by: trainerName, specialty, category: '', difficulty: 'Beginner', rationale: '', complete: false }
-      return row
-    })
+    const existingNames = new Set(rows.map(r => r.file.name))
+    const rejected: string[] = []
+    const duplicates: string[] = []
+    const newRows: RowMeta[] = []
+
+    for (const file of Array.from(files)) {
+      if (!ALLOWED_TYPES.has(file.type) && !ALLOWED_EXTS.test(file.name)) {
+        rejected.push(file.name); continue
+      }
+      if (existingNames.has(file.name)) {
+        duplicates.push(file.name); continue
+      }
+      existingNames.add(file.name)
+      const detected = detectSpecialtyFromFilename(file.name)
+      const specialty: Specialty = detected ?? 'IP-DRG'
+      newRows.push({ file, uploaded_by: trainerName, specialty, category: '', difficulty: 'Beginner', rationale: '', complete: false, specialtyMismatch: false })
+    }
+
+    if (rejected.length) toast.error(`${rejected.length} file${rejected.length > 1 ? 's' : ''} skipped — unsupported type: ${rejected.join(', ')}`, { duration: 6000 })
+    if (duplicates.length) toast.error(`${duplicates.length} duplicate${duplicates.length > 1 ? 's' : ''} skipped: ${duplicates.join(', ')}`, { duration: 5000 })
+
     const updated = [...rows, ...newRows]
     setRows(updated)
     refreshPreview(updated)
   }, [trainerName, rows])
+
+  const checkMismatch = (file: File, specialty: string) => {
+    const detected = detectSpecialtyFromFilename(file.name)
+    return detected !== null && detected !== specialty
+  }
 
   const updateRow = (idx: number, key: keyof RowMeta, value: string) => {
     setRows(prev => {
       const next = prev.map((r, i) => {
         if (i !== idx) return r
         const updated = { ...r, [key]: value }
-        return { ...updated, complete: isRowComplete(updated) }
+        const mismatch = key === 'specialty' ? checkMismatch(r.file, value) : r.specialtyMismatch
+        return { ...updated, complete: isRowComplete(updated), specialtyMismatch: mismatch }
       })
       if (key === 'specialty') refreshPreview(next)
       return next
@@ -76,12 +106,15 @@ export function TrainerUpload() {
     })
   }
 
-  const handleSubmit = async () => {
+  const handleSubmitClick = () => {
     if (!trainerName.trim()) { toast.error('Enter your name before uploading'); return }
     const incomplete = rows.findIndex(r => !r.category.trim())
     if (incomplete !== -1) { toast.error(`Row ${incomplete + 1}: category is required`); return }
-    if (!window.confirm(`Upload ${rows.length} chart${rows.length !== 1 ? 's' : ''}? This cannot be undone.`)) return
+    setConfirmOpen(true)
+  }
 
+  const handleSubmit = async () => {
+    setConfirmOpen(false)
     setUploading(true)
     setUploadProgress(0)
 
@@ -219,6 +252,11 @@ export function TrainerUpload() {
                     <div style={styles.rowFileInfo}>
                       <span style={row.complete ? styles.rowFilenameComplete : styles.rowFilename}>{row.file.name}</span>
                       {row.complete && <CheckCircle size={14} color="#22c55e" />}
+                      {row.specialtyMismatch && (
+                        <span style={styles.mismatchBadge} title="Filename prefix suggests a different specialty">
+                          <AlertTriangle size={12} /> Specialty mismatch
+                        </span>
+                      )}
                     </div>
                     <button style={styles.removeBtn} onClick={() => removeRow(idx)}>✕</button>
                   </div>
@@ -260,13 +298,33 @@ export function TrainerUpload() {
             <button
               style={{ ...styles.primaryBtn, opacity: uploading ? 0.7 : 1 }}
               disabled={uploading}
-              onClick={handleSubmit}
+              onClick={handleSubmitClick}
             >
               {uploading ? `Uploading...` : `Upload ${rows.length} Chart${rows.length !== 1 ? 's' : ''}`}
             </button>
           </>
         )}
       </div>
+
+      {confirmOpen && (
+        <div style={styles.modalOverlay}>
+          <div style={styles.modalBox}>
+            <div style={styles.modalTitle}>Confirm Upload</div>
+            <div style={styles.modalBody}>
+              Upload <strong>{rows.length} chart{rows.length !== 1 ? 's' : ''}</strong>? Chart numbers will be assigned automatically and cannot be changed after upload.
+              {rows.some(r => r.specialtyMismatch) && (
+                <div style={styles.modalWarn}>
+                  <AlertTriangle size={14} /> Some files have specialty mismatches — verify before continuing.
+                </div>
+              )}
+            </div>
+            <div style={styles.modalActions}>
+              <button style={styles.cancelBtn} onClick={() => setConfirmOpen(false)}>Cancel</button>
+              <button style={styles.primaryBtn} onClick={handleSubmit}>Confirm Upload</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -333,4 +391,12 @@ const styles: Record<string, React.CSSProperties> = {
   resultRow: { display: 'flex', gap: 12, alignItems: 'flex-start', padding: '12px 16px', border: '1px solid #e5e7eb', borderRadius: 8, background: '#fff' },
   resultFilename: { fontWeight: 600, fontSize: 13 },
   resultMsg: { fontSize: 12, color: '#6b7280', marginTop: 2 },
+  mismatchBadge: { display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 700, color: '#b45309', background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 12, padding: '2px 8px' },
+  modalOverlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 },
+  modalBox: { background: '#fff', borderRadius: 12, padding: 28, maxWidth: 420, width: '90%', boxShadow: '0 20px 60px rgba(0,0,0,0.2)', display: 'flex', flexDirection: 'column', gap: 16 },
+  modalTitle: { fontWeight: 800, fontSize: 17, color: '#111' },
+  modalBody: { fontSize: 14, color: '#374151', lineHeight: 1.6 },
+  modalWarn: { display: 'flex', alignItems: 'center', gap: 6, marginTop: 10, fontSize: 13, color: '#b45309', background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 8, padding: '8px 12px' },
+  modalActions: { display: 'flex', gap: 10, justifyContent: 'flex-end' },
+  cancelBtn: { padding: '9px 20px', border: '1px solid #e5e7eb', background: '#fff', borderRadius: 7, cursor: 'pointer', fontWeight: 600, fontSize: 13, color: '#374151' },
 }

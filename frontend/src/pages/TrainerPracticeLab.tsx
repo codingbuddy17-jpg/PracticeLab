@@ -32,7 +32,7 @@ export function TrainerPracticeLab() {
 
   useEffect(() => {
     loadHome()
-    getScoringConfigs().then(setScoringCfg).catch(() => {})
+    getScoringConfigs().then(setScoringCfg).catch(() => { /* non-critical, batch creation falls back to defaults */ })
   }, [])
 
   async function loadHome() {
@@ -41,7 +41,7 @@ export function TrainerPracticeLab() {
       const [b, ov] = await Promise.all([listBatches(), getPLAnalyticsOverview()])
       setBatches(b)
       setOverview(ov)
-    } catch { /* ignore */ } finally {
+    } catch { toast.error('Failed to load batches') } finally {
       setLoading(false)
     }
   }
@@ -196,7 +196,7 @@ function AnswerKeysView() {
   useEffect(() => { loadStatus() }, [specialty])
 
   async function loadStatus() {
-    try { setStatus(await getAnswerKeyStatus(specialty)) } catch { /* ignore */ }
+    try { setStatus(await getAnswerKeyStatus(specialty)) } catch { toast.error('Could not load answer key status') }
   }
 
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -304,7 +304,7 @@ function CreateBatchView({ onCreated, scoringCfg }: { onCreated: (id: number) =>
       const cats = form.categories.split(',').map(s => s.trim()).filter(Boolean).join(',')
       const diffs = form.difficulties.join(',')
       setPool(await getPoolPreview(form.specialty, cats || undefined, diffs || undefined))
-    } catch { /* ignore */ }
+    } catch { setPool(null) }
   }
 
   function toggleDifficulty(d: string) {
@@ -501,7 +501,7 @@ function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
 
   async function loadBatch() {
     setLoading(true)
-    try { setBatch(await getBatch(batchId)) } catch { /* ignore */ } finally { setLoading(false) }
+    try { setBatch(await getBatch(batchId)) } catch { toast.error('Failed to load batch') } finally { setLoading(false) }
   }
 
   async function handleGradeUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -509,13 +509,16 @@ function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
     if (!files.length) return
     setGrading(true)
     setGradingResult(null)
+    const tid = toast.loading(`Grading ${files.length} file${files.length !== 1 ? 's' : ''}…`)
     try {
       const res = await gradeSubmissions(batchId, files)
       setGradingResult(res)
-      if (res.graded.length) toast.success(`Graded: ${res.graded.length} submission(s)`)
-      if (res.errors.length) toast.error(`Errors: ${res.errors.length} file(s) had issues`)
+      toast.dismiss(tid)
+      if (res.graded.length) toast.success(`${res.graded.length} submission${res.graded.length !== 1 ? 's' : ''} graded${res.errors.length ? ` · ${res.errors.length} skipped` : ''}`)
+      if (res.errors.length) res.errors.forEach((e: string) => toast.error(e, { duration: 6000 }))
       loadBatch()
     } catch (err: any) {
+      toast.dismiss(tid)
       toast.error(err?.response?.data?.detail || 'Grading failed')
     } finally {
       setGrading(false)
