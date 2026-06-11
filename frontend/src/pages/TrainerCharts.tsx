@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ChevronLeft, Edit2, Archive, RotateCcw, PlusCircle } from 'lucide-react'
+import { ChevronLeft, Edit2, Archive, RotateCcw, PlusCircle, Eye } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { searchCharts, updateChart, retireChart, restoreChart, addFilesToChart } from '../api'
+import { searchCharts, updateChart, retireChart, restoreChart, addFilesToChart, getChartTrainer } from '../api'
 import { RationaleEditor } from '../components/RationaleEditor'
 import type { Chart, ChartStatus, Specialty, Difficulty } from '../types'
 import { SPECIALTIES, DIFFICULTIES } from '../types'
@@ -19,6 +19,7 @@ export function TrainerCharts() {
   const [actor, setActor] = useState('')
   const [passphrase, setPassphrase] = useState('')
   const [addingFiles, setAddingFiles] = useState<Chart | null>(null)
+  const [viewingRationale, setViewingRationale] = useState<{ chart: Chart; rationale: string } | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -68,6 +69,13 @@ export function TrainerCharts() {
       toast.success(`${c.chart_number} restored`)
       load()
     } catch { toast.error('Failed — check passphrase') }
+  }
+
+  const handleViewRationale = async (c: Chart) => {
+    try {
+      const full = await getChartTrainer(c.id)
+      setViewingRationale({ chart: c, rationale: full.rationale || '<p>No rationale added.</p>' })
+    } catch { toast.error('Could not load rationale') }
   }
 
   const handleAddFiles = async (files: FileList | null) => {
@@ -121,6 +129,7 @@ export function TrainerCharts() {
                     <td style={styles.td}>{c.view_count}</td>
                     <td style={styles.td}>
                       <div style={styles.actions}>
+                        <button style={styles.actionBtn} title="View rationale" onClick={() => handleViewRationale(c)}><Eye size={14} /></button>
                         <button style={styles.actionBtn} title="Edit" onClick={() => startEdit(c)}><Edit2 size={14} /></button>
                         <button style={styles.actionBtn} title="Add files" onClick={() => { setAddingFiles(c); setActor('') }}>
                           <PlusCircle size={14} />
@@ -162,6 +171,26 @@ export function TrainerCharts() {
             <div style={styles.modalActions}>
               <button style={styles.primaryBtn} onClick={saveEdit}>Save</button>
               <button style={styles.cancelBtn} onClick={() => setEditing(null)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* View rationale modal */}
+      {viewingRationale && (
+        <div style={styles.overlay}>
+          <div style={styles.modal}>
+            <div style={styles.modalTitle}>Rationale — {viewingRationale.chart.chart_number}</div>
+            <div style={styles.rationaleSubtitle}>
+              {viewingRationale.chart.specialty} · {viewingRationale.chart.category} · {viewingRationale.chart.difficulty}
+            </div>
+            <div
+              style={styles.rationaleBody}
+              dangerouslySetInnerHTML={{ __html: viewingRationale.rationale }}
+            />
+            <div style={styles.modalActions}>
+              <button style={styles.primaryBtn} onClick={() => { setViewingRationale(null); startEdit(viewingRationale.chart) }}>Edit</button>
+              <button style={styles.cancelBtn} onClick={() => setViewingRationale(null)}>Close</button>
             </div>
           </div>
         </div>
@@ -211,4 +240,6 @@ const styles: Record<string, React.CSSProperties> = {
   input: { padding: '8px 10px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 13 },
   primaryBtn: { padding: '10px 20px', background: '#4f46e5', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 14 },
   cancelBtn: { padding: '10px 20px', background: '#fff', border: '1px solid #e5e7eb', borderRadius: 6, cursor: 'pointer', fontSize: 14 },
+  rationaleSubtitle: { fontSize: 12, color: '#6b7280', marginTop: -8 },
+  rationaleBody: { padding: '12px', border: '1px solid #e5e7eb', borderRadius: 6, minHeight: 120, fontSize: 14, lineHeight: 1.7, background: '#fafafa', overflowY: 'auto' as const, maxHeight: 400 },
 }
