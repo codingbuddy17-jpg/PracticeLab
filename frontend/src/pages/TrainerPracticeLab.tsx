@@ -289,6 +289,8 @@ function CreateBatchView({ onCreated, scoringCfg }: { onCreated: (id: number) =>
     use_dpo: false,
   })
   const [coders, setCoders] = useState<{ name: string; emp_id: string }[]>([])
+  const [coderMode, setCoderMode] = useState<'quick' | 'upload'>('quick')
+  const [quickRow, setQuickRow] = useState({ name: '', emp_id: '' })
   const [pool, setPool] = useState<{ total_matching: number; with_answer_key: number } | null>(null)
   const [creating, setCreating] = useState(false)
   const [parsing, setParsing] = useState(false)
@@ -330,9 +332,18 @@ function CreateBatchView({ onCreated, scoringCfg }: { onCreated: (id: number) =>
     }
   }
 
+  function addQuickCoder() {
+    const name = quickRow.name.trim()
+    const emp_id = quickRow.emp_id.trim()
+    if (!name || !emp_id) return toast.error('Enter both name and Emp ID')
+    if (coders.some(c => c.emp_id === emp_id)) return toast.error('Emp ID already added')
+    setCoders(prev => [...prev, { name, emp_id }])
+    setQuickRow({ name: '', emp_id: '' })
+  }
+
   async function handleCreate() {
     if (!form.name.trim()) return toast.error('Batch name is required')
-    if (coders.length === 0) return toast.error('Upload a coder list first')
+    if (coders.length === 0) return toast.error('Add at least one coder')
     if (!pool || pool.with_answer_key === 0) return toast.error('No charts with answer keys match filters')
 
     setCreating(true)
@@ -448,36 +459,62 @@ function CreateBatchView({ onCreated, scoringCfg }: { onCreated: (id: number) =>
 
       {/* Coder list */}
       <div style={styles.formGroup}>
-        <label style={styles.label}>Coder List *</label>
-        <div style={styles.actionRow}>
-          <button style={styles.outlineBtn} onClick={downloadCoderListTemplate}>
-            <Download size={15} /> Download Template
-          </button>
-          <label style={parsing ? { ...styles.primaryBtn, opacity: 0.6 } : styles.primaryBtn}>
-            {parsing ? <><Loader size={14} /> Parsing...</> : <><Upload size={15} /> Upload Filled List</>}
-            <input ref={coderFileRef} type="file" accept=".xlsx" style={{ display: 'none' }}
-              onChange={handleCoderUpload} disabled={parsing} />
-          </label>
-          {coders.length > 0 && (
-            <button style={{ ...styles.outlineBtn, color: '#dc2626', borderColor: '#fca5a5' }}
-              onClick={() => setCoders([])}>Clear</button>
-          )}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+          <label style={styles.label}>Coders *</label>
+          <div style={styles.modeToggle}>
+            <button style={coderMode === 'quick' ? styles.modeTabActive : styles.modeTab}
+              onClick={() => setCoderMode('quick')}>Quick Add</button>
+            <button style={coderMode === 'upload' ? styles.modeTabActive : styles.modeTab}
+              onClick={() => setCoderMode('upload')}>Upload List</button>
+          </div>
         </div>
 
-        {coders.length > 0 && (
-          <div style={styles.coderTable}>
-            <div style={styles.coderTableHeader}>
-              <span>Coder Name</span><span>Emp ID</span>
-            </div>
-            {coders.map((c, i) => (
-              <div key={i} style={styles.coderTableRow}>
-                <span>{c.name}</span>
-                <span style={{ fontWeight: 700, color: '#0f766e' }}>{c.emp_id}</span>
-              </div>
-            ))}
+        {coderMode === 'quick' && (
+          <div style={styles.quickAddRow}>
+            <input style={{ ...styles.input, flex: 1 }} placeholder="Coder name"
+              value={quickRow.name} onChange={e => setQuickRow(r => ({ ...r, name: e.target.value }))}
+              onKeyDown={e => e.key === 'Enter' && addQuickCoder()} />
+            <input style={{ ...styles.input, width: 130 }} placeholder="Emp ID"
+              value={quickRow.emp_id} onChange={e => setQuickRow(r => ({ ...r, emp_id: e.target.value }))}
+              onKeyDown={e => e.key === 'Enter' && addQuickCoder()} />
+            <button style={styles.outlineBtn} onClick={addQuickCoder}>+ Add</button>
           </div>
         )}
-        {coders.length > 0 && <span style={styles.hint}>{coders.length} coder(s) ready</span>}
+
+        {coderMode === 'upload' && (
+          <div style={styles.actionRow}>
+            <button style={styles.outlineBtn} onClick={downloadCoderListTemplate}>
+              <Download size={15} /> Download Template
+            </button>
+            <label style={parsing ? { ...styles.primaryBtn, opacity: 0.6 } : styles.primaryBtn}>
+              {parsing ? <><Loader size={14} /> Parsing...</> : <><Upload size={15} /> Upload Filled List</>}
+              <input ref={coderFileRef} type="file" accept=".xlsx" style={{ display: 'none' }}
+                onChange={handleCoderUpload} disabled={parsing} />
+            </label>
+          </div>
+        )}
+
+        {coders.length > 0 && (
+          <>
+            <div style={styles.coderTable}>
+              <div style={styles.coderTableHeader}>
+                <span>Coder Name</span><span>Emp ID</span><span></span>
+              </div>
+              {coders.map((c, i) => (
+                <div key={i} style={styles.coderTableRow}>
+                  <span>{c.name}</span>
+                  <span style={{ fontWeight: 700, color: '#0f766e' }}>{c.emp_id}</span>
+                  <button style={styles.removeCoder} onClick={() => setCoders(prev => prev.filter((_, j) => j !== i))}>✕</button>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <span style={styles.hint}>{coders.length} coder{coders.length !== 1 ? 's' : ''} ready</span>
+              <button style={{ ...styles.outlineBtn, fontSize: 12, padding: '4px 10px', color: '#dc2626', borderColor: '#fca5a5' }}
+                onClick={() => setCoders([])}>Clear all</button>
+            </div>
+          </>
+        )}
       </div>
 
       <button style={creating ? { ...styles.primaryBtn, opacity: 0.6 } : styles.primaryBtn}
@@ -1139,8 +1176,13 @@ const styles: Record<string, React.CSSProperties> = {
   drgHeader: { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12 },
   drgActions: { display: 'flex', gap: 12 },
   coderTable: { border: '1px solid #d1fae5', borderRadius: 8, overflow: 'hidden', marginTop: 8 },
-  coderTableHeader: { display: 'grid', gridTemplateColumns: '1fr 140px', padding: '8px 14px', background: '#f0fdf4', fontSize: 11, fontWeight: 700, color: '#065f46', textTransform: 'uppercase' as const, letterSpacing: 0.5, borderBottom: '1px solid #d1fae5' },
-  coderTableRow: { display: 'grid', gridTemplateColumns: '1fr 140px', padding: '8px 14px', borderBottom: '1px solid #f0fdf4', fontSize: 13 },
+  coderTableHeader: { display: 'grid', gridTemplateColumns: '1fr 140px 32px', padding: '8px 14px', background: '#f0fdf4', fontSize: 11, fontWeight: 700, color: '#065f46', textTransform: 'uppercase' as const, letterSpacing: 0.5, borderBottom: '1px solid #d1fae5' },
+  coderTableRow: { display: 'grid', gridTemplateColumns: '1fr 140px 32px', padding: '8px 14px', borderBottom: '1px solid #f0fdf4', fontSize: 13, alignItems: 'center' },
+  removeCoder: { border: 'none', background: 'none', cursor: 'pointer', color: '#9ca3af', fontSize: 14, padding: 0, lineHeight: 1 },
+  modeToggle: { display: 'flex', border: '1px solid #e5e7eb', borderRadius: 7, overflow: 'hidden' },
+  modeTab: { padding: '5px 14px', border: 'none', background: '#fff', fontSize: 12, fontWeight: 600, color: '#6b7280', cursor: 'pointer' },
+  modeTabActive: { padding: '5px 14px', border: 'none', background: '#4f46e5', fontSize: 12, fontWeight: 600, color: '#fff', cursor: 'pointer' },
+  quickAddRow: { display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 },
   configSection: { background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 10 },
   configSectionTitle: { fontSize: 14, fontWeight: 700, color: '#111' },
   weightGrid: { display: 'flex', gap: 16, flexWrap: 'wrap' as const },
