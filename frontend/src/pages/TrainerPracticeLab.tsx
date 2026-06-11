@@ -368,6 +368,8 @@ function CreateBatchView({ onCreated, scoringCfg }: { onCreated: (id: number) =>
 
   const needed = coders.length * form.charts_per_coder
   const available = pool?.with_answer_key || 0
+  const isIP = ['IP-DRG'].includes(form.specialty)
+  const activeCfg = scoringCfg ? (isIP ? scoringCfg.IP : scoringCfg.OP) : null
 
   return (
     <div style={styles.section}>
@@ -435,7 +437,7 @@ function CreateBatchView({ onCreated, scoringCfg }: { onCreated: (id: number) =>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <label style={styles.methodOption}>
             <input type="checkbox" checked={form.use_weighted}
-              disabled={scoringCfg && !scoringCfg.weighted_enabled}
+              disabled={activeCfg ? activeCfg.weighted_enabled === false : false}
               onChange={e => setForm(f => ({ ...f, use_weighted: e.target.checked }))} />
             <div>
               <div style={styles.methodLabel}>Weighted Scoring <span style={styles.methodBadge}>Primary · Pass/Fail</span></div>
@@ -444,7 +446,7 @@ function CreateBatchView({ onCreated, scoringCfg }: { onCreated: (id: number) =>
           </label>
           <label style={styles.methodOption}>
             <input type="checkbox" checked={form.use_dpo}
-              disabled={scoringCfg && !scoringCfg.dpo_enabled}
+              disabled={activeCfg ? activeCfg.dpo_enabled === false : false}
               onChange={e => setForm(f => ({ ...f, use_dpo: e.target.checked }))} />
             <div>
               <div style={styles.methodLabel}>DPO Accuracy <span style={{ ...styles.methodBadge, background: '#dbeafe', color: '#1d4ed8' }}>Supplementary</span></div>
