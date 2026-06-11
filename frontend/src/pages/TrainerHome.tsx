@@ -151,26 +151,27 @@ const styles: Record<string, React.CSSProperties> = {
   // Main cell — spans 2 rows
   bentoCellMain: {
     gridRow: '1 / 3',
-    background: '#18181b',
+    background: 'linear-gradient(145deg, #0d9488 0%, #0891b2 100%)',
     justifyContent: 'space-between',
     minHeight: 180,
+    border: 'none',
   },
   bentoTag: {
     fontSize: 10, fontWeight: 700, letterSpacing: 1.2,
     textTransform: 'uppercase' as const,
-    color: '#71717a', alignSelf: 'flex-start',
+    color: 'rgba(255,255,255,0.55)', alignSelf: 'flex-start',
   },
   bentoTitle: {
     display: 'flex', alignItems: 'center', gap: 10,
     fontSize: 22, fontWeight: 800, color: '#fff', letterSpacing: -0.5,
   },
-  bentoSubtitle: { fontSize: 12, color: '#52525b', lineHeight: 1.6 },
+  bentoSubtitle: { fontSize: 12, color: 'rgba(255,255,255,0.7)', lineHeight: 1.6 },
   bentoCta: {
     display: 'inline-flex', alignItems: 'center', gap: 4,
     alignSelf: 'flex-start', marginTop: 4,
     fontSize: 12, fontWeight: 700, color: '#fff',
-    background: '#27272a', padding: '7px 14px',
-    borderRadius: 8, border: '1px solid #3f3f46',
+    background: 'rgba(255,255,255,0.18)', padding: '7px 14px',
+    borderRadius: 8, border: '1px solid rgba(255,255,255,0.25)',
   },
   // Stat cells
   bentoCellStat: {
