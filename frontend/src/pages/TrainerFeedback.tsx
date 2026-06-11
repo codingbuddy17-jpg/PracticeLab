@@ -69,7 +69,7 @@ export function TrainerFeedback() {
     <div style={styles.container}>
       <div style={styles.topBar}>
         <button style={styles.backBtn} onClick={() => navigate('/trainer')}><ChevronLeft size={16} /> Back</button>
-        <div style={styles.logo}><BookOpen size={18} color="#4f46e5" /><span style={styles.logoText}>Chart Viewer</span></div>
+        <div style={styles.logo}><BookOpen size={18} color="#4f46e5" /><span style={styles.logoText}>PracticeLab</span></div>
         <span style={styles.title}>Feedback</span>
         {openCount > 0 && <span style={styles.badge}>{openCount} open</span>}
       </div>

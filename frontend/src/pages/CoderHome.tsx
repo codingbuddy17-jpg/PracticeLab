@@ -94,7 +94,7 @@ export function CoderHome() {
       <div style={styles.nameOverlay}>
         <div style={styles.nameBox}>
           <div style={styles.nameLogoWrap}><BookOpen size={36} color="#4f46e5" /></div>
-          <h2 style={styles.nameTitle}>Welcome to Chart Viewer</h2>
+          <h2 style={styles.nameTitle}>Welcome to PracticeLab</h2>
           <p style={styles.nameSub}>Enter your name to track your practice session.</p>
           <input
             style={styles.nameInput}
@@ -123,7 +123,7 @@ export function CoderHome() {
       <div style={styles.topBar}>
         <div style={styles.logo}>
           <BookOpen size={22} color="#4f46e5" />
-          <span style={styles.logoText}>Chart Viewer</span>
+          <span style={styles.logoText}>PracticeLab</span>
         </div>
         {coderName && (
           <div style={styles.coderChip}>

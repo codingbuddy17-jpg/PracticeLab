@@ -275,7 +275,7 @@ function PageHeader({ title, onBack }: { title: string; onBack: () => void }) {
   return (
     <div style={headerStyles.topBar}>
       <button style={headerStyles.backBtn} onClick={onBack}><ChevronLeft size={16} /> Back</button>
-      <div style={headerStyles.logo}><BookOpen size={18} color="#4f46e5" /><span style={headerStyles.logoText}>Chart Viewer</span></div>
+      <div style={headerStyles.logo}><BookOpen size={18} color="#4f46e5" /><span style={headerStyles.logoText}>PracticeLab</span></div>
       <span style={headerStyles.title}>{title}</span>
     </div>
   )
