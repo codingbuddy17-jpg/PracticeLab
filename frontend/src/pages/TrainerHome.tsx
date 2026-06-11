@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { Upload, BarChart2, FileText, Settings, BookOpen, Flag, GraduationCap, ChevronRight, ClipboardList } from 'lucide-react'
+import { Upload, BarChart2, FileText, Settings, BookOpen, Flag, GraduationCap, ChevronRight } from 'lucide-react'
 import { getUnresolvedCount, getPLAnalyticsOverview } from '../api'
 
 export function TrainerHome() {
@@ -55,52 +55,35 @@ export function TrainerHome() {
         </div>
 
         <Link to="/trainer/practicelab" style={styles.plBanner}>
-          {/* Left: icon + text */}
+          {/* Left dark panel */}
           <div style={styles.plLeft}>
             <div style={styles.plIconWrap}>
-              <GraduationCap size={32} color="#fff" />
+              <GraduationCap size={28} color="#fff" />
             </div>
-            <div style={styles.plTextBlock}>
-              <div style={styles.plTitle}>
-                PracticeLab
-                <span style={styles.plPill}>Assessment</span>
-              </div>
-              <div style={styles.plDesc}>
-                Create coder batches · Auto-grade submissions · DRG review · Results &amp; analytics
-              </div>
+            <div>
+              <div style={styles.plTitle}>PracticeLab</div>
+              <div style={styles.plDesc}>Assessment Engine</div>
             </div>
           </div>
 
-          {/* Right: live stats */}
-          <div style={styles.plStats}>
-            {plStats ? (
-              <>
-                <div style={styles.plStat}>
-                  <span style={styles.plStatVal}>{plStats.total_batches}</span>
-                  <span style={styles.plStatLabel}>Batches</span>
+          {/* Right white panel — stats */}
+          <div style={styles.plRight}>
+            <div style={styles.plStats}>
+              {[
+                { val: plStats?.total_batches ?? '—', label: 'Batches' },
+                { val: plStats?.complete_batches ?? '—', label: 'Complete' },
+                { val: plStats?.total_graded ?? '—', label: 'Graded' },
+                { val: plStats ? `${plStats.overall_pass_rate}%` : '—', label: 'Pass Rate' },
+              ].map((s, i) => (
+                <div key={i} style={styles.plStat}>
+                  <span style={styles.plStatVal}>{s.val}</span>
+                  <span style={styles.plStatLabel}>{s.label}</span>
                 </div>
-                <div style={styles.plStatDivider} />
-                <div style={styles.plStat}>
-                  <span style={styles.plStatVal}>{plStats.complete_batches}</span>
-                  <span style={styles.plStatLabel}>Complete</span>
-                </div>
-                <div style={styles.plStatDivider} />
-                <div style={styles.plStat}>
-                  <span style={styles.plStatVal}>{plStats.total_graded}</span>
-                  <span style={styles.plStatLabel}>Graded</span>
-                </div>
-                <div style={styles.plStatDivider} />
-                <div style={styles.plStat}>
-                  <span style={styles.plStatVal}>{plStats.overall_pass_rate}%</span>
-                  <span style={styles.plStatLabel}>Pass Rate</span>
-                </div>
-              </>
-            ) : (
-              <div style={styles.plStat}>
-                <span style={styles.plStatLabel}>Loading stats...</span>
-              </div>
-            )}
-            <ChevronRight size={22} color="rgba(255,255,255,0.7)" style={{ marginLeft: 8 }} />
+              ))}
+            </div>
+            <div style={styles.plCta}>
+              Open <ChevronRight size={15} strokeWidth={2.5} />
+            </div>
           </div>
         </Link>
       </div>
@@ -131,26 +114,42 @@ const styles: Record<string, React.CSSProperties> = {
   plDividerLine: { flex: 1, height: 1, background: '#e5e7eb' },
   plDividerLabel: { fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase' as const, letterSpacing: 1, whiteSpace: 'nowrap' as const },
 
-  // PracticeLab banner
+  // PracticeLab banner — split layout
   plBanner: {
-    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-    background: 'linear-gradient(135deg, #0f766e 0%, #0891b2 100%)',
-    borderRadius: 16, padding: '22px 28px', textDecoration: 'none',
-    boxShadow: '0 4px 20px rgba(15,118,110,0.25)',
-    transition: 'box-shadow 0.2s, transform 0.15s',
+    display: 'flex', alignItems: 'stretch', textDecoration: 'none',
+    borderRadius: 16, overflow: 'hidden',
+    border: '1px solid #e5e7eb',
+    boxShadow: '0 2px 12px rgba(0,0,0,0.08)',
+    transition: 'box-shadow 0.2s',
     cursor: 'pointer',
   },
-  plLeft: { display: 'flex', alignItems: 'center', gap: 18 },
-  plIconWrap: { width: 60, height: 60, borderRadius: 14, background: 'rgba(255,255,255,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  plTextBlock: { display: 'flex', flexDirection: 'column', gap: 6 },
-  plTitle: { display: 'flex', alignItems: 'center', gap: 10, fontWeight: 800, fontSize: 20, color: '#fff', letterSpacing: -0.5 },
-  plPill: { fontSize: 10, fontWeight: 700, background: 'rgba(255,255,255,0.2)', color: '#fff', padding: '3px 10px', borderRadius: 20, textTransform: 'uppercase' as const, letterSpacing: 1 },
-  plDesc: { fontSize: 13, color: 'rgba(255,255,255,0.8)', lineHeight: 1.5 },
-
-  // Stats
-  plStats: { display: 'flex', alignItems: 'center', gap: 20, flexShrink: 0 },
-  plStat: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 },
-  plStatVal: { fontSize: 22, fontWeight: 800, color: '#fff', letterSpacing: -0.5 },
-  plStatLabel: { fontSize: 11, color: 'rgba(255,255,255,0.7)', fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.5 },
-  plStatDivider: { width: 1, height: 36, background: 'rgba(255,255,255,0.2)' },
+  // Dark left panel
+  plLeft: {
+    display: 'flex', flexDirection: 'column', justifyContent: 'center',
+    gap: 14, padding: '28px 30px',
+    background: '#0f172a', flexShrink: 0, minWidth: 200,
+  },
+  plIconWrap: {
+    width: 48, height: 48, borderRadius: 12,
+    background: 'rgba(255,255,255,0.1)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+  },
+  plTitle: { fontWeight: 800, fontSize: 20, color: '#fff', letterSpacing: -0.5, lineHeight: 1 },
+  plDesc: { fontSize: 12, color: '#94a3b8', fontWeight: 500, letterSpacing: 0.3 },
+  // White right panel
+  plRight: {
+    flex: 1, display: 'flex', alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '24px 28px', background: '#fff',
+  },
+  plStats: { display: 'flex', gap: 36 },
+  plStat: { display: 'flex', flexDirection: 'column', gap: 3 },
+  plStatVal: { fontSize: 28, fontWeight: 800, color: '#111', letterSpacing: -1, lineHeight: 1 },
+  plStatLabel: { fontSize: 11, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.6 },
+  plCta: {
+    display: 'flex', alignItems: 'center', gap: 4,
+    fontSize: 13, fontWeight: 700, color: '#0f172a',
+    background: '#f1f5f9', padding: '8px 16px',
+    borderRadius: 8, flexShrink: 0,
+  },
 }
