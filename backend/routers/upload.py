@@ -2,12 +2,52 @@ from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
 import json
+from pydantic import BaseModel
 from database import get_db
-from models import Chart, ChartStatus, Specialty, Difficulty
+from models import Chart, ChartStatus, Specialty, Difficulty, ChartSequence
 from schemas import BulkUploadResult
 from services.chart_service import next_chart_number, ingest_file, log_audit
+from models import PREFIX_FOR_SPECIALTY
 
 router = APIRouter(prefix="/upload", tags=["upload"])
+
+
+class PreviewItem(BaseModel):
+    filename: str
+    specialty: Specialty
+
+
+class PreviewResult(BaseModel):
+    filename: str
+    specialty: str
+    assigned_number: str
+
+
+@router.post("/preview", response_model=List[PreviewResult])
+def preview_chart_numbers(items: List[PreviewItem], db: Session = Depends(get_db)):
+    """
+    Returns what chart numbers will be assigned without committing anything.
+    Uses in-memory counters on top of current DB sequence — no DB writes.
+    """
+    # Load current sequence values from DB
+    sequences: dict[str, int] = {}
+    all_seqs = db.query(ChartSequence).all()
+    for s in all_seqs:
+        sequences[s.prefix] = s.last_number
+
+    results = []
+    for item in items:
+        prefix = PREFIX_FOR_SPECIALTY[item.specialty]
+        current = sequences.get(prefix, 0)
+        current += 1
+        sequences[prefix] = current
+        results.append(PreviewResult(
+            filename=item.filename,
+            specialty=item.specialty.value,
+            assigned_number=f"{prefix}{current:03d}",
+        ))
+
+    return results
 
 
 @router.post("/bulk", response_model=List[BulkUploadResult])

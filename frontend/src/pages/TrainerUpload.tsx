@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Upload, CheckCircle, XCircle, ChevronLeft, BookOpen } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { bulkUpload } from '../api'
+import { bulkUpload, previewChartNumbers } from '../api'
 import { RationaleEditor } from '../components/RationaleEditor'
 import { useLocalStorage } from '../hooks/useLocalStorage'
 import type { BulkUploadMeta, BulkUploadResult, Specialty, Difficulty } from '../types'
@@ -17,8 +17,21 @@ export function TrainerUpload() {
   const [results, setResults] = useState<BulkUploadResult[] | null>(null)
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
+  const [preview, setPreview] = useState<{ filename: string; specialty: string; assigned_number: string }[]>([])
+  const [loadingPreview, setLoadingPreview] = useState(false)
 
   const isRowComplete = (r: Partial<RowMeta>) => !!(r.category?.trim() && r.specialty && r.difficulty)
+
+  const refreshPreview = async (updatedRows: RowMeta[]) => {
+    if (updatedRows.length === 0) { setPreview([]); return }
+    setLoadingPreview(true)
+    try {
+      const items = updatedRows.map(r => ({ filename: r.file.name, specialty: r.specialty }))
+      const res = await previewChartNumbers(items)
+      setPreview(res)
+    } catch { /* silently skip */ }
+    finally { setLoadingPreview(false) }
+  }
 
   const handleFiles = useCallback((files: FileList | null) => {
     if (!files) return
@@ -27,25 +40,41 @@ export function TrainerUpload() {
       const row: RowMeta = { file, uploaded_by: trainerName, specialty, category: '', difficulty: 'Beginner', rationale: '', complete: false }
       return row
     })
-    setRows(prev => [...prev, ...newRows])
-  }, [trainerName])
+    const updated = [...rows, ...newRows]
+    setRows(updated)
+    refreshPreview(updated)
+  }, [trainerName, rows])
 
   const updateRow = (idx: number, key: keyof RowMeta, value: string) => {
-    setRows(prev => prev.map((r, i) => {
-      if (i !== idx) return r
-      const updated = { ...r, [key]: value }
-      return { ...updated, complete: isRowComplete(updated) }
-    }))
+    setRows(prev => {
+      const next = prev.map((r, i) => {
+        if (i !== idx) return r
+        const updated = { ...r, [key]: value }
+        return { ...updated, complete: isRowComplete(updated) }
+      })
+      if (key === 'specialty') refreshPreview(next)
+      return next
+    })
   }
 
   const applyToAll = (key: keyof BulkUploadMeta, value: string) => {
-    setRows(prev => prev.map(r => {
-      const updated = { ...r, [key]: value }
-      return { ...updated, complete: isRowComplete(updated) }
-    }))
+    setRows(prev => {
+      const next = prev.map(r => {
+        const updated = { ...r, [key]: value }
+        return { ...updated, complete: isRowComplete(updated) }
+      })
+      if (key === 'specialty') refreshPreview(next)
+      return next
+    })
   }
 
-  const removeRow = (idx: number) => setRows(prev => prev.filter((_, i) => i !== idx))
+  const removeRow = (idx: number) => {
+    setRows(prev => {
+      const next = prev.filter((_, i) => i !== idx)
+      refreshPreview(next)
+      return next
+    })
+  }
 
   const handleSubmit = async () => {
     if (!trainerName.trim()) { toast.error('Enter your name before uploading'); return }
@@ -143,6 +172,33 @@ export function TrainerUpload() {
 
         {rows.length > 0 && (
           <>
+            {/* Chart number preview */}
+            <div style={styles.previewBox}>
+              <div style={styles.previewHeader}>
+                📋 Chart numbers that will be assigned
+                {loadingPreview && <span style={styles.previewLoading}> — updating...</span>}
+              </div>
+              <div style={styles.previewNote}>Share these with your team before uploading so answer keys are aligned.</div>
+              <div style={styles.previewTable}>
+                <div style={styles.previewRowHeader}>
+                  <span>File</span><span>Specialty</span><span>Assigned Number</span>
+                </div>
+                {preview.length > 0 ? preview.map((p, i) => (
+                  <div key={i} style={styles.previewRow}>
+                    <span style={styles.previewFilename}>{p.filename}</span>
+                    <span style={styles.previewSpecialty}>{p.specialty}</span>
+                    <span style={styles.previewNumber}>{p.assigned_number}</span>
+                  </div>
+                )) : rows.map((r, i) => (
+                  <div key={i} style={styles.previewRow}>
+                    <span style={styles.previewFilename}>{r.file.name}</span>
+                    <span style={styles.previewSpecialty}>{r.specialty}</span>
+                    <span style={{ ...styles.previewNumber, color: '#9ca3af' }}>Loading...</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             <div style={styles.applyAllRow}>
               <span style={styles.applyLabel}>Apply to all:</span>
               <select style={styles.select} onChange={e => e.target.value && applyToAll('difficulty', e.target.value)} defaultValue="">
@@ -257,6 +313,16 @@ const styles: Record<string, React.CSSProperties> = {
   input: { padding: '9px 11px', border: '1px solid #e5e7eb', borderRadius: 7, fontSize: 13 },
   select: { padding: '9px 11px', border: '1px solid #e5e7eb', borderRadius: 7, fontSize: 13, background: '#fff' },
   primaryBtn: { padding: '12px 28px', background: '#4f46e5', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 700, fontSize: 14, alignSelf: 'flex-start' },
+  previewBox: { background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 10, padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 8 },
+  previewHeader: { fontWeight: 700, fontSize: 14, color: '#15803d', display: 'flex', alignItems: 'center', gap: 6 },
+  previewLoading: { fontWeight: 400, fontSize: 12, color: '#6b7280' },
+  previewNote: { fontSize: 12, color: '#16a34a' },
+  previewTable: { display: 'flex', flexDirection: 'column', gap: 0, border: '1px solid #bbf7d0', borderRadius: 7, overflow: 'hidden', background: '#fff' },
+  previewRowHeader: { display: 'grid', gridTemplateColumns: '1fr 140px 140px', padding: '7px 12px', background: '#f0fdf4', fontSize: 11, fontWeight: 700, color: '#15803d', textTransform: 'uppercase' as const, letterSpacing: 0.5, borderBottom: '1px solid #bbf7d0' },
+  previewRow: { display: 'grid', gridTemplateColumns: '1fr 140px 140px', padding: '8px 12px', borderBottom: '1px solid #f0fdf4', fontSize: 13, alignItems: 'center' },
+  previewFilename: { color: '#374151', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const },
+  previewSpecialty: { color: '#6b7280', fontSize: 12 },
+  previewNumber: { fontWeight: 800, color: '#15803d', fontSize: 15, letterSpacing: -0.3 },
   progressWrap: { display: 'flex', flexDirection: 'column', gap: 6 },
   progressBar: { height: 6, background: '#e5e7eb', borderRadius: 3, overflow: 'hidden' },
   progressFill: { height: '100%', background: '#4f46e5', borderRadius: 3, transition: 'width 0.4s ease' },

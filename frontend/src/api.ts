@@ -50,6 +50,11 @@ export async function restoreChart(chartId: number, actor: string, passphrase?: 
   return data
 }
 
+export async function previewChartNumbers(items: { filename: string; specialty: string }[]): Promise<{ filename: string; specialty: string; assigned_number: string }[]> {
+  const { data } = await api.post('/upload/preview', items)
+  return data
+}
+
 export async function bulkUpload(files: File[], metaList: BulkUploadMeta[]): Promise<BulkUploadResult[]> {
   const form = new FormData()
   files.forEach(f => form.append('files', f))
