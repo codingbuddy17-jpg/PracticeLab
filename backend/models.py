@@ -1,5 +1,5 @@
 from sqlalchemy import (
-    Column, String, Integer, Text, DateTime, Boolean,
+    Column, String, Integer, Float, Text, DateTime, Boolean,
     ForeignKey, Enum as SAEnum, func, JSON
 )
 from sqlalchemy.orm import relationship
@@ -189,6 +189,8 @@ class Batch(Base):
     created_by = Column(String(100), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     status = Column(SAEnum(BatchStatus), default=BatchStatus.DRAFT, nullable=False, index=True)
+    use_weighted = Column(Boolean, nullable=False, default=True)
+    use_dpo = Column(Boolean, nullable=False, default=False)
 
     coders = relationship("BatchCoder", back_populates="batch", cascade="all, delete-orphan")
     chart_assignments = relationship("BatchChart", back_populates="batch", cascade="all, delete-orphan")
@@ -259,6 +261,11 @@ class GradingResult(Base):
     total_score = Column(Integer, nullable=True)  # null until finalized
     pass_fail = Column(SAEnum(PassFail), nullable=True)
     graded_at = Column(DateTime(timezone=True), server_default=func.now())
+    # DPO supplementary accuracy (null when batch.use_dpo=False)
+    dpo_dx_accuracy = Column(Float, nullable=True)    # Dx code accuracy 0–100
+    dpo_poa_accuracy = Column(Float, nullable=True)   # POA accuracy 0–100 (IP only)
+    dpo_proc_accuracy = Column(Float, nullable=True)  # PCS or CPT accuracy 0–100
+    dpo_overall_accuracy = Column(Float, nullable=True)
 
     batch = relationship("Batch", back_populates="results")
     submission = relationship("Submission", back_populates="result")
@@ -301,5 +308,10 @@ class ScoringConfig(Base):
     drg_triggers = Column(JSON, nullable=True, default=list)
     # Toggle overcoding penalty
     overcoding_penalty = Column(Boolean, nullable=False, default=True)
+    # Method availability toggles (admin-controlled, affect future batches only)
+    weighted_enabled = Column(Boolean, nullable=False, default=True)
+    dpo_enabled = Column(Boolean, nullable=False, default=True)
+    # DPO pass threshold expressed as accuracy % (e.g. 80.0 = pass if overall accuracy ≥ 80%)
+    dpo_pass_threshold = Column(Float, nullable=False, default=80.0)
     updated_by = Column(String(100), nullable=True)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

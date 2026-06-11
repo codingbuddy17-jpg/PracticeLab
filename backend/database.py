@@ -126,6 +126,16 @@ def _run_migrations():
             detail VARCHAR(200)
         )""",
         "ALTER TABLE batch_coders ADD COLUMN IF NOT EXISTS emp_id VARCHAR(50)",
+        # DPO scoring layer
+        "ALTER TABLE batches ADD COLUMN IF NOT EXISTS use_weighted BOOLEAN NOT NULL DEFAULT TRUE",
+        "ALTER TABLE batches ADD COLUMN IF NOT EXISTS use_dpo BOOLEAN NOT NULL DEFAULT FALSE",
+        "ALTER TABLE grading_results ADD COLUMN IF NOT EXISTS dpo_dx_accuracy FLOAT",
+        "ALTER TABLE grading_results ADD COLUMN IF NOT EXISTS dpo_poa_accuracy FLOAT",
+        "ALTER TABLE grading_results ADD COLUMN IF NOT EXISTS dpo_proc_accuracy FLOAT",
+        "ALTER TABLE grading_results ADD COLUMN IF NOT EXISTS dpo_overall_accuracy FLOAT",
+        "ALTER TABLE scoring_configs ADD COLUMN IF NOT EXISTS weighted_enabled BOOLEAN NOT NULL DEFAULT TRUE",
+        "ALTER TABLE scoring_configs ADD COLUMN IF NOT EXISTS dpo_enabled BOOLEAN NOT NULL DEFAULT TRUE",
+        "ALTER TABLE scoring_configs ADD COLUMN IF NOT EXISTS dpo_pass_threshold FLOAT NOT NULL DEFAULT 80.0",
         """CREATE TABLE IF NOT EXISTS scoring_configs (
             id SERIAL PRIMARY KEY,
             specialty_type VARCHAR(10) NOT NULL UNIQUE,

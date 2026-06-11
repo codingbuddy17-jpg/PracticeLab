@@ -27,10 +27,12 @@ export function TrainerPracticeLab() {
   const [batches, setBatches] = useState<any[]>([])
   const [selectedBatchId, setSelectedBatchId] = useState<number | null>(null)
   const [overview, setOverview] = useState<any>(null)
+  const [scoringCfg, setScoringCfg] = useState<any>(null)
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
     loadHome()
+    getScoringConfigs().then(setScoringCfg).catch(() => {})
   }, [])
 
   async function loadHome() {
@@ -98,6 +100,7 @@ export function TrainerPracticeLab() {
         {view === 'create-batch' && (
           <CreateBatchView
             onCreated={(id) => { setSelectedBatchId(id); setView('batch-detail'); loadHome() }}
+            scoringCfg={scoringCfg}
           />
         )}
         {view === 'batch-detail' && selectedBatchId && (
@@ -278,10 +281,12 @@ function AnswerKeysView() {
 
 // ── Create Batch ──────────────────────────────────────────────────────────────
 
-function CreateBatchView({ onCreated }: { onCreated: (id: number) => void }) {
+function CreateBatchView({ onCreated, scoringCfg }: { onCreated: (id: number) => void; scoringCfg?: any }) {
   const [form, setForm] = useState({
     name: '', specialty: 'IP-DRG', categories: '', difficulties: [] as string[],
     charts_per_coder: 5,
+    use_weighted: true,
+    use_dpo: false,
   })
   const [coders, setCoders] = useState<{ name: string; emp_id: string }[]>([])
   const [pool, setPool] = useState<{ total_matching: number; with_answer_key: number } | null>(null)
@@ -340,6 +345,8 @@ function CreateBatchView({ onCreated }: { onCreated: (id: number) => void }) {
         charts_per_coder: form.charts_per_coder,
         coders,
         created_by: trainerName(),
+        use_weighted: form.use_weighted,
+        use_dpo: form.use_dpo,
       })
       toast.success(`Batch created — ${res.pool_size} charts in pool`)
       onCreated(res.batch_id)
@@ -410,6 +417,34 @@ function CreateBatchView({ onCreated }: { onCreated: (id: number) => void }) {
           {available === 0 && <span style={{ color: '#dc2626', marginLeft: 8 }}>⚠ No keyed charts — upload answer keys first.</span>}
         </div>
       )}
+
+      {/* Scoring method */}
+      <div style={styles.formGroup}>
+        <label style={styles.label}>Scoring Method</label>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <label style={styles.methodOption}>
+            <input type="checkbox" checked={form.use_weighted}
+              disabled={scoringCfg && !scoringCfg.weighted_enabled}
+              onChange={e => setForm(f => ({ ...f, use_weighted: e.target.checked }))} />
+            <div>
+              <div style={styles.methodLabel}>Weighted Scoring <span style={styles.methodBadge}>Primary · Pass/Fail</span></div>
+              <div style={styles.methodDesc}>Category importance (PDx / SDx / PCS / DRG weights) — drives the official pass/fail verdict</div>
+            </div>
+          </label>
+          <label style={styles.methodOption}>
+            <input type="checkbox" checked={form.use_dpo}
+              disabled={scoringCfg && !scoringCfg.dpo_enabled}
+              onChange={e => setForm(f => ({ ...f, use_dpo: e.target.checked }))} />
+            <div>
+              <div style={styles.methodLabel}>DPO Accuracy <span style={{ ...styles.methodBadge, background: '#dbeafe', color: '#1d4ed8' }}>Supplementary</span></div>
+              <div style={styles.methodDesc}>Defect rate per code opportunity — shows Dx, POA and procedure accuracy % per coder</div>
+            </div>
+          </label>
+          {!form.use_weighted && !form.use_dpo && (
+            <div style={{ color: '#dc2626', fontSize: 12 }}>At least one method must be selected</div>
+          )}
+        </div>
+      </div>
 
       {/* Coder list */}
       <div style={styles.formGroup}>
@@ -678,7 +713,18 @@ function ResultsView({ batchId }: any) {
   if (loading) return <div style={styles.center}><Loader size={24} /></div>
   if (!data) return <div style={styles.center}>No results yet</div>
 
-  const { batch_summary: bs, coder_summaries, is_ip } = data
+  const { batch_summary: bs, coder_summaries, is_ip, use_dpo } = data
+
+  function AccBadge({ val, label }: { val: number | null | undefined; label: string }) {
+    if (val == null) return null
+    const color = val >= 90 ? '#16a34a' : val >= 80 ? '#d97706' : '#dc2626'
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 70 }}>
+        <div style={{ fontSize: 18, fontWeight: 800, color }}>{val}%</div>
+        <div style={{ fontSize: 10, color: '#6b7280', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4 }}>{label}</div>
+      </div>
+    )
+  }
 
   return (
     <div style={styles.section}>
@@ -755,6 +801,22 @@ function ResultsView({ batchId }: any) {
             </div>
             {expanded === c.coder_name && (
               <div style={styles.chartDetail}>
+                {/* DPO supplementary accuracy panel */}
+                {use_dpo && (c.dpo_dx_accuracy != null || c.dpo_overall_accuracy != null) && (
+                  <div style={styles.dpoPanel}>
+                    <div style={styles.dpoPanelTitle}>
+                      <span style={styles.dpoSupBadge}>DPO Supplementary</span>
+                      Coding Accuracy Breakdown
+                    </div>
+                    <div style={styles.dpoPanelRow}>
+                      <AccBadge val={c.dpo_dx_accuracy} label="Dx Accuracy" />
+                      {is_ip && <AccBadge val={c.dpo_poa_accuracy} label="POA Accuracy" />}
+                      <AccBadge val={c.dpo_proc_accuracy} label={is_ip ? 'PCS Accuracy' : 'CPT Accuracy'} />
+                      <div style={styles.dpoDivider} />
+                      <AccBadge val={c.dpo_overall_accuracy} label="Overall Accuracy" />
+                    </div>
+                  </div>
+                )}
                 {c.charts.map((ch: any) => (
                   <div key={ch.chart_number} style={styles.chartDetailRow}>
                     <span style={{ fontWeight: 600, minWidth: 70 }}>{ch.chart_number}</span>
@@ -842,6 +904,7 @@ function ScoringConfigView() {
 
     setSaving(true)
     try {
+      if (!f.weighted_enabled && !f.dpo_enabled) return toast.error('At least one scoring method must be enabled')
       await updateScoringConfig({
         specialty_type: tab,
         pdx_weight: f.pdx_weight,
@@ -852,6 +915,9 @@ function ScoringConfigView() {
         pass_threshold: f.pass_threshold,
         drg_triggers: tab === 'IP' ? (f.drg_triggers || []) : [],
         overcoding_penalty: f.overcoding_penalty,
+        weighted_enabled: f.weighted_enabled ?? true,
+        dpo_enabled: f.dpo_enabled ?? true,
+        dpo_pass_threshold: f.dpo_pass_threshold ?? 80,
         passphrase,
         updated_by: trainerName(),
       })
@@ -939,6 +1005,39 @@ function ScoringConfigView() {
           ))}
         </div>
       )}
+
+      {/* Method availability */}
+      <div style={styles.configSection}>
+        <div style={styles.configSectionTitle}>Scoring Method Availability
+          <span style={styles.hint}> — disabled methods cannot be selected when creating a batch</span>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontSize: 13 }}>
+            <input type="checkbox" checked={f.weighted_enabled ?? true}
+              onChange={e => updateField(tab, 'weighted_enabled', e.target.checked)} />
+            <span><strong>Weighted Scoring</strong> enabled (primary method, drives pass/fail)</span>
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontSize: 13 }}>
+            <input type="checkbox" checked={f.dpo_enabled ?? true}
+              onChange={e => updateField(tab, 'dpo_enabled', e.target.checked)} />
+            <span><strong>DPO Accuracy</strong> enabled (supplementary, shows per-area accuracy %)</span>
+          </label>
+          {!(f.weighted_enabled ?? true) && !(f.dpo_enabled ?? true) && (
+            <div style={{ color: '#dc2626', fontSize: 12 }}>At least one method must remain enabled</div>
+          )}
+        </div>
+        <div style={{ marginTop: 14 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 4 }}>
+            DPO Pass Threshold <span style={styles.hint}>(for supplementary reference only)</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <input type="number" min={50} max={100} style={{ ...styles.input, width: 80 }}
+              value={f.dpo_pass_threshold ?? 80}
+              onChange={e => updateField(tab, 'dpo_pass_threshold', parseFloat(e.target.value) || 80)} />
+            <span style={styles.hint}>% accuracy — shown alongside results but does not override weighted pass/fail</span>
+          </div>
+        </div>
+      </div>
 
       {/* Passphrase + Save */}
       <div style={styles.configSection}>
@@ -1042,4 +1141,15 @@ const styles: Record<string, React.CSSProperties> = {
   configSection: { background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 10 },
   configSectionTitle: { fontSize: 14, fontWeight: 700, color: '#111' },
   weightGrid: { display: 'flex', gap: 16, flexWrap: 'wrap' as const },
+  // Scoring method selector (batch creation)
+  methodOption: { display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer', padding: '10px 12px', background: '#f9fafb', borderRadius: 8, border: '1px solid #e5e7eb' },
+  methodLabel: { fontSize: 13, fontWeight: 700, color: '#111', display: 'flex', alignItems: 'center', gap: 8 },
+  methodBadge: { fontSize: 10, fontWeight: 700, background: '#d1fae5', color: '#065f46', padding: '2px 8px', borderRadius: 10, letterSpacing: 0.3 },
+  methodDesc: { fontSize: 12, color: '#6b7280', marginTop: 2, lineHeight: 1.5 },
+  // DPO accuracy panel in results
+  dpoPanel: { background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '12px 16px', marginBottom: 10 },
+  dpoPanelTitle: { fontSize: 12, fontWeight: 700, color: '#1d4ed8', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 },
+  dpoSupBadge: { fontSize: 10, fontWeight: 700, background: '#dbeafe', color: '#1d4ed8', padding: '2px 8px', borderRadius: 10, letterSpacing: 0.3 },
+  dpoPanelRow: { display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' as const },
+  dpoDivider: { width: 1, height: 36, background: '#bfdbfe', margin: '0 4px' },
 }

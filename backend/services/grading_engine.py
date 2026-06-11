@@ -419,6 +419,172 @@ def finalize_ip_score(pdx_score: int, sdx_score: int, pcs_score: int,
     return total, pass_fail, drg_score
 
 
+# ── DPO accuracy layer ────────────────────────────────────────────────────────
+
+@dataclass
+class DPOSection:
+    label: str
+    opportunities: int
+    defects: int
+
+    @property
+    def accuracy(self) -> Optional[float]:
+        """Returns accuracy 0–100, or None when no opportunities exist (N/A)."""
+        if self.opportunities == 0:
+            return None
+        return round(max(0.0, (1 - self.defects / self.opportunities)) * 100, 1)
+
+
+@dataclass
+class DPOResult:
+    dx: DPOSection     # Diagnostic code accuracy (PDx + SDx codes)
+    poa: DPOSection    # POA indicator accuracy (IP only; opportunities=0 for OP)
+    proc: DPOSection   # PCS (IP) or CPT+Mod (OP)
+    overall_accuracy: float
+
+
+def compute_dpo_ip(ak: IPAnswerKey, sub: IPSubmission, overcoding_penalty: bool) -> DPOResult:
+    """DPO supplementary scoring for IP charts. All accuracies expressed 0–100%."""
+    # ── DX section: PDx code + SDx codes (POA excluded here) ─────────────────
+    ak_sdx = [s for s in ak.sdx if norm_dx(s.get("code", ""))]
+    cdr_sdx = [s for s in sub.sdx if norm_dx(s.get("code", ""))]
+
+    dx_opp = 1 + len(ak_sdx)
+    dx_defects = 0
+
+    pdx_code_ok = norm_dx(sub.pdx_code) == norm_dx(ak.pdx_code)
+    if not pdx_code_ok:
+        dx_defects += 1
+
+    # SDx code matching (order-independent, ignoring POA for this section)
+    ak_sdx_used = [False] * len(ak_sdx)
+    sdx_code_matched_idx: list[tuple[int, int]] = []  # (ak_idx, cdr_idx)
+    for ci, cs in enumerate(cdr_sdx):
+        c = norm_dx(cs.get("code", ""))
+        for ai, a in enumerate(ak_sdx):
+            if not ak_sdx_used[ai] and norm_dx(a.get("code", "")) == c:
+                ak_sdx_used[ai] = True
+                sdx_code_matched_idx.append((ai, ci))
+                break
+
+    sdx_missed = len(ak_sdx) - len(sdx_code_matched_idx)
+    dx_defects += sdx_missed
+
+    sdx_extra = max(0, len(cdr_sdx) - len(ak_sdx)) if overcoding_penalty else 0
+    dx_defects += sdx_extra
+    if overcoding_penalty and sdx_extra > 0:
+        dx_opp += sdx_extra  # extra submissions create additional opportunities
+
+    # ── POA section: PDx POA + POA on code-matched SDx ───────────────────────
+    poa_opp = 0
+    poa_defects = 0
+
+    if pdx_code_ok:
+        poa_opp += 1
+        if sub.pdx_poa.upper().strip() != ak.pdx_poa.upper().strip():
+            poa_defects += 1
+
+    cdr_sdx_used_set = {ci for _, ci in sdx_code_matched_idx}
+    for ai, ci in sdx_code_matched_idx:
+        poa_opp += 1
+        if cdr_sdx[ci].get("poa", "").upper().strip() != ak_sdx[ai].get("poa", "").upper().strip():
+            poa_defects += 1
+
+    # ── PCS section ───────────────────────────────────────────────────────────
+    ak_pcs = [p for p in ak.pcs if norm_pcs(p.get("code", ""))]
+    cdr_pcs = [p for p in sub.pcs if norm_pcs(p.get("code", ""))]
+
+    if len(ak_pcs) == 0 and len(cdr_pcs) == 0:
+        proc = DPOSection("PCS Accuracy", 0, 0)
+    else:
+        ak_pcs_used = [False] * len(ak_pcs)
+        pcs_matched = 0
+        for cp in cdr_pcs:
+            c = norm_pcs(cp.get("code", ""))
+            for ai, ap in enumerate(ak_pcs):
+                if not ak_pcs_used[ai] and norm_pcs(ap.get("code", "")) == c:
+                    pcs_matched += 1
+                    ak_pcs_used[ai] = True
+                    break
+        pcs_missed = len(ak_pcs) - pcs_matched
+        pcs_extra = max(0, len(cdr_pcs) - len(ak_pcs)) if overcoding_penalty else 0
+        pcs_opp = len(ak_pcs) + (pcs_extra if overcoding_penalty else 0)
+        proc = DPOSection("PCS Accuracy", pcs_opp, pcs_missed + pcs_extra)
+
+    # ── Overall ───────────────────────────────────────────────────────────────
+    total_opp = dx_opp + poa_opp + proc.opportunities
+    total_def = dx_defects + poa_defects + proc.defects
+    overall = round(max(0.0, (1 - total_def / total_opp)) * 100, 1) if total_opp > 0 else 100.0
+
+    return DPOResult(
+        dx=DPOSection("Dx Accuracy", dx_opp, dx_defects),
+        poa=DPOSection("POA Accuracy", poa_opp, poa_defects),
+        proc=proc,
+        overall_accuracy=overall,
+    )
+
+
+def compute_dpo_op(ak: OPAnswerKey, sub: OPSubmission, overcoding_penalty: bool) -> DPOResult:
+    """DPO supplementary scoring for OP charts."""
+    # ── DX section ────────────────────────────────────────────────────────────
+    ak_sdx = [s for s in ak.sdx if norm_dx(s.get("code", ""))]
+    cdr_sdx = [s for s in sub.sdx if norm_dx(s.get("code", ""))]
+
+    dx_opp = 1 + len(ak_sdx)
+    dx_defects = 0
+
+    if norm_dx(sub.pdx_code) != norm_dx(ak.pdx_code):
+        dx_defects += 1
+
+    ak_sdx_used = [False] * len(ak_sdx)
+    sdx_matched = 0
+    for cs in cdr_sdx:
+        c = norm_dx(cs.get("code", ""))
+        for ai, a in enumerate(ak_sdx):
+            if not ak_sdx_used[ai] and norm_dx(a.get("code", "")) == c:
+                ak_sdx_used[ai] = True
+                sdx_matched += 1
+                break
+
+    dx_defects += (len(ak_sdx) - sdx_matched)
+    sdx_extra = max(0, len(cdr_sdx) - len(ak_sdx)) if overcoding_penalty else 0
+    dx_defects += sdx_extra
+    if overcoding_penalty and sdx_extra > 0:
+        dx_opp += sdx_extra
+
+    # ── CPT+Modifier section ──────────────────────────────────────────────────
+    ak_cpt = [c for c in ak.cpt if norm_cpt(c.get("code", ""))]
+    cdr_cpt = [c for c in sub.cpt if norm_cpt(c.get("code", ""))]
+
+    if len(ak_cpt) == 0 and len(cdr_cpt) == 0:
+        proc = DPOSection("CPT Accuracy", 0, 0)
+    else:
+        ak_cpt_used = [False] * len(ak_cpt)
+        cpt_matched = 0
+        for cc in cdr_cpt:
+            c, m = norm_cpt(cc.get("code", "")), norm_mod(cc.get("modifier", ""))
+            for ai, a in enumerate(ak_cpt):
+                if not ak_cpt_used[ai] and norm_cpt(a.get("code", "")) == c and norm_mod(a.get("modifier", "")) == m:
+                    cpt_matched += 1
+                    ak_cpt_used[ai] = True
+                    break
+        cpt_missed = len(ak_cpt) - cpt_matched
+        cpt_extra = max(0, len(cdr_cpt) - len(ak_cpt)) if overcoding_penalty else 0
+        cpt_opp = len(ak_cpt) + (cpt_extra if overcoding_penalty else 0)
+        proc = DPOSection("CPT Accuracy", cpt_opp, cpt_missed + cpt_extra)
+
+    total_opp = dx_opp + proc.opportunities
+    total_def = dx_defects + proc.defects
+    overall = round(max(0.0, (1 - total_def / total_opp)) * 100, 1) if total_opp > 0 else 100.0
+
+    return DPOResult(
+        dx=DPOSection("Dx Accuracy", dx_opp, dx_defects),
+        poa=DPOSection("POA Accuracy", 0, 0),   # N/A for OP
+        proc=proc,
+        overall_accuracy=overall,
+    )
+
+
 def cfg_from_db(db_row) -> "IPScoringCfg | OPScoringCfg":
     """Convert a ScoringConfig DB row to the appropriate config dataclass."""
     if db_row.specialty_type == "IP":

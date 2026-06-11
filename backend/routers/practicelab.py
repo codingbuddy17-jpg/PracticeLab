@@ -19,6 +19,7 @@ from models import (
 )
 from services.grading_engine import (
     grade_ip, grade_op, finalize_ip_score, cfg_from_db,
+    compute_dpo_ip, compute_dpo_op,
     IPAnswerKey, OPAnswerKey, IPSubmission, OPSubmission,
     DEFAULT_IP_CFG, DEFAULT_OP_CFG,
 )
@@ -91,6 +92,9 @@ def get_scoring_configs(db: Session = Depends(get_db)):
             "pass_threshold": row.pass_threshold,
             "drg_triggers": row.drg_triggers or [],
             "overcoding_penalty": row.overcoding_penalty,
+            "weighted_enabled": getattr(row, "weighted_enabled", True),
+            "dpo_enabled": getattr(row, "dpo_enabled", True),
+            "dpo_pass_threshold": getattr(row, "dpo_pass_threshold", 80.0),
             "updated_by": row.updated_by,
             "updated_at": row.updated_at.isoformat() if row.updated_at else None,
         }
@@ -107,6 +111,9 @@ class ScoringConfigUpdate(BaseModel):
     pass_threshold: int
     drg_triggers: list[str] = []
     overcoding_penalty: bool = True
+    weighted_enabled: bool = True
+    dpo_enabled: bool = True
+    dpo_pass_threshold: float = 80.0
     passphrase: str
     updated_by: str
 
@@ -141,6 +148,12 @@ def update_scoring_config(payload: ScoringConfigUpdate, db: Session = Depends(ge
     row.pass_threshold = payload.pass_threshold
     row.drg_triggers = payload.drg_triggers
     row.overcoding_penalty = payload.overcoding_penalty
+    # Validate method toggles — at least one must remain enabled
+    if not payload.weighted_enabled and not payload.dpo_enabled:
+        raise HTTPException(status_code=400, detail="At least one scoring method must be enabled")
+    row.weighted_enabled = payload.weighted_enabled
+    row.dpo_enabled = payload.dpo_enabled
+    row.dpo_pass_threshold = payload.dpo_pass_threshold
     row.updated_by = payload.updated_by
     db.commit()
     return {"message": f"{stype} scoring config updated"}
@@ -249,6 +262,8 @@ class BatchCreate(BaseModel):
     charts_per_coder: int
     coders: list[CoderEntry]
     created_by: str
+    use_weighted: bool = True
+    use_dpo: bool = False
 
 
 @router.post("/batches")
@@ -287,6 +302,9 @@ def create_batch(payload: BatchCreate, db: Session = Depends(get_db)):
     if payload.charts_per_coder < 1:
         raise HTTPException(status_code=400, detail="charts_per_coder must be at least 1")
 
+    if not payload.use_weighted and not payload.use_dpo:
+        raise HTTPException(status_code=400, detail="At least one scoring method must be selected")
+
     # Create batch record
     batch = Batch(
         name=payload.name,
@@ -296,6 +314,8 @@ def create_batch(payload: BatchCreate, db: Session = Depends(get_db)):
         charts_per_coder=payload.charts_per_coder,
         created_by=payload.created_by,
         status=BatchStatus.ACTIVE,
+        use_weighted=payload.use_weighted,
+        use_dpo=payload.use_dpo,
     )
     db.add(batch)
     db.flush()
@@ -418,6 +438,8 @@ def get_batch(batch_id: int, db: Session = Depends(get_db)):
         "charts_per_coder": batch.charts_per_coder, "status": batch.status.value,
         "created_by": batch.created_by,
         "created_at": batch.created_at.isoformat() if batch.created_at else None,
+        "use_weighted": getattr(batch, "use_weighted", True),
+        "use_dpo": getattr(batch, "use_dpo", False),
         "coders": [{"name": c.coder_name, "emp_id": c.emp_id or "",
                     "excel_generated": c.excel_generated_at is not None,
                     "charts": coder_map.get(c.coder_name, [])} for c in coders],
@@ -606,6 +628,44 @@ def grade_submissions(
                         drg_reviewed=True,
                     )
 
+                # DPO supplementary accuracy (runs independently of weighted)
+                if batch.use_dpo:
+                    penalty = (ip_cfg if _is_ip(chart.specialty) else op_cfg).overcoding_penalty
+                    if _is_ip(chart.specialty):
+                        dpo = compute_dpo_ip(
+                            IPAnswerKey(
+                                pdx_code=ak_rec.pdx_code or "",
+                                pdx_poa=ak_rec.pdx_poa or "",
+                                sdx=ak_rec.sdx or [],
+                                pcs=ak_rec.pcs or [],
+                            ),
+                            IPSubmission(
+                                pdx_code=sub_data.get("pdx_code", ""),
+                                pdx_poa=sub_data.get("pdx_poa", ""),
+                                sdx=sub_data.get("sdx", []),
+                                pcs=sub_data.get("pcs", []),
+                            ),
+                            penalty,
+                        )
+                    else:
+                        dpo = compute_dpo_op(
+                            OPAnswerKey(
+                                pdx_code=ak_rec.pdx_code or "",
+                                sdx=ak_rec.sdx or [],
+                                cpt=ak_rec.cpt or [],
+                            ),
+                            OPSubmission(
+                                pdx_code=sub_data.get("pdx_code", ""),
+                                sdx=sub_data.get("sdx", []),
+                                cpt=sub_data.get("cpt", []),
+                            ),
+                            penalty,
+                        )
+                    gr.dpo_dx_accuracy = dpo.dx.accuracy
+                    gr.dpo_poa_accuracy = dpo.poa.accuracy   # None for OP
+                    gr.dpo_proc_accuracy = dpo.proc.accuracy
+                    gr.dpo_overall_accuracy = dpo.overall_accuracy
+
                 db.add(gr)
                 db.flush()
 
@@ -735,6 +795,8 @@ def get_batch_results(batch_id: int, db: Session = Depends(get_db)):
 
     is_ip = _is_ip(batch.specialty)
 
+    use_dpo = getattr(batch, "use_dpo", False)
+
     # Coder aggregation
     coder_map: dict[str, dict] = {}
     for r in results:
@@ -745,6 +807,11 @@ def get_batch_results(batch_id: int, db: Session = Depends(get_db)):
                 "pdx_sum": 0, "sdx_sum": 0, "pcs_sum": 0,
                 "cpt_sum": 0, "drg_sum": 0, "total_sum": 0,
                 "pass_count": 0, "charts": [],
+                # DPO accumulators (sum of per-chart accuracy values)
+                "dpo_dx_sum": 0, "dpo_dx_cnt": 0,
+                "dpo_poa_sum": 0, "dpo_poa_cnt": 0,
+                "dpo_proc_sum": 0, "dpo_proc_cnt": 0,
+                "dpo_overall_sum": 0, "dpo_overall_cnt": 0,
             }
         d = coder_map[name]
         d["chart_count"] += 1
@@ -757,6 +824,16 @@ def get_batch_results(batch_id: int, db: Session = Depends(get_db)):
             d["total_sum"] += r.total_score
         if r.pass_fail == "PASS":
             d["pass_count"] += 1
+        # DPO roll-up (only average non-None values)
+        if r.dpo_dx_accuracy is not None:
+            d["dpo_dx_sum"] += r.dpo_dx_accuracy; d["dpo_dx_cnt"] += 1
+        if r.dpo_poa_accuracy is not None:
+            d["dpo_poa_sum"] += r.dpo_poa_accuracy; d["dpo_poa_cnt"] += 1
+        if r.dpo_proc_accuracy is not None:
+            d["dpo_proc_sum"] += r.dpo_proc_accuracy; d["dpo_proc_cnt"] += 1
+        if r.dpo_overall_accuracy is not None:
+            d["dpo_overall_sum"] += r.dpo_overall_accuracy; d["dpo_overall_cnt"] += 1
+
         d["charts"].append({
             "chart_number": r.chart.chart_number,
             "pdx_score": r.pdx_score,
@@ -768,12 +845,19 @@ def get_batch_results(batch_id: int, db: Session = Depends(get_db)):
             "pass_fail": r.pass_fail,
             "drg_flag": r.drg_flag,
             "drg_reviewed": r.drg_reviewed,
+            # DPO per-chart accuracies
+            "dpo_dx_accuracy": r.dpo_dx_accuracy,
+            "dpo_poa_accuracy": r.dpo_poa_accuracy,
+            "dpo_proc_accuracy": r.dpo_proc_accuracy,
+            "dpo_overall_accuracy": r.dpo_overall_accuracy,
             "feedback": [
                 {"section": f.section.value, "issue_type": f.issue_type.value,
                  "ak_code": f.ak_code, "coder_code": f.coder_code, "detail": f.detail}
                 for f in r.feedback
             ],
         })
+
+    def _avg(s, c): return round(s / c, 1) if c else None
 
     coder_summaries = []
     for d in coder_map.values():
@@ -789,6 +873,11 @@ def get_batch_results(batch_id: int, db: Session = Depends(get_db)):
             "avg_drg": round(d["drg_sum"] / cnt, 1) if is_ip else None,
             "avg_total": total_avg,
             "pass_fail": "PASS" if d["pass_count"] > cnt / 2 else "FAIL",
+            # DPO cumulative accuracy per coding area (None when DPO not used)
+            "dpo_dx_accuracy": _avg(d["dpo_dx_sum"], d["dpo_dx_cnt"]),
+            "dpo_poa_accuracy": _avg(d["dpo_poa_sum"], d["dpo_poa_cnt"]),
+            "dpo_proc_accuracy": _avg(d["dpo_proc_sum"], d["dpo_proc_cnt"]),
+            "dpo_overall_accuracy": _avg(d["dpo_overall_sum"], d["dpo_overall_cnt"]),
             "charts": d["charts"],
         })
 
@@ -811,6 +900,8 @@ def get_batch_results(batch_id: int, db: Session = Depends(get_db)):
         "specialty": batch.specialty.value,
         "status": batch.status.value,
         "is_ip": is_ip,
+        "use_weighted": getattr(batch, "use_weighted", True),
+        "use_dpo": use_dpo,
         "batch_summary": {
             "total_coders": total_coders,
             "passed": passed_coders,

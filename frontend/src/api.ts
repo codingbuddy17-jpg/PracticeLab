@@ -158,7 +158,9 @@ export async function updateScoringConfig(payload: {
   specialty_type: string; pdx_weight: number; sdx_weight: number;
   pcs_weight?: number; drg_weight?: number; cpt_weight?: number;
   pass_threshold: number; drg_triggers: string[];
-  overcoding_penalty: boolean; passphrase: string; updated_by: string;
+  overcoding_penalty: boolean;
+  weighted_enabled: boolean; dpo_enabled: boolean; dpo_pass_threshold: number;
+  passphrase: string; updated_by: string;
 }) {
   const { data } = await api.put('/practicelab/config/scoring', payload)
   return data
@@ -167,6 +169,7 @@ export async function updateScoringConfig(payload: {
 export async function createBatch(payload: {
   name: string; specialty: string; categories: string[]; difficulties: string[];
   charts_per_coder: number; coders: { name: string; emp_id: string }[]; created_by: string;
+  use_weighted?: boolean; use_dpo?: boolean;
 }) {
   const { data } = await api.post('/practicelab/batches', payload)
   return data as { batch_id: number; name: string; pool_size: number }
