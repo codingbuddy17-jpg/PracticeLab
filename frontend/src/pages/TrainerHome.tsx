@@ -58,7 +58,7 @@ export function TrainerHome() {
         <div style={styles.bentoGrid}>
 
           {/* Cell 1 — main identity cell */}
-          <Link to="/trainer/practicelab" style={{ ...styles.bentoCell, ...styles.bentoCellMain }}>
+          <Link to="/trainer/practicelab" style={{ ...styles.bentoCell, ...styles.bentoCellMain, background: 'linear-gradient(145deg, #0d9488 0%, #0891b2 100%)' }}>
             <div style={styles.bentoTag}>Assessment Engine</div>
             <div style={styles.bentoTitle}>
               <GraduationCap size={20} style={{ flexShrink: 0 }} />
