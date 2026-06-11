@@ -201,6 +201,7 @@ class BatchCoder(Base):
     id = Column(Integer, primary_key=True, index=True)
     batch_id = Column(Integer, ForeignKey("batches.id"), nullable=False)
     coder_name = Column(String(100), nullable=False)
+    emp_id = Column(String(50), nullable=True)
     excel_generated_at = Column(DateTime(timezone=True), nullable=True)
 
     batch = relationship("Batch", back_populates="coders")
@@ -277,3 +278,28 @@ class GradingFeedback(Base):
     detail = Column(String(200), nullable=True)
 
     result = relationship("GradingResult", back_populates="feedback")
+
+
+class ScoringConfig(Base):
+    """
+    Admin-configurable scoring weights per specialty type (IP or OP).
+    Grading engine reads this at batch creation time; stored as a snapshot
+    on GradingResult so historical results are never affected by config changes.
+    """
+    __tablename__ = "scoring_configs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    specialty_type = Column(String(10), nullable=False, unique=True)  # "IP" or "OP"
+    # Weights (must sum to 100)
+    pdx_weight = Column(Integer, nullable=False, default=20)
+    sdx_weight = Column(Integer, nullable=False, default=20)
+    pcs_weight = Column(Integer, nullable=True)   # IP only
+    drg_weight = Column(Integer, nullable=True)   # IP only
+    cpt_weight = Column(Integer, nullable=True)   # OP only
+    pass_threshold = Column(Integer, nullable=False, default=80)
+    # DRG flag triggers (IP only) — JSON list of enabled trigger names
+    drg_triggers = Column(JSON, nullable=True, default=list)
+    # Toggle overcoding penalty
+    overcoding_penalty = Column(Boolean, nullable=False, default=True)
+    updated_by = Column(String(100), nullable=True)
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())

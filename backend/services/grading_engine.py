@@ -1,24 +1,43 @@
 """
-Grading engine — exact Python port of GradingTool_Macros.bas (IP) and
-OP_GradingTool_Macros.bas (OP). Scoring weights, normalization, overcoding
-penalty, DRG auto-flag triggers, and feedback generation are all preserved.
+Grading engine — Python port of GradingTool_Macros.bas (IP) and
+OP_GradingTool_Macros.bas (OP).
+
+Weights and thresholds are passed in via ScoringCfg dataclass so the
+admin can change them without touching code. Defaults match the original
+VBA constants exactly.
 """
 from dataclasses import dataclass, field
 from typing import Optional
 
 
-# ── Scoring weights ───────────────────────────────────────────────────────────
+# ── Config dataclasses (populated from DB at grading time) ───────────────────
 
-IP_WT_PDX = 20
-IP_WT_SDX = 20
-IP_WT_PCS = 20
-IP_WT_DRG = 40
-IP_PASS_THRESHOLD = 80
+@dataclass
+class IPScoringCfg:
+    pdx_weight: int = 20
+    sdx_weight: int = 20
+    pcs_weight: int = 20
+    drg_weight: int = 40
+    pass_threshold: int = 80
+    overcoding_penalty: bool = True
+    # Which DRG auto-flag triggers are active
+    drg_triggers: list[str] = field(default_factory=lambda: [
+        "pdx_mismatch", "ccmcc_missing", "pcs_undercoded",
+        "pcs_overcoded", "spurious_sdx", "spurious_pcs",
+    ])
 
-OP_WT_PDX = 25
-OP_WT_SDX = 25
-OP_WT_CPT = 50
-OP_PASS_THRESHOLD = 90
+
+@dataclass
+class OPScoringCfg:
+    pdx_weight: int = 25
+    sdx_weight: int = 25
+    cpt_weight: int = 50
+    pass_threshold: int = 90
+    overcoding_penalty: bool = True
+
+
+DEFAULT_IP_CFG = IPScoringCfg()
+DEFAULT_OP_CFG = OPScoringCfg()
 
 
 # ── Input data structures ─────────────────────────────────────────────────────
@@ -42,21 +61,21 @@ class OPAnswerKey:
 class IPSubmission:
     pdx_code: str = ""
     pdx_poa: str = ""
-    sdx: list[dict] = field(default_factory=list)   # [{code, poa}]
-    pcs: list[dict] = field(default_factory=list)   # [{code}]
+    sdx: list[dict] = field(default_factory=list)
+    pcs: list[dict] = field(default_factory=list)
 
 
 @dataclass
 class OPSubmission:
     pdx_code: str = ""
-    sdx: list[dict] = field(default_factory=list)   # [{code}]
-    cpt: list[dict] = field(default_factory=list)   # [{code, modifier}]
+    sdx: list[dict] = field(default_factory=list)
+    cpt: list[dict] = field(default_factory=list)
 
 
 @dataclass
 class FeedbackRow:
-    section: str      # PDx | SDx | PCS | CPT
-    issue_type: str   # Missed | Wrong_Code | Wrong_POA | Wrong_Modifier | Over_coded
+    section: str
+    issue_type: str
     ak_code: str = ""
     coder_code: str = ""
     detail: str = ""
@@ -68,7 +87,6 @@ class IPGradingResult:
     sdx_score: int = 0
     pcs_score: int = 0
     drg_flag: bool = False
-    # drg_score set after trainer DRG review
     feedback: list[FeedbackRow] = field(default_factory=list)
 
 
@@ -82,18 +100,15 @@ class OPGradingResult:
     feedback: list[FeedbackRow] = field(default_factory=list)
 
 
-# ── Normalization (matches VBA NormDx / NormPCS / NormCPT / NormMod) ─────────
+# ── Normalization ─────────────────────────────────────────────────────────────
 
 def norm_dx(code: str) -> str:
-    """Strip dots and spaces, uppercase. E11.9 → E119"""
     return code.replace(".", "").replace(" ", "").upper().strip()
 
 
 def norm_pcs(code: str) -> str:
-    """Strip spaces, O→0, I→1, uppercase. Handles common typos."""
     code = code.replace(" ", "").upper().strip()
-    code = code.replace("O", "0").replace("I", "1")
-    return code
+    return code.replace("O", "0").replace("I", "1")
 
 
 def norm_cpt(code: str) -> str:
@@ -101,24 +116,17 @@ def norm_cpt(code: str) -> str:
 
 
 def norm_mod(mod: str) -> str:
-    """Strip dashes and spaces, uppercase. -59 → 59"""
     return mod.replace("-", "").replace(" ", "").upper().strip()
 
 
-# ── Order-independent matching with overcoding penalty ────────────────────────
+# ── Order-independent matching ────────────────────────────────────────────────
 
-def _match_sdx_ip(ak_sdx: list[dict], cdr_sdx: list[dict]):
-    """
-    Returns (matched, extra, feedback_rows).
-    Exact match = code AND poa both match.
-    Wrong_POA = code matches, poa differs.
-    """
+def _match_sdx_ip(ak_sdx: list[dict], cdr_sdx: list[dict], penalty: bool):
     ak_used = [False] * len(ak_sdx)
     cdr_used = [False] * len(cdr_sdx)
     matched = 0
     feedback = []
 
-    # Pass 1: exact matches (code + poa)
     for ci, cs in enumerate(cdr_sdx):
         c_code = norm_dx(cs.get("code", ""))
         c_poa = cs.get("poa", "").upper().strip()
@@ -133,7 +141,6 @@ def _match_sdx_ip(ak_sdx: list[dict], cdr_sdx: list[dict]):
                 cdr_used[ci] = True
                 break
 
-    # Pass 2: wrong POA (code matches, poa differs) — feedback only
     for ci, cs in enumerate(cdr_sdx):
         if cdr_used[ci]:
             continue
@@ -144,36 +151,25 @@ def _match_sdx_ip(ak_sdx: list[dict], cdr_sdx: list[dict]):
             if ak_used[ai]:
                 continue
             if norm_dx(ak.get("code", "")) == c_code:
-                feedback.append(FeedbackRow(
-                    section="SDx", issue_type="Wrong_POA",
-                    ak_code=ak.get("code", ""), coder_code=cs.get("code", ""),
-                    detail=f"POA: {ak.get('poa','')} vs {cs.get('poa','')}",
-                ))
+                feedback.append(FeedbackRow("SDx", "Wrong_POA",
+                    ak.get("code", ""), cs.get("code", ""),
+                    f"POA: {ak.get('poa','')} vs {cs.get('poa','')}"))
                 break
 
-    # Pass 3: missed AK codes
     for ai, ak in enumerate(ak_sdx):
         if not ak_used[ai]:
-            feedback.append(FeedbackRow(
-                section="SDx", issue_type="Missed",
-                ak_code=ak.get("code", ""), coder_code="",
-            ))
+            feedback.append(FeedbackRow("SDx", "Missed", ak.get("code", ""), ""))
 
-    # Pass 4: overcoding
     ak_cnt = len([a for a in ak_sdx if norm_dx(a.get("code", ""))])
     cdr_cnt = len([c for c in cdr_sdx if norm_dx(c.get("code", ""))])
-    extra = max(0, cdr_cnt - ak_cnt)
+    extra = max(0, cdr_cnt - ak_cnt) if penalty else 0
     if extra > 0:
-        feedback.append(FeedbackRow(
-            section="SDx", issue_type="Over_coded",
-            detail=f"{extra} extra code(s) submitted",
-        ))
+        feedback.append(FeedbackRow("SDx", "Over_coded", detail=f"{extra} extra code(s) submitted"))
 
     return matched, extra, feedback
 
 
-def _match_pcs(ak_pcs: list[dict], cdr_pcs: list[dict]):
-    """Order-independent PCS matching."""
+def _match_pcs(ak_pcs: list[dict], cdr_pcs: list[dict], penalty: bool):
     ak_used = [False] * len(ak_pcs)
     cdr_used = [False] * len(cdr_pcs)
     matched = 0
@@ -194,25 +190,18 @@ def _match_pcs(ak_pcs: list[dict], cdr_pcs: list[dict]):
 
     for ai, ak in enumerate(ak_pcs):
         if not ak_used[ai]:
-            feedback.append(FeedbackRow(
-                section="PCS", issue_type="Missed",
-                ak_code=ak.get("code", ""), coder_code="",
-            ))
+            feedback.append(FeedbackRow("PCS", "Missed", ak.get("code", ""), ""))
 
     ak_cnt = len([a for a in ak_pcs if norm_pcs(a.get("code", ""))])
     cdr_cnt = len([c for c in cdr_pcs if norm_pcs(c.get("code", ""))])
-    extra = max(0, cdr_cnt - ak_cnt)
+    extra = max(0, cdr_cnt - ak_cnt) if penalty else 0
     if extra > 0:
-        feedback.append(FeedbackRow(
-            section="PCS", issue_type="Over_coded",
-            detail=f"{extra} extra code(s) submitted",
-        ))
+        feedback.append(FeedbackRow("PCS", "Over_coded", detail=f"{extra} extra code(s) submitted"))
 
     return matched, extra, feedback
 
 
-def _match_sdx_op(ak_sdx: list[dict], cdr_sdx: list[dict]):
-    """OP SDx — code only, no POA."""
+def _match_sdx_op(ak_sdx: list[dict], cdr_sdx: list[dict], penalty: bool):
     ak_used = [False] * len(ak_sdx)
     matched = 0
     feedback = []
@@ -231,25 +220,18 @@ def _match_sdx_op(ak_sdx: list[dict], cdr_sdx: list[dict]):
 
     for ai, ak in enumerate(ak_sdx):
         if not ak_used[ai]:
-            feedback.append(FeedbackRow(
-                section="SDx", issue_type="Missed",
-                ak_code=ak.get("code", ""), coder_code="",
-            ))
+            feedback.append(FeedbackRow("SDx", "Missed", ak.get("code", ""), ""))
 
     ak_cnt = len([a for a in ak_sdx if norm_dx(a.get("code", ""))])
     cdr_cnt = len([c for c in cdr_sdx if norm_dx(c.get("code", ""))])
-    extra = max(0, cdr_cnt - ak_cnt)
+    extra = max(0, cdr_cnt - ak_cnt) if penalty else 0
     if extra > 0:
-        feedback.append(FeedbackRow(
-            section="SDx", issue_type="Over_coded",
-            detail=f"{extra} extra code(s) submitted",
-        ))
+        feedback.append(FeedbackRow("SDx", "Over_coded", detail=f"{extra} extra code(s) submitted"))
 
     return matched, extra, feedback
 
 
-def _match_cpt(ak_cpt: list[dict], cdr_cpt: list[dict]):
-    """CPT: code + modifier pair must match."""
+def _match_cpt(ak_cpt: list[dict], cdr_cpt: list[dict], penalty: bool):
     ak_used = [False] * len(ak_cpt)
     cdr_used = [False] * len(cdr_cpt)
     matched = 0
@@ -269,7 +251,6 @@ def _match_cpt(ak_cpt: list[dict], cdr_cpt: list[dict]):
                 cdr_used[ci] = True
                 break
 
-    # Wrong modifier feedback
     for ci, cs in enumerate(cdr_cpt):
         if cdr_used[ci]:
             continue
@@ -280,65 +261,51 @@ def _match_cpt(ak_cpt: list[dict], cdr_cpt: list[dict]):
             if ak_used[ai]:
                 continue
             if norm_cpt(ak.get("code", "")) == c_code:
-                feedback.append(FeedbackRow(
-                    section="CPT", issue_type="Wrong_Modifier",
-                    ak_code=ak.get("code", ""), coder_code=cs.get("code", ""),
-                    detail=f"Modifier: {ak.get('modifier','')} vs {cs.get('modifier','')}",
-                ))
+                feedback.append(FeedbackRow("CPT", "Wrong_Modifier",
+                    ak.get("code", ""), cs.get("code", ""),
+                    f"Modifier: {ak.get('modifier','')} vs {cs.get('modifier','')}"))
                 break
 
     for ai, ak in enumerate(ak_cpt):
         if not ak_used[ai]:
-            feedback.append(FeedbackRow(
-                section="CPT", issue_type="Missed",
-                ak_code=ak.get("code", ""), coder_code="",
-            ))
+            feedback.append(FeedbackRow("CPT", "Missed", ak.get("code", ""), ""))
 
     ak_cnt = len([a for a in ak_cpt if norm_cpt(a.get("code", ""))])
     cdr_cnt = len([c for c in cdr_cpt if norm_cpt(c.get("code", ""))])
-    extra = max(0, cdr_cnt - ak_cnt)
+    extra = max(0, cdr_cnt - ak_cnt) if penalty else 0
     if extra > 0:
-        feedback.append(FeedbackRow(
-            section="CPT", issue_type="Over_coded",
-            detail=f"{extra} extra code(s) submitted",
-        ))
+        feedback.append(FeedbackRow("CPT", "Over_coded", detail=f"{extra} extra code(s) submitted"))
 
     return matched, extra, feedback
 
 
-# ── DRG auto-flag (6 triggers — any one flags the row) ───────────────────────
+# ── DRG auto-flag ─────────────────────────────────────────────────────────────
 
 def _drg_flag(ak: IPAnswerKey, sub: IPSubmission, pdx_ok: bool,
-              pcs_matched: int, pcs_extra: int, sdx_matched: int) -> bool:
-    # Trigger 1: PDx mismatch
-    if not pdx_ok:
+              pcs_matched: int, pcs_extra: int, triggers: list[str]) -> bool:
+    if "pdx_mismatch" in triggers and not pdx_ok:
         return True
 
-    # Trigger 2: any CC/MCC SDx from AK missing from coder
-    ak_ccmcc = {norm_dx(s["code"]) for s in ak.sdx
-                if s.get("ccmcc", "").upper() in ("CC", "MCC") and norm_dx(s.get("code", ""))}
-    cdr_codes = {norm_dx(s.get("code", "")) for s in sub.sdx if norm_dx(s.get("code", ""))}
-    if ak_ccmcc and not ak_ccmcc.issubset(cdr_codes):
-        return True
+    if "ccmcc_missing" in triggers:
+        ak_ccmcc = {norm_dx(s["code"]) for s in ak.sdx
+                    if s.get("ccmcc", "").upper() in ("CC", "MCC") and norm_dx(s.get("code", ""))}
+        cdr_codes = {norm_dx(s.get("code", "")) for s in sub.sdx if norm_dx(s.get("code", ""))}
+        if ak_ccmcc and not ak_ccmcc.issubset(cdr_codes):
+            return True
 
-    # Trigger 3: PCS under-coded
     ak_pcs_cnt = len([p for p in ak.pcs if norm_pcs(p.get("code", ""))])
-    if pcs_matched < ak_pcs_cnt:
+    cdr_pcs_cnt = len([p for p in sub.pcs if norm_pcs(p.get("code", ""))])
+
+    if "pcs_undercoded" in triggers and pcs_matched < ak_pcs_cnt:
+        return True
+    if "pcs_overcoded" in triggers and pcs_extra > 0:
         return True
 
-    # Trigger 4: PCS over-coded
-    if pcs_extra > 0:
-        return True
-
-    # Trigger 5: spurious SDx (AK has none, coder added)
     ak_sdx_cnt = len([s for s in ak.sdx if norm_dx(s.get("code", ""))])
     cdr_sdx_cnt = len([s for s in sub.sdx if norm_dx(s.get("code", ""))])
-    if ak_sdx_cnt == 0 and cdr_sdx_cnt > 0:
+    if "spurious_sdx" in triggers and ak_sdx_cnt == 0 and cdr_sdx_cnt > 0:
         return True
-
-    # Trigger 6: spurious PCS (AK has none, coder added)
-    cdr_pcs_cnt = len([p for p in sub.pcs if norm_pcs(p.get("code", ""))])
-    if ak_pcs_cnt == 0 and cdr_pcs_cnt > 0:
+    if "spurious_pcs" in triggers and ak_pcs_cnt == 0 and cdr_pcs_cnt > 0:
         return True
 
     return False
@@ -346,14 +313,16 @@ def _drg_flag(ak: IPAnswerKey, sub: IPSubmission, pdx_ok: bool,
 
 # ── Main grading functions ────────────────────────────────────────────────────
 
-def grade_ip(ak: IPAnswerKey, sub: IPSubmission) -> IPGradingResult:
+def grade_ip(ak: IPAnswerKey, sub: IPSubmission,
+             cfg: IPScoringCfg = DEFAULT_IP_CFG) -> IPGradingResult:
     result = IPGradingResult()
     feedback = []
+    penalty = cfg.overcoding_penalty
 
     # PDx
     pdx_ok = (norm_dx(sub.pdx_code) == norm_dx(ak.pdx_code) and
                sub.pdx_poa.upper().strip() == ak.pdx_poa.upper().strip())
-    result.pdx_score = IP_WT_PDX if pdx_ok else 0
+    result.pdx_score = cfg.pdx_weight if pdx_ok else 0
     if not pdx_ok:
         if norm_dx(sub.pdx_code) != norm_dx(ak.pdx_code):
             feedback.append(FeedbackRow("PDx", "Wrong_Code", ak.pdx_code, sub.pdx_code))
@@ -365,89 +334,107 @@ def grade_ip(ak: IPAnswerKey, sub: IPSubmission) -> IPGradingResult:
     ak_sdx_cnt = len([s for s in ak.sdx if norm_dx(s.get("code", ""))])
     cdr_sdx_cnt = len([s for s in sub.sdx if norm_dx(s.get("code", ""))])
     if ak_sdx_cnt > 0:
-        sdx_matched, sdx_extra, sdx_fb = _match_sdx_ip(ak.sdx, sub.sdx)
-        sdx_per = IP_WT_SDX / ak_sdx_cnt
+        sdx_matched, sdx_extra, sdx_fb = _match_sdx_ip(ak.sdx, sub.sdx, penalty)
+        sdx_per = cfg.sdx_weight / ak_sdx_cnt
         result.sdx_score = max(0, round((sdx_matched - sdx_extra) * sdx_per))
         feedback.extend(sdx_fb)
     elif cdr_sdx_cnt == 0:
-        result.sdx_score = IP_WT_SDX  # both blank
-        sdx_matched, sdx_extra = 0, 0
+        result.sdx_score = cfg.sdx_weight
+        sdx_matched = sdx_extra = 0
     else:
-        result.sdx_score = 0  # spurious SDx
-        sdx_matched, sdx_extra = 0, 0
+        result.sdx_score = 0
+        sdx_matched = sdx_extra = 0
         feedback.append(FeedbackRow("SDx", "Over_coded", detail="AK has no SDx but codes were submitted"))
 
     # PCS
     ak_pcs_cnt = len([p for p in ak.pcs if norm_pcs(p.get("code", ""))])
     cdr_pcs_cnt = len([p for p in sub.pcs if norm_pcs(p.get("code", ""))])
     if ak_pcs_cnt > 0:
-        pcs_matched, pcs_extra, pcs_fb = _match_pcs(ak.pcs, sub.pcs)
-        pcs_per = IP_WT_PCS / ak_pcs_cnt
+        pcs_matched, pcs_extra, pcs_fb = _match_pcs(ak.pcs, sub.pcs, penalty)
+        pcs_per = cfg.pcs_weight / ak_pcs_cnt
         result.pcs_score = max(0, round((pcs_matched - pcs_extra) * pcs_per))
         feedback.extend(pcs_fb)
     elif cdr_pcs_cnt == 0:
-        result.pcs_score = IP_WT_PCS  # both blank
-        pcs_matched, pcs_extra = 0, 0
+        result.pcs_score = cfg.pcs_weight
+        pcs_matched = pcs_extra = 0
     else:
-        result.pcs_score = 0  # spurious PCS
-        pcs_matched, pcs_extra = 0, 0
+        result.pcs_score = 0
+        pcs_matched = pcs_extra = 0
         feedback.append(FeedbackRow("PCS", "Over_coded", detail="AK has no PCS but codes were submitted"))
 
-    # DRG flag
-    result.drg_flag = _drg_flag(ak, sub, pdx_ok, pcs_matched, pcs_extra,
-                                 sdx_matched if ak_sdx_cnt > 0 else 0)
+    result.drg_flag = _drg_flag(ak, sub, pdx_ok, pcs_matched, pcs_extra, cfg.drg_triggers)
     result.feedback = feedback
     return result
 
 
-def grade_op(ak: OPAnswerKey, sub: OPSubmission) -> OPGradingResult:
+def grade_op(ak: OPAnswerKey, sub: OPSubmission,
+             cfg: OPScoringCfg = DEFAULT_OP_CFG) -> OPGradingResult:
     result = OPGradingResult()
     feedback = []
+    penalty = cfg.overcoding_penalty
 
-    # PDx
     pdx_ok = norm_dx(sub.pdx_code) == norm_dx(ak.pdx_code)
-    result.pdx_score = OP_WT_PDX if pdx_ok else 0
+    result.pdx_score = cfg.pdx_weight if pdx_ok else 0
     if not pdx_ok:
         feedback.append(FeedbackRow("PDx", "Wrong_Code", ak.pdx_code, sub.pdx_code))
 
-    # SDx
     ak_sdx_cnt = len([s for s in ak.sdx if norm_dx(s.get("code", ""))])
     cdr_sdx_cnt = len([s for s in sub.sdx if norm_dx(s.get("code", ""))])
     if ak_sdx_cnt > 0:
-        sdx_matched, sdx_extra, sdx_fb = _match_sdx_op(ak.sdx, sub.sdx)
-        sdx_per = OP_WT_SDX / ak_sdx_cnt
+        sdx_matched, sdx_extra, sdx_fb = _match_sdx_op(ak.sdx, sub.sdx, penalty)
+        sdx_per = cfg.sdx_weight / ak_sdx_cnt
         result.sdx_score = max(0, round((sdx_matched - sdx_extra) * sdx_per))
         feedback.extend(sdx_fb)
     elif cdr_sdx_cnt == 0:
-        result.sdx_score = OP_WT_SDX
+        result.sdx_score = cfg.sdx_weight
     else:
         result.sdx_score = 0
         feedback.append(FeedbackRow("SDx", "Over_coded", detail="AK has no SDx but codes were submitted"))
 
-    # CPT
     ak_cpt_cnt = len([c for c in ak.cpt if norm_cpt(c.get("code", ""))])
     cdr_cpt_cnt = len([c for c in sub.cpt if norm_cpt(c.get("code", ""))])
     if ak_cpt_cnt > 0:
-        cpt_matched, cpt_extra, cpt_fb = _match_cpt(ak.cpt, sub.cpt)
-        cpt_per = OP_WT_CPT / ak_cpt_cnt
+        cpt_matched, cpt_extra, cpt_fb = _match_cpt(ak.cpt, sub.cpt, penalty)
+        cpt_per = cfg.cpt_weight / ak_cpt_cnt
         result.cpt_score = max(0, round((cpt_matched - cpt_extra) * cpt_per))
         feedback.extend(cpt_fb)
     elif cdr_cpt_cnt == 0:
-        result.cpt_score = OP_WT_CPT
+        result.cpt_score = cfg.cpt_weight
     else:
         result.cpt_score = 0
         feedback.append(FeedbackRow("CPT", "Over_coded", detail="AK has no CPT but codes were submitted"))
 
     result.total_score = result.pdx_score + result.sdx_score + result.cpt_score
-    result.pass_fail = "PASS" if result.total_score >= OP_PASS_THRESHOLD else "FAIL"
+    result.pass_fail = "PASS" if result.total_score >= cfg.pass_threshold else "FAIL"
     result.feedback = feedback
     return result
 
 
 def finalize_ip_score(pdx_score: int, sdx_score: int, pcs_score: int,
-                       drg_error: bool) -> tuple[int, str]:
-    """Called after trainer DRG review. Returns (total, pass_fail)."""
-    drg_score = 0 if drg_error else IP_WT_DRG
+                       drg_error: bool, drg_weight: int = 40,
+                       pass_threshold: int = 80) -> tuple[int, str, int]:
+    drg_score = 0 if drg_error else drg_weight
     total = pdx_score + sdx_score + pcs_score + drg_score
-    pass_fail = "PASS" if total >= IP_PASS_THRESHOLD else "FAIL"
+    pass_fail = "PASS" if total >= pass_threshold else "FAIL"
     return total, pass_fail, drg_score
+
+
+def cfg_from_db(db_row) -> "IPScoringCfg | OPScoringCfg":
+    """Convert a ScoringConfig DB row to the appropriate config dataclass."""
+    if db_row.specialty_type == "IP":
+        return IPScoringCfg(
+            pdx_weight=db_row.pdx_weight,
+            sdx_weight=db_row.sdx_weight,
+            pcs_weight=db_row.pcs_weight or 20,
+            drg_weight=db_row.drg_weight or 40,
+            pass_threshold=db_row.pass_threshold,
+            overcoding_penalty=db_row.overcoding_penalty,
+            drg_triggers=db_row.drg_triggers or [],
+        )
+    return OPScoringCfg(
+        pdx_weight=db_row.pdx_weight,
+        sdx_weight=db_row.sdx_weight,
+        cpt_weight=db_row.cpt_weight or 50,
+        pass_threshold=db_row.pass_threshold,
+        overcoding_penalty=db_row.overcoding_penalty,
+    )

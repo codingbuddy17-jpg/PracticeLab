@@ -136,9 +136,37 @@ export async function getPoolPreview(specialty: string, categories?: string, dif
   return data as { total_matching: number; with_answer_key: number }
 }
 
+export function downloadCoderListTemplate() {
+  window.open(`${import.meta.env.VITE_API_URL || '/api'}/practicelab/coders/template`)
+}
+
+export async function parseCoderList(file: File): Promise<{ name: string; emp_id: string }[]> {
+  const form = new FormData()
+  form.append('file', file)
+  const { data } = await api.post('/practicelab/coders/parse', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  return data
+}
+
+export async function getScoringConfigs() {
+  const { data } = await api.get('/practicelab/config/scoring')
+  return data
+}
+
+export async function updateScoringConfig(payload: {
+  specialty_type: string; pdx_weight: number; sdx_weight: number;
+  pcs_weight?: number; drg_weight?: number; cpt_weight?: number;
+  pass_threshold: number; drg_triggers: string[];
+  overcoding_penalty: boolean; passphrase: string; updated_by: string;
+}) {
+  const { data } = await api.put('/practicelab/config/scoring', payload)
+  return data
+}
+
 export async function createBatch(payload: {
   name: string; specialty: string; categories: string[]; difficulties: string[];
-  charts_per_coder: number; coders: string[]; created_by: string;
+  charts_per_coder: number; coders: { name: string; emp_id: string }[]; created_by: string;
 }) {
   const { data } = await api.post('/practicelab/batches', payload)
   return data as { batch_id: number; name: string; pool_size: number }

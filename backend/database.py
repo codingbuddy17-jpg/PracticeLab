@@ -125,6 +125,31 @@ def _run_migrations():
             coder_code VARCHAR(50),
             detail VARCHAR(200)
         )""",
+        "ALTER TABLE batch_coders ADD COLUMN IF NOT EXISTS emp_id VARCHAR(50)",
+        """CREATE TABLE IF NOT EXISTS scoring_configs (
+            id SERIAL PRIMARY KEY,
+            specialty_type VARCHAR(10) NOT NULL UNIQUE,
+            pdx_weight INTEGER NOT NULL DEFAULT 20,
+            sdx_weight INTEGER NOT NULL DEFAULT 20,
+            pcs_weight INTEGER,
+            drg_weight INTEGER,
+            cpt_weight INTEGER,
+            pass_threshold INTEGER NOT NULL DEFAULT 80,
+            drg_triggers JSONB DEFAULT '[]',
+            overcoding_penalty BOOLEAN NOT NULL DEFAULT TRUE,
+            updated_by VARCHAR(100),
+            updated_at TIMESTAMPTZ
+        )""",
+        # Seed default configs if not present
+        """INSERT INTO scoring_configs
+            (specialty_type, pdx_weight, sdx_weight, pcs_weight, drg_weight,
+             cpt_weight, pass_threshold, drg_triggers, overcoding_penalty)
+           VALUES
+            ('IP', 20, 20, 20, 40, NULL, 80,
+             '["pdx_mismatch","ccmcc_missing","pcs_undercoded","pcs_overcoded","spurious_sdx","spurious_pcs"]',
+             TRUE),
+            ('OP', 25, 25, NULL, NULL, 50, 90, '[]', TRUE)
+           ON CONFLICT (specialty_type) DO NOTHING""",
     ]
     with engine.connect() as conn:
         for sql in migrations:

@@ -15,15 +15,18 @@ from models import (
     Chart, ChartStatus, Specialty, Difficulty,
     AnswerKey, Batch, BatchCoder, BatchChart, BatchStatus,
     Submission, GradingResult, GradingFeedback, SubmissionStatus,
+    ScoringConfig,
 )
 from services.grading_engine import (
-    grade_ip, grade_op, finalize_ip_score,
+    grade_ip, grade_op, finalize_ip_score, cfg_from_db,
     IPAnswerKey, OPAnswerKey, IPSubmission, OPSubmission,
+    DEFAULT_IP_CFG, DEFAULT_OP_CFG,
 )
 from services.excel_service import (
     generate_answer_key_template, generate_coder_sheet,
     generate_batch_zip, parse_answer_key_upload,
     parse_submission, export_batch_results,
+    generate_coder_list_template, parse_coder_list,
 )
 from config import settings
 
@@ -38,6 +41,109 @@ IP_SPECIALTIES = {Specialty.IP_DRG}
 
 def _is_ip(specialty: Specialty) -> bool:
     return specialty in IP_SPECIALTIES
+
+
+# ── Coder list endpoints ──────────────────────────────────────────────────────
+
+@router.get("/coders/template")
+def download_coder_list_template():
+    data = generate_coder_list_template()
+    return StreamingResponse(
+        io.BytesIO(data),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=Coder_List_Template.xlsx"},
+    )
+
+
+@router.post("/coders/parse")
+def parse_coder_list_upload(file: UploadFile = File(...)):
+    """Parse uploaded coder list Excel, return [{name, emp_id}] for preview before batch creation."""
+    try:
+        coders = parse_coder_list(file.file.read())
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to parse file: {e}")
+    if not coders:
+        raise HTTPException(status_code=400, detail="No valid rows found. Ensure Coder_Name and Emp_ID columns are filled.")
+    return coders
+
+
+# ── Scoring config endpoints ──────────────────────────────────────────────────
+
+def _get_or_default(db: Session, specialty_type: str):
+    row = db.query(ScoringConfig).filter(ScoringConfig.specialty_type == specialty_type).first()
+    return row
+
+
+@router.get("/config/scoring")
+def get_scoring_configs(db: Session = Depends(get_db)):
+    ip = _get_or_default(db, "IP")
+    op = _get_or_default(db, "OP")
+    def _serialize(row, stype):
+        if not row:
+            return None
+        return {
+            "specialty_type": stype,
+            "pdx_weight": row.pdx_weight,
+            "sdx_weight": row.sdx_weight,
+            "pcs_weight": row.pcs_weight,
+            "drg_weight": row.drg_weight,
+            "cpt_weight": row.cpt_weight,
+            "pass_threshold": row.pass_threshold,
+            "drg_triggers": row.drg_triggers or [],
+            "overcoding_penalty": row.overcoding_penalty,
+            "updated_by": row.updated_by,
+            "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+        }
+    return {"IP": _serialize(ip, "IP"), "OP": _serialize(op, "OP")}
+
+
+class ScoringConfigUpdate(BaseModel):
+    specialty_type: str          # "IP" or "OP"
+    pdx_weight: int
+    sdx_weight: int
+    pcs_weight: Optional[int] = None
+    drg_weight: Optional[int] = None
+    cpt_weight: Optional[int] = None
+    pass_threshold: int
+    drg_triggers: list[str] = []
+    overcoding_penalty: bool = True
+    passphrase: str
+    updated_by: str
+
+
+@router.put("/config/scoring")
+def update_scoring_config(payload: ScoringConfigUpdate, db: Session = Depends(get_db)):
+    if payload.passphrase != MASTER_PASSPHRASE:
+        raise HTTPException(status_code=403, detail="Invalid passphrase")
+
+    stype = payload.specialty_type.upper()
+    if stype not in ("IP", "OP"):
+        raise HTTPException(status_code=400, detail="specialty_type must be IP or OP")
+
+    # Validate weights sum to 100
+    if stype == "IP":
+        total = payload.pdx_weight + payload.sdx_weight + (payload.pcs_weight or 0) + (payload.drg_weight or 0)
+    else:
+        total = payload.pdx_weight + payload.sdx_weight + (payload.cpt_weight or 0)
+    if total != 100:
+        raise HTTPException(status_code=400, detail=f"Weights must sum to 100, got {total}")
+
+    row = db.query(ScoringConfig).filter(ScoringConfig.specialty_type == stype).first()
+    if not row:
+        row = ScoringConfig(specialty_type=stype)
+        db.add(row)
+
+    row.pdx_weight = payload.pdx_weight
+    row.sdx_weight = payload.sdx_weight
+    row.pcs_weight = payload.pcs_weight
+    row.drg_weight = payload.drg_weight
+    row.cpt_weight = payload.cpt_weight
+    row.pass_threshold = payload.pass_threshold
+    row.drg_triggers = payload.drg_triggers
+    row.overcoding_penalty = payload.overcoding_penalty
+    row.updated_by = payload.updated_by
+    db.commit()
+    return {"message": f"{stype} scoring config updated"}
 
 
 # ── Answer Key endpoints ──────────────────────────────────────────────────────
@@ -130,13 +236,18 @@ def get_answer_key_status(specialty: Optional[str] = None, db: Session = Depends
 
 # ── Batch endpoints ───────────────────────────────────────────────────────────
 
+class CoderEntry(BaseModel):
+    name: str
+    emp_id: str
+
+
 class BatchCreate(BaseModel):
     name: str
     specialty: str
     categories: list[str] = []
     difficulties: list[str] = []
     charts_per_coder: int
-    coders: list[str]
+    coders: list[CoderEntry]
     created_by: str
 
 
@@ -190,12 +301,13 @@ def create_batch(payload: BatchCreate, db: Session = Depends(get_db)):
     db.flush()
 
     # Assign charts — Fisher-Yates shuffle per coder
-    for coder_name in payload.coders:
+    for coder in payload.coders:
+        coder_name = coder.name
         shuffled = pool.copy()
         random.shuffle(shuffled)
         assigned = (shuffled * ((payload.charts_per_coder // pool_size) + 1))[:payload.charts_per_coder]
 
-        coder_rec = BatchCoder(batch_id=batch.id, coder_name=coder_name)
+        coder_rec = BatchCoder(batch_id=batch.id, coder_name=coder_name, emp_id=coder.emp_id)
         db.add(coder_rec)
 
         for chart in assigned:
@@ -306,7 +418,8 @@ def get_batch(batch_id: int, db: Session = Depends(get_db)):
         "charts_per_coder": batch.charts_per_coder, "status": batch.status.value,
         "created_by": batch.created_by,
         "created_at": batch.created_at.isoformat() if batch.created_at else None,
-        "coders": [{"name": c.coder_name, "excel_generated": c.excel_generated_at is not None,
+        "coders": [{"name": c.coder_name, "emp_id": c.emp_id or "",
+                    "excel_generated": c.excel_generated_at is not None,
                     "charts": coder_map.get(c.coder_name, [])} for c in coders],
     }
 
@@ -339,9 +452,11 @@ def generate_excel(batch_id: int, db: Session = Depends(get_db)):
     coder_files = []
     for coder in coders:
         charts = coder_charts.get(coder.coder_name, [])
-        excel_bytes = generate_coder_sheet(coder.coder_name, batch.name, charts)
+        excel_bytes = generate_coder_sheet(coder.coder_name, batch.name, charts, emp_id=coder.emp_id or "")
+        emp = (coder.emp_id or "").replace(" ", "_")
         safe_name = coder.coder_name.replace(" ", "_")
-        coder_files.append((f"{safe_name}_Assessment.xlsx", excel_bytes))
+        filename = f"{emp}_{safe_name}_Assessment.xlsx" if emp else f"{safe_name}_Assessment.xlsx"
+        coder_files.append((filename, excel_bytes))
         coder.excel_generated_at = datetime.utcnow()
 
     db.commit()
@@ -366,6 +481,12 @@ def grade_submissions(
     batch = db.query(Batch).filter(Batch.id == batch_id).first()
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
+
+    # Load scoring configs
+    ip_cfg_row = db.query(ScoringConfig).filter(ScoringConfig.specialty_type == "IP").first()
+    op_cfg_row = db.query(ScoringConfig).filter(ScoringConfig.specialty_type == "OP").first()
+    ip_cfg = cfg_from_db(ip_cfg_row) if ip_cfg_row else DEFAULT_IP_CFG
+    op_cfg = cfg_from_db(op_cfg_row) if op_cfg_row else DEFAULT_OP_CFG
 
     graded, errors = [], []
 
@@ -419,7 +540,7 @@ def grade_submissions(
                         sdx=sub_data.get("sdx", []),
                         pcs=sub_data.get("pcs", []),
                     )
-                    res = grade_ip(ak, s)
+                    res = grade_ip(ak, s, ip_cfg)
                     gr = GradingResult(
                         batch_id=batch_id,
                         submission_id=sub.id,
@@ -443,7 +564,7 @@ def grade_submissions(
                         sdx=sub_data.get("sdx", []),
                         cpt=sub_data.get("cpt", []),
                     )
-                    res = grade_op(ak, s)
+                    res = grade_op(ak, s, op_cfg)
                     gr = GradingResult(
                         batch_id=batch_id,
                         submission_id=sub.id,
@@ -546,8 +667,12 @@ def submit_drg_decision(result_id: int, payload: DRGDecision, db: Session = Depe
     gr.drg_override = "Y" if payload.drg_error else "N"
     gr.drg_reviewed = True
 
+    ip_cfg_row = db.query(ScoringConfig).filter(ScoringConfig.specialty_type == "IP").first()
+    drg_weight = (ip_cfg_row.drg_weight or 40) if ip_cfg_row else 40
+    pass_threshold = (ip_cfg_row.pass_threshold or 80) if ip_cfg_row else 80
     total, pass_fail, drg_score = finalize_ip_score(
-        gr.pdx_score, gr.sdx_score, gr.pcs_score or 0, payload.drg_error
+        gr.pdx_score, gr.sdx_score, gr.pcs_score or 0, payload.drg_error,
+        drg_weight=drg_weight, pass_threshold=pass_threshold,
     )
     gr.drg_score = drg_score
     gr.total_score = total

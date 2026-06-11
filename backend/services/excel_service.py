@@ -86,6 +86,65 @@ def _build_op_ak_headers(ws):
     ws.row_dimensions[1].height = 36
 
 
+def generate_coder_list_template() -> bytes:
+    """Blank coder list template: Coder_Name | Emp_ID columns."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Coder_List"
+
+    _header(ws, 1, 1, "Coder_Name")
+    _header(ws, 2, 1, "Emp_ID")
+    ws.row_dimensions[1].height = 28
+
+    info = [
+        "Enter one coder per row.",
+        "Coder_Name: Enter exactly as you want it to appear on reports (e.g. Smith, John A  or  Sarah Johnson).",
+        "Emp_ID: Required. Used as the unique identifier for trend analytics across batches.",
+        "Duplicate Emp_IDs in this file will be skipped (first row kept).",
+    ]
+    for r in range(2, 7):
+        _input_cell(ws, 1, r)
+        _input_cell(ws, 2, r)
+
+    note = wb.create_sheet("Instructions")
+    for i, line in enumerate(info, 1):
+        c = note.cell(row=i, column=1, value=line)
+        c.font = Font(size=11)
+    note.column_dimensions["A"].width = 90
+
+    ws.column_dimensions["A"].width = 40
+    ws.column_dimensions["B"].width = 20
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def parse_coder_list(file_bytes: bytes) -> list[dict]:
+    """
+    Parse uploaded coder list Excel.
+    Returns [{name, emp_id}] — deduped by emp_id (first occurrence wins).
+    """
+    wb = load_workbook(io.BytesIO(file_bytes), data_only=True)
+    ws = wb.active
+    seen_ids: set[str] = set()
+    coders = []
+
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        if not row or (not row[0] and not row[1]):
+            continue
+        name = str(row[0] or "").strip()
+        emp_id = str(row[1] or "").strip().upper()
+        if not name or not emp_id:
+            continue
+        if emp_id in seen_ids:
+            continue
+        seen_ids.add(emp_id)
+        coders.append({"name": name, "emp_id": emp_id})
+
+    return coders
+
+
 def generate_answer_key_template(specialty: str) -> bytes:
     """
     Returns bytes of blank answer key Excel file.
@@ -168,6 +227,7 @@ def generate_coder_sheet(
     coder_name: str,
     batch_name: str,
     charts: list[dict],   # [{chart_number, specialty, category, difficulty, chart_url}]
+    emp_id: str = "",
 ) -> bytes:
     """
     One Excel file per coder — one sheet per assigned chart.
@@ -182,6 +242,7 @@ def generate_coder_sheet(
         ("PracticeLab — Coding Assessment", True),
         ("", False),
         ("Coder Name:", False), (coder_name, False),
+        ("Emp ID:", False), (emp_id or "—", False),
         ("Batch:", False), (batch_name, False),
         ("", False),
         ("INSTRUCTIONS:", True),
