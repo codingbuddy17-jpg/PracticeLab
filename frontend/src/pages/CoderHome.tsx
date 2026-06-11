@@ -21,12 +21,14 @@ export function CoderHome() {
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(false)
+  const [hasSearched, setHasSearched] = useState(false)
 
   const [selectedChart, setSelectedChart] = useState<Chart | null>(null)
   const [recentlyViewed, setRecentlyViewed] = useLocalStorage<Chart[]>('recently_viewed', [])
 
   const doSearch = useCallback(async (p = 1) => {
     setLoading(true)
+    setHasSearched(true)
     try {
       const res = await searchCharts({
         q: query || undefined,
@@ -44,7 +46,7 @@ export function CoderHome() {
     }
   }, [query, specialty, category, difficulty])
 
-  useEffect(() => { doSearch(1) }, [specialty, category, difficulty])
+  useEffect(() => { if (hasSearched) doSearch(1) }, [specialty, category, difficulty])
 
   useEffect(() => {
     getCategories(specialty || undefined).then(d => setCategories(Array.isArray(d) ? d : []))
@@ -149,7 +151,13 @@ export function CoderHome() {
 
       {/* Results */}
       <div style={styles.resultsSection}>
-        {loading ? (
+        {!hasSearched ? (
+          <div style={styles.emptyState}>
+            <BookOpen size={40} color="#d1d5db" />
+            <div style={styles.emptyTitle}>Search for a chart to get started</div>
+            <div style={styles.emptySub}>Enter a chart number, or use the filters above to browse by specialty, category or difficulty.</div>
+          </div>
+        ) : loading ? (
           <div style={styles.center}>Searching...</div>
         ) : results.length === 0 ? (
           <div style={styles.center}>No charts found. Try a different search.</div>
@@ -222,6 +230,9 @@ const styles: Record<string, React.CSSProperties> = {
   diffBadge: { fontSize: 11, padding: '2px 8px', borderRadius: 20, fontWeight: 600 },
   loadMoreBtn: { display: 'block', margin: '16px auto', padding: '8px 24px', border: '1px solid #e5e7eb', background: '#fff', borderRadius: 6, cursor: 'pointer' },
   center: { textAlign: 'center', padding: '60px 0', color: '#9ca3af', fontSize: 14 },
+  emptyState: { textAlign: 'center', padding: '60px 0', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 },
+  emptyTitle: { fontSize: 16, fontWeight: 600, color: '#6b7280' },
+  emptySub: { fontSize: 13, color: '#9ca3af', maxWidth: 380, lineHeight: 1.6 },
   namePromptOverlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999 },
   namePromptBox: { background: '#fff', borderRadius: 12, padding: 32, maxWidth: 400, width: '90%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, textAlign: 'center' },
   namePromptTitle: { margin: 0, fontSize: 20, fontWeight: 700 },
