@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Search, BookOpen, Clock, X, ArrowUpDown } from 'lucide-react'
+import toast from 'react-hot-toast'
 import { searchCharts, getCategories } from '../api'
 import { ChartViewer } from '../components/ChartViewer'
 import { useLocalStorage } from '../hooks/useLocalStorage'
@@ -33,6 +34,10 @@ export function CoderHome() {
   const hasFilters = !!(specialty || category || difficulty)
 
   const doSearch = useCallback(async (p = 1) => {
+    if (!query.trim() && !specialty && !category && !difficulty) {
+      toast.error('Enter a chart number or select a filter to search')
+      return
+    }
     setLoading(true)
     setHasSearched(true)
     try {
@@ -203,8 +208,8 @@ export function CoderHome() {
               <div style={styles.emptySub}>Enter a chart number, or use the filters above to browse by specialty, category or difficulty.</div>
             </div>
           ) : loading ? (
-            <div style={styles.skeletonGrid}>
-              {[...Array(6)].map((_, i) => <div key={i} style={styles.skeletonCard} />)}
+            <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden' }}>
+              {[...Array(8)].map((_, i) => <div key={i} style={styles.skeletonRow} />)}
             </div>
           ) : results.length === 0 ? (
             <div style={styles.emptyState}>
@@ -225,21 +230,18 @@ export function CoderHome() {
                   </select>
                 </div>
               </div>
-              <div style={styles.grid}>
+              <div style={styles.list}>
                 {sortedResults.map(chart => {
                   const sc = SPECIALTY_COLORS[chart.specialty]
                   const dc = DIFFICULTY_COLORS[chart.difficulty]
                   return (
-                    <button key={chart.id} style={styles.card} onClick={() => openChart(chart)}>
-                      <div style={{ ...styles.cardAccent, background: sc.bg }} />
-                      <div style={styles.cardBody}>
-                        <div style={styles.cardNum}>{chart.chart_number}</div>
-                        <div style={{ ...styles.cardSpecialtyBadge, background: sc.light, color: sc.bg }}>{chart.specialty}</div>
-                        <div style={styles.cardCategory}>{chart.category}</div>
-                        <div style={styles.cardFooter}>
-                          <span style={{ ...styles.diffBadge, ...dc }}>{chart.difficulty}</span>
-                        </div>
-                      </div>
+                    <button key={chart.id} style={styles.listRow} onClick={() => openChart(chart)}>
+                      <div style={{ ...styles.listAccent, background: sc.bg }} />
+                      <div style={styles.listChartNum}>{chart.chart_number}</div>
+                      <div style={{ ...styles.listSpecBadge, background: sc.light, color: sc.bg }}>{chart.specialty}</div>
+                      <div style={styles.listCategory}>{chart.category}</div>
+                      <div style={{ ...styles.listDiffBadge, ...dc }}>{chart.difficulty}</div>
+                      <div style={styles.listArrow}>→</div>
                     </button>
                   )
                 })}
@@ -292,21 +294,20 @@ const styles: Record<string, React.CSSProperties> = {
   resultsMeta: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13, color: '#6b7280', marginBottom: 14 },
   sortRow: { display: 'flex', alignItems: 'center', gap: 6 },
   sortSelect: { padding: '5px 10px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 12, background: '#fff', cursor: 'pointer' },
-  grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(195px, 1fr))', gap: 14 },
-  card: { background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, cursor: 'pointer', textAlign: 'left', overflow: 'hidden', display: 'flex', padding: 0, transition: 'box-shadow 0.15s, transform 0.1s', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' },
-  cardAccent: { width: 5, flexShrink: 0 },
-  cardBody: { padding: '14px 14px', display: 'flex', flexDirection: 'column', gap: 5, flex: 1 },
-  cardNum: { fontWeight: 800, fontSize: 17, color: '#111', letterSpacing: -0.5 },
-  cardSpecialtyBadge: { fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 20, alignSelf: 'flex-start', textTransform: 'uppercase' as const, letterSpacing: 0.4 },
-  cardCategory: { fontSize: 13, color: '#374151', flex: 1, lineHeight: 1.4 },
-  cardFooter: { marginTop: 6 },
+  list: { display: 'flex', flexDirection: 'column', gap: 0, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,0.04)' },
+  listRow: { display: 'flex', alignItems: 'center', gap: 14, padding: '12px 16px', background: '#fff', border: 'none', borderBottom: '1px solid #f3f4f6', cursor: 'pointer', textAlign: 'left', transition: 'background 0.1s', width: '100%' },
+  listAccent: { width: 4, height: 36, borderRadius: 2, flexShrink: 0 },
+  listChartNum: { fontWeight: 800, fontSize: 15, color: '#111', minWidth: 72, letterSpacing: -0.3 },
+  listSpecBadge: { fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, textTransform: 'uppercase' as const, letterSpacing: 0.4, whiteSpace: 'nowrap' as const, minWidth: 80, textAlign: 'center' as const },
+  listCategory: { fontSize: 13, color: '#374151', flex: 1 },
+  listDiffBadge: { fontSize: 11, padding: '2px 9px', borderRadius: 20, fontWeight: 600, whiteSpace: 'nowrap' as const },
+  listArrow: { fontSize: 14, color: '#d1d5db', marginLeft: 4 },
   diffBadge: { fontSize: 11, padding: '2px 9px', borderRadius: 20, fontWeight: 600 },
   loadMoreBtn: { display: 'block', margin: '20px auto 0', padding: '10px 28px', border: '1px solid #e5e7eb', background: '#fff', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#374151' },
   emptyState: { textAlign: 'center', padding: '70px 0', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 },
   emptyTitle: { fontSize: 16, fontWeight: 700, color: '#6b7280' },
   emptySub: { fontSize: 13, color: '#9ca3af', maxWidth: 380, lineHeight: 1.7 },
-  skeletonGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(195px, 1fr))', gap: 14 },
-  skeletonCard: { height: 120, borderRadius: 10, background: 'linear-gradient(90deg, #f3f4f6 25%, #e5e7eb 50%, #f3f4f6 75%)', backgroundSize: '200% 100%', animation: 'shimmer 1.4s infinite' },
+  skeletonRow: { height: 48, borderBottom: '1px solid #f3f4f6', background: 'linear-gradient(90deg, #f9fafb 25%, #f3f4f6 50%, #f9fafb 75%)', backgroundSize: '200% 100%', animation: 'shimmer 1.4s infinite' },
   nameOverlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999, backdropFilter: 'blur(4px)' },
   nameBox: { background: '#fff', borderRadius: 14, padding: '36px 32px', maxWidth: 400, width: '90%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, textAlign: 'center', boxShadow: '0 20px 40px rgba(0,0,0,0.2)' },
   nameLogoWrap: { background: '#ede9fe', borderRadius: '50%', padding: 14, display: 'flex' },
