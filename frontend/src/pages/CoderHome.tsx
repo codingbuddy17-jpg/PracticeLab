@@ -36,8 +36,8 @@ export function CoderHome() {
         page: p,
         page_size: 20,
       })
-      setResults(res.results)
-      setTotal(res.total)
+      setResults(Array.isArray(res.results) ? res.results : [])
+      setTotal(res.total ?? 0)
       setPage(p)
     } finally {
       setLoading(false)
@@ -47,7 +47,7 @@ export function CoderHome() {
   useEffect(() => { doSearch(1) }, [specialty, category, difficulty])
 
   useEffect(() => {
-    getCategories(specialty || undefined).then(setCategories)
+    getCategories(specialty || undefined).then(d => setCategories(Array.isArray(d) ? d : []))
   }, [specialty])
 
   const handleQueryKeyDown = (e: React.KeyboardEvent) => {
