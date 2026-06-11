@@ -54,38 +54,57 @@ export function TrainerHome() {
           <span style={styles.plDividerLine} />
         </div>
 
-        <Link to="/trainer/practicelab" style={styles.plBanner}>
-          {/* Left dark panel */}
-          <div style={styles.plLeft}>
-            <div style={styles.plIconWrap}>
-              <GraduationCap size={28} color="#fff" />
-            </div>
-            <div>
-              <div style={styles.plTitle}>PracticeLab</div>
-              <div style={styles.plDesc}>Assessment Engine</div>
-            </div>
-          </div>
+        {/* Bento grid */}
+        <div style={styles.bentoGrid}>
 
-          {/* Right white panel — stats */}
-          <div style={styles.plRight}>
-            <div style={styles.plStats}>
-              {[
-                { val: plStats?.total_batches ?? '—', label: 'Batches' },
-                { val: plStats?.complete_batches ?? '—', label: 'Complete' },
-                { val: plStats?.total_graded ?? '—', label: 'Graded' },
-                { val: plStats ? `${plStats.overall_pass_rate}%` : '—', label: 'Pass Rate' },
-              ].map((s, i) => (
-                <div key={i} style={styles.plStat}>
-                  <span style={styles.plStatVal}>{s.val}</span>
-                  <span style={styles.plStatLabel}>{s.label}</span>
+          {/* Cell 1 — main identity cell */}
+          <Link to="/trainer/practicelab" style={{ ...styles.bentoCell, ...styles.bentoCellMain }}>
+            <div style={styles.bentoTag}>Assessment Engine</div>
+            <div style={styles.bentoTitle}>
+              <GraduationCap size={20} style={{ flexShrink: 0 }} />
+              PracticeLab
+            </div>
+            <div style={styles.bentoSubtitle}>
+              Create batches · Auto-grade · DRG review · Reports
+            </div>
+            <div style={styles.bentoCta}>
+              Open <ChevronRight size={14} strokeWidth={2.5} />
+            </div>
+          </Link>
+
+          {/* Cell 2 — Batches */}
+          <Link to="/trainer/practicelab" style={{ ...styles.bentoCell, ...styles.bentoCellStat, background: '#f8faff' }}>
+            <div style={styles.bentoStatNum}>{plStats?.total_batches ?? '—'}</div>
+            <div style={styles.bentoStatLabel}>Total Batches</div>
+            <div style={styles.bentoStatSub}>{plStats?.complete_batches ?? '—'} complete</div>
+          </Link>
+
+          {/* Cell 3 — Graded */}
+          <Link to="/trainer/practicelab" style={{ ...styles.bentoCell, ...styles.bentoCellStat, background: '#fdf8ff' }}>
+            <div style={styles.bentoStatNum}>{plStats?.total_graded ?? '—'}</div>
+            <div style={styles.bentoStatLabel}>Submissions Graded</div>
+            <div style={styles.bentoStatSub}>across all batches</div>
+          </Link>
+
+          {/* Cell 4 — Pass rate — spans full width of right column bottom */}
+          <Link to="/trainer/practicelab" style={{ ...styles.bentoCell, ...styles.bentoCellPassRate }}>
+            <div style={styles.bentoPassRateRow}>
+              <div>
+                <div style={styles.bentoPassRateNum}>
+                  {plStats ? `${plStats.overall_pass_rate}%` : '—'}
                 </div>
-              ))}
+                <div style={styles.bentoStatLabel}>Overall Pass Rate</div>
+              </div>
+              {/* Mini bar */}
+              {plStats && (
+                <div style={styles.bentoBarWrap}>
+                  <div style={{ ...styles.bentoBar, width: `${plStats.overall_pass_rate}%` }} />
+                </div>
+              )}
             </div>
-            <div style={styles.plCta}>
-              Open <ChevronRight size={15} strokeWidth={2.5} />
-            </div>
-          </div>
-        </Link>
+          </Link>
+
+        </div>
       </div>
     </div>
   )
@@ -114,42 +133,62 @@ const styles: Record<string, React.CSSProperties> = {
   plDividerLine: { flex: 1, height: 1, background: '#e5e7eb' },
   plDividerLabel: { fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase' as const, letterSpacing: 1, whiteSpace: 'nowrap' as const },
 
-  // PracticeLab banner — split layout
-  plBanner: {
-    display: 'flex', alignItems: 'stretch', textDecoration: 'none',
-    borderRadius: 16, overflow: 'hidden',
-    border: '1px solid #e5e7eb',
-    boxShadow: '0 2px 12px rgba(0,0,0,0.08)',
-    transition: 'box-shadow 0.2s',
-    cursor: 'pointer',
+  // Bento grid
+  bentoGrid: {
+    display: 'grid',
+    gridTemplateColumns: '1.6fr 1fr 1fr',
+    gridTemplateRows: 'auto auto',
+    gap: 10,
   },
-  // Dark left panel
-  plLeft: {
-    display: 'flex', flexDirection: 'column', justifyContent: 'center',
-    gap: 14, padding: '28px 30px',
-    background: '#0f172a', flexShrink: 0, minWidth: 200,
+  bentoCell: {
+    borderRadius: 14, border: '1px solid #e5e7eb',
+    textDecoration: 'none', color: 'inherit',
+    padding: '22px 24px', display: 'flex', flexDirection: 'column',
+    gap: 8, cursor: 'pointer',
+    transition: 'border-color 0.15s, box-shadow 0.15s',
+    boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
   },
-  plIconWrap: {
-    width: 48, height: 48, borderRadius: 12,
-    background: 'rgba(255,255,255,0.1)',
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-  },
-  plTitle: { fontWeight: 800, fontSize: 20, color: '#fff', letterSpacing: -0.5, lineHeight: 1 },
-  plDesc: { fontSize: 12, color: '#94a3b8', fontWeight: 500, letterSpacing: 0.3 },
-  // White right panel
-  plRight: {
-    flex: 1, display: 'flex', alignItems: 'center',
+  // Main cell — spans 2 rows
+  bentoCellMain: {
+    gridRow: '1 / 3',
+    background: '#18181b',
     justifyContent: 'space-between',
-    padding: '24px 28px', background: '#fff',
+    minHeight: 180,
   },
-  plStats: { display: 'flex', gap: 36 },
-  plStat: { display: 'flex', flexDirection: 'column', gap: 3 },
-  plStatVal: { fontSize: 28, fontWeight: 800, color: '#111', letterSpacing: -1, lineHeight: 1 },
-  plStatLabel: { fontSize: 11, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.6 },
-  plCta: {
-    display: 'flex', alignItems: 'center', gap: 4,
-    fontSize: 13, fontWeight: 700, color: '#0f172a',
-    background: '#f1f5f9', padding: '8px 16px',
-    borderRadius: 8, flexShrink: 0,
+  bentoTag: {
+    fontSize: 10, fontWeight: 700, letterSpacing: 1.2,
+    textTransform: 'uppercase' as const,
+    color: '#71717a', alignSelf: 'flex-start',
   },
+  bentoTitle: {
+    display: 'flex', alignItems: 'center', gap: 10,
+    fontSize: 22, fontWeight: 800, color: '#fff', letterSpacing: -0.5,
+  },
+  bentoSubtitle: { fontSize: 12, color: '#52525b', lineHeight: 1.6 },
+  bentoCta: {
+    display: 'inline-flex', alignItems: 'center', gap: 4,
+    alignSelf: 'flex-start', marginTop: 4,
+    fontSize: 12, fontWeight: 700, color: '#fff',
+    background: '#27272a', padding: '7px 14px',
+    borderRadius: 8, border: '1px solid #3f3f46',
+  },
+  // Stat cells
+  bentoCellStat: {
+    display: 'flex', flexDirection: 'column', gap: 4,
+    padding: '20px 22px',
+  },
+  bentoStatNum: { fontSize: 32, fontWeight: 800, color: '#111', letterSpacing: -1.5, lineHeight: 1 },
+  bentoStatLabel: { fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' as const, letterSpacing: 0.5 },
+  bentoStatSub: { fontSize: 12, color: '#9ca3af', marginTop: 2 },
+  // Pass rate cell — spans 2 cols
+  bentoCellPassRate: {
+    gridColumn: '2 / 4',
+    background: '#f0fdf4',
+    border: '1px solid #bbf7d0',
+    padding: '18px 22px',
+  },
+  bentoPassRateRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 20 },
+  bentoPassRateNum: { fontSize: 32, fontWeight: 800, color: '#15803d', letterSpacing: -1.5, lineHeight: 1 },
+  bentoBarWrap: { flex: 1, height: 8, background: '#dcfce7', borderRadius: 99, overflow: 'hidden' },
+  bentoBar: { height: '100%', background: '#16a34a', borderRadius: 99, transition: 'width 0.6s ease' },
 }
