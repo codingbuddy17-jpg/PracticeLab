@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy.orm import Session
+from sqlalchemy import func
 from typing import Optional
 from datetime import datetime
 import io
@@ -13,18 +13,14 @@ router = APIRouter(prefix="/reports", tags=["reports"])
 
 
 @router.get("/summary")
-async def get_summary(db: AsyncSession = Depends(get_db)):
-    active = (await db.execute(
-        select(func.count(Chart.id)).where(Chart.status == ChartStatus.ACTIVE)
-    )).scalar()
-    retired = (await db.execute(
-        select(func.count(Chart.id)).where(Chart.status == ChartStatus.RETIRED)
-    )).scalar()
+def get_summary(db: Session = Depends(get_db)):
+    active = db.query(func.count(Chart.id)).filter(Chart.status == ChartStatus.ACTIVE).scalar()
+    retired = db.query(func.count(Chart.id)).filter(Chart.status == ChartStatus.RETIRED).scalar()
     return {"active": active, "retired": retired, "total": active + retired}
 
 
 @router.get("/charts")
-async def get_report(
+def get_report(
     specialty: Optional[Specialty] = None,
     category: Optional[str] = None,
     difficulty: Optional[Difficulty] = None,
@@ -34,16 +30,12 @@ async def get_report(
     date_to: Optional[datetime] = None,
     page: int = 1,
     page_size: int = 50,
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
 ):
-    stmt = select(Chart)
-    stmt = _apply_filters(stmt, specialty, category, difficulty, status, uploaded_by, date_from, date_to)
-
-    count_stmt = select(func.count()).select_from(stmt.subquery())
-    total = (await db.execute(count_stmt)).scalar()
-
-    stmt = stmt.order_by(Chart.chart_number).offset((page - 1) * page_size).limit(page_size)
-    charts = (await db.execute(stmt)).scalars().all()
+    query = db.query(Chart)
+    query = _apply_filters(query, specialty, category, difficulty, status, uploaded_by, date_from, date_to)
+    total = query.count()
+    charts = query.order_by(Chart.chart_number).offset((page - 1) * page_size).limit(page_size).all()
 
     return {
         "total": total,
@@ -54,35 +46,27 @@ async def get_report(
 
 
 @router.get("/export")
-async def export_report(
+def export_report(
     specialty: Optional[Specialty] = None,
     category: Optional[str] = None,
     difficulty: Optional[Difficulty] = None,
     status: Optional[ChartStatus] = None,
     uploaded_by: Optional[str] = None,
-    date_from: Optional[datetime] = None,
-    date_to: Optional[datetime] = None,
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
 ):
-    stmt = select(Chart)
-    stmt = _apply_filters(stmt, specialty, category, difficulty, status, uploaded_by, date_from, date_to)
-    stmt = stmt.order_by(Chart.chart_number)
-    charts = (await db.execute(stmt)).scalars().all()
+    query = db.query(Chart)
+    query = _apply_filters(query, specialty, category, difficulty, status, uploaded_by, None, None)
+    charts = query.order_by(Chart.chart_number).all()
 
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Charts"
-    headers = ["Chart Number", "Specialty", "Category", "Difficulty", "Status", "Uploaded By", "Upload Date", "View Count"]
-    ws.append(headers)
+    ws.append(["Chart Number", "Specialty", "Category", "Difficulty", "Status", "Uploaded By", "Upload Date", "View Count"])
 
     for c in charts:
         ws.append([
-            c.chart_number,
-            c.specialty.value,
-            c.category,
-            c.difficulty.value,
-            c.status.value,
-            c.uploaded_by,
+            c.chart_number, c.specialty.value, c.category, c.difficulty.value,
+            c.status.value, c.uploaded_by,
             c.created_at.strftime("%Y-%m-%d %H:%M") if c.created_at else "",
             c.view_count,
         ])
@@ -99,26 +83,18 @@ async def export_report(
 
 
 @router.get("/analytics")
-async def get_analytics(db: AsyncSession = Depends(get_db)):
-    most_viewed = (await db.execute(
-        select(Chart.chart_number, Chart.specialty, Chart.category, Chart.view_count)
-        .where(Chart.status == ChartStatus.ACTIVE)
-        .order_by(Chart.view_count.desc())
-        .limit(10)
-    )).all()
+def get_analytics(db: Session = Depends(get_db)):
+    most_viewed = db.query(Chart.chart_number, Chart.specialty, Chart.category, Chart.view_count)\
+        .filter(Chart.status == ChartStatus.ACTIVE)\
+        .order_by(Chart.view_count.desc()).limit(10).all()
 
-    least_viewed = (await db.execute(
-        select(Chart.chart_number, Chart.specialty, Chart.category, Chart.view_count)
-        .where(Chart.status == ChartStatus.ACTIVE)
-        .order_by(Chart.view_count.asc())
-        .limit(10)
-    )).all()
+    least_viewed = db.query(Chart.chart_number, Chart.specialty, Chart.category, Chart.view_count)\
+        .filter(Chart.status == ChartStatus.ACTIVE)\
+        .order_by(Chart.view_count.asc()).limit(10).all()
 
-    by_specialty = (await db.execute(
-        select(Chart.specialty, func.count(Chart.id), func.sum(Chart.view_count))
-        .where(Chart.status == ChartStatus.ACTIVE)
-        .group_by(Chart.specialty)
-    )).all()
+    by_specialty = db.query(Chart.specialty, func.count(Chart.id), func.sum(Chart.view_count))\
+        .filter(Chart.status == ChartStatus.ACTIVE)\
+        .group_by(Chart.specialty).all()
 
     return {
         "most_viewed": [{"chart_number": r[0], "specialty": r[1], "category": r[2], "views": r[3]} for r in most_viewed],
@@ -127,32 +103,28 @@ async def get_analytics(db: AsyncSession = Depends(get_db)):
     }
 
 
-def _apply_filters(stmt, specialty, category, difficulty, status, uploaded_by, date_from, date_to):
+def _apply_filters(query, specialty, category, difficulty, status, uploaded_by, date_from, date_to):
     if specialty:
-        stmt = stmt.where(Chart.specialty == specialty)
+        query = query.filter(Chart.specialty == specialty)
     if category:
-        stmt = stmt.where(Chart.category.ilike(f"%{category}%"))
+        query = query.filter(Chart.category.ilike(f"%{category}%"))
     if difficulty:
-        stmt = stmt.where(Chart.difficulty == difficulty)
+        query = query.filter(Chart.difficulty == difficulty)
     if status:
-        stmt = stmt.where(Chart.status == status)
+        query = query.filter(Chart.status == status)
     if uploaded_by:
-        stmt = stmt.where(Chart.uploaded_by.ilike(f"%{uploaded_by}%"))
+        query = query.filter(Chart.uploaded_by.ilike(f"%{uploaded_by}%"))
     if date_from:
-        stmt = stmt.where(Chart.created_at >= date_from)
+        query = query.filter(Chart.created_at >= date_from)
     if date_to:
-        stmt = stmt.where(Chart.created_at <= date_to)
-    return stmt
+        query = query.filter(Chart.created_at <= date_to)
+    return query
 
 
 def _chart_row(c: Chart) -> dict:
     return {
-        "id": c.id,
-        "chart_number": c.chart_number,
-        "specialty": c.specialty.value,
-        "category": c.category,
-        "difficulty": c.difficulty.value,
-        "status": c.status.value,
+        "id": c.id, "chart_number": c.chart_number, "specialty": c.specialty.value,
+        "category": c.category, "difficulty": c.difficulty.value, "status": c.status.value,
         "uploaded_by": c.uploaded_by,
         "created_at": c.created_at.isoformat() if c.created_at else None,
         "view_count": c.view_count,

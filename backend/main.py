@@ -8,7 +8,7 @@ from routers import charts, upload, reports
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await init_db()
+    init_db()
     yield
 
 
