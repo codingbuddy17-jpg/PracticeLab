@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker, Session
 from config import settings
 
@@ -27,3 +27,18 @@ def get_db():
 
 def init_db():
     Base.metadata.create_all(bind=engine)
+    _run_migrations()
+
+
+def _run_migrations():
+    """Safe additive migrations — only adds missing columns, never drops."""
+    migrations = [
+        "ALTER TABLE chart_files ADD COLUMN IF NOT EXISTS page_text TEXT",
+    ]
+    with engine.connect() as conn:
+        for sql in migrations:
+            try:
+                conn.execute(text(sql))
+                conn.commit()
+            except Exception:
+                conn.rollback()

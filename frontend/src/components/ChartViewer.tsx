@@ -16,6 +16,8 @@ export function ChartViewer({ chart, viewerName = 'anonymous', onClose }: Props)
   const [zoom, setZoom] = useState(1)
   const [loading, setLoading] = useState(true)
   const [copied, setCopied] = useState(false)
+  const [showThumbs, setShowThumbs] = useState(true)
+  const thumbsRef = useRef<HTMLDivElement>(null)
 
   // In-chart search
   const [searchQuery, setSearchQuery] = useState('')
@@ -62,6 +64,11 @@ export function ChartViewer({ chart, viewerName = 'anonymous', onClose }: Props)
   }
 
   useEffect(() => {
+    const el = thumbsRef.current?.querySelector(`[data-page="${currentPage}"]`) as HTMLElement
+    el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [currentPage])
+
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { if (showSearch) setShowSearch(false); else onClose() }
       if (e.key === 'ArrowRight' && !showSearch) setCurrentPage(p => Math.min(p + 1, pages.length - 1))
@@ -93,6 +100,9 @@ export function ChartViewer({ chart, viewerName = 'anonymous', onClose }: Props)
             </div>
           </div>
           <div style={styles.headerRight}>
+            <button style={{ ...styles.iconBtn, background: showThumbs ? '#ede9fe' : '#fff' }} onClick={() => setShowThumbs(s => !s)} title="Toggle page thumbnails">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={showThumbs ? specialtyColor.bg : '#6b7280'} strokeWidth="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+            </button>
             <button style={styles.iconBtn} onClick={() => { setShowSearch(s => !s); setTimeout(() => searchInputRef.current?.focus(), 50) }} title="Search in chart (Ctrl+F)">
               <Search size={15} color={showSearch ? specialtyColor.bg : '#6b7280'} />
             </button>
@@ -136,28 +146,56 @@ export function ChartViewer({ chart, viewerName = 'anonymous', onClose }: Props)
         )}
 
         {/* Body */}
-        <div style={styles.body}>
-          {loading ? (
-            <div style={styles.center}>
-              <div style={styles.spinner} />
-              <span>Loading chart...</span>
-            </div>
-          ) : pages.length === 0 ? (
-            <div style={styles.center}>No pages found.</div>
-          ) : (
-            <div style={{ position: 'relative' }}>
-              {isMatchPage && (
-                <div style={styles.matchBanner}>
-                  🔍 Search match found on this page
-                </div>
-              )}
-              <img
-                src={pages[currentPage]?.url}
-                alt={`Page ${currentPage + 1}`}
-                style={{ ...styles.pageImg, transform: `scale(${zoom})`, transformOrigin: 'top center', outline: isMatchPage ? `3px solid ${specialtyColor.bg}` : 'none' }}
-              />
+        <div style={styles.bodyWrap}>
+          {/* Thumbnail strip */}
+          {showThumbs && pages.length > 1 && (
+            <div ref={thumbsRef} style={styles.thumbStrip}>
+              {pages.map((p, i) => (
+                <button
+                  key={i}
+                  data-page={i}
+                  style={{
+                    ...styles.thumbBtn,
+                    border: i === currentPage ? `2px solid ${specialtyColor.bg}` : '2px solid transparent',
+                    background: searchResults.includes(i) ? '#fef9c3' : '#fff',
+                  }}
+                  onClick={() => setCurrentPage(i)}
+                  title={`Page ${i + 1}${searchResults.includes(i) ? ' — search match' : ''}`}
+                >
+                  <img src={p.url} alt={`Page ${i + 1}`} style={styles.thumbImg} />
+                  <span style={{ ...styles.thumbLabel, color: i === currentPage ? specialtyColor.bg : '#9ca3af', fontWeight: i === currentPage ? 700 : 400 }}>
+                    {i + 1}
+                  </span>
+                  {searchResults.includes(i) && <div style={styles.thumbMatchDot} />}
+                </button>
+              ))}
             </div>
           )}
+
+          {/* Main page */}
+          <div style={styles.body}>
+            {loading ? (
+              <div style={styles.center}>
+                <div style={styles.spinner} />
+                <span>Loading chart...</span>
+              </div>
+            ) : pages.length === 0 ? (
+              <div style={styles.center}>No pages found.</div>
+            ) : (
+              <div style={{ position: 'relative' }}>
+                {isMatchPage && (
+                  <div style={styles.matchBanner}>
+                    🔍 Search match found on this page
+                  </div>
+                )}
+                <img
+                  src={pages[currentPage]?.url}
+                  alt={`Page ${currentPage + 1}`}
+                  style={{ ...styles.pageImg, transform: `scale(${zoom})`, transformOrigin: 'top center', outline: isMatchPage ? `3px solid ${specialtyColor.bg}` : 'none' }}
+                />
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Footer */}
@@ -204,6 +242,12 @@ const styles: Record<string, React.CSSProperties> = {
   searchCount: { fontSize: 12, color: '#6b7280', whiteSpace: 'nowrap' as const },
   searchNavBtn: { border: '1px solid #e5e7eb', background: '#fff', borderRadius: 5, padding: '3px 7px', cursor: 'pointer', display: 'flex', alignItems: 'center' },
   noMatch: { fontSize: 12, color: '#ef4444' },
+  bodyWrap: { flex: 1, display: 'flex', overflow: 'hidden' },
+  thumbStrip: { width: 90, overflowY: 'auto', background: '#f9fafb', borderRight: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', gap: 6, padding: '10px 6px', flexShrink: 0 },
+  thumbBtn: { borderRadius: 6, padding: 4, cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, position: 'relative' as const, transition: 'border-color 0.15s' },
+  thumbImg: { width: '100%', borderRadius: 4, display: 'block', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' },
+  thumbLabel: { fontSize: 10 },
+  thumbMatchDot: { position: 'absolute' as const, top: 4, right: 4, width: 7, height: 7, borderRadius: '50%', background: '#f59e0b' },
   body: { flex: 1, overflowY: 'auto', padding: 20, background: '#f3f4f6' },
   center: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 200, color: '#9ca3af', gap: 12 },
   spinner: { width: 28, height: 28, border: '3px solid #e5e7eb', borderTopColor: '#4f46e5', borderRadius: '50%', animation: 'spin 0.8s linear infinite' },
