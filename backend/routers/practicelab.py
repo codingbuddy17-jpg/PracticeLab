@@ -447,6 +447,32 @@ def close_batch(batch_id: int, payload: BatchClose, db: Session = Depends(get_db
         raise HTTPException(status_code=404, detail="Batch not found")
     if batch.status == BatchStatus.CLOSED:
         raise HTTPException(status_code=400, detail="Batch is already closed")
+
+    # Block close until all assigned charts are submitted and DRG reviews are resolved
+    pending_submissions = (db.query(BatchChart)
+                           .filter(BatchChart.batch_id == batch_id,
+                                   BatchChart.submission_status == SubmissionStatus.PENDING)
+                           .count())
+    pending_drg = 0
+    is_ip = str(batch.specialty.value).startswith("IP")
+    if is_ip:
+        pending_drg = (db.query(GradingResult)
+                       .filter(GradingResult.batch_id == batch_id,
+                               GradingResult.drg_flag == True,
+                               GradingResult.drg_reviewed == False)
+                       .count())
+
+    blockers = []
+    if pending_submissions:
+        blockers.append(f"{pending_submissions} chart(s) still pending submission")
+    if pending_drg:
+        blockers.append(f"{pending_drg} DRG review(s) unresolved")
+    if blockers:
+        raise HTTPException(
+            status_code=409,
+            detail={"reason": "Cannot close batch — grading incomplete", "blockers": blockers},
+        )
+
     batch.status = BatchStatus.CLOSED
     batch.closed_at = datetime.utcnow()
     batch.closed_by = payload.closed_by
@@ -654,6 +680,16 @@ def get_batch(batch_id: int, db: Session = Depends(get_db)):
     now = datetime.utcnow()
     cycles = db.query(BatchAllocationCycle).filter(BatchAllocationCycle.batch_id == batch_id).order_by(BatchAllocationCycle.cycle_number).all()
 
+    pending_submissions_count = sum(1 for a in assignments if a.submission_status == SubmissionStatus.PENDING)
+    is_ip = str(batch.specialty.value).startswith("IP")
+    pending_drg_count = 0
+    if is_ip:
+        pending_drg_count = (db.query(GradingResult)
+                             .filter(GradingResult.batch_id == batch_id,
+                                     GradingResult.drg_flag == True,
+                                     GradingResult.drg_reviewed == False)
+                             .count())
+
     return {
         "id": batch.id, "name": batch.name, "specialty": batch.specialty.value,
         "categories": batch.categories, "difficulties": batch.difficulties,
@@ -669,6 +705,8 @@ def get_batch(batch_id: int, db: Session = Depends(get_db)):
         "days_open": (now - batch.created_at.replace(tzinfo=None)).days if batch.created_at and batch.status == BatchStatus.OPEN else None,
         "notes": batch.notes or [],
         "tags": batch.tags or [],
+        "pending_submissions": pending_submissions_count,
+        "pending_drg_review": pending_drg_count,
         "allocation_cycles": [
             {
                 "id": c.id, "cycle_number": c.cycle_number,
@@ -1006,6 +1044,9 @@ def submit_drg_decision(result_id: int, payload: DRGDecision, db: Session = Depe
     gr = db.query(GradingResult).filter(GradingResult.id == result_id).first()
     if not gr:
         raise HTTPException(status_code=404, detail="Result not found")
+    batch = db.query(Batch).filter(Batch.id == gr.batch_id).first()
+    if batch and batch.status == BatchStatus.CLOSED:
+        raise HTTPException(status_code=409, detail="Cannot modify results — batch is closed")
 
     gr.drg_override = "Y" if payload.drg_error else "N"
     gr.drg_reviewed = True

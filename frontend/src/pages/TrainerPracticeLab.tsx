@@ -727,7 +727,10 @@ function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
       setConfirmingClose(false)
       loadBatch()
     } catch (err: any) {
-      toast.error(err?.response?.data?.detail || 'Failed to close batch')
+      const detail = err?.response?.data?.detail
+      const msg = typeof detail === 'object' ? detail.reason : (detail || 'Failed to close batch')
+      toast.error(msg)
+      loadBatch()
     } finally { setClosing(false) }
   }
 
@@ -749,7 +752,10 @@ function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
   const isOpen = batch.status === 'Open'
   const isIP = batch.specialty === 'IP-DRG'
   const hasResults = batch.coders?.some((c: any) => c.charts?.some((ch: any) => ch.submission_status === 'Submitted'))
-  const pendingDRG = isIP && hasResults
+  const pendingDRG = isIP && (batch.pending_drg_review ?? 0) > 0
+  const closeBlockers: string[] = []
+  if ((batch.pending_submissions ?? 0) > 0) closeBlockers.push(`${batch.pending_submissions} chart(s) still pending submission`)
+  if ((batch.pending_drg_review ?? 0) > 0) closeBlockers.push(`${batch.pending_drg_review} DRG review(s) unresolved`)
 
   return (
     <div style={styles.section}>
@@ -853,13 +859,20 @@ function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
             </button>
           </>
         )}
-        {isOpen && !confirmingClose && (
+        {isOpen && closeBlockers.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 'auto', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '6px 12px' }}>
+            <span style={{ fontSize: 12, color: '#991b1b', fontWeight: 600 }}>
+              Cannot close: {closeBlockers.join(' · ')}
+            </span>
+          </div>
+        )}
+        {isOpen && closeBlockers.length === 0 && !confirmingClose && (
           <button style={{ ...styles.outlineBtn, color: '#dc2626', borderColor: '#fca5a5', marginLeft: 'auto' }}
             onClick={() => setConfirmingClose(true)}>
             ✕ Close Batch
           </button>
         )}
-        {isOpen && confirmingClose && (
+        {isOpen && closeBlockers.length === 0 && confirmingClose && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 'auto', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 8, padding: '6px 12px' }}>
             <span style={{ fontSize: 12, color: '#92400e', fontWeight: 600 }}>Lock all results?</span>
             <button style={{ ...styles.primaryBtn, background: '#dc2626', padding: '5px 12px', fontSize: 12 }}
