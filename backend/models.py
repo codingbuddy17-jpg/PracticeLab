@@ -186,7 +186,7 @@ class Batch(Base):
     charts_per_coder = Column(Integer, nullable=False)
     created_by = Column(String(100), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    status = Column(SAEnum(BatchStatus), default=BatchStatus.OPEN, nullable=False, index=True)
+    status = Column(SAEnum(BatchStatus, native_enum=False), default=BatchStatus.OPEN, nullable=False, index=True)
     use_weighted = Column(Boolean, nullable=False, default=True)
     use_dpo = Column(Boolean, nullable=False, default=False)
     closed_at = Column(DateTime(timezone=True), nullable=True)

@@ -160,6 +160,9 @@ def _run_migrations():
              TRUE),
             ('OP', 25, 25, NULL, NULL, 50, 90, '[]', TRUE)
            ON CONFLICT (specialty_type) DO NOTHING""",
+        # Convert batches.status from native Postgres ENUM to VARCHAR so SQLAlchemy uses string values
+        "ALTER TABLE batches ALTER COLUMN status TYPE VARCHAR(20) USING status::text",
+        "DROP TYPE IF EXISTS batchstatus",
         # Batch management redesign — open/closed lifecycle + allocation cycles
         "ALTER TABLE batches ADD COLUMN IF NOT EXISTS closed_at TIMESTAMPTZ",
         "ALTER TABLE batches ADD COLUMN IF NOT EXISTS closed_by VARCHAR(100)",
