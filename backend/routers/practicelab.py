@@ -9,13 +9,13 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import func, and_
+from sqlalchemy import func, and_, Integer
 from pydantic import BaseModel
 from database import get_db
 from models import (
     Chart, ChartStatus, Specialty, Difficulty,
     AnswerKey, Batch, BatchCoder, BatchChart, BatchStatus, BatchAllocationCycle,
-    Submission, GradingResult, GradingFeedback, SubmissionStatus,
+    Submission, GradingResult, GradingFeedback, SubmissionStatus, PassFail,
     ScoringConfig, SelfPracticeSubmission, SelfPracticeResult,
 )
 from services.grading_engine import (
@@ -1457,7 +1457,7 @@ def analytics_by_specialty(db: Session = Depends(get_db)):
                 func.count(GradingResult.id).label("total"),
                 func.avg(GradingResult.total_score).label("avg_score"),
                 func.sum(
-                    func.cast(GradingResult.pass_fail == "PASS", db.bind.dialect.name == "postgresql" and "int" or "integer")
+                    func.cast(GradingResult.pass_fail == PassFail.PASS, Integer)
                 ).label("passed"),
             )
             .filter(GradingResult.total_score.isnot(None))
