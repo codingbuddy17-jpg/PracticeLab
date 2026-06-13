@@ -11,6 +11,11 @@ interface Props {
   onClose: () => void
 }
 
+const API_BASE = import.meta.env.VITE_API_URL || '/api'
+function pageImgUrl(path: string) {
+  return path.startsWith('http') ? path : `${API_BASE}${path}`
+}
+
 export function ChartViewer({ chart, viewerName = 'anonymous', onClose }: Props) {
   const [pages, setPages] = useState<{ page: number; url: string }[]>([])
   const [currentPage, setCurrentPage] = useState(0)
@@ -243,7 +248,7 @@ export function ChartViewer({ chart, viewerName = 'anonymous', onClose }: Props)
                   onClick={() => setCurrentPage(i)}
                   title={`Page ${i + 1}${searchResults.includes(i) ? ' — search match' : ''}`}
                 >
-                  <img src={p.url} alt={`Page ${i + 1}`} style={styles.thumbImg} />
+                  <img src={pageImgUrl(p.url)} alt={`Page ${i + 1}`} style={styles.thumbImg} />
                   <span style={{ ...styles.thumbLabel, color: i === currentPage ? specialtyColor.bg : '#9ca3af', fontWeight: i === currentPage ? 700 : 400 }}>
                     {i + 1}
                   </span>
@@ -270,7 +275,7 @@ export function ChartViewer({ chart, viewerName = 'anonymous', onClose }: Props)
                   </div>
                 )}
                 <img
-                  src={pages[currentPage]?.url}
+                  src={pages[currentPage] ? pageImgUrl(pages[currentPage].url) : undefined}
                   alt={`Page ${currentPage + 1}`}
                   style={{ ...styles.pageImg, transform: `scale(${zoom})`, transformOrigin: 'top center', outline: isMatchPage ? `3px solid ${specialtyColor.bg}` : 'none' }}
                 />
