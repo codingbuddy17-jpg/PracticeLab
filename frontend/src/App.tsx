@@ -8,7 +8,6 @@ import { TrainerReports } from './pages/TrainerReports'
 import { TrainerAnalytics } from './pages/TrainerAnalytics'
 import { TrainerFeedback } from './pages/TrainerFeedback'
 import { TrainerPracticeLab } from './pages/TrainerPracticeLab'
-import { TrainerSelfPractice } from './pages/TrainerSelfPractice'
 import { CoderSelfPractice } from './pages/CoderSelfPractice'
 
 export default function App() {
@@ -25,7 +24,6 @@ export default function App() {
         <Route path="/trainer/analytics" element={<TrainerAnalytics />} />
         <Route path="/trainer/feedback" element={<TrainerFeedback />} />
         <Route path="/trainer/practicelab" element={<TrainerPracticeLab />} />
-        <Route path="/trainer/self-practice" element={<TrainerSelfPractice />} />
       </Routes>
     </BrowserRouter>
   )

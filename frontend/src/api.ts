@@ -311,5 +311,5 @@ export async function getAnalytics() {
 
 export function buildExportUrl(params: Record<string, string | undefined>) {
   const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined) as [string, string][])
-  return `/api/reports/export?${q.toString()}`
+  return `${import.meta.env.VITE_API_URL || '/api'}/reports/export?${q.toString()}`
 }
