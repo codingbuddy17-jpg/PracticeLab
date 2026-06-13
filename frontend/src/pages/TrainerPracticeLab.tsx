@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ChevronLeft, Plus, Upload, Download, FileCheck, BarChart2, Key, Loader, Settings } from 'lucide-react'
+import { ChevronLeft, Plus, Upload, Download, FileCheck, BarChart2, Key, Loader, Settings, Search, CheckSquare, Square } from 'lucide-react'
 import toast from 'react-hot-toast'
 import {
-  listBatches, createBatch, getPoolPreview, downloadAnswerKeyTemplate,
+  listBatches, createBatch, getPoolPreview, searchChartsForBatch, downloadAnswerKeyTemplate,
   uploadAnswerKeys, getBatch, downloadBatchExcel, gradeSubmissions,
   getDRGReview, submitDRGDecision, getBatchResults, downloadBatchResultsExcel,
   getAnswerKeyStatus, getPLAnalyticsOverview,
@@ -295,6 +295,13 @@ function CreateBatchView({ onCreated, scoringCfg }: { onCreated: (id: number) =>
   const [creating, setCreating] = useState(false)
   const [parsing, setParsing] = useState(false)
   const coderFileRef = useRef<HTMLInputElement>(null)
+  const [assignMode, setAssignMode] = useState<'random' | 'manual'>('random')
+  const [chartSearch, setChartSearch] = useState('')
+  const [chartCatFilter, setChartCatFilter] = useState('')
+  const [chartDiffFilter, setChartDiffFilter] = useState('')
+  const [chartSearchResults, setChartSearchResults] = useState<{ id: number; chart_number: string; category: string; difficulty: string }[]>([])
+  const [selectedChartIds, setSelectedChartIds] = useState<Set<number>>(new Set())
+  const [searchingCharts, setSearchingCharts] = useState(false)
 
   useEffect(() => {
     const t = setTimeout(loadPool, 400)
@@ -332,6 +339,23 @@ function CreateBatchView({ onCreated, scoringCfg }: { onCreated: (id: number) =>
     }
   }
 
+  const runChartSearch = async () => {
+    setSearchingCharts(true)
+    try {
+      const res = await searchChartsForBatch(form.specialty, chartSearch || undefined, chartCatFilter || undefined, chartDiffFilter || undefined)
+      setChartSearchResults(res)
+    } catch { toast.error('Chart search failed') }
+    finally { setSearchingCharts(false) }
+  }
+
+  const toggleChart = (id: number) => {
+    setSelectedChartIds(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
   function addQuickCoder() {
     const name = quickRow.name.trim()
     const emp_id = quickRow.emp_id.trim()
@@ -344,7 +368,8 @@ function CreateBatchView({ onCreated, scoringCfg }: { onCreated: (id: number) =>
   async function handleCreate() {
     if (!form.name.trim()) return toast.error('Batch name is required')
     if (coders.length === 0) return toast.error('Add at least one coder')
-    if (!pool || pool.with_answer_key === 0) return toast.error('No charts with answer keys match filters')
+    if (assignMode === 'manual' && selectedChartIds.size === 0) return toast.error('Select at least one chart')
+    if (assignMode === 'random' && (!pool || pool.with_answer_key === 0)) return toast.error('No charts with answer keys match filters')
 
     setCreating(true)
     try {
@@ -358,6 +383,7 @@ function CreateBatchView({ onCreated, scoringCfg }: { onCreated: (id: number) =>
         created_by: trainerName(),
         use_weighted: form.use_weighted,
         use_dpo: form.use_dpo,
+        manual_chart_ids: assignMode === 'manual' ? Array.from(selectedChartIds) : [],
       })
       toast.success(`Batch created — ${res.pool_size} charts in pool`)
       onCreated(res.batch_id)
@@ -418,8 +444,62 @@ function CreateBatchView({ onCreated, scoringCfg }: { onCreated: (id: number) =>
         </div>
       </div>
 
+      {/* Assignment mode */}
+      <div style={styles.formGroup}>
+        <label style={styles.label}>Chart Assignment</label>
+        <div style={styles.modeToggle}>
+          <button style={assignMode === 'random' ? styles.modeTabActive : styles.modeTab} onClick={() => setAssignMode('random')}>Random from Pool</button>
+          <button style={assignMode === 'manual' ? styles.modeTabActive : styles.modeTab} onClick={() => { setAssignMode('manual'); runChartSearch() }}>Manual Selection</button>
+        </div>
+      </div>
+
+      {assignMode === 'manual' && (
+        <div style={styles.formGroup}>
+          <div style={styles.chartPickerHeader}>
+            <span style={styles.label}>Pick Charts <span style={{ color: '#4f46e5', fontWeight: 700 }}>{selectedChartIds.size > 0 ? `· ${selectedChartIds.size} selected` : ''}</span></span>
+            {selectedChartIds.size > 0 && <button style={styles.clearSmallBtn} onClick={() => setSelectedChartIds(new Set())}>Clear selection</button>}
+          </div>
+          <div style={styles.chartSearchRow}>
+            <input style={{ ...styles.input, flex: 1 }} placeholder="Chart number (e.g. IP002)" value={chartSearch}
+              onChange={e => setChartSearch(e.target.value)} onKeyDown={e => e.key === 'Enter' && runChartSearch()} />
+            <input style={{ ...styles.input, flex: 1 }} placeholder="Category" value={chartCatFilter}
+              onChange={e => setChartCatFilter(e.target.value)} onKeyDown={e => e.key === 'Enter' && runChartSearch()} />
+            <select style={styles.select} value={chartDiffFilter} onChange={e => { setChartDiffFilter(e.target.value) }}>
+              <option value="">All difficulties</option>
+              {['Beginner', 'Intermediate', 'Advanced'].map(d => <option key={d}>{d}</option>)}
+            </select>
+            <button style={styles.outlineBtn} onClick={runChartSearch} disabled={searchingCharts}>
+              {searchingCharts ? <Loader size={13} /> : <Search size={13} />} Search
+            </button>
+          </div>
+
+          {chartSearchResults.length > 0 && (
+            <div style={styles.chartPickerList}>
+              <div style={styles.chartPickerListHeader}>
+                <span>Chart</span><span>Category</span><span>Difficulty</span><span></span>
+              </div>
+              {chartSearchResults.map(c => {
+                const selected = selectedChartIds.has(c.id)
+                return (
+                  <div key={c.id} style={{ ...styles.chartPickerRow, background: selected ? '#eef2ff' : '#fff' }}
+                    onClick={() => toggleChart(c.id)}>
+                    <span style={styles.chartPickerNum}>{c.chart_number}</span>
+                    <span style={styles.chartPickerCat}>{c.category}</span>
+                    <span style={styles.chartPickerDiff}>{c.difficulty}</span>
+                    <span>{selected ? <CheckSquare size={16} color="#4f46e5" /> : <Square size={16} color="#d1d5db" />}</span>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+          {chartSearchResults.length === 0 && !searchingCharts && (
+            <div style={styles.hint}>Search to find charts with answer keys. Click rows to select/deselect.</div>
+          )}
+        </div>
+      )}
+
       {/* Live pool count */}
-      {pool && (
+      {assignMode === 'random' && pool && (
         <div style={needed > available && available > 0 ? styles.warnBox : styles.infoBox}>
           <strong>Matching pool:</strong> {pool.total_matching} charts · {pool.with_answer_key} have answer keys
           {needed > available && available > 0 && (
@@ -1184,6 +1264,15 @@ const styles: Record<string, React.CSSProperties> = {
   modeToggle: { display: 'flex', border: '1px solid #e5e7eb', borderRadius: 7, overflow: 'hidden' },
   modeTab: { padding: '5px 14px', border: 'none', background: '#fff', fontSize: 12, fontWeight: 600, color: '#6b7280', cursor: 'pointer' },
   modeTabActive: { padding: '5px 14px', border: 'none', background: '#4f46e5', fontSize: 12, fontWeight: 600, color: '#fff', cursor: 'pointer' },
+  chartPickerHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+  chartSearchRow: { display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' as const },
+  chartPickerList: { border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden', maxHeight: 320, overflowY: 'auto' as const },
+  chartPickerListHeader: { display: 'grid', gridTemplateColumns: '110px 1fr 120px 32px', padding: '7px 14px', background: '#f9fafb', fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' as const, letterSpacing: 0.5, borderBottom: '1px solid #e5e7eb', position: 'sticky' as const, top: 0 },
+  chartPickerRow: { display: 'grid', gridTemplateColumns: '110px 1fr 120px 32px', padding: '9px 14px', borderBottom: '1px solid #f3f4f6', fontSize: 13, alignItems: 'center', cursor: 'pointer' },
+  chartPickerNum: { fontWeight: 700, color: '#1e40af' },
+  chartPickerCat: { color: '#374151' },
+  chartPickerDiff: { color: '#6b7280', fontSize: 12 },
+  clearSmallBtn: { border: 'none', background: 'none', color: '#dc2626', fontSize: 12, cursor: 'pointer', padding: 0 },
   quickAddRow: { display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 },
   configSection: { background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 10 },
   configSectionTitle: { fontSize: 14, fontWeight: 700, color: '#111' },

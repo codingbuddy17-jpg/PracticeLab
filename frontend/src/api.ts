@@ -166,10 +166,15 @@ export async function updateScoringConfig(payload: {
   return data
 }
 
+export async function searchChartsForBatch(specialty: string, q?: string, category?: string, difficulty?: string) {
+  const { data } = await api.get('/practicelab/batches/chart-search', { params: { specialty, q, category, difficulty } })
+  return data as { id: number; chart_number: string; specialty: string; category: string; difficulty: string }[]
+}
+
 export async function createBatch(payload: {
   name: string; specialty: string; categories: string[]; difficulties: string[];
   charts_per_coder: number; coders: { name: string; emp_id: string }[]; created_by: string;
-  use_weighted?: boolean; use_dpo?: boolean;
+  use_weighted?: boolean; use_dpo?: boolean; manual_chart_ids?: number[];
 }) {
   const { data } = await api.post('/practicelab/batches', payload)
   return data as { batch_id: number; name: string; pool_size: number }

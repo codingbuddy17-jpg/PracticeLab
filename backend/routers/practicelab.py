@@ -265,6 +265,7 @@ class BatchCreate(BaseModel):
     created_by: str
     use_weighted: bool = True
     use_dpo: bool = False
+    manual_chart_ids: list[int] = []   # when non-empty, skip random pool and use these exact charts
 
 
 @router.post("/batches")
@@ -275,26 +276,36 @@ def create_batch(payload: BatchCreate, db: Session = Depends(get_db)):
     except ValueError:
         raise HTTPException(status_code=400, detail=f"Invalid specialty: {payload.specialty}")
 
-    # Build chart pool
-    q = (db.query(Chart)
-         .join(AnswerKey, AnswerKey.chart_id == Chart.id)
-         .filter(Chart.status == ChartStatus.ACTIVE, Chart.specialty == specialty))
+    # Build chart pool — manual selection overrides random pool
+    if payload.manual_chart_ids:
+        pool = (db.query(Chart)
+                .join(AnswerKey, AnswerKey.chart_id == Chart.id)
+                .filter(Chart.id.in_(payload.manual_chart_ids),
+                        Chart.status == ChartStatus.ACTIVE)
+                .all())
+        if not pool:
+            raise HTTPException(status_code=400, detail="None of the selected charts have answer keys or are active.")
+    else:
+        q = (db.query(Chart)
+             .join(AnswerKey, AnswerKey.chart_id == Chart.id)
+             .filter(Chart.status == ChartStatus.ACTIVE, Chart.specialty == specialty))
 
-    if payload.categories:
-        from sqlalchemy import or_
-        q = q.filter(or_(*[Chart.category.ilike(f"%{c}%") for c in payload.categories]))
+        if payload.categories:
+            from sqlalchemy import or_
+            q = q.filter(or_(*[Chart.category.ilike(f"%{c}%") for c in payload.categories]))
 
-    if payload.difficulties:
-        diffs = []
-        for d in payload.difficulties:
-            try:
-                diffs.append(Difficulty(d))
-            except ValueError:
-                pass
-        if diffs:
-            q = q.filter(Chart.difficulty.in_(diffs))
+        if payload.difficulties:
+            diffs = []
+            for d in payload.difficulties:
+                try:
+                    diffs.append(Difficulty(d))
+                except ValueError:
+                    pass
+            if diffs:
+                q = q.filter(Chart.difficulty.in_(diffs))
 
-    pool = q.all()
+        pool = q.all()
+
     pool_size = len(pool)
 
     if pool_size == 0:
@@ -321,12 +332,15 @@ def create_batch(payload: BatchCreate, db: Session = Depends(get_db)):
     db.add(batch)
     db.flush()
 
-    # Assign charts — Fisher-Yates shuffle per coder
+    # Assign charts — manual keeps exact order; random shuffles per coder
     for coder in payload.coders:
         coder_name = coder.name
-        shuffled = pool.copy()
-        random.shuffle(shuffled)
-        assigned = (shuffled * ((payload.charts_per_coder // pool_size) + 1))[:payload.charts_per_coder]
+        if payload.manual_chart_ids:
+            assigned = pool  # exact set, as chosen
+        else:
+            shuffled = pool.copy()
+            random.shuffle(shuffled)
+            assigned = (shuffled * ((payload.charts_per_coder // pool_size) + 1))[:payload.charts_per_coder]
 
         coder_rec = BatchCoder(batch_id=batch.id, coder_name=coder_name, emp_id=coder.emp_id)
         db.add(coder_rec)
@@ -341,6 +355,42 @@ def create_batch(payload: BatchCreate, db: Session = Depends(get_db)):
 
     db.commit()
     return {"batch_id": batch.id, "name": batch.name, "pool_size": pool_size}
+
+
+@router.get("/batches/chart-search")
+def chart_search_for_manual(
+    specialty: str,
+    q: Optional[str] = None,
+    category: Optional[str] = None,
+    difficulty: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """Search charts with answer keys for manual batch assignment."""
+    try:
+        spec = Specialty(specialty)
+    except ValueError:
+        raise HTTPException(400, detail=f"Invalid specialty: {specialty}")
+
+    query = (db.query(Chart)
+             .join(AnswerKey, AnswerKey.chart_id == Chart.id)
+             .filter(Chart.status == ChartStatus.ACTIVE, Chart.specialty == spec))
+
+    if q:
+        query = query.filter(Chart.chart_number.ilike(f"%{q}%"))
+    if category:
+        query = query.filter(Chart.category.ilike(f"%{category}%"))
+    if difficulty:
+        try:
+            query = query.filter(Chart.difficulty == Difficulty(difficulty))
+        except ValueError:
+            pass
+
+    charts = query.order_by(Chart.chart_number).limit(100).all()
+    return [
+        {"id": c.id, "chart_number": c.chart_number, "specialty": c.specialty.value,
+         "category": c.category, "difficulty": c.difficulty.value}
+        for c in charts
+    ]
 
 
 @router.get("/batches/pool-preview")
