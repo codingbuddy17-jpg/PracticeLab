@@ -771,6 +771,8 @@ def grade_submissions(
     batch = db.query(Batch).filter(Batch.id == batch_id).first()
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
+    if batch.status != BatchStatus.OPEN:
+        raise HTTPException(status_code=400, detail="Batch is closed — cannot accept new submissions")
 
     # Load scoring configs
     ip_cfg_row = db.query(ScoringConfig).filter(ScoringConfig.specialty_type == "IP").first()

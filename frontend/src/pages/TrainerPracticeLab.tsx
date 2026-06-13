@@ -675,6 +675,7 @@ function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
   const [gradingResult, setGradingResult] = useState<any>(null)
   const [showAllocationPanel, setShowAllocationPanel] = useState(false)
   const [closing, setClosing] = useState(false)
+  const [confirmingClose, setConfirmingClose] = useState(false)
   const [showNoteBox, setShowNoteBox] = useState(false)
   const [noteText, setNoteText] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
@@ -709,11 +710,11 @@ function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
   }
 
   async function handleClose() {
-    if (!window.confirm('Close this batch? This locks all results. You can still view and export but no new allocations or grading will be allowed.')) return
     setClosing(true)
     try {
       await closeBatch(batchId, trainerName())
       toast.success('Batch closed')
+      setConfirmingClose(false)
       loadBatch()
     } catch (err: any) {
       toast.error(err?.response?.data?.detail || 'Failed to close batch')
@@ -736,8 +737,9 @@ function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
 
   const sc = SPECIALTY_COLORS[batch.specialty as keyof typeof SPECIALTY_COLORS]
   const isOpen = batch.status === 'Open'
+  const isIP = batch.specialty === 'IP-DRG'
   const hasResults = batch.coders?.some((c: any) => c.charts?.some((ch: any) => ch.submission_status === 'Submitted'))
-  const pendingDRG = hasResults  // show DRG review link whenever there are submissions
+  const pendingDRG = isIP && hasResults
 
   return (
     <div style={styles.section}>
@@ -819,16 +821,20 @@ function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
 
       {/* Grade uploads + results */}
       <div style={styles.actionRow}>
-        <label style={grading ? { ...styles.primaryBtn, opacity: 0.6 } : styles.primaryBtn}>
-          {grading ? <><Loader size={14} /> Grading...</> : <><Upload size={15} /> Upload Returned Sheets</>}
-          <input ref={fileRef} type="file" accept=".xlsx" multiple style={{ display: 'none' }}
-            onChange={handleGradeUpload} disabled={grading} />
-        </label>
+        {isOpen && (
+          <label style={grading ? { ...styles.primaryBtn, opacity: 0.6 } : styles.primaryBtn}>
+            {grading ? <><Loader size={14} /> Grading...</> : <><Upload size={15} /> Upload Returned Sheets</>}
+            <input ref={fileRef} type="file" accept=".xlsx" multiple style={{ display: 'none' }}
+              onChange={handleGradeUpload} disabled={grading} />
+          </label>
+        )}
         {hasResults && (
           <>
-            <button style={styles.outlineBtn} onClick={onDRGReview}>
-              DRG Review
-            </button>
+            {pendingDRG && (
+              <button style={{ ...styles.primaryBtn, background: '#d97706' }} onClick={onDRGReview}>
+                DRG Review Required
+              </button>
+            )}
             <button style={styles.outlineBtn} onClick={onResults}>
               <BarChart2 size={15} /> View Results
             </button>
@@ -837,11 +843,24 @@ function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
             </button>
           </>
         )}
-        {isOpen && (
+        {isOpen && !confirmingClose && (
           <button style={{ ...styles.outlineBtn, color: '#dc2626', borderColor: '#fca5a5', marginLeft: 'auto' }}
-            disabled={closing} onClick={handleClose}>
-            {closing ? 'Closing…' : '✕ Close Batch'}
+            onClick={() => setConfirmingClose(true)}>
+            ✕ Close Batch
           </button>
+        )}
+        {isOpen && confirmingClose && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 'auto', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 8, padding: '6px 12px' }}>
+            <span style={{ fontSize: 12, color: '#92400e', fontWeight: 600 }}>Lock all results?</span>
+            <button style={{ ...styles.primaryBtn, background: '#dc2626', padding: '5px 12px', fontSize: 12 }}
+              disabled={closing} onClick={handleClose}>
+              {closing ? 'Closing…' : 'Yes, Close'}
+            </button>
+            <button style={{ ...styles.outlineBtn, padding: '5px 12px', fontSize: 12 }}
+              onClick={() => setConfirmingClose(false)}>
+              Cancel
+            </button>
+          </div>
         )}
       </div>
 
@@ -923,7 +942,6 @@ function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
 function DRGReviewView({ batchId, onDone }: any) {
   const [rows, setRows] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [decisions, setDecisions] = useState<Record<number, boolean>>({})
   const [submitting, setSubmitting] = useState<Record<number, boolean>>({})
 
   useEffect(() => { loadRows() }, [])
