@@ -3,6 +3,7 @@ PracticeLab API router — assessment module endpoints.
 """
 import random
 import io
+from collections import Counter
 from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
@@ -1244,6 +1245,189 @@ def export_results(batch_id: int, db: Session = Depends(get_db)):
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f"attachment; filename={batch.name.replace(' ','_')}_Results.xlsx"},
     )
+
+
+# ── Batch Insights (A + B) ────────────────────────────────────────────────────
+
+@router.get("/batches/{batch_id}/insights")
+def get_batch_insights(batch_id: int, db: Session = Depends(get_db)):
+    """Comprehensive post-grading insight summary for a batch."""
+    batch = db.query(Batch).filter(Batch.id == batch_id).first()
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+
+    results = (db.query(GradingResult)
+               .filter(GradingResult.batch_id == batch_id,
+                       GradingResult.total_score.isnot(None))
+               .join(Chart)
+               .all())
+
+    if not results:
+        return {"has_data": False, "batch_name": batch.name, "specialty": batch.specialty.value}
+
+    is_ip = _is_ip(batch.specialty)
+    scores = [r.total_score for r in results]
+    n_passed = sum(1 for r in results if r.pass_fail and r.pass_fail.value == "PASS")
+    avg_score = round(sum(scores) / len(scores), 1)
+    pass_rate = round(n_passed / len(results) * 100, 1)
+
+    # Prior batch of same specialty for delta comparison
+    prior = (db.query(Batch)
+               .filter(Batch.specialty == batch.specialty,
+                       Batch.id != batch_id,
+                       Batch.status == BatchStatus.CLOSED)
+               .order_by(Batch.created_at.desc())
+               .first())
+    prior_pass_rate = None
+    pass_rate_delta = None
+    prior_name = None
+    if prior:
+        prior_res = [r for r in prior.results if r.total_score is not None and r.pass_fail is not None]
+        if prior_res:
+            prior_passed = sum(1 for r in prior_res if r.pass_fail.value == "PASS")
+            prior_pass_rate = round(prior_passed / len(prior_res) * 100, 1)
+            pass_rate_delta = round(pass_rate - prior_pass_rate, 1)
+            prior_name = prior.name
+
+    # ── Team-level error patterns (B) ────────────────────────────────────────
+    all_fb = [f for r in results for f in r.feedback]
+    total_fb = len(all_fb)
+    issue_counts = Counter(f.issue_type.value for f in all_fb)
+    section_counts = Counter(f.section.value for f in all_fb)
+    missed_counts = Counter(f.ak_code for f in all_fb if f.issue_type.value == "Missed" and f.ak_code)
+
+    by_issue_type = [
+        {"type": t, "count": c, "pct": round(c / total_fb * 100, 1) if total_fb else 0}
+        for t, c in sorted(issue_counts.items(), key=lambda x: -x[1])
+    ]
+    by_section = [
+        {"section": s, "count": c, "pct": round(c / total_fb * 100, 1) if total_fb else 0}
+        for s, c in sorted(section_counts.items(), key=lambda x: -x[1])
+    ]
+    top_missed_codes = [{"code": c, "count": n} for c, n in missed_counts.most_common(7)]
+
+    # ── Category performance (C foundation) ──────────────────────────────────
+    cat_map: dict = {}
+    for r in results:
+        cat = r.chart.category
+        if cat not in cat_map:
+            cat_map[cat] = {"scores": [], "passed": 0, "total": 0}
+        cat_map[cat]["scores"].append(r.total_score)
+        cat_map[cat]["total"] += 1
+        if r.pass_fail and r.pass_fail.value == "PASS":
+            cat_map[cat]["passed"] += 1
+
+    category_performance = sorted([
+        {
+            "category": cat,
+            "avg_score": round(sum(d["scores"]) / len(d["scores"]), 1),
+            "attempt_count": d["total"],
+            "pass_rate": round(d["passed"] / d["total"] * 100, 1),
+        }
+        for cat, d in cat_map.items()
+    ], key=lambda x: x["avg_score"])
+
+    # ── Chart signals ─────────────────────────────────────────────────────────
+    chart_map: dict = {}
+    for r in results:
+        cn = r.chart.chart_number
+        if cn not in chart_map:
+            chart_map[cn] = {"category": r.chart.category, "passed": 0, "total": 0}
+        chart_map[cn]["total"] += 1
+        if r.pass_fail and r.pass_fail.value == "PASS":
+            chart_map[cn]["passed"] += 1
+
+    high_fail, all_pass_charts = [], []
+    for cn, d in chart_map.items():
+        fail_rate = round((d["total"] - d["passed"]) / d["total"] * 100, 1)
+        if fail_rate >= 50 and d["total"] >= 2:
+            high_fail.append({"chart_number": cn, "category": d["category"], "fail_rate": fail_rate, "coder_count": d["total"]})
+        elif d["passed"] == d["total"] and d["total"] >= 2:
+            all_pass_charts.append({"chart_number": cn, "category": d["category"], "coder_count": d["total"]})
+    high_fail.sort(key=lambda x: -x["fail_rate"])
+
+    # ── Per-coder insights (A + B) ────────────────────────────────────────────
+    coder_results: dict = {}
+    for r in results:
+        cn = r.coder_name
+        if cn not in coder_results:
+            coder_results[cn] = {"scores": [], "passed": 0, "total": 0, "feedback": [], "section_errors": {}}
+        coder_results[cn]["scores"].append(r.total_score)
+        coder_results[cn]["total"] += 1
+        if r.pass_fail and r.pass_fail.value == "PASS":
+            coder_results[cn]["passed"] += 1
+        for f in r.feedback:
+            coder_results[cn]["feedback"].append(f)
+            sec = f.section.value
+            coder_results[cn]["section_errors"][sec] = coder_results[cn]["section_errors"].get(sec, 0) + 1
+
+    # Prior-batch scores per coder
+    prior_coder_scores: dict = {}
+    if prior:
+        for r in prior.results:
+            if r.total_score is not None:
+                prior_coder_scores.setdefault(r.coder_name, []).append(r.total_score)
+
+    coder_insights = []
+    for cname, d in sorted(coder_results.items()):
+        coder_avg = round(sum(d["scores"]) / len(d["scores"]), 1)
+        fb = d["feedback"]
+        total_coder_fb = len(fb)
+        issue_c = Counter(f.issue_type.value for f in fb)
+        error_profile = {
+            t: {"count": c, "pct": round(c / total_coder_fb * 100, 1) if total_coder_fb else 0}
+            for t, c in sorted(issue_c.items(), key=lambda x: -x[1])
+        }
+        missed_c = Counter(f.ak_code for f in fb if f.issue_type.value == "Missed" and f.ak_code)
+        dominant_weakness = max(d["section_errors"], key=d["section_errors"].get) if d["section_errors"] else None
+        prior_scores = prior_coder_scores.get(cname, [])
+        prior_avg = round(sum(prior_scores) / len(prior_scores), 1) if prior_scores else None
+        score_delta = round(coder_avg - prior_avg, 1) if prior_avg is not None else None
+
+        coder_insights.append({
+            "coder_name": cname,
+            "total_graded": d["total"],
+            "passed": d["passed"],
+            "failed": d["total"] - d["passed"],
+            "avg_score": coder_avg,
+            "vs_team_avg": round(coder_avg - avg_score, 1),
+            "prior_avg_score": prior_avg,
+            "score_delta": score_delta,
+            "dominant_weakness": dominant_weakness,
+            "error_profile": error_profile,
+            "section_errors": d["section_errors"],
+            "top_missed_codes": [c for c, _ in missed_c.most_common(3)],
+            "total_feedback_items": total_coder_fb,
+        })
+
+    return {
+        "has_data": True,
+        "batch_name": batch.name,
+        "specialty": batch.specialty.value,
+        "is_ip": is_ip,
+        "batch_summary": {
+            "total_graded": len(results),
+            "passed": n_passed,
+            "failed": len(results) - n_passed,
+            "pass_rate": pass_rate,
+            "avg_score": avg_score,
+            "prior_batch_name": prior_name,
+            "prior_batch_pass_rate": prior_pass_rate,
+            "pass_rate_delta": pass_rate_delta,
+        },
+        "team_errors": {
+            "total_feedback_items": total_fb,
+            "by_issue_type": by_issue_type,
+            "by_section": by_section,
+            "top_missed_codes": top_missed_codes,
+        },
+        "category_performance": category_performance,
+        "chart_signals": {
+            "high_fail": high_fail[:6],
+            "all_pass": all_pass_charts[:6],
+        },
+        "coder_insights": coder_insights,
+    }
 
 
 # ── Analytics endpoints ───────────────────────────────────────────────────────

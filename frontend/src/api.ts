@@ -257,6 +257,11 @@ export async function getBatchResults(batchId: number) {
   return data
 }
 
+export async function getBatchInsights(batchId: number) {
+  const { data } = await api.get(`/practicelab/batches/${batchId}/insights`)
+  return data
+}
+
 export function downloadBatchResultsExcel(batchId: number) {
   window.open(`${import.meta.env.VITE_API_URL || '/api'}/practicelab/batches/${batchId}/results/export`, '_blank')
 }

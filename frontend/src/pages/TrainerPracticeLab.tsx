@@ -11,6 +11,7 @@ import {
   getAnswerKeyStatus, getPLAnalyticsOverview,
   downloadCoderListTemplate, parseCoderList,
   getScoringConfigs, updateScoringConfig,
+  getBatchInsights,
 } from '../api'
 import { SPECIALTY_COLORS } from '../theme'
 
@@ -688,6 +689,8 @@ function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
   const [confirmingClose, setConfirmingClose] = useState(false)
   const [showNoteBox, setShowNoteBox] = useState(false)
   const [noteText, setNoteText] = useState('')
+  const [insights, setInsights] = useState<any>(null)
+  const [showInsights, setShowInsights] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { loadBatch() }, [batchId])
@@ -710,6 +713,9 @@ function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
       if (res.graded.length) toast.success(`${res.graded.length} submission${res.graded.length !== 1 ? 's' : ''} graded${res.errors.length ? ` · ${res.errors.length} skipped` : ''}`)
       if (res.errors.length) res.errors.forEach((e: string) => toast.error(e, { duration: 6000 }))
       loadBatch()
+      if (res.graded.length) {
+        getBatchInsights(batchId).then(ins => { setInsights(ins); if (ins.has_data) setShowInsights(true) }).catch(() => {})
+      }
     } catch (err: any) {
       toast.dismiss(tid)
       toast.error(err?.response?.data?.detail || 'Grading failed')
@@ -854,6 +860,13 @@ function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
             <button style={styles.outlineBtn} onClick={onResults}>
               <BarChart2 size={15} /> View Results
             </button>
+            <button style={{ ...styles.outlineBtn, color: '#4f46e5', borderColor: '#a5b4fc' }}
+              onClick={() => {
+                if (insights) { setShowInsights(s => !s) }
+                else { getBatchInsights(batchId).then(ins => { setInsights(ins); setShowInsights(true) }).catch(() => toast.error('Failed to load insights')) }
+              }}>
+              ✦ {showInsights ? 'Hide Insights' : 'View Insights'}
+            </button>
             <button style={styles.outlineBtn} onClick={() => downloadBatchResultsExcel(batchId)}>
               <Download size={15} /> Export Results
             </button>
@@ -896,6 +909,10 @@ function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
             </ul>
           )}
         </div>
+      )}
+
+      {showInsights && insights?.has_data && (
+        <InsightsPanel insights={insights} onClose={() => setShowInsights(false)} />
       )}
 
       {/* Coders table */}
@@ -1050,6 +1067,8 @@ function ResultsView({ batchId }: any) {
   const [data, setData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [insights, setInsights] = useState<any>(null)
+  const [showInsights, setShowInsights] = useState(false)
 
   useEffect(() => {
     getBatchResults(batchId).then(setData).catch(() => {}).finally(() => setLoading(false))
@@ -1073,12 +1092,25 @@ function ResultsView({ batchId }: any) {
 
   return (
     <div style={styles.section}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, flexWrap: 'wrap', gap: 10 }}>
         <span style={styles.sectionTitle}>{data.batch_name} — Results</span>
-        <button style={styles.outlineBtn} onClick={() => downloadBatchResultsExcel(batchId)}>
-          <Download size={15} /> Export Excel
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button style={{ ...styles.outlineBtn, color: '#4f46e5', borderColor: '#a5b4fc' }}
+            onClick={() => {
+              if (insights) { setShowInsights(s => !s) }
+              else { getBatchInsights(batchId).then(ins => { setInsights(ins); setShowInsights(true) }).catch(() => toast.error('Failed to load insights')) }
+            }}>
+            ✦ {showInsights ? 'Hide Insights' : 'View Insights'}
+          </button>
+          <button style={styles.outlineBtn} onClick={() => downloadBatchResultsExcel(batchId)}>
+            <Download size={15} /> Export Excel
+          </button>
+        </div>
       </div>
+
+      {showInsights && insights?.has_data && (
+        <InsightsPanel insights={insights} onClose={() => setShowInsights(false)} />
+      )}
 
       {/* Batch summary */}
       <div style={styles.statsRow}>
@@ -1631,6 +1663,263 @@ function SPStandalonePanel({ trainerName }: { trainerName: string }) {
     </div>
   )
 }
+
+// ── Insights Panel (A + B) ────────────────────────────────────────────────────
+
+function InsightsPanel({ insights, onClose }: { insights: any; onClose: () => void }) {
+  const { batch_summary: bs, team_errors: te, category_performance: cp, chart_signals: cs, coder_insights: ci, is_ip } = insights
+  const [expandedCoder, setExpandedCoder] = useState<string | null>(null)
+
+  function buildCopyText() {
+    const lines: string[] = [
+      `BATCH INSIGHTS — ${insights.batch_name}`,
+      `Specialty: ${insights.specialty}`,
+      '',
+      `SUMMARY`,
+      `Pass Rate: ${bs.pass_rate}% (${bs.passed}/${bs.total_graded} passed)${bs.pass_rate_delta != null ? `  vs prior batch: ${bs.pass_rate_delta > 0 ? '+' : ''}${bs.pass_rate_delta}%` : ''}`,
+      `Avg Score: ${bs.avg_score}%`,
+      '',
+    ]
+    if (te.by_issue_type.length) {
+      lines.push('TOP ERROR TYPES (team-wide)')
+      te.by_issue_type.slice(0, 4).forEach((e: any) => lines.push(`  ${e.type}: ${e.count} occurrences (${e.pct}%)`))
+      lines.push('')
+    }
+    if (te.top_missed_codes.length) {
+      lines.push('TOP MISSED CODES')
+      te.top_missed_codes.slice(0, 5).forEach((m: any) => lines.push(`  ${m.code} — missed ${m.count}×`))
+      lines.push('')
+    }
+    if (cp.length) {
+      lines.push('LOWEST PERFORMING CATEGORIES')
+      cp.slice(0, 3).forEach((c: any) => lines.push(`  ${c.category}: ${c.avg_score}% avg, ${c.pass_rate}% pass rate`))
+      lines.push('')
+    }
+    lines.push('PER-CODER SUMMARY')
+    ci.forEach((c: any) => {
+      lines.push(`  ${c.coder_name}: ${c.avg_score}% avg${c.score_delta != null ? ` (${c.score_delta > 0 ? '+' : ''}${c.score_delta} vs prior)` : ''} — ${c.dominant_weakness ? `weakness: ${c.dominant_weakness}` : 'no dominant weakness'}`)
+      if (c.top_missed_codes.length) lines.push(`    Top missed: ${c.top_missed_codes.join(', ')}`)
+    })
+    return lines.join('\n')
+  }
+
+  const deltaColor = (d: number | null) => d == null ? '#6b7280' : d > 0 ? '#16a34a' : d < 0 ? '#dc2626' : '#6b7280'
+  const deltaLabel = (d: number | null) => d == null ? '' : `${d > 0 ? '+' : ''}${d}%`
+
+  const ISSUE_COLORS: Record<string, string> = {
+    Missed: '#dc2626', Over_coded: '#d97706', Wrong_Code: '#7c3aed',
+    Wrong_POA: '#0891b2', Wrong_Modifier: '#6b7280',
+  }
+
+  return (
+    <div style={{ background: '#f8faff', border: '1.5px solid #a5b4fc', borderRadius: 12, padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: 15, fontWeight: 800, color: '#312e81' }}>✦ Batch Insights</span>
+          <span style={{ fontSize: 12, color: '#6b7280' }}>{insights.batch_name}</span>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button style={{ ...styles.outlineBtn, fontSize: 12, color: '#4f46e5', borderColor: '#a5b4fc', padding: '5px 12px' }}
+            onClick={() => { navigator.clipboard.writeText(buildCopyText()); toast.success('Copied to clipboard') }}>
+            Copy Summary
+          </button>
+          <button style={{ ...styles.outlineBtn, fontSize: 12, padding: '5px 12px' }} onClick={onClose}>✕ Close</button>
+        </div>
+      </div>
+
+      {/* Summary cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10 }}>
+        {[
+          { label: 'Pass Rate', value: `${bs.pass_rate}%`, color: bs.pass_rate >= 80 ? '#16a34a' : bs.pass_rate >= 60 ? '#d97706' : '#dc2626' },
+          { label: 'Avg Score', value: `${bs.avg_score}%`, color: '#111' },
+          { label: 'Passed', value: bs.passed, color: '#16a34a' },
+          { label: 'Failed', value: bs.failed, color: '#dc2626' },
+        ].map(s => (
+          <div key={s.label} style={{ background: '#fff', border: '1px solid #e0e7ff', borderRadius: 8, padding: '12px 14px', textAlign: 'center' }}>
+            <div style={{ fontSize: 22, fontWeight: 800, color: s.color }}>{s.value}</div>
+            <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>{s.label}</div>
+          </div>
+        ))}
+        {bs.pass_rate_delta != null && (
+          <div style={{ background: '#fff', border: '1px solid #e0e7ff', borderRadius: 8, padding: '12px 14px', textAlign: 'center' }}>
+            <div style={{ fontSize: 22, fontWeight: 800, color: deltaColor(bs.pass_rate_delta) }}>{deltaLabel(bs.pass_rate_delta)}</div>
+            <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>vs Prior Batch</div>
+            <div style={{ fontSize: 10, color: '#9ca3af' }}>{bs.prior_batch_name}</div>
+          </div>
+        )}
+      </div>
+
+      {/* Two-column: error patterns + category performance */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+        {/* Error patterns */}
+        <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '14px 16px' }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 12 }}>Team Error Patterns</div>
+          {te.total_feedback_items === 0 ? (
+            <div style={{ fontSize: 12, color: '#9ca3af' }}>No errors recorded</div>
+          ) : (
+            <>
+              <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 8 }}>By issue type</div>
+              {te.by_issue_type.map((e: any) => (
+                <div key={e.type} style={{ marginBottom: 8 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: ISSUE_COLORS[e.type] || '#374151' }}>{e.type.replace(/_/g, ' ')}</span>
+                    <span style={{ fontSize: 12, color: '#6b7280' }}>{e.count} ({e.pct}%)</span>
+                  </div>
+                  <div style={{ height: 5, background: '#f3f4f6', borderRadius: 3 }}>
+                    <div style={{ height: 5, width: `${e.pct}%`, background: ISSUE_COLORS[e.type] || '#374151', borderRadius: 3 }} />
+                  </div>
+                </div>
+              ))}
+              <div style={{ fontSize: 11, color: '#6b7280', marginTop: 12, marginBottom: 6 }}>By section</div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {te.by_section.map((s: any) => (
+                  <span key={s.section} style={{ fontSize: 11, fontWeight: 700, background: '#dbeafe', color: '#1d4ed8', padding: '2px 10px', borderRadius: 10 }}>
+                    {s.section} {s.count}×
+                  </span>
+                ))}
+              </div>
+              {te.top_missed_codes.length > 0 && (
+                <>
+                  <div style={{ fontSize: 11, color: '#6b7280', marginTop: 12, marginBottom: 6 }}>Top missed codes</div>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {te.top_missed_codes.map((m: any) => (
+                      <span key={m.code} style={{ fontSize: 11, fontWeight: 700, background: '#fee2e2', color: '#dc2626', padding: '2px 10px', borderRadius: 10 }}>
+                        {m.code} {m.count}×
+                      </span>
+                    ))}
+                  </div>
+                </>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Category performance */}
+        <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '14px 16px' }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 12 }}>Category Performance</div>
+          {cp.length === 0 ? (
+            <div style={{ fontSize: 12, color: '#9ca3af' }}>No data</div>
+          ) : cp.map((c: any) => (
+            <div key={c.category} style={{ marginBottom: 10 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>{c.category}</span>
+                <span style={{ fontSize: 12, color: c.pass_rate < 60 ? '#dc2626' : c.pass_rate < 80 ? '#d97706' : '#16a34a', fontWeight: 700 }}>{c.pass_rate}% pass</span>
+              </div>
+              <div style={{ height: 5, background: '#f3f4f6', borderRadius: 3 }}>
+                <div style={{ height: 5, width: `${c.avg_score}%`, background: c.avg_score < 60 ? '#dc2626' : c.avg_score < 80 ? '#d97706' : '#16a34a', borderRadius: 3 }} />
+              </div>
+              <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2 }}>{c.avg_score}% avg · {c.attempt_count} attempt{c.attempt_count !== 1 ? 's' : ''}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Chart signals */}
+      {(cs.high_fail.length > 0 || cs.all_pass.length > 0) && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          {cs.high_fail.length > 0 && (
+            <div style={{ background: '#fff5f5', border: '1px solid #fecaca', borderRadius: 10, padding: '14px 16px' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#dc2626', marginBottom: 8 }}>High Failure Rate Charts</div>
+              <div style={{ fontSize: 11, color: '#9ca3af', marginBottom: 8 }}>≥50% coders failed — review answer key or chart quality</div>
+              {cs.high_fail.map((c: any) => (
+                <div key={c.chart_number} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid #fee2e2', fontSize: 12 }}>
+                  <span style={{ fontWeight: 700, color: '#111' }}>{c.chart_number}</span>
+                  <span style={{ color: '#6b7280' }}>{c.category}</span>
+                  <span style={{ fontWeight: 700, color: '#dc2626' }}>{c.fail_rate}% fail</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {cs.all_pass.length > 0 && (
+            <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '14px 16px' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#16a34a', marginBottom: 8 }}>All Coders Passed</div>
+              <div style={{ fontSize: 11, color: '#9ca3af', marginBottom: 8 }}>Good for beginner packs or baseline measurement</div>
+              {cs.all_pass.map((c: any) => (
+                <div key={c.chart_number} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid #d1fae5', fontSize: 12 }}>
+                  <span style={{ fontWeight: 700, color: '#111' }}>{c.chart_number}</span>
+                  <span style={{ color: '#6b7280' }}>{c.category}</span>
+                  <span style={{ color: '#16a34a', fontWeight: 600 }}>{c.coder_count} coders</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Per-coder insights */}
+      <div>
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 10 }}>Per-Coder Insights</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {ci.map((c: any) => (
+            <div key={c.coder_name} style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', cursor: 'pointer' }}
+                onClick={() => setExpandedCoder(expandedCoder === c.coder_name ? null : c.coder_name)}>
+                <span style={{ fontWeight: 700, fontSize: 14, flex: 1 }}>{c.coder_name}</span>
+                <span style={{ fontSize: 18, fontWeight: 800, color: c.avg_score >= 80 ? '#16a34a' : '#dc2626' }}>{c.avg_score}%</span>
+                {c.score_delta != null && (
+                  <span style={{ fontSize: 12, fontWeight: 700, color: deltaColor(c.score_delta) }}>{deltaLabel(c.score_delta)}</span>
+                )}
+                <span style={{ fontSize: 11, color: '#6b7280' }}>
+                  {c.vs_team_avg > 0 ? '+' : ''}{c.vs_team_avg}% vs team
+                </span>
+                {c.dominant_weakness && (
+                  <span style={{ fontSize: 11, fontWeight: 700, background: '#fef3c7', color: '#92400e', padding: '2px 9px', borderRadius: 10 }}>
+                    {c.dominant_weakness} weakness
+                  </span>
+                )}
+                <span style={{ fontSize: 12, color: '#9ca3af' }}>{expandedCoder === c.coder_name ? '▲' : '▼'}</span>
+              </div>
+
+              {expandedCoder === c.coder_name && (
+                <div style={{ borderTop: '1px solid #f3f4f6', padding: '12px 16px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, background: '#fafafa' }}>
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>Error Profile</div>
+                    {Object.keys(c.error_profile).length === 0 ? (
+                      <div style={{ fontSize: 12, color: '#9ca3af' }}>No errors — clean coding</div>
+                    ) : Object.entries(c.error_profile).map(([type, d]: any) => (
+                      <div key={type} style={{ marginBottom: 7 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
+                          <span style={{ fontSize: 11, fontWeight: 600, color: ISSUE_COLORS[type] || '#374151' }}>{type.replace(/_/g, ' ')}</span>
+                          <span style={{ fontSize: 11, color: '#6b7280' }}>{d.count} ({d.pct}%)</span>
+                        </div>
+                        <div style={{ height: 4, background: '#f3f4f6', borderRadius: 3 }}>
+                          <div style={{ height: 4, width: `${d.pct}%`, background: ISSUE_COLORS[type] || '#374151', borderRadius: 3 }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>Section Errors</div>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+                      {Object.entries(c.section_errors).map(([sec, cnt]: any) => (
+                        <div key={sec} style={{ textAlign: 'center', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '6px 12px' }}>
+                          <div style={{ fontSize: 16, fontWeight: 800, color: '#1d4ed8' }}>{cnt}</div>
+                          <div style={{ fontSize: 10, color: '#6b7280' }}>{sec}</div>
+                        </div>
+                      ))}
+                    </div>
+                    {c.top_missed_codes.length > 0 && (
+                      <>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>Top Missed Codes</div>
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                          {c.top_missed_codes.map((code: string) => (
+                            <span key={code} style={{ fontSize: 11, fontWeight: 700, background: '#fee2e2', color: '#dc2626', padding: '2px 10px', borderRadius: 10 }}>{code}</span>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 
