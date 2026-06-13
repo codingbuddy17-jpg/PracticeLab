@@ -595,12 +595,22 @@ function AllocationPanel({ batch, onDone }: { batch: any; onDone: () => void }) 
       </div>
 
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' as const, alignItems: 'flex-end', marginBottom: 12 }}>
-        <div style={styles.formGroup}>
-          <label style={styles.label}>Charts per Coder</label>
-          <input type="number" min={1} max={20} style={{ ...styles.input, width: 80 }}
-            value={form.charts_per_coder}
-            onChange={e => setForm(f => ({ ...f, charts_per_coder: parseInt(e.target.value) || 1 }))} />
-        </div>
+        {form.assignMode === 'random' && (
+          <div style={styles.formGroup}>
+            <label style={styles.label}>Charts per Coder</label>
+            <input type="number" min={1} max={20} style={{ ...styles.input, width: 80 }}
+              value={form.charts_per_coder}
+              onChange={e => setForm(f => ({ ...f, charts_per_coder: parseInt(e.target.value) || 1 }))} />
+          </div>
+        )}
+        {form.assignMode === 'manual' && (
+          <div style={styles.formGroup}>
+            <label style={styles.label}>Max Charts per Coder</label>
+            <input type="number" min={1} max={50} style={{ ...styles.input, width: 80 }}
+              value={form.charts_per_coder}
+              onChange={e => setForm(f => ({ ...f, charts_per_coder: parseInt(e.target.value) || 1 }))} />
+          </div>
+        )}
         <div style={styles.formGroup}>
           <label style={styles.label}>Assignment</label>
           <div style={styles.modeToggle}>

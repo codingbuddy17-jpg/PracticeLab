@@ -403,7 +403,7 @@ def run_allocation(batch_id: int, payload: AllocationRun, db: Session = Depends(
             if not available:
                 pool_warnings.append(f"{coder.coder_name}: all selected charts already assigned — skipped")
                 continue
-            assigned = available
+            assigned = available[:charts_per_coder]
         else:
             # Random: exclude already-assigned charts for this coder
             available = [c for c in pool if c.id not in already]
@@ -949,21 +949,17 @@ def grade_submissions(
                         detail=fb.detail,
                     ))
 
-                # Update submission status
-                bc = (db.query(BatchChart)
-                      .filter(BatchChart.batch_id == batch_id,
-                              BatchChart.coder_name == coder_name,
-                              BatchChart.chart_id == chart.id)
-                      .first())
-                if bc:
-                    bc.submission_status = SubmissionStatus.SUBMITTED
+                # Update submission status — update ALL matching rows in case of edge cases
+                (db.query(BatchChart)
+                   .filter(BatchChart.batch_id == batch_id,
+                           BatchChart.coder_name == coder_name,
+                           BatchChart.chart_id == chart.id)
+                   .update({"submission_status": SubmissionStatus.SUBMITTED}))
 
                 graded.append(f"{coder_name} / {chart_num}")
 
         except Exception as e:
             errors.append(f"{filename}: {str(e)}")
-
-    db.commit()
 
     db.commit()
     return {"graded": graded, "errors": errors}
