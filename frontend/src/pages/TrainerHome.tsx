@@ -18,6 +18,7 @@ export function TrainerHome() {
     { to: '/trainer/reports', icon: <FileText size={24} />, title: 'Reports', desc: 'Filter, view and export the chart library', color: '#16a34a', light: '#dcfce7', badge: null },
     { to: '/trainer/analytics', icon: <BarChart2 size={24} />, title: 'Analytics', desc: 'Most viewed, least viewed, specialty breakdown', color: '#d97706', light: '#fef3c7', badge: null },
     { to: '/trainer/feedback', icon: <Flag size={24} />, title: 'Feedback', desc: 'Review issues flagged by coders on charts', color: '#dc2626', light: '#fee2e2', badge: unresolvedCount > 0 ? unresolvedCount : null },
+    { to: '/trainer/self-practice', icon: <GraduationCap size={24} />, title: 'Self Practice', desc: 'Review coder self-submissions and grade standalone', color: '#7c3aed', light: '#ede9fe', badge: null },
   ]
 
   return (

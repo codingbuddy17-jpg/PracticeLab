@@ -247,6 +247,46 @@ export async function getCoderTrend(coderName: string) {
   return data
 }
 
+// ── Self-Practice ─────────────────────────────────────────────────────────────
+
+export function downloadSelfPracticeTemplate() {
+  window.open(`${import.meta.env.VITE_API_URL || '/api'}/practicelab/self-practice/template`, '_blank')
+}
+
+export async function submitSelfPractice(coderName: string, empId: string, files: File[]) {
+  const form = new FormData()
+  form.append('coder_name', coderName)
+  form.append('emp_id', empId)
+  files.forEach(f => form.append('files', f))
+  const { data } = await api.post('/practicelab/self-practice/submit', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  return data as { submission_id: number; graded: string[]; errors: string[] }
+}
+
+export async function getSelfPracticeQueue(status = 'pending_review') {
+  const { data } = await api.get('/practicelab/self-practice/queue', { params: { status } })
+  return data
+}
+
+export async function releaseSelfPractice(submissionId: number, trainerFeedback: string, reviewedBy: string) {
+  const { data } = await api.post(`/practicelab/self-practice/${submissionId}/release`, {
+    trainer_feedback: trainerFeedback,
+    reviewed_by: reviewedBy,
+  })
+  return data
+}
+
+export async function standaloneGrade(trainerName: string, files: File[]) {
+  const form = new FormData()
+  form.append('trainer_name', trainerName)
+  files.forEach(f => form.append('files', f))
+  const { data } = await api.post('/practicelab/standalone/grade', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  return data as { results: any[]; errors: string[] }
+}
+
 // ── Reports ──────────────────────────────────────────────────────────────────
 
 export async function getReportSummary() {

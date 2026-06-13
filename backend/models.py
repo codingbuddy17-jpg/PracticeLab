@@ -287,6 +287,45 @@ class GradingFeedback(Base):
     result = relationship("GradingResult", back_populates="feedback")
 
 
+class SelfPracticeSubmission(Base):
+    """Coder-initiated or trainer standalone grading outside of any batch."""
+    __tablename__ = "self_practice_submissions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    coder_name = Column(String(100), nullable=False)
+    emp_id = Column(String(50), nullable=True)
+    source = Column(String(20), nullable=False, default="coder")  # 'coder' | 'trainer'
+    status = Column(String(20), nullable=False, default="pending_review")  # 'pending_review' | 'released'
+    trainer_feedback = Column(Text, nullable=True)
+    reviewed_by = Column(String(100), nullable=True)
+    reviewed_at = Column(DateTime(timezone=True), nullable=True)
+    submitted_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    results = relationship("SelfPracticeResult", back_populates="submission", cascade="all, delete-orphan")
+
+
+class SelfPracticeResult(Base):
+    """Per-chart grading result for a self-practice or standalone submission."""
+    __tablename__ = "self_practice_results"
+
+    id = Column(Integer, primary_key=True, index=True)
+    submission_id = Column(Integer, ForeignKey("self_practice_submissions.id"), nullable=False)
+    chart_id = Column(Integer, ForeignKey("charts.id"), nullable=True)
+    chart_number = Column(String(20), nullable=False)
+    specialty = Column(SAEnum(Specialty), nullable=True)
+    weighted_score = Column(Integer, nullable=True)
+    pass_fail = Column(SAEnum(PassFail), nullable=True)
+    dpo_dx_accuracy = Column(Float, nullable=True)
+    dpo_poa_accuracy = Column(Float, nullable=True)
+    dpo_proc_accuracy = Column(Float, nullable=True)
+    dpo_overall_accuracy = Column(Float, nullable=True)
+    error_message = Column(String(300), nullable=True)
+    feedback_items = Column(JSON, nullable=True, default=list)
+
+    submission = relationship("SelfPracticeSubmission", back_populates="results")
+    chart = relationship("Chart")
+
+
 class ScoringConfig(Base):
     """
     Admin-configurable scoring weights per specialty type (IP or OP).

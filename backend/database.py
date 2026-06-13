@@ -160,6 +160,33 @@ def _run_migrations():
              TRUE),
             ('OP', 25, 25, NULL, NULL, 50, 90, '[]', TRUE)
            ON CONFLICT (specialty_type) DO NOTHING""",
+        # Self-practice / standalone grading
+        """CREATE TABLE IF NOT EXISTS self_practice_submissions (
+            id SERIAL PRIMARY KEY,
+            coder_name VARCHAR(100) NOT NULL,
+            emp_id VARCHAR(50),
+            source VARCHAR(20) NOT NULL DEFAULT 'coder',
+            status VARCHAR(20) NOT NULL DEFAULT 'pending_review',
+            trainer_feedback TEXT,
+            reviewed_by VARCHAR(100),
+            reviewed_at TIMESTAMPTZ,
+            submitted_at TIMESTAMPTZ DEFAULT NOW()
+        )""",
+        """CREATE TABLE IF NOT EXISTS self_practice_results (
+            id SERIAL PRIMARY KEY,
+            submission_id INTEGER REFERENCES self_practice_submissions(id) NOT NULL,
+            chart_id INTEGER REFERENCES charts(id),
+            chart_number VARCHAR(20) NOT NULL,
+            specialty VARCHAR(50),
+            weighted_score INTEGER,
+            pass_fail VARCHAR(10),
+            dpo_dx_accuracy FLOAT,
+            dpo_poa_accuracy FLOAT,
+            dpo_proc_accuracy FLOAT,
+            dpo_overall_accuracy FLOAT,
+            error_message VARCHAR(300),
+            feedback_items JSONB DEFAULT '[]'
+        )""",
     ]
     with engine.connect() as conn:
         for sql in migrations:

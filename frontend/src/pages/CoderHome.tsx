@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Search, BookOpen, Clock, X, ArrowUpDown } from 'lucide-react'
+import { Search, BookOpen, Clock, X, ArrowUpDown, Pencil } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { searchCharts, getCategories } from '../api'
 import { ChartViewer } from '../components/ChartViewer'
@@ -11,6 +12,7 @@ import { SPECIALTY_COLORS, DIFFICULTY_COLORS } from '../theme'
 type SortOption = 'chart_number' | 'difficulty' | 'recent'
 
 export function CoderHome() {
+  const navigate = useNavigate()
   const [coderName, setCoderName] = useLocalStorage<string>('coder_name', '')
   const [nameInput, setNameInput] = useState('')
   const [showNamePrompt, setShowNamePrompt] = useState(!coderName)
@@ -132,6 +134,9 @@ export function CoderHome() {
             {coderName}
           </div>
         )}
+        <button style={styles.selfPracticeBtn} onClick={() => navigate('/self-practice')}>
+          <Pencil size={14} /> Self Practice
+        </button>
       </div>
 
       <div style={styles.main}>
@@ -275,6 +280,7 @@ const styles: Record<string, React.CSSProperties> = {
   logoText: { fontWeight: 800, fontSize: 18, color: '#111', letterSpacing: -0.5 },
   coderChip: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#374151', background: '#f3f4f6', padding: '5px 12px', borderRadius: 20, fontWeight: 500 },
   coderDot: { width: 7, height: 7, borderRadius: '50%', background: '#22c55e' },
+  selfPracticeBtn: { display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: '#4f46e5', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 700 },
   main: { maxWidth: 960, margin: '0 auto', padding: '24px 24px 60px' },
   searchSection: { background: 'rgba(255,255,255,0.62)', backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)', border: '1px solid rgba(255,255,255,0.5)', borderRadius: 14, padding: 20, marginBottom: 20, boxShadow: '0 4px 24px rgba(0,0,0,0.07)' },
   searchRow: { display: 'flex', gap: 10, marginBottom: 14 },
