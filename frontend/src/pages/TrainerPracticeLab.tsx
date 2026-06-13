@@ -1884,7 +1884,7 @@ function PLAnalyticsView() {
                       <Cell fill="#16a34a" />
                       <Cell fill="#dc2626" />
                     </Pie>
-                    <Tooltip formatter={(v: any, name: string) => [v, name]} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                    <Tooltip formatter={(v: any, name: any) => [v, name]} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
                     <Legend iconType="circle" iconSize={10} wrapperStyle={{ fontSize: 12 }} />
                   </PieChart>
                 </div>
@@ -1908,7 +1908,7 @@ function PLAnalyticsView() {
                     <CartesianGrid strokeDasharray="3 3" horizontal={false} />
                     <XAxis type="number" domain={[0, 100]} tickFormatter={v => `${v}%`} tick={{ fontSize: 11 }} />
                     <YAxis type="category" dataKey="specialty" width={110} tick={{ fontSize: 12, fontWeight: 600 }} />
-                    <Tooltip formatter={(v: any, name: string) => [`${v}%`, name === 'avg_score' ? 'Avg Score' : 'Pass Rate']} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                    <Tooltip formatter={(v: any, name: any) => [`${v}%`, name === 'avg_score' ? 'Avg Score' : 'Pass Rate']} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
                     <Legend formatter={n => n === 'avg_score' ? 'Avg Score' : 'Pass Rate'} />
                     <Bar dataKey="avg_score" name="avg_score" radius={[0, 4, 4, 0]} fill="#4f46e5" fillOpacity={0.85} />
                     <Bar dataKey="pass_rate" name="pass_rate" radius={[0, 4, 4, 0]} fill="#16a34a" fillOpacity={0.85} />
@@ -1980,7 +1980,7 @@ function PLAnalyticsView() {
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="label" tick={{ fontSize: 11 }} />
                     <YAxis domain={[0, 100]} tickFormatter={v => `${v}%`} tick={{ fontSize: 11 }} />
-                    <Tooltip formatter={(v: any, name: string) => [`${v}%`, name === 'pass_rate' ? 'Pass Rate' : 'Avg Score']} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                    <Tooltip formatter={(v: any, name: any) => [`${v}%`, name === 'pass_rate' ? 'Pass Rate' : 'Avg Score']} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
                     <Legend formatter={n => n === 'pass_rate' ? 'Pass Rate' : 'Avg Score'} />
                     <Line type="monotone" dataKey="pass_rate" stroke="#16a34a" strokeWidth={2.5} dot={{ r: 5, fill: '#16a34a' }} activeDot={{ r: 7 }} />
                     <Line type="monotone" dataKey="avg_score" stroke="#4f46e5" strokeWidth={2.5} dot={{ r: 5, fill: '#4f46e5' }} activeDot={{ r: 7 }} />
@@ -2415,7 +2415,7 @@ function InsightsPanel({ insights, onClose }: { insights: any; onClose: () => vo
               <BarChart data={cp} layout="vertical" margin={{ left: 8, right: 40, top: 2, bottom: 2 }}>
                 <XAxis type="number" domain={[0, 100]} tickFormatter={v => `${v}%`} tick={{ fontSize: 10 }} />
                 <YAxis type="category" dataKey="category" width={100} tick={{ fontSize: 11, fontWeight: 600 }} />
-                <Tooltip formatter={(v: any, name: string, p: any) => [
+                <Tooltip formatter={(v: any, _name: any, p: any) => [
                   `${v}% avg · ${p.payload.pass_rate}% pass rate · ${p.payload.attempt_count} attempts`,
                   'Avg Score'
                 ]} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
