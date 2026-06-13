@@ -2,6 +2,10 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ChevronLeft, Plus, Upload, Download, FileCheck, BarChart2, Key, Loader, Settings, Search, CheckSquare, Square } from 'lucide-react'
 import toast from 'react-hot-toast'
+import {
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  LineChart, Line, PieChart, Pie, Cell, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
+} from 'recharts'
 import { getSelfPracticeQueue, releaseSelfPractice, standaloneGrade } from '../api'
 import {
   listBatches, createBatch, runAllocation, closeBatch, forceCloseBatch, addBatchNote,
@@ -1729,21 +1733,18 @@ function StandaloneInsights({ results }: { results: any[] }) {
           {/* Error breakdown */}
           <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: '12px 14px' }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: '#111', marginBottom: 10 }}>Error Breakdown</div>
-            {topIssues.map(([type, count]) => {
-              const pct = Math.round(count / totalFb * 100)
-              return (
-                <div key={type} style={{ marginBottom: 7 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
-                    <span style={{ fontSize: 11, fontWeight: 600, color: ISSUE_COLORS[type] || '#374151' }}>{type.replace(/_/g, ' ')}</span>
-                    <span style={{ fontSize: 11, color: '#6b7280' }}>{count} ({pct}%)</span>
-                  </div>
-                  <div style={{ height: 4, background: '#f3f4f6', borderRadius: 3 }}>
-                    <div style={{ height: 4, width: `${pct}%`, background: ISSUE_COLORS[type] || '#374151', borderRadius: 3 }} />
-                  </div>
-                </div>
-              )
-            })}
-            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 10 }}>
+            <ResponsiveContainer width="100%" height={Math.max(100, topIssues.length * 36)}>
+              <BarChart data={topIssues.map(([type, count]) => ({ label: type.replace(/_/g, ' '), count, pct: Math.round(count / totalFb * 100), type }))}
+                layout="vertical" margin={{ left: 8, right: 36, top: 2, bottom: 2 }}>
+                <XAxis type="number" domain={[0, 100]} tickFormatter={v => `${v}%`} tick={{ fontSize: 10 }} />
+                <YAxis type="category" dataKey="label" width={90} tick={{ fontSize: 11, fontWeight: 600 }} />
+                <Tooltip formatter={(v: any, _: any, p: any) => [`${p.payload.count} (${v}%)`, 'Share']} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                <Bar dataKey="pct" radius={[0, 5, 5, 0]}>
+                  {topIssues.map(([type]) => <Cell key={type} fill={ISSUE_COLORS[type] || '#6b7280'} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 8 }}>
               {Object.entries(sectionCounts).map(([sec, cnt]) => (
                 <span key={sec} style={{ fontSize: 10, fontWeight: 700, background: '#dbeafe', color: '#1d4ed8', padding: '1px 8px', borderRadius: 10 }}>{sec} {cnt}×</span>
               ))}
@@ -1851,8 +1852,24 @@ function PLAnalyticsView() {
                   </div>
                 ))}
               </div>
-              {overview.total_graded === 0 && (
+              {overview.total_graded === 0 ? (
                 <div style={styles.warnBox}>No grading results yet. Complete at least one batch grading cycle to see analytics.</div>
+              ) : (
+                <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '18px 16px', display: 'flex', alignItems: 'center', gap: 32 }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 4 }}>Overall Pass / Fail Split</div>
+                    <div style={{ fontSize: 11, color: '#6b7280' }}>{overview.total_graded} graded submissions</div>
+                  </div>
+                  <PieChart width={180} height={180}>
+                    <Pie data={[{ name: 'Passed', value: overview.total_passed }, { name: 'Failed', value: overview.total_graded - overview.total_passed }]}
+                      cx={90} cy={90} innerRadius={52} outerRadius={80} paddingAngle={3} dataKey="value">
+                      <Cell fill="#16a34a" />
+                      <Cell fill="#dc2626" />
+                    </Pie>
+                    <Tooltip formatter={(v: any, name: string) => [v, name]} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                    <Legend iconType="circle" iconSize={10} wrapperStyle={{ fontSize: 12 }} />
+                  </PieChart>
+                </div>
               )}
             </>
           )}
@@ -1865,18 +1882,21 @@ function PLAnalyticsView() {
           {bySpecialty.length === 0 ? (
             <div style={styles.emptyState}>No data yet — complete a grading cycle first</div>
           ) : (
-            <div style={styles.table}>
-              <div style={{ ...styles.tableHeader, gridTemplateColumns: '2fr 1fr 1fr 1fr' }}>
-                <span>Specialty</span><span>Graded</span><span>Avg Score</span><span>Pass Rate</span>
-              </div>
-              {bySpecialty.map((r: any) => (
-                <div key={r.specialty} style={{ ...styles.tableRow, gridTemplateColumns: '2fr 1fr 1fr 1fr' }}>
-                  <span style={{ fontWeight: 600 }}>{r.specialty}</span>
-                  <span>{r.total}</span>
-                  <span style={{ fontWeight: 700, color: r.avg_score >= 80 ? '#16a34a' : r.avg_score >= 60 ? '#d97706' : '#dc2626' }}>{r.avg_score}%</span>
-                  <span>—</span>
-                </div>
-              ))}
+            <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '18px 16px' }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 16 }}>Avg Score by Specialty</div>
+              <ResponsiveContainer width="100%" height={Math.max(180, bySpecialty.length * 52)}>
+                <BarChart data={bySpecialty} layout="vertical" margin={{ left: 20, right: 40, top: 4, bottom: 4 }}>
+                  <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                  <XAxis type="number" domain={[0, 100]} tickFormatter={v => `${v}%`} tick={{ fontSize: 11 }} />
+                  <YAxis type="category" dataKey="specialty" width={110} tick={{ fontSize: 12, fontWeight: 600 }} />
+                  <Tooltip formatter={(v: any) => [`${v}%`, 'Avg Score']} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                  <Bar dataKey="avg_score" name="Avg Score" radius={[0, 6, 6, 0]}>
+                    {bySpecialty.map((r: any) => (
+                      <Cell key={r.specialty} fill={r.avg_score >= 80 ? '#16a34a' : r.avg_score >= 60 ? '#d97706' : '#dc2626'} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
             </div>
           )}
         </div>
@@ -1917,24 +1937,40 @@ function PLAnalyticsView() {
 
       {/* By Batch */}
       {tab === 'batch' && (
-        <div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           {byBatch.length === 0 ? (
             <div style={styles.emptyState}>No batch results yet</div>
           ) : (
-            <div style={styles.table}>
-              <div style={{ ...styles.tableHeader, gridTemplateColumns: '2fr 100px 80px 80px 80px' }}>
-                <span>Batch</span><span>Specialty</span><span>Coders</span><span>Avg Score</span><span>Pass Rate</span>
+            <>
+              <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '18px 16px' }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 16 }}>Pass Rate & Avg Score Over Batches</div>
+                <ResponsiveContainer width="100%" height={240}>
+                  <LineChart data={byBatch.map(b => ({ ...b, label: b.batch_name.length > 16 ? b.batch_name.slice(0, 16) + '…' : b.batch_name }))} margin={{ left: 10, right: 20, top: 8, bottom: 8 }}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                    <YAxis domain={[0, 100]} tickFormatter={v => `${v}%`} tick={{ fontSize: 11 }} />
+                    <Tooltip formatter={(v: any, name: string) => [`${v}%`, name === 'pass_rate' ? 'Pass Rate' : 'Avg Score']} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                    <Legend formatter={n => n === 'pass_rate' ? 'Pass Rate' : 'Avg Score'} />
+                    <Line type="monotone" dataKey="pass_rate" stroke="#16a34a" strokeWidth={2.5} dot={{ r: 5, fill: '#16a34a' }} activeDot={{ r: 7 }} />
+                    <Line type="monotone" dataKey="avg_score" stroke="#4f46e5" strokeWidth={2.5} dot={{ r: 5, fill: '#4f46e5' }} activeDot={{ r: 7 }} />
+                  </LineChart>
+                </ResponsiveContainer>
               </div>
-              {byBatch.map((r: any) => (
-                <div key={r.batch_id} style={{ ...styles.tableRow, gridTemplateColumns: '2fr 100px 80px 80px 80px' }}>
-                  <span style={{ fontWeight: 600, fontSize: 13 }}>{r.batch_name}</span>
-                  <span style={{ fontSize: 12, color: '#6b7280' }}>{r.specialty}</span>
-                  <span>{r.coder_count}</span>
-                  <span style={{ fontWeight: 700, color: r.avg_score >= 80 ? '#16a34a' : r.avg_score >= 60 ? '#d97706' : '#dc2626' }}>{r.avg_score}%</span>
-                  <span style={{ fontWeight: 700, color: r.pass_rate >= 80 ? '#16a34a' : r.pass_rate >= 60 ? '#d97706' : '#dc2626' }}>{r.pass_rate}%</span>
+              <div style={styles.table}>
+                <div style={{ ...styles.tableHeader, gridTemplateColumns: '2fr 100px 80px 80px 80px' }}>
+                  <span>Batch</span><span>Specialty</span><span>Coders</span><span>Avg Score</span><span>Pass Rate</span>
                 </div>
-              ))}
-            </div>
+                {byBatch.map((r: any) => (
+                  <div key={r.batch_id} style={{ ...styles.tableRow, gridTemplateColumns: '2fr 100px 80px 80px 80px' }}>
+                    <span style={{ fontWeight: 600, fontSize: 13 }}>{r.batch_name}</span>
+                    <span style={{ fontSize: 12, color: '#6b7280' }}>{r.specialty}</span>
+                    <span>{r.coder_count}</span>
+                    <span style={{ fontWeight: 700, color: r.avg_score >= 80 ? '#16a34a' : r.avg_score >= 60 ? '#d97706' : '#dc2626' }}>{r.avg_score}%</span>
+                    <span style={{ fontWeight: 700, color: r.pass_rate >= 80 ? '#16a34a' : r.pass_rate >= 60 ? '#d97706' : '#dc2626' }}>{r.pass_rate}%</span>
+                  </div>
+                ))}
+              </div>
+            </>
           )}
         </div>
       )}
@@ -1951,26 +1987,40 @@ function PLAnalyticsView() {
           {coderTrend.length === 0 ? (
             <div style={styles.emptyState}>Enter a coder name to see their score trend across batches</div>
           ) : (
-            <div style={styles.table}>
-              <div style={{ ...styles.tableHeader, gridTemplateColumns: '2fr 120px 80px 80px' }}>
-                <span>Batch</span><span>Date</span><span>Charts</span><span>Avg Score</span>
+            <>
+              <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '18px 16px' }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 16 }}>Score Trend — {coderName}</div>
+                <ResponsiveContainer width="100%" height={220}>
+                  <LineChart data={coderTrend.map(r => ({ ...r, label: r.batch_name.length > 14 ? r.batch_name.slice(0, 14) + '…' : r.batch_name }))} margin={{ left: 10, right: 20, top: 8, bottom: 8 }}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                    <YAxis domain={[0, 100]} tickFormatter={v => `${v}%`} tick={{ fontSize: 11 }} />
+                    <Tooltip formatter={(v: any) => [`${v}%`, 'Avg Score']} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                    <Line type="monotone" dataKey="avg_score" stroke="#4f46e5" strokeWidth={2.5} dot={{ r: 6, fill: '#4f46e5' }} activeDot={{ r: 8 }} name="Avg Score" />
+                  </LineChart>
+                </ResponsiveContainer>
               </div>
-              {coderTrend.map((r: any, i: number) => {
-                const prev = coderTrend[i - 1]
-                const delta = prev ? round1(r.avg_score - prev.avg_score) : null
-                return (
-                  <div key={r.batch_id} style={{ ...styles.tableRow, gridTemplateColumns: '2fr 120px 80px 80px' }}>
-                    <span style={{ fontWeight: 600, fontSize: 13 }}>{r.batch_name}</span>
-                    <span style={{ fontSize: 12, color: '#6b7280' }}>{r.created_at ? new Date(r.created_at).toLocaleDateString() : '—'}</span>
-                    <span>{r.chart_count}</span>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span style={{ fontWeight: 700, color: r.avg_score >= 80 ? '#16a34a' : r.avg_score >= 60 ? '#d97706' : '#dc2626' }}>{r.avg_score}%</span>
-                      {delta != null && <span style={{ fontSize: 11, fontWeight: 700, color: delta > 0 ? '#16a34a' : delta < 0 ? '#dc2626' : '#9ca3af' }}>{delta > 0 ? '↑' : delta < 0 ? '↓' : '→'}{Math.abs(delta)}%</span>}
-                    </span>
-                  </div>
-                )
-              })}
-            </div>
+              <div style={styles.table}>
+                <div style={{ ...styles.tableHeader, gridTemplateColumns: '2fr 120px 80px 80px' }}>
+                  <span>Batch</span><span>Date</span><span>Charts</span><span>Avg Score</span>
+                </div>
+                {coderTrend.map((r: any, i: number) => {
+                  const prev = coderTrend[i - 1]
+                  const delta = prev ? round1(r.avg_score - prev.avg_score) : null
+                  return (
+                    <div key={r.batch_id} style={{ ...styles.tableRow, gridTemplateColumns: '2fr 120px 80px 80px' }}>
+                      <span style={{ fontWeight: 600, fontSize: 13 }}>{r.batch_name}</span>
+                      <span style={{ fontSize: 12, color: '#6b7280' }}>{r.created_at ? new Date(r.created_at).toLocaleDateString() : '—'}</span>
+                      <span>{r.chart_count}</span>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ fontWeight: 700, color: r.avg_score >= 80 ? '#16a34a' : r.avg_score >= 60 ? '#d97706' : '#dc2626' }}>{r.avg_score}%</span>
+                        {delta != null && <span style={{ fontSize: 11, fontWeight: 700, color: delta > 0 ? '#16a34a' : delta < 0 ? '#dc2626' : '#9ca3af' }}>{delta > 0 ? '↑' : delta < 0 ? '↓' : '→'}{Math.abs(delta)}%</span>}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            </>
           )}
         </div>
       )}
@@ -2076,20 +2126,20 @@ function InsightsPanel({ insights, onClose }: { insights: any; onClose: () => vo
             <div style={{ fontSize: 12, color: '#9ca3af' }}>No errors recorded</div>
           ) : (
             <>
-              <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 8 }}>By issue type</div>
-              {te.by_issue_type.map((e: any) => (
-                <div key={e.type} style={{ marginBottom: 8 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
-                    <span style={{ fontSize: 12, fontWeight: 600, color: ISSUE_COLORS[e.type] || '#374151' }}>{e.type.replace(/_/g, ' ')}</span>
-                    <span style={{ fontSize: 12, color: '#6b7280' }}>{e.count} ({e.pct}%)</span>
-                  </div>
-                  <div style={{ height: 5, background: '#f3f4f6', borderRadius: 3 }}>
-                    <div style={{ height: 5, width: `${e.pct}%`, background: ISSUE_COLORS[e.type] || '#374151', borderRadius: 3 }} />
-                  </div>
-                </div>
-              ))}
-              <div style={{ fontSize: 11, color: '#6b7280', marginTop: 12, marginBottom: 6 }}>By section</div>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              <ResponsiveContainer width="100%" height={Math.max(120, te.by_issue_type.length * 38)}>
+                <BarChart data={te.by_issue_type.map((e: any) => ({ ...e, label: e.type.replace(/_/g, ' ') }))}
+                  layout="vertical" margin={{ left: 8, right: 40, top: 2, bottom: 2 }}>
+                  <XAxis type="number" domain={[0, 100]} tickFormatter={v => `${v}%`} tick={{ fontSize: 10 }} />
+                  <YAxis type="category" dataKey="label" width={96} tick={{ fontSize: 11, fontWeight: 600 }} />
+                  <Tooltip formatter={(v: any, _: any, p: any) => [`${p.payload.count} errors (${v}%)`, 'Share']} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                  <Bar dataKey="pct" radius={[0, 6, 6, 0]}>
+                    {te.by_issue_type.map((e: any) => (
+                      <Cell key={e.type} fill={ISSUE_COLORS[e.type] || '#6b7280'} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 12 }}>
                 {te.by_section.map((s: any) => (
                   <span key={s.section} style={{ fontSize: 11, fontWeight: 700, background: '#dbeafe', color: '#1d4ed8', padding: '2px 10px', borderRadius: 10 }}>
                     {s.section} {s.count}×
@@ -2098,7 +2148,7 @@ function InsightsPanel({ insights, onClose }: { insights: any; onClose: () => vo
               </div>
               {te.top_missed_codes.length > 0 && (
                 <>
-                  <div style={{ fontSize: 11, color: '#6b7280', marginTop: 12, marginBottom: 6 }}>Top missed codes</div>
+                  <div style={{ fontSize: 11, color: '#6b7280', marginTop: 10, marginBottom: 6 }}>Top missed codes</div>
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                     {te.top_missed_codes.map((m: any) => (
                       <span key={m.code} style={{ fontSize: 11, fontWeight: 700, background: '#fee2e2', color: '#dc2626', padding: '2px 10px', borderRadius: 10 }}>
@@ -2117,18 +2167,23 @@ function InsightsPanel({ insights, onClose }: { insights: any; onClose: () => vo
           <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 12 }}>Category Performance</div>
           {cp.length === 0 ? (
             <div style={{ fontSize: 12, color: '#9ca3af' }}>No data</div>
-          ) : cp.map((c: any) => (
-            <div key={c.category} style={{ marginBottom: 10 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
-                <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>{c.category}</span>
-                <span style={{ fontSize: 12, color: c.pass_rate < 60 ? '#dc2626' : c.pass_rate < 80 ? '#d97706' : '#16a34a', fontWeight: 700 }}>{c.pass_rate}% pass</span>
-              </div>
-              <div style={{ height: 5, background: '#f3f4f6', borderRadius: 3 }}>
-                <div style={{ height: 5, width: `${c.avg_score}%`, background: c.avg_score < 60 ? '#dc2626' : c.avg_score < 80 ? '#d97706' : '#16a34a', borderRadius: 3 }} />
-              </div>
-              <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2 }}>{c.avg_score}% avg · {c.attempt_count} attempt{c.attempt_count !== 1 ? 's' : ''}</div>
-            </div>
-          ))}
+          ) : (
+            <ResponsiveContainer width="100%" height={Math.max(140, cp.length * 40)}>
+              <BarChart data={cp} layout="vertical" margin={{ left: 8, right: 40, top: 2, bottom: 2 }}>
+                <XAxis type="number" domain={[0, 100]} tickFormatter={v => `${v}%`} tick={{ fontSize: 10 }} />
+                <YAxis type="category" dataKey="category" width={100} tick={{ fontSize: 11, fontWeight: 600 }} />
+                <Tooltip formatter={(v: any, name: string, p: any) => [
+                  `${v}% avg · ${p.payload.pass_rate}% pass rate · ${p.payload.attempt_count} attempts`,
+                  'Avg Score'
+                ]} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                <Bar dataKey="avg_score" radius={[0, 6, 6, 0]}>
+                  {cp.map((c: any) => (
+                    <Cell key={c.category} fill={c.avg_score < 60 ? '#dc2626' : c.avg_score < 80 ? '#d97706' : '#16a34a'} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
         </div>
       </div>
 
@@ -2207,11 +2262,31 @@ function InsightsPanel({ insights, onClose }: { insights: any; onClose: () => vo
                     ))}
                   </div>
                   <div>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>Section Errors</div>
-                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>Section Error Profile</div>
+                    {Object.keys(c.section_errors).length >= 2 ? (
+                      <ResponsiveContainer width="100%" height={160}>
+                        <RadarChart data={Object.entries(c.section_errors).map(([sec, cnt]) => ({ section: sec, errors: cnt }))}>
+                          <PolarGrid />
+                          <PolarAngleAxis dataKey="section" tick={{ fontSize: 11, fontWeight: 700 }} />
+                          <PolarRadiusAxis tick={{ fontSize: 9 }} />
+                          <Radar dataKey="errors" stroke="#4f46e5" fill="#4f46e5" fillOpacity={0.25} />
+                          <Tooltip formatter={(v: any) => [v, 'Errors']} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                        </RadarChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+                        {Object.entries(c.section_errors).map(([sec, cnt]: any) => (
+                          <div key={sec} style={{ textAlign: 'center', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '6px 12px' }}>
+                            <div style={{ fontSize: 16, fontWeight: 800, color: '#1d4ed8' }}>{cnt}</div>
+                            <div style={{ fontSize: 10, color: '#6b7280' }}>{sec}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12, marginTop: 4 }}>
                       {Object.entries(c.section_errors).map(([sec, cnt]: any) => (
-                        <div key={sec} style={{ textAlign: 'center', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '6px 12px' }}>
-                          <div style={{ fontSize: 16, fontWeight: 800, color: '#1d4ed8' }}>{cnt}</div>
+                        <div key={sec} style={{ textAlign: 'center', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '4px 10px' }}>
+                          <div style={{ fontSize: 14, fontWeight: 800, color: '#1d4ed8' }}>{cnt}</div>
                           <div style={{ fontSize: 10, color: '#6b7280' }}>{sec}</div>
                         </div>
                       ))}
