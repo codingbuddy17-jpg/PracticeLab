@@ -14,6 +14,7 @@ import {
   getDRGReview, submitDRGDecision, getBatchResults, downloadBatchResultsExcel,
   getAnswerKeyStatus, getPLAnalyticsOverview,
   getPLAnalyticsBySpecialty, getPLAnalyticsByChart, getPLAnalyticsByBatch, getCoderTrend,
+  getPLAnalyticsByCategory, getPLChartTeachingValue, getPLCoderMatrix,
   downloadCoderListTemplate, parseCoderList,
   getScoringConfigs, updateScoringConfig,
   getBatchInsights,
@@ -1137,7 +1138,7 @@ function ResultsView({ batchId }: any) {
         </div>
         <div style={styles.statCard}>
           <div style={styles.statValue}>{bs.pass_rate}%</div>
-          <div style={styles.statLabel}>Pass Rate</div>
+          <div style={styles.statLabel}>Coder Pass Rate</div>
         </div>
         <div style={styles.statCard}>
           <div style={styles.statValue}>{bs.avg_score}%</div>
@@ -1772,14 +1773,27 @@ function StandaloneInsights({ results }: { results: any[] }) {
 
 // ── PracticeLab Analytics (standalone tab) ────────────────────────────────────
 
+const TEACHING_LABEL_META: Record<string, { color: string; bg: string; desc: string }> = {
+  'High Yield':    { color: '#166534', bg: '#dcfce7', desc: 'Commonly attempted, produces meaningful repeatable mistakes' },
+  'High Confusion':{ color: '#92400e', bg: '#fef3c7', desc: '>60% fail rate with diverse error types — review answer key' },
+  'High Fail':     { color: '#991b1b', bg: '#fee2e2', desc: 'High failure rate, low error variety' },
+  'Too Easy':      { color: '#1d4ed8', bg: '#dbeafe', desc: 'Avg score ≥90% — suitable for beginner packs' },
+  'Underused':     { color: '#6b7280', bg: '#f3f4f6', desc: 'Fewer than 2 grading attempts' },
+  'Standard':      { color: '#374151', bg: '#f9fafb', desc: 'Typical performance range' },
+}
+
 function PLAnalyticsView() {
-  const [tab, setTab] = useState<'overview' | 'specialty' | 'chart' | 'batch' | 'coder'>('overview')
+  const [tab, setTab] = useState<'overview' | 'specialty' | 'chart' | 'batch' | 'coder' | 'category' | 'teaching' | 'matrix'>('overview')
   const [overview, setOverview] = useState<any>(null)
   const [bySpecialty, setBySpecialty] = useState<any[]>([])
   const [byChart, setByChart] = useState<any[]>([])
   const [byBatch, setByBatch] = useState<any[]>([])
   const [coderName, setCoderName] = useState('')
   const [coderTrend, setCoderTrend] = useState<any[]>([])
+  const [categoryData, setCategoryData] = useState<{ team: any[]; coder_category: any[] } | null>(null)
+  const [teachingData, setTeachingData] = useState<any[]>([])
+  const [matrixData, setMatrixData] = useState<{ batches: any[]; coders: string[]; cells: any[] } | null>(null)
+  const [teachingFilter, setTeachingFilter] = useState<string>('All')
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
@@ -1794,9 +1808,10 @@ function PLAnalyticsView() {
   }, [])
 
   useEffect(() => {
-    if (tab === 'chart' && byChart.length === 0) {
-      getPLAnalyticsByChart().then(setByChart).catch(() => {})
-    }
+    if (tab === 'chart' && byChart.length === 0) getPLAnalyticsByChart().then(setByChart).catch(() => {})
+    if (tab === 'category' && !categoryData) getPLAnalyticsByCategory().then(setCategoryData).catch(() => {})
+    if (tab === 'teaching' && teachingData.length === 0) getPLChartTeachingValue().then(setTeachingData).catch(() => {})
+    if (tab === 'matrix' && !matrixData) getPLCoderMatrix().then(setMatrixData).catch(() => {})
   }, [tab])
 
   async function loadCoderTrend() {
@@ -1809,9 +1824,12 @@ function PLAnalyticsView() {
   const TABS = [
     { key: 'overview', label: 'Overview' },
     { key: 'specialty', label: 'By Specialty' },
-    { key: 'chart', label: 'By Chart' },
     { key: 'batch', label: 'By Batch' },
     { key: 'coder', label: 'Coder Trend' },
+    { key: 'category', label: 'Category Mastery' },
+    { key: 'teaching', label: 'Chart Value' },
+    { key: 'matrix', label: 'Coder Matrix' },
+    { key: 'chart', label: 'By Chart' },
   ]
 
   if (loading) return <div style={styles.center}><Loader size={24} /></div>
@@ -1882,21 +1900,34 @@ function PLAnalyticsView() {
           {bySpecialty.length === 0 ? (
             <div style={styles.emptyState}>No data yet — complete a grading cycle first</div>
           ) : (
-            <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '18px 16px' }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 16 }}>Avg Score by Specialty</div>
-              <ResponsiveContainer width="100%" height={Math.max(180, bySpecialty.length * 52)}>
-                <BarChart data={bySpecialty} layout="vertical" margin={{ left: 20, right: 40, top: 4, bottom: 4 }}>
-                  <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                  <XAxis type="number" domain={[0, 100]} tickFormatter={v => `${v}%`} tick={{ fontSize: 11 }} />
-                  <YAxis type="category" dataKey="specialty" width={110} tick={{ fontSize: 12, fontWeight: 600 }} />
-                  <Tooltip formatter={(v: any) => [`${v}%`, 'Avg Score']} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
-                  <Bar dataKey="avg_score" name="Avg Score" radius={[0, 6, 6, 0]}>
-                    {bySpecialty.map((r: any) => (
-                      <Cell key={r.specialty} fill={r.avg_score >= 80 ? '#16a34a' : r.avg_score >= 60 ? '#d97706' : '#dc2626'} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '18px 16px' }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 16 }}>Avg Score & Pass Rate by Specialty</div>
+                <ResponsiveContainer width="100%" height={Math.max(200, bySpecialty.length * 56)}>
+                  <BarChart data={bySpecialty} layout="vertical" margin={{ left: 20, right: 50, top: 4, bottom: 4 }}>
+                    <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                    <XAxis type="number" domain={[0, 100]} tickFormatter={v => `${v}%`} tick={{ fontSize: 11 }} />
+                    <YAxis type="category" dataKey="specialty" width={110} tick={{ fontSize: 12, fontWeight: 600 }} />
+                    <Tooltip formatter={(v: any, name: string) => [`${v}%`, name === 'avg_score' ? 'Avg Score' : 'Pass Rate']} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                    <Legend formatter={n => n === 'avg_score' ? 'Avg Score' : 'Pass Rate'} />
+                    <Bar dataKey="avg_score" name="avg_score" radius={[0, 4, 4, 0]} fill="#4f46e5" fillOpacity={0.85} />
+                    <Bar dataKey="pass_rate" name="pass_rate" radius={[0, 4, 4, 0]} fill="#16a34a" fillOpacity={0.85} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <div style={styles.table}>
+                <div style={{ ...styles.tableHeader, gridTemplateColumns: '2fr 1fr 1fr 1fr' }}>
+                  <span>Specialty</span><span>Graded</span><span>Avg Score</span><span>Pass Rate</span>
+                </div>
+                {bySpecialty.map((r: any) => (
+                  <div key={r.specialty} style={{ ...styles.tableRow, gridTemplateColumns: '2fr 1fr 1fr 1fr' }}>
+                    <span style={{ fontWeight: 600 }}>{r.specialty}</span>
+                    <span>{r.total}</span>
+                    <span style={{ fontWeight: 700, color: r.avg_score >= 80 ? '#16a34a' : r.avg_score >= 60 ? '#d97706' : '#dc2626' }}>{r.avg_score}%</span>
+                    <span style={{ fontWeight: 700, color: r.pass_rate >= 80 ? '#16a34a' : r.pass_rate >= 60 ? '#d97706' : '#dc2626' }}>{r.pass_rate}%</span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>
@@ -2024,6 +2055,218 @@ function PLAnalyticsView() {
           )}
         </div>
       )}
+
+      {/* ── C: Category Mastery ───────────────────────────────────────────── */}
+      {tab === 'category' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {!categoryData ? (
+            <div style={styles.emptyState}>Loading…</div>
+          ) : categoryData.team.length === 0 ? (
+            <div style={styles.emptyState}>No category data yet — grade some batches first.</div>
+          ) : (
+            <>
+              <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '18px 16px' }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 16 }}>Team Avg Score by Category</div>
+                <ResponsiveContainer width="100%" height={Math.max(180, categoryData.team.length * 48)}>
+                  <BarChart data={categoryData.team} layout="vertical" margin={{ left: 10, right: 40, top: 4, bottom: 4 }}>
+                    <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                    <XAxis type="number" domain={[0, 100]} tickFormatter={v => `${v}%`} tick={{ fontSize: 11 }} />
+                    <YAxis type="category" dataKey="category" tick={{ fontSize: 11 }} width={140} />
+                    <Tooltip formatter={(v: any) => [`${v}%`]} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                    <Bar dataKey="avg_score" name="Avg Score" radius={[0, 4, 4, 0]}>
+                      {categoryData.team.map((entry: any, i: number) => (
+                        <Cell key={i} fill={entry.avg_score >= 80 ? '#22c55e' : entry.avg_score >= 60 ? '#f59e0b' : '#ef4444'} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              {categoryData.coder_category.length > 0 && (() => {
+                const coders = Array.from(new Set(categoryData.coder_category.map((r: any) => r.coder_name)))
+                const cats = categoryData.team.map((r: any) => r.category)
+                const cellMap: Record<string, Record<string, any>> = {}
+                categoryData.coder_category.forEach((r: any) => {
+                  if (!cellMap[r.coder_name]) cellMap[r.coder_name] = {}
+                  cellMap[r.coder_name][r.category] = r
+                })
+                return (
+                  <div style={{ overflowX: 'auto' }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 10 }}>Coder × Category Heatmap</div>
+                    <table style={{ borderCollapse: 'collapse', fontSize: 12, minWidth: '100%' }}>
+                      <thead>
+                        <tr>
+                          <th style={{ textAlign: 'left', padding: '6px 10px', background: '#f9fafb', borderBottom: '1px solid #e5e7eb', whiteSpace: 'nowrap' }}>Coder</th>
+                          {cats.map((c: string) => (
+                            <th key={c} style={{ padding: '6px 8px', background: '#f9fafb', borderBottom: '1px solid #e5e7eb', whiteSpace: 'nowrap', textAlign: 'center', fontWeight: 600 }}>{c}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {coders.map((coder: string) => (
+                          <tr key={coder}>
+                            <td style={{ padding: '6px 10px', fontWeight: 600, borderBottom: '1px solid #f3f4f6', whiteSpace: 'nowrap' }}>{coder}</td>
+                            {cats.map((cat: string) => {
+                              const cell = cellMap[coder]?.[cat]
+                              const score = cell?.avg_score
+                              const bg = score == null ? '#f9fafb' : score >= 80 ? '#dcfce7' : score >= 60 ? '#fef3c7' : '#fee2e2'
+                              const color = score == null ? '#9ca3af' : score >= 80 ? '#166534' : score >= 60 ? '#92400e' : '#991b1b'
+                              return (
+                                <td key={cat} style={{ padding: '6px 8px', textAlign: 'center', background: bg, color, fontWeight: 700, borderBottom: '1px solid #f3f4f6', borderLeft: '1px solid #f3f4f6' }}>
+                                  {score != null ? `${score}%` : '—'}
+                                </td>
+                              )
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    <div style={{ fontSize: 11, color: '#6b7280', marginTop: 8 }}>Green ≥80% · Yellow 60–79% · Red &lt;60% · — no data</div>
+                  </div>
+                )
+              })()}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ── D: Chart Teaching Value ──────────────────────────────────────────── */}
+      {tab === 'teaching' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {teachingData.length === 0 ? (
+            <div style={styles.emptyState}>No chart grading data yet.</div>
+          ) : (() => {
+            const labels = Object.keys(TEACHING_LABEL_META)
+            const filterOptions = ['All', ...labels]
+            const filtered = teachingFilter === 'All' ? teachingData : teachingData.filter((c: any) => c.teaching_label === teachingFilter)
+            const grouped: Record<string, any[]> = {}
+            teachingData.forEach((c: any) => {
+              if (!grouped[c.teaching_label]) grouped[c.teaching_label] = []
+              grouped[c.teaching_label].push(c)
+            })
+            const summaryData = labels.map(l => ({ label: l, count: grouped[l]?.length || 0 })).filter(d => d.count > 0)
+            return (
+              <>
+                <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '18px 16px' }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 16 }}>Chart Teaching Value Distribution</div>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <BarChart data={summaryData} margin={{ left: 10, right: 20, top: 4, bottom: 4 }}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                      <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+                      <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                      <Bar dataKey="count" name="Charts" radius={[4, 4, 0, 0]}>
+                        {summaryData.map((entry: any, i: number) => {
+                          const meta = TEACHING_LABEL_META[entry.label]
+                          return <Cell key={i} fill={meta?.color || '#6b7280'} />
+                        })}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {filterOptions.map(opt => (
+                    <button key={opt} onClick={() => setTeachingFilter(opt)}
+                      style={{ padding: '5px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                        background: teachingFilter === opt ? '#4f46e5' : '#f3f4f6',
+                        color: teachingFilter === opt ? '#fff' : '#374151',
+                        border: teachingFilter === opt ? '1px solid #4f46e5' : '1px solid #e5e7eb' }}>
+                      {opt}{opt !== 'All' && grouped[opt] ? ` (${grouped[opt].length})` : ''}
+                    </button>
+                  ))}
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 10 }}>
+                  {filtered.map((c: any, i: number) => {
+                    const meta = TEACHING_LABEL_META[c.teaching_label] || { color: '#374151', bg: '#f9fafb', desc: '' }
+                    return (
+                      <div key={i} style={{ background: meta.bg, border: `1px solid ${meta.color}30`, borderRadius: 8, padding: '12px 14px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+                          <span style={{ fontWeight: 700, fontSize: 13, color: '#111' }}>{c.chart_number}</span>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: meta.color, background: '#fff', border: `1px solid ${meta.color}40`, borderRadius: 10, padding: '2px 8px' }}>{c.teaching_label}</span>
+                        </div>
+                        <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 6 }}>{c.specialty} · {c.category}</div>
+                        <div style={{ display: 'flex', gap: 12, fontSize: 12 }}>
+                          <span><b style={{ color: '#111' }}>{c.attempt_count}</b> attempts</span>
+                          <span><b style={{ color: c.avg_score >= 80 ? '#16a34a' : c.avg_score >= 60 ? '#d97706' : '#dc2626' }}>{c.avg_score}%</b> avg</span>
+                          <span><b style={{ color: c.pass_rate >= 80 ? '#16a34a' : c.pass_rate >= 60 ? '#d97706' : '#dc2626' }}>{c.pass_rate}%</b> pass</span>
+                        </div>
+                        {c.error_variety > 0 && <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>{c.error_variety} distinct error type{c.error_variety > 1 ? 's' : ''}</div>}
+                      </div>
+                    )
+                  })}
+                </div>
+                {filtered.length === 0 && <div style={styles.emptyState}>No charts in this category.</div>}
+              </>
+            )
+          })()}
+        </div>
+      )}
+
+      {/* ── E: Coder Matrix ──────────────────────────────────────────────────── */}
+      {tab === 'matrix' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {!matrixData ? (
+            <div style={styles.emptyState}>Loading…</div>
+          ) : matrixData.coders.length === 0 ? (
+            <div style={styles.emptyState}>No closed batch results yet — close a batch to see the coder matrix.</div>
+          ) : (
+            <>
+              <div style={{ fontSize: 13, color: '#6b7280' }}>
+                Cross-batch performance grid — each cell shows the coder's avg score for that batch. Only closed batches are shown.
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ borderCollapse: 'collapse', fontSize: 12, minWidth: '100%' }}>
+                  <thead>
+                    <tr>
+                      <th style={{ textAlign: 'left', padding: '7px 12px', background: '#f9fafb', borderBottom: '2px solid #e5e7eb', whiteSpace: 'nowrap', fontWeight: 700, color: '#374151' }}>Coder</th>
+                      {matrixData.batches.map((b: any) => (
+                        <th key={b.id} style={{ padding: '7px 10px', background: '#f9fafb', borderBottom: '2px solid #e5e7eb', whiteSpace: 'nowrap', textAlign: 'center', fontWeight: 600, color: '#374151', minWidth: 80 }}>
+                          <div>{b.name.length > 14 ? b.name.slice(0, 14) + '…' : b.name}</div>
+                          <div style={{ fontSize: 10, fontWeight: 400, color: '#9ca3af' }}>{b.closed_at ? new Date(b.closed_at).toLocaleDateString() : ''}</div>
+                        </th>
+                      ))}
+                      <th style={{ padding: '7px 10px', background: '#f1f5f9', borderBottom: '2px solid #e5e7eb', textAlign: 'center', fontWeight: 700, color: '#374151', minWidth: 70 }}>Overall</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {matrixData.coders.map((coder: string) => {
+                      const coderCells = matrixData.cells.filter((c: any) => c.coder_name === coder)
+                      const allScores = coderCells.filter((c: any) => c.avg_score != null).map((c: any) => c.avg_score)
+                      const overall = allScores.length ? Math.round(allScores.reduce((a: number, b: number) => a + b, 0) / allScores.length) : null
+                      const cellMap: Record<number, any> = {}
+                      coderCells.forEach((c: any) => { cellMap[c.batch_id] = c })
+                      return (
+                        <tr key={coder}>
+                          <td style={{ padding: '7px 12px', fontWeight: 600, borderBottom: '1px solid #f3f4f6', whiteSpace: 'nowrap', color: '#111' }}>{coder}</td>
+                          {matrixData.batches.map((b: any) => {
+                            const cell = cellMap[b.id]
+                            const score = cell?.avg_score
+                            const bg = score == null ? '#f9fafb' : score >= 80 ? '#dcfce7' : score >= 60 ? '#fef3c7' : '#fee2e2'
+                            const color = score == null ? '#9ca3af' : score >= 80 ? '#166534' : score >= 60 ? '#92400e' : '#991b1b'
+                            return (
+                              <td key={b.id} style={{ padding: '7px 10px', textAlign: 'center', background: bg, color, fontWeight: 700, borderBottom: '1px solid #f3f4f6', borderLeft: '1px solid #f3f4f6' }}>
+                                {score != null ? (
+                                  <div>
+                                    <div>{score}%</div>
+                                    {cell?.chart_count != null && <div style={{ fontSize: 10, fontWeight: 400, color: '#6b7280' }}>{cell.chart_count} charts</div>}
+                                  </div>
+                                ) : '—'}
+                              </td>
+                            )
+                          })}
+                          <td style={{ padding: '7px 10px', textAlign: 'center', background: overall == null ? '#f9fafb' : overall >= 80 ? '#bbf7d0' : overall >= 60 ? '#fde68a' : '#fecaca', color: overall == null ? '#9ca3af' : overall >= 80 ? '#14532d' : overall >= 60 ? '#78350f' : '#7f1d1d', fontWeight: 800, borderBottom: '1px solid #f3f4f6', borderLeft: '2px solid #e5e7eb' }}>
+                            {overall != null ? `${overall}%` : '—'}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ fontSize: 11, color: '#6b7280' }}>Green ≥80% · Yellow 60–79% · Red &lt;60%</div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -2098,7 +2341,7 @@ function InsightsPanel({ insights, onClose }: { insights: any; onClose: () => vo
       {/* Summary cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10 }}>
         {[
-          { label: 'Pass Rate', value: `${bs.pass_rate}%`, color: bs.pass_rate >= 80 ? '#16a34a' : bs.pass_rate >= 60 ? '#d97706' : '#dc2626' },
+          { label: 'Chart Pass Rate', value: `${bs.pass_rate}%`, color: bs.pass_rate >= 80 ? '#16a34a' : bs.pass_rate >= 60 ? '#d97706' : '#dc2626' },
           { label: 'Avg Score', value: `${bs.avg_score}%`, color: '#111' },
           { label: 'Passed', value: bs.passed, color: '#16a34a' },
           { label: 'Failed', value: bs.failed, color: '#dc2626' },

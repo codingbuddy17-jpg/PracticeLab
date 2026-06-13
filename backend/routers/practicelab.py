@@ -1468,6 +1468,7 @@ def analytics_by_specialty(db: Session = Depends(get_db)):
             "specialty": r.specialty.value,
             "total": r.total,
             "avg_score": round(float(r.avg_score or 0), 1),
+            "pass_rate": round(float(r.passed or 0) / r.total * 100, 1) if r.total else 0,
         }
         for r in rows
     ]
@@ -1556,10 +1557,194 @@ def coder_trend(coder_name: str, db: Session = Depends(get_db)):
             "batch_id": bid,
             "batch_name": d["batch_name"],
             "created_at": d["created_at"],
+            "chart_count": len(d["scores"]),
             "avg_score": round(sum(d["scores"]) / len(d["scores"]), 1),
         }
         for bid, d in batch_scores.items()
     ]
+
+
+# ── C: Category Mastery Dashboard ────────────────────────────────────────────
+
+@router.get("/analytics/by-category")
+def analytics_by_category(db: Session = Depends(get_db)):
+    """Category/topic performance: team-wide and per-coder breakdown."""
+    results = (db.query(GradingResult)
+               .filter(GradingResult.total_score.isnot(None))
+               .join(Chart)
+               .all())
+
+    if not results:
+        return {"team": [], "coder_category": []}
+
+    # Team-level by category
+    cat_map: dict = {}
+    for r in results:
+        cat = r.chart.category
+        if cat not in cat_map:
+            cat_map[cat] = {"scores": [], "passed": 0, "total": 0, "coders": set(), "specialties": set()}
+        cat_map[cat]["scores"].append(r.total_score)
+        cat_map[cat]["total"] += 1
+        cat_map[cat]["coders"].add(r.coder_name)
+        cat_map[cat]["specialties"].add(r.chart.specialty.value)
+        if r.pass_fail and r.pass_fail.value == "PASS":
+            cat_map[cat]["passed"] += 1
+
+    team = sorted([
+        {
+            "category": cat,
+            "avg_score": round(sum(d["scores"]) / len(d["scores"]), 1),
+            "pass_rate": round(d["passed"] / d["total"] * 100, 1),
+            "attempt_count": d["total"],
+            "coder_count": len(d["coders"]),
+            "specialties": list(d["specialties"]),
+        }
+        for cat, d in cat_map.items()
+    ], key=lambda x: x["avg_score"])
+
+    # Per-coder by category (for heatmap)
+    coder_cat: dict = {}
+    for r in results:
+        key = (r.coder_name, r.chart.category)
+        if key not in coder_cat:
+            coder_cat[key] = {"scores": [], "passed": 0, "total": 0}
+        coder_cat[key]["scores"].append(r.total_score)
+        coder_cat[key]["total"] += 1
+        if r.pass_fail and r.pass_fail.value == "PASS":
+            coder_cat[key]["passed"] += 1
+
+    coder_category = [
+        {
+            "coder_name": k[0],
+            "category": k[1],
+            "avg_score": round(sum(d["scores"]) / len(d["scores"]), 1),
+            "pass_rate": round(d["passed"] / d["total"] * 100, 1),
+            "attempt_count": d["total"],
+        }
+        for k, d in coder_cat.items()
+    ]
+
+    return {"team": team, "coder_category": coder_category}
+
+
+# ── D: Chart Teaching Value Index ─────────────────────────────────────────────
+
+@router.get("/analytics/chart-teaching-value")
+def analytics_chart_teaching_value(db: Session = Depends(get_db)):
+    """Classify charts by teaching usefulness based on grading history."""
+    results = (db.query(GradingResult)
+               .filter(GradingResult.total_score.isnot(None))
+               .join(Chart)
+               .all())
+
+    if not results:
+        return []
+
+    chart_map: dict = {}
+    for r in results:
+        cn = r.chart.chart_number
+        if cn not in chart_map:
+            chart_map[cn] = {
+                "chart_number": cn,
+                "specialty": r.chart.specialty.value,
+                "category": r.chart.category,
+                "difficulty": r.chart.difficulty.value,
+                "scores": [], "passed": 0, "total": 0,
+                "error_variety": set(),
+            }
+        chart_map[cn]["scores"].append(r.total_score)
+        chart_map[cn]["total"] += 1
+        if r.pass_fail and r.pass_fail.value == "PASS":
+            chart_map[cn]["passed"] += 1
+        for f in r.feedback:
+            chart_map[cn]["error_variety"].add(f.issue_type.value)
+
+    out = []
+    for d in chart_map.values():
+        avg = round(sum(d["scores"]) / len(d["scores"]), 1)
+        pass_rate = round(d["passed"] / d["total"] * 100, 1)
+        error_variety = len(d["error_variety"])
+        attempts = d["total"]
+
+        # Classification logic
+        if attempts < 2:
+            label = "Underused"
+        elif avg >= 90:
+            label = "Too Easy"
+        elif pass_rate <= 40 and error_variety >= 2:
+            label = "High Confusion"
+        elif 50 <= pass_rate <= 85 and error_variety >= 2 and attempts >= 3:
+            label = "High Yield"
+        elif pass_rate <= 40:
+            label = "High Fail"
+        else:
+            label = "Standard"
+
+        out.append({
+            "chart_number": d["chart_number"],
+            "specialty": d["specialty"],
+            "category": d["category"],
+            "difficulty": d["difficulty"],
+            "avg_score": avg,
+            "pass_rate": pass_rate,
+            "attempt_count": attempts,
+            "error_variety": error_variety,
+            "teaching_label": label,
+        })
+
+    return sorted(out, key=lambda x: (x["teaching_label"], -x["attempt_count"]))
+
+
+# ── E: Coder Performance Matrix ───────────────────────────────────────────────
+
+@router.get("/analytics/coder-matrix")
+def analytics_coder_matrix(db: Session = Depends(get_db)):
+    """Cross-batch × cross-coder performance grid."""
+    batches = (db.query(Batch)
+               .filter(Batch.status == BatchStatus.CLOSED)
+               .order_by(Batch.created_at)
+               .all())
+
+    if not batches:
+        return {"batches": [], "coders": [], "cells": []}
+
+    batch_ids = [b.id for b in batches]
+    results = (db.query(GradingResult)
+               .filter(GradingResult.batch_id.in_(batch_ids),
+                       GradingResult.total_score.isnot(None))
+               .all())
+
+    # Build cell map
+    cell_map: dict = {}
+    for r in results:
+        key = (r.coder_name, r.batch_id)
+        if key not in cell_map:
+            cell_map[key] = {"scores": [], "passed": 0, "total": 0}
+        cell_map[key]["scores"].append(r.total_score)
+        cell_map[key]["total"] += 1
+        if r.pass_fail and r.pass_fail.value == "PASS":
+            cell_map[key]["passed"] += 1
+
+    all_coders = sorted(set(r.coder_name for r in results))
+
+    cells = []
+    for coder in all_coders:
+        for b in batches:
+            data = cell_map.get((coder, b.id))
+            if data:
+                cells.append({
+                    "coder_name": coder,
+                    "batch_id": b.id,
+                    "avg_score": round(sum(data["scores"]) / len(data["scores"]), 1),
+                    "pass_rate": round(data["passed"] / data["total"] * 100, 1),
+                    "chart_count": data["total"],
+                })
+
+    return {
+        "batches": [{"id": b.id, "name": b.name, "specialty": b.specialty.value} for b in batches],
+        "coders": all_coders,
+        "cells": cells,
+    }
 
 
 # ── Self-Practice & Standalone Grading ───────────────────────────────────────

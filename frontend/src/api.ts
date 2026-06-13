@@ -291,6 +291,21 @@ export async function getCoderTrend(coderName: string) {
   return data
 }
 
+export async function getPLAnalyticsByCategory() {
+  const { data } = await api.get('/practicelab/analytics/by-category')
+  return data as { team: any[]; coder_category: any[] }
+}
+
+export async function getPLChartTeachingValue() {
+  const { data } = await api.get('/practicelab/analytics/chart-teaching-value')
+  return data as any[]
+}
+
+export async function getPLCoderMatrix() {
+  const { data } = await api.get('/practicelab/analytics/coder-matrix')
+  return data as { batches: any[]; coders: string[]; cells: any[] }
+}
+
 // ── Self-Practice ─────────────────────────────────────────────────────────────
 
 export function downloadSelfPracticeTemplate() {
