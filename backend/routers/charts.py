@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, func
 from typing import Optional
@@ -6,6 +7,7 @@ from database import get_db
 from models import Chart, ChartFile, ChartStatus, Specialty, Difficulty
 from schemas import ChartOut, ChartWithRationale, ChartUpdate
 from services.chart_service import get_chart_pages, increment_view, log_audit
+from services.storage import get_s3_client
 from config import settings
 
 router = APIRouter(prefix="/charts", tags=["charts"])
@@ -71,6 +73,20 @@ def get_chart_pages_endpoint(
     db.commit()
     pages = get_chart_pages(chart)
     return {"chart_number": chart.chart_number, "pages": pages}
+
+
+@router.get("/{chart_id}/page/{page_order}")
+def proxy_chart_page(chart_id: int, page_order: int, db: Session = Depends(get_db)):
+    chart = _get_or_404(chart_id, db)
+    file = next((f for f in chart.files if f.page_order == page_order), None)
+    if not file:
+        raise HTTPException(status_code=404, detail="Page not found")
+    client = get_s3_client()
+    obj = client.get_object(Bucket=settings.STORAGE_BUCKET_NAME, Key=file.storage_key)
+    content_type = obj.get("ContentType", "image/png")
+    return StreamingResponse(obj["Body"], media_type=content_type, headers={
+        "Cache-Control": "private, max-age=3600",
+    })
 
 
 @router.get("/{chart_id}/trainer", response_model=ChartWithRationale)

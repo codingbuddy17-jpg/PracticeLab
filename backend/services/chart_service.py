@@ -63,7 +63,7 @@ def ingest_file(
 
 def get_chart_pages(chart: Chart) -> list:
     return [
-        {"page": f.page_order, "url": get_presigned_url(f.storage_key)}
+        {"page": f.page_order, "url": f"/api/charts/{chart.id}/page/{f.page_order}"}
         for f in chart.files
     ]
 
