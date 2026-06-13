@@ -174,10 +174,44 @@ export async function searchChartsForBatch(specialty: string, q?: string, catego
 export async function createBatch(payload: {
   name: string; specialty: string; categories: string[]; difficulties: string[];
   charts_per_coder: number; coders: { name: string; emp_id: string }[]; created_by: string;
-  use_weighted?: boolean; use_dpo?: boolean; manual_chart_ids?: number[];
+  use_weighted?: boolean; use_dpo?: boolean;
 }) {
   const { data } = await api.post('/practicelab/batches', payload)
-  return data as { batch_id: number; name: string; pool_size: number }
+  return data as { batch_id: number; name: string; warning?: string }
+}
+
+export async function runAllocation(batchId: number, payload: {
+  charts_per_coder?: number; manual_chart_ids?: number[]; run_by: string; notes?: string;
+}) {
+  const { data } = await api.post(`/practicelab/batches/${batchId}/run-allocation`, payload)
+  return data as { cycle_id: number; cycle_number: number; assigned: Record<string, number>; warnings: string[] }
+}
+
+export async function closeBatch(batchId: number, closedBy: string) {
+  const { data } = await api.post(`/practicelab/batches/${batchId}/close`, { closed_by: closedBy })
+  return data
+}
+
+export async function forceCloseBatch(batchId: number, payload: { closed_by: string; passphrase: string; reason: string }) {
+  const { data } = await api.post(`/practicelab/batches/${batchId}/force-close`, payload)
+  return data
+}
+
+export async function addBatchNote(batchId: number, text: string, author: string) {
+  const { data } = await api.post(`/practicelab/batches/${batchId}/notes`, { text, author })
+  return data
+}
+
+export function downloadCycleExcel(batchId: number, cycleId: number) {
+  window.open(`${import.meta.env.VITE_API_URL || '/api'}/practicelab/batches/${batchId}/cycles/${cycleId}/generate-excel`, '_blank')
+}
+
+export async function getAdminOpenBatches(passphrase: string) {
+  const { data } = await api.get('/practicelab/admin/open-batches', { params: { passphrase } })
+  return data as Array<{
+    id: number; name: string; specialty: string; created_by: string; created_at: string;
+    days_open: number; coder_count: number; allocation_cycles: number; total_assigned: number; graded_count: number;
+  }>
 }
 
 export async function listBatches(status?: string, specialty?: string) {

@@ -122,10 +122,8 @@ class ChartSequence(Base):
 # ── PracticeLab Assessment Module ────────────────────────────────────────────
 
 class BatchStatus(str, enum.Enum):
-    DRAFT = "Draft"
-    ACTIVE = "Active"
-    GRADING = "Grading"
-    COMPLETE = "Complete"
+    OPEN = "Open"
+    CLOSED = "Closed"
 
 
 class SubmissionStatus(str, enum.Enum):
@@ -183,18 +181,41 @@ class Batch(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(200), nullable=False)
     specialty = Column(SAEnum(Specialty), nullable=False)
-    categories = Column(JSON, nullable=True, default=list)   # [] means all categories
-    difficulties = Column(JSON, nullable=True, default=list) # [] means all difficulties
+    categories = Column(JSON, nullable=True, default=list)
+    difficulties = Column(JSON, nullable=True, default=list)
     charts_per_coder = Column(Integer, nullable=False)
     created_by = Column(String(100), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    status = Column(SAEnum(BatchStatus), default=BatchStatus.DRAFT, nullable=False, index=True)
+    status = Column(SAEnum(BatchStatus), default=BatchStatus.OPEN, nullable=False, index=True)
     use_weighted = Column(Boolean, nullable=False, default=True)
     use_dpo = Column(Boolean, nullable=False, default=False)
+    closed_at = Column(DateTime(timezone=True), nullable=True)
+    closed_by = Column(String(100), nullable=True)
+    force_closed = Column(Boolean, default=False, nullable=False)
+    force_close_reason = Column(Text, nullable=True)
+    notes = Column(JSON, nullable=True, default=list)   # [{text, author, ts}]
+    tags = Column(JSON, nullable=True, default=list)
 
     coders = relationship("BatchCoder", back_populates="batch", cascade="all, delete-orphan")
     chart_assignments = relationship("BatchChart", back_populates="batch", cascade="all, delete-orphan")
     results = relationship("GradingResult", back_populates="batch", cascade="all, delete-orphan")
+    allocation_cycles = relationship("BatchAllocationCycle", back_populates="batch", cascade="all, delete-orphan")
+
+
+class BatchAllocationCycle(Base):
+    """One round of chart randomization within an open batch."""
+    __tablename__ = "batch_allocation_cycles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    batch_id = Column(Integer, ForeignKey("batches.id"), nullable=False)
+    cycle_number = Column(Integer, nullable=False)
+    run_at = Column(DateTime(timezone=True), server_default=func.now())
+    run_by = Column(String(100), nullable=False)
+    charts_per_coder = Column(Integer, nullable=False)
+    notes = Column(String(300), nullable=True)
+
+    batch = relationship("Batch", back_populates="allocation_cycles")
+    assignments = relationship("BatchChart", back_populates="cycle")
 
 
 class BatchCoder(Base):
@@ -214,11 +235,13 @@ class BatchChart(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     batch_id = Column(Integer, ForeignKey("batches.id"), nullable=False)
+    cycle_id = Column(Integer, ForeignKey("batch_allocation_cycles.id"), nullable=True)
     coder_name = Column(String(100), nullable=False)
     chart_id = Column(Integer, ForeignKey("charts.id"), nullable=False)
     submission_status = Column(SAEnum(SubmissionStatus), default=SubmissionStatus.PENDING, nullable=False)
 
     batch = relationship("Batch", back_populates="chart_assignments")
+    cycle = relationship("BatchAllocationCycle", back_populates="assignments")
     chart = relationship("Chart")
 
 

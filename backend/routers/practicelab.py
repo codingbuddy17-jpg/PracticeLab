@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from database import get_db
 from models import (
     Chart, ChartStatus, Specialty, Difficulty,
-    AnswerKey, Batch, BatchCoder, BatchChart, BatchStatus,
+    AnswerKey, Batch, BatchCoder, BatchChart, BatchStatus, BatchAllocationCycle,
     Submission, GradingResult, GradingFeedback, SubmissionStatus,
     ScoringConfig, SelfPracticeSubmission, SelfPracticeResult,
 )
@@ -250,6 +250,9 @@ def get_answer_key_status(specialty: Optional[str] = None, db: Session = Depends
 
 # ── Batch endpoints ───────────────────────────────────────────────────────────
 
+OPEN_BATCH_SOFT_LIMIT = 3
+
+
 class CoderEntry(BaseModel):
     name: str
     emp_id: str
@@ -260,23 +263,91 @@ class BatchCreate(BaseModel):
     specialty: str
     categories: list[str] = []
     difficulties: list[str] = []
-    charts_per_coder: int
+    charts_per_coder: int = 5   # default per cycle
     coders: list[CoderEntry]
     created_by: str
     use_weighted: bool = True
     use_dpo: bool = False
-    manual_chart_ids: list[int] = []   # when non-empty, skip random pool and use these exact charts
 
 
 @router.post("/batches")
 def create_batch(payload: BatchCreate, db: Session = Depends(get_db)):
-    """Create batch, randomize chart assignments per coder."""
+    """Create an open batch with coders. Chart allocation is a separate step (run-allocation)."""
     try:
         specialty = Specialty(payload.specialty)
     except ValueError:
         raise HTTPException(status_code=400, detail=f"Invalid specialty: {payload.specialty}")
 
-    # Build chart pool — manual selection overrides random pool
+    if not payload.use_weighted and not payload.use_dpo:
+        raise HTTPException(status_code=400, detail="At least one scoring method must be selected")
+
+    if not payload.coders:
+        raise HTTPException(status_code=400, detail="At least one coder is required")
+
+    # Soft parallel limit check
+    open_count = (db.query(Batch)
+                  .filter(Batch.created_by == payload.created_by, Batch.status == BatchStatus.OPEN)
+                  .count())
+    warning = None
+    if open_count >= OPEN_BATCH_SOFT_LIMIT:
+        warning = f"You already have {open_count} open batch(es). Consider closing completed ones."
+
+    batch = Batch(
+        name=payload.name,
+        specialty=specialty,
+        categories=payload.categories,
+        difficulties=payload.difficulties,
+        charts_per_coder=payload.charts_per_coder,
+        created_by=payload.created_by,
+        status=BatchStatus.OPEN,
+        use_weighted=payload.use_weighted,
+        use_dpo=payload.use_dpo,
+        notes=[],
+        tags=[],
+    )
+    db.add(batch)
+    db.flush()
+
+    for coder in payload.coders:
+        db.add(BatchCoder(batch_id=batch.id, coder_name=coder.name, emp_id=coder.emp_id))
+
+    db.commit()
+    return {"batch_id": batch.id, "name": batch.name, "warning": warning}
+
+
+class AllocationRun(BaseModel):
+    charts_per_coder: Optional[int] = None   # defaults to batch.charts_per_coder
+    manual_chart_ids: list[int] = []
+    run_by: str
+    notes: Optional[str] = None
+
+
+@router.post("/batches/{batch_id}/run-allocation")
+def run_allocation(batch_id: int, payload: AllocationRun, db: Session = Depends(get_db)):
+    """Run a new allocation cycle for an open batch. Excludes charts already assigned in prior cycles."""
+    batch = db.query(Batch).filter(Batch.id == batch_id).first()
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    if batch.status != BatchStatus.OPEN:
+        raise HTTPException(status_code=400, detail="Batch is closed — cannot run allocation")
+
+    coders = db.query(BatchCoder).filter(BatchCoder.batch_id == batch_id).all()
+    if not coders:
+        raise HTTPException(status_code=400, detail="No coders in this batch")
+
+    charts_per_coder = payload.charts_per_coder or batch.charts_per_coder
+    if charts_per_coder < 1:
+        raise HTTPException(status_code=400, detail="charts_per_coder must be at least 1")
+
+    specialty = batch.specialty
+
+    # Build per-coder sets of already-assigned chart_ids in this batch
+    existing = db.query(BatchChart).filter(BatchChart.batch_id == batch_id).all()
+    assigned_per_coder: dict[str, set] = {}
+    for a in existing:
+        assigned_per_coder.setdefault(a.coder_name, set()).add(a.chart_id)
+
+    # Build chart pool (excluding previously assigned per coder happens inside the loop)
     if payload.manual_chart_ids:
         pool = (db.query(Chart)
                 .join(AnswerKey, AnswerKey.chart_id == Chart.id)
@@ -286,17 +357,17 @@ def create_batch(payload: BatchCreate, db: Session = Depends(get_db)):
         if not pool:
             raise HTTPException(status_code=400, detail="None of the selected charts have answer keys or are active.")
     else:
+        from sqlalchemy import or_
         q = (db.query(Chart)
              .join(AnswerKey, AnswerKey.chart_id == Chart.id)
              .filter(Chart.status == ChartStatus.ACTIVE, Chart.specialty == specialty))
 
-        if payload.categories:
-            from sqlalchemy import or_
-            q = q.filter(or_(*[Chart.category.ilike(f"%{c}%") for c in payload.categories]))
+        if batch.categories:
+            q = q.filter(or_(*[Chart.category.ilike(f"%{c}%") for c in batch.categories]))
 
-        if payload.difficulties:
+        if batch.difficulties:
             diffs = []
-            for d in payload.difficulties:
+            for d in batch.difficulties:
                 try:
                     diffs.append(Difficulty(d))
                 except ValueError:
@@ -306,55 +377,146 @@ def create_batch(payload: BatchCreate, db: Session = Depends(get_db)):
 
         pool = q.all()
 
-    pool_size = len(pool)
+    if not pool:
+        raise HTTPException(status_code=400, detail="No charts with answer keys match the batch pool filters.")
 
-    if pool_size == 0:
-        raise HTTPException(status_code=400, detail="No charts with answer keys match the selected filters.")
-
-    if payload.charts_per_coder < 1:
-        raise HTTPException(status_code=400, detail="charts_per_coder must be at least 1")
-
-    if not payload.use_weighted and not payload.use_dpo:
-        raise HTTPException(status_code=400, detail="At least one scoring method must be selected")
-
-    # Create batch record
-    batch = Batch(
-        name=payload.name,
-        specialty=specialty,
-        categories=payload.categories,
-        difficulties=payload.difficulties,
-        charts_per_coder=payload.charts_per_coder,
-        created_by=payload.created_by,
-        status=BatchStatus.ACTIVE,
-        use_weighted=payload.use_weighted,
-        use_dpo=payload.use_dpo,
+    # Create cycle record
+    cycle_number = len(batch.allocation_cycles) + 1
+    cycle = BatchAllocationCycle(
+        batch_id=batch_id,
+        cycle_number=cycle_number,
+        run_by=payload.run_by,
+        charts_per_coder=charts_per_coder,
+        notes=payload.notes,
     )
-    db.add(batch)
+    db.add(cycle)
     db.flush()
 
-    # Assign charts — manual keeps exact order; random shuffles per coder
-    for coder in payload.coders:
-        coder_name = coder.name
-        if payload.manual_chart_ids:
-            assigned = pool  # exact set, as chosen
-        else:
-            shuffled = pool.copy()
-            random.shuffle(shuffled)
-            assigned = (shuffled * ((payload.charts_per_coder // pool_size) + 1))[:payload.charts_per_coder]
+    assigned_counts = {}
+    pool_warnings = []
 
-        coder_rec = BatchCoder(batch_id=batch.id, coder_name=coder_name, emp_id=coder.emp_id)
-        db.add(coder_rec)
+    for coder in coders:
+        already = assigned_per_coder.get(coder.coder_name, set())
+        if payload.manual_chart_ids:
+            # Manual: use exactly the selected charts, skip previously assigned ones
+            available = [c for c in pool if c.id not in already]
+            if not available:
+                pool_warnings.append(f"{coder.coder_name}: all selected charts already assigned — skipped")
+                continue
+            assigned = available
+        else:
+            # Random: exclude already-assigned charts for this coder
+            available = [c for c in pool if c.id not in already]
+            pool_size = len(available)
+            if pool_size == 0:
+                pool_warnings.append(f"{coder.coder_name}: pool exhausted (all charts previously assigned)")
+                continue
+            shuffled = available.copy()
+            random.shuffle(shuffled)
+            # If pool is smaller than needed, we must wrap around (pool fully used up)
+            assigned = (shuffled * ((charts_per_coder // pool_size) + 1))[:charts_per_coder]
 
         for chart in assigned:
             db.add(BatchChart(
-                batch_id=batch.id,
-                coder_name=coder_name,
+                batch_id=batch_id,
+                cycle_id=cycle.id,
+                coder_name=coder.coder_name,
                 chart_id=chart.id,
                 submission_status=SubmissionStatus.PENDING,
             ))
 
+        assigned_counts[coder.coder_name] = len(assigned)
+
     db.commit()
-    return {"batch_id": batch.id, "name": batch.name, "pool_size": pool_size}
+    return {
+        "cycle_id": cycle.id,
+        "cycle_number": cycle_number,
+        "assigned": assigned_counts,
+        "warnings": pool_warnings,
+    }
+
+
+class BatchClose(BaseModel):
+    closed_by: str
+
+
+@router.post("/batches/{batch_id}/close")
+def close_batch(batch_id: int, payload: BatchClose, db: Session = Depends(get_db)):
+    batch = db.query(Batch).filter(Batch.id == batch_id).first()
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    if batch.status == BatchStatus.CLOSED:
+        raise HTTPException(status_code=400, detail="Batch is already closed")
+    batch.status = BatchStatus.CLOSED
+    batch.closed_at = datetime.utcnow()
+    batch.closed_by = payload.closed_by
+    db.commit()
+    return {"message": "Batch closed", "batch_id": batch_id}
+
+
+class BatchForceClose(BaseModel):
+    closed_by: str
+    passphrase: str
+    reason: str
+
+
+@router.post("/batches/{batch_id}/force-close")
+def force_close_batch(batch_id: int, payload: BatchForceClose, db: Session = Depends(get_db)):
+    if payload.passphrase != MASTER_PASSPHRASE:
+        raise HTTPException(status_code=403, detail="Invalid passphrase")
+    batch = db.query(Batch).filter(Batch.id == batch_id).first()
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    if batch.status == BatchStatus.CLOSED:
+        raise HTTPException(status_code=400, detail="Batch is already closed")
+    batch.status = BatchStatus.CLOSED
+    batch.closed_at = datetime.utcnow()
+    batch.closed_by = payload.closed_by
+    batch.force_closed = True
+    batch.force_close_reason = payload.reason
+    db.commit()
+    return {"message": "Batch force-closed", "batch_id": batch_id}
+
+
+class BatchNoteAdd(BaseModel):
+    text: str
+    author: str
+
+
+@router.post("/batches/{batch_id}/notes")
+def add_batch_note(batch_id: int, payload: BatchNoteAdd, db: Session = Depends(get_db)):
+    batch = db.query(Batch).filter(Batch.id == batch_id).first()
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    notes = list(batch.notes or [])
+    notes.append({"text": payload.text, "author": payload.author, "ts": datetime.utcnow().isoformat()})
+    batch.notes = notes
+    db.commit()
+    return {"notes": batch.notes}
+
+
+@router.get("/admin/open-batches")
+def admin_open_batches(passphrase: str = Query(...), db: Session = Depends(get_db)):
+    """Super admin — all open batches across all trainers with allocation cycle counts."""
+    if passphrase != MASTER_PASSPHRASE:
+        raise HTTPException(status_code=403, detail="Invalid passphrase")
+    batches = db.query(Batch).filter(Batch.status == BatchStatus.OPEN).order_by(Batch.created_at).all()
+    now = datetime.utcnow()
+    return [
+        {
+            "id": b.id,
+            "name": b.name,
+            "specialty": b.specialty.value,
+            "created_by": b.created_by,
+            "created_at": b.created_at.isoformat() if b.created_at else None,
+            "days_open": (now - b.created_at.replace(tzinfo=None)).days if b.created_at else 0,
+            "coder_count": len(b.coders),
+            "allocation_cycles": len(b.allocation_cycles),
+            "total_assigned": len(b.chart_assignments),
+            "graded_count": db.query(GradingResult).filter(GradingResult.batch_id == b.id).count(),
+        }
+        for b in batches
+    ]
 
 
 @router.get("/batches/chart-search")
@@ -449,6 +611,7 @@ def list_batches(
         except ValueError:
             pass
     batches = q.order_by(Batch.created_at.desc()).all()
+    now = datetime.utcnow()
     return [
         {
             "id": b.id, "name": b.name, "specialty": b.specialty.value,
@@ -456,6 +619,11 @@ def list_batches(
             "created_by": b.created_by,
             "created_at": b.created_at.isoformat() if b.created_at else None,
             "coder_count": len(b.coders),
+            "allocation_cycles": len(b.allocation_cycles),
+            "days_open": (now - b.created_at.replace(tzinfo=None)).days if b.created_at and b.status == BatchStatus.OPEN else None,
+            "closed_at": b.closed_at.isoformat() if b.closed_at else None,
+            "force_closed": b.force_closed,
+            "tags": b.tags or [],
         }
         for b in batches
     ]
@@ -483,6 +651,9 @@ def get_batch(batch_id: int, db: Session = Depends(get_db)):
             "submission_status": a.submission_status.value,
         })
 
+    now = datetime.utcnow()
+    cycles = db.query(BatchAllocationCycle).filter(BatchAllocationCycle.batch_id == batch_id).order_by(BatchAllocationCycle.cycle_number).all()
+
     return {
         "id": batch.id, "name": batch.name, "specialty": batch.specialty.value,
         "categories": batch.categories, "difficulties": batch.difficulties,
@@ -491,6 +662,24 @@ def get_batch(batch_id: int, db: Session = Depends(get_db)):
         "created_at": batch.created_at.isoformat() if batch.created_at else None,
         "use_weighted": getattr(batch, "use_weighted", True),
         "use_dpo": getattr(batch, "use_dpo", False),
+        "closed_at": batch.closed_at.isoformat() if batch.closed_at else None,
+        "closed_by": batch.closed_by,
+        "force_closed": batch.force_closed,
+        "force_close_reason": batch.force_close_reason,
+        "days_open": (now - batch.created_at.replace(tzinfo=None)).days if batch.created_at and batch.status == BatchStatus.OPEN else None,
+        "notes": batch.notes or [],
+        "tags": batch.tags or [],
+        "allocation_cycles": [
+            {
+                "id": c.id, "cycle_number": c.cycle_number,
+                "run_at": c.run_at.isoformat() if c.run_at else None,
+                "run_by": c.run_by,
+                "charts_per_coder": c.charts_per_coder,
+                "notes": c.notes,
+                "assigned_count": sum(1 for a in assignments if a.cycle_id == c.id),
+            }
+            for c in cycles
+        ],
         "coders": [{"name": c.coder_name, "emp_id": c.emp_id or "",
                     "excel_generated": c.excel_generated_at is not None,
                     "charts": coder_map.get(c.coder_name, [])} for c in coders],
@@ -499,18 +688,8 @@ def get_batch(batch_id: int, db: Session = Depends(get_db)):
 
 # ── Excel generation ──────────────────────────────────────────────────────────
 
-@router.get("/batches/{batch_id}/generate-excel")
-def generate_excel(batch_id: int, db: Session = Depends(get_db)):
-    """Generate coder answer sheet ZIP for a batch."""
-    batch = db.query(Batch).filter(Batch.id == batch_id).first()
-    if not batch:
-        raise HTTPException(status_code=404, detail="Batch not found")
-
-    coders = db.query(BatchCoder).filter(BatchCoder.batch_id == batch_id).all()
-    assignments = (db.query(BatchChart)
-                   .filter(BatchChart.batch_id == batch_id)
-                   .join(Chart).all())
-
+def _build_excel_zip(batch: Batch, coders, assignments, label: str, db: Session):
+    """Helper: build a ZIP of per-coder assessment sheets from a list of assignments."""
     coder_charts: dict[str, list] = {}
     for a in assignments:
         chart_url = f"{settings.FRONTEND_URL}/chart/{a.chart.chart_number}" if hasattr(settings, "FRONTEND_URL") else ""
@@ -522,23 +701,61 @@ def generate_excel(batch_id: int, db: Session = Depends(get_db)):
             "chart_url": chart_url,
         })
 
+    coder_map = {c.coder_name: c for c in coders}
     coder_files = []
-    for coder in coders:
-        charts = coder_charts.get(coder.coder_name, [])
-        excel_bytes = generate_coder_sheet(coder.coder_name, batch.name, charts, emp_id=coder.emp_id or "")
-        emp = (coder.emp_id or "").replace(" ", "_")
-        safe_name = coder.coder_name.replace(" ", "_")
+    for coder_name, charts in coder_charts.items():
+        coder = coder_map.get(coder_name)
+        emp = (coder.emp_id or "").replace(" ", "_") if coder else ""
+        excel_bytes = generate_coder_sheet(coder_name, label, charts, emp_id=emp)
+        safe_name = coder_name.replace(" ", "_")
         filename = f"{emp}_{safe_name}_Assessment.xlsx" if emp else f"{safe_name}_Assessment.xlsx"
         coder_files.append((filename, excel_bytes))
-        coder.excel_generated_at = datetime.utcnow()
+        if coder:
+            coder.excel_generated_at = datetime.utcnow()
 
     db.commit()
+    return generate_batch_zip(coder_files)
 
-    zip_bytes = generate_batch_zip(coder_files)
+
+@router.get("/batches/{batch_id}/generate-excel")
+def generate_excel(batch_id: int, db: Session = Depends(get_db)):
+    """Download ZIP of all assignments across all cycles for a batch."""
+    batch = db.query(Batch).filter(Batch.id == batch_id).first()
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    coders = db.query(BatchCoder).filter(BatchCoder.batch_id == batch_id).all()
+    assignments = db.query(BatchChart).filter(BatchChart.batch_id == batch_id).join(Chart).all()
+    zip_bytes = _build_excel_zip(batch, coders, assignments, batch.name, db)
     return StreamingResponse(
         io.BytesIO(zip_bytes),
         media_type="application/zip",
-        headers={"Content-Disposition": f"attachment; filename={batch.name.replace(' ','_')}_Assessments.zip"},
+        headers={"Content-Disposition": f"attachment; filename={batch.name.replace(' ','_')}_All_Assessments.zip"},
+    )
+
+
+@router.get("/batches/{batch_id}/cycles/{cycle_id}/generate-excel")
+def generate_cycle_excel(batch_id: int, cycle_id: int, db: Session = Depends(get_db)):
+    """Download ZIP for a specific allocation cycle (only that cycle's charts)."""
+    batch = db.query(Batch).filter(Batch.id == batch_id).first()
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    cycle = db.query(BatchAllocationCycle).filter(
+        BatchAllocationCycle.id == cycle_id,
+        BatchAllocationCycle.batch_id == batch_id
+    ).first()
+    if not cycle:
+        raise HTTPException(status_code=404, detail="Cycle not found")
+    coders = db.query(BatchCoder).filter(BatchCoder.batch_id == batch_id).all()
+    assignments = db.query(BatchChart).filter(
+        BatchChart.batch_id == batch_id,
+        BatchChart.cycle_id == cycle_id
+    ).join(Chart).all()
+    label = f"{batch.name} — Cycle {cycle.cycle_number}"
+    zip_bytes = _build_excel_zip(batch, coders, assignments, label, db)
+    return StreamingResponse(
+        io.BytesIO(zip_bytes),
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename={batch.name.replace(' ','_')}_Cycle{cycle.cycle_number}_Assessments.zip"},
     )
 
 
@@ -746,16 +963,7 @@ def grade_submissions(
 
     db.commit()
 
-    # Update batch status
-    if graded:
-        has_ip_pending = (db.query(GradingResult)
-                          .filter(GradingResult.batch_id == batch_id,
-                                  GradingResult.drg_flag == True,
-                                  GradingResult.drg_reviewed == False)
-                          .count()) > 0
-        batch.status = BatchStatus.GRADING if has_ip_pending else BatchStatus.COMPLETE
-        db.commit()
-
+    db.commit()
     return {"graded": graded, "errors": errors}
 
 
@@ -816,18 +1024,12 @@ def submit_drg_decision(result_id: int, payload: DRGDecision, db: Session = Depe
     gr.pass_fail = pass_fail
     db.commit()
 
-    # Check if all DRG reviews done for this batch
     pending = (db.query(GradingResult)
                .filter(GradingResult.batch_id == gr.batch_id,
                        GradingResult.drg_flag == True,
                        GradingResult.drg_reviewed == False)
                .count())
-    if pending == 0:
-        batch = db.query(Batch).filter(Batch.id == gr.batch_id).first()
-        if batch:
-            batch.status = BatchStatus.COMPLETE
-            db.commit()
-
+    db.commit()
     return {"result_id": result_id, "total_score": total, "pass_fail": pass_fail, "pending_drg": pending}
 
 
@@ -1011,12 +1213,14 @@ def export_results(batch_id: int, db: Session = Depends(get_db)):
 def analytics_overview(db: Session = Depends(get_db)):
     """High-level counts across all batches."""
     total_batches = db.query(Batch).count()
-    complete = db.query(Batch).filter(Batch.status == BatchStatus.COMPLETE).count()
+    open_batches = db.query(Batch).filter(Batch.status == BatchStatus.OPEN).count()
+    closed_batches = db.query(Batch).filter(Batch.status == BatchStatus.CLOSED).count()
     total_results = db.query(GradingResult).filter(GradingResult.total_score.isnot(None)).count()
     passed = db.query(GradingResult).filter(GradingResult.pass_fail == "PASS").count()
     return {
         "total_batches": total_batches,
-        "complete_batches": complete,
+        "open_batches": open_batches,
+        "complete_batches": closed_batches,   # kept for frontend compat
         "total_graded": total_results,
         "total_passed": passed,
         "overall_pass_rate": round(passed / total_results * 100, 1) if total_results else 0,
@@ -1083,7 +1287,7 @@ def analytics_by_chart(db: Session = Depends(get_db)):
 
 @router.get("/analytics/by-batch")
 def analytics_by_batch(db: Session = Depends(get_db)):
-    batches = db.query(Batch).filter(Batch.status == BatchStatus.COMPLETE).order_by(Batch.created_at.desc()).all()
+    batches = db.query(Batch).order_by(Batch.created_at.desc()).all()
     out = []
     for b in batches:
         results = [r for r in b.results if r.total_score is not None]

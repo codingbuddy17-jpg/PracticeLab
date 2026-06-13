@@ -160,6 +160,26 @@ def _run_migrations():
              TRUE),
             ('OP', 25, 25, NULL, NULL, 50, 90, '[]', TRUE)
            ON CONFLICT (specialty_type) DO NOTHING""",
+        # Batch management redesign — open/closed lifecycle + allocation cycles
+        "ALTER TABLE batches ADD COLUMN IF NOT EXISTS closed_at TIMESTAMPTZ",
+        "ALTER TABLE batches ADD COLUMN IF NOT EXISTS closed_by VARCHAR(100)",
+        "ALTER TABLE batches ADD COLUMN IF NOT EXISTS force_closed BOOLEAN NOT NULL DEFAULT FALSE",
+        "ALTER TABLE batches ADD COLUMN IF NOT EXISTS force_close_reason TEXT",
+        "ALTER TABLE batches ADD COLUMN IF NOT EXISTS notes JSONB DEFAULT '[]'",
+        "ALTER TABLE batches ADD COLUMN IF NOT EXISTS tags JSONB DEFAULT '[]'",
+        # Migrate old status values to Open/Closed
+        "UPDATE batches SET status = 'Open' WHERE status IN ('Active', 'Grading', 'Draft')",
+        "UPDATE batches SET status = 'Closed' WHERE status = 'Complete'",
+        """CREATE TABLE IF NOT EXISTS batch_allocation_cycles (
+            id SERIAL PRIMARY KEY,
+            batch_id INTEGER REFERENCES batches(id) NOT NULL,
+            cycle_number INTEGER NOT NULL,
+            run_at TIMESTAMPTZ DEFAULT NOW(),
+            run_by VARCHAR(100) NOT NULL,
+            charts_per_coder INTEGER NOT NULL,
+            notes VARCHAR(300)
+        )""",
+        "ALTER TABLE batch_charts ADD COLUMN IF NOT EXISTS cycle_id INTEGER REFERENCES batch_allocation_cycles(id)",
         # Self-practice / standalone grading
         """CREATE TABLE IF NOT EXISTS self_practice_submissions (
             id SERIAL PRIMARY KEY,

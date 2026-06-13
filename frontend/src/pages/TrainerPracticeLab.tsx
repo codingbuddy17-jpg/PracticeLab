@@ -4,8 +4,9 @@ import { ChevronLeft, Plus, Upload, Download, FileCheck, BarChart2, Key, Loader,
 import toast from 'react-hot-toast'
 import { getSelfPracticeQueue, releaseSelfPractice, standaloneGrade } from '../api'
 import {
-  listBatches, createBatch, getPoolPreview, searchChartsForBatch, downloadAnswerKeyTemplate,
-  uploadAnswerKeys, getBatch, downloadBatchExcel, gradeSubmissions,
+  listBatches, createBatch, runAllocation, closeBatch, forceCloseBatch, addBatchNote,
+  getPoolPreview, searchChartsForBatch, downloadAnswerKeyTemplate,
+  uploadAnswerKeys, getBatch, downloadBatchExcel, downloadCycleExcel, gradeSubmissions,
   getDRGReview, submitDRGDecision, getBatchResults, downloadBatchResultsExcel,
   getAnswerKeyStatus, getPLAnalyticsOverview,
   downloadCoderListTemplate, parseCoderList,
@@ -53,7 +54,7 @@ export function TrainerPracticeLab() {
   }
 
   const statusColor = (s: string) => ({
-    Draft: '#6b7280', Active: '#2563eb', Grading: '#d97706', Complete: '#16a34a',
+    Open: '#2563eb', Closed: '#16a34a',
   }[s] || '#6b7280')
 
   return (
@@ -138,7 +139,8 @@ function HomeView({ batches, overview, loading, onOpen, statusColor, onCreateBat
         <div style={styles.statsRow}>
           {[
             { label: 'Total Batches', value: overview.total_batches },
-            { label: 'Complete', value: overview.complete_batches },
+            { label: 'Open', value: overview.open_batches ?? overview.total_batches - overview.complete_batches },
+            { label: 'Closed', value: overview.complete_batches },
             { label: 'Total Graded', value: overview.total_graded },
             { label: 'Overall Pass Rate', value: `${overview.overall_pass_rate}%` },
           ].map(s => (
@@ -173,9 +175,11 @@ function HomeView({ batches, overview, loading, onOpen, statusColor, onCreateBat
                     <span style={{ ...styles.badge, background: sc?.light || '#f3f4f6', color: sc?.bg || '#374151' }}>
                       {b.specialty}
                     </span>
-                    <span style={styles.metaText}>{b.coder_count} coders · {b.charts_per_coder} charts each</span>
+                    <span style={styles.metaText}>{b.coder_count} coders</span>
+                    <span style={styles.metaText}>{b.allocation_cycles ?? 0} cycle{b.allocation_cycles !== 1 ? 's' : ''}</span>
+                    {b.days_open != null && <span style={{ ...styles.metaText, color: b.days_open > 14 ? '#d97706' : '#6b7280' }}>open {b.days_open}d</span>}
                     <span style={styles.metaText}>by {b.created_by}</span>
-                    <span style={styles.metaText}>{new Date(b.created_at).toLocaleDateString()}</span>
+                    {b.force_closed && <span style={{ ...styles.metaText, color: '#dc2626', fontWeight: 700 }}>force-closed</span>}
                   </div>
                 </div>
                 <span style={{ ...styles.statusPill, color: statusColor(b.status), borderColor: statusColor(b.status) }}>
@@ -300,13 +304,6 @@ function CreateBatchView({ onCreated, scoringCfg }: { onCreated: (id: number) =>
   const [creating, setCreating] = useState(false)
   const [parsing, setParsing] = useState(false)
   const coderFileRef = useRef<HTMLInputElement>(null)
-  const [assignMode, setAssignMode] = useState<'random' | 'manual'>('random')
-  const [chartSearch, setChartSearch] = useState('')
-  const [chartCatFilter, setChartCatFilter] = useState('')
-  const [chartDiffFilter, setChartDiffFilter] = useState('')
-  const [chartSearchResults, setChartSearchResults] = useState<{ id: number; chart_number: string; category: string; difficulty: string }[]>([])
-  const [selectedChartIds, setSelectedChartIds] = useState<Set<number>>(new Set())
-  const [searchingCharts, setSearchingCharts] = useState(false)
 
   useEffect(() => {
     const t = setTimeout(loadPool, 400)
@@ -344,23 +341,6 @@ function CreateBatchView({ onCreated, scoringCfg }: { onCreated: (id: number) =>
     }
   }
 
-  const runChartSearch = async () => {
-    setSearchingCharts(true)
-    try {
-      const res = await searchChartsForBatch(form.specialty, chartSearch || undefined, chartCatFilter || undefined, chartDiffFilter || undefined)
-      setChartSearchResults(res)
-    } catch { toast.error('Chart search failed') }
-    finally { setSearchingCharts(false) }
-  }
-
-  const toggleChart = (id: number) => {
-    setSelectedChartIds(prev => {
-      const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
-      return next
-    })
-  }
-
   function addQuickCoder() {
     const name = quickRow.name.trim()
     const emp_id = quickRow.emp_id.trim()
@@ -373,8 +353,6 @@ function CreateBatchView({ onCreated, scoringCfg }: { onCreated: (id: number) =>
   async function handleCreate() {
     if (!form.name.trim()) return toast.error('Batch name is required')
     if (coders.length === 0) return toast.error('Add at least one coder')
-    if (assignMode === 'manual' && selectedChartIds.size === 0) return toast.error('Select at least one chart')
-    if (assignMode === 'random' && (!pool || pool.with_answer_key === 0)) return toast.error('No charts with answer keys match filters')
 
     setCreating(true)
     try {
@@ -388,23 +366,24 @@ function CreateBatchView({ onCreated, scoringCfg }: { onCreated: (id: number) =>
         created_by: trainerName(),
         use_weighted: form.use_weighted,
         use_dpo: form.use_dpo,
-        manual_chart_ids: assignMode === 'manual' ? Array.from(selectedChartIds) : [],
       })
-      toast.success(`Batch created — ${res.pool_size} charts in pool`)
+      if (res.warning) toast(res.warning, { icon: '⚠️', duration: 5000 })
+      toast.success('Batch created — run an allocation cycle to assign charts')
       onCreated(res.batch_id)
     } catch (err: any) {
       toast.error(err?.response?.data?.detail || 'Failed to create batch')
     } finally { setCreating(false) }
   }
 
-  const needed = coders.length * form.charts_per_coder
-  const available = pool?.with_answer_key || 0
   const isIP = ['IP-DRG'].includes(form.specialty)
   const activeCfg = scoringCfg ? (isIP ? scoringCfg.IP : scoringCfg.OP) : null
 
   return (
     <div style={styles.section}>
       <div style={styles.sectionTitle}>Create New Batch</div>
+      <div style={styles.infoBox}>
+        Batch stays <strong>Open</strong> until you close it. Charts are assigned through allocation cycles — run one now, or more later as the practice phase progresses.
+      </div>
 
       <div style={styles.formGrid}>
         <div style={styles.formGroup}>
@@ -423,96 +402,36 @@ function CreateBatchView({ onCreated, scoringCfg }: { onCreated: (id: number) =>
         </div>
 
         <div style={styles.formGroup}>
-          <label style={styles.label}>Category Filter <span style={styles.hint}>(comma-separated, OR logic)</span></label>
+          <label style={styles.label}>Default Pool — Category Filter <span style={styles.hint}>(comma-separated)</span></label>
           <input style={styles.input} value={form.categories}
             placeholder="e.g. Sepsis, Cardiac, Trauma"
             onChange={e => setForm(f => ({ ...f, categories: e.target.value }))} />
         </div>
 
         <div style={styles.formGroup}>
-          <label style={styles.label}>Difficulty Filter</label>
+          <label style={styles.label}>Default Pool — Difficulty Filter</label>
           <div style={styles.chipRow}>
             {DIFFICULTIES.map(d => (
               <button key={d}
                 style={form.difficulties.includes(d) ? styles.chipActive : styles.chip}
                 onClick={() => toggleDifficulty(d)}>{d}</button>
             ))}
-            <span style={styles.hint}>None selected = all difficulties</span>
+            <span style={styles.hint}>None = all</span>
           </div>
         </div>
 
         <div style={styles.formGroup}>
-          <label style={styles.label}>Charts per Coder</label>
+          <label style={styles.label}>Default Charts per Coder <span style={styles.hint}>(overridable per cycle)</span></label>
           <input type="number" min={1} max={20} style={{ ...styles.input, width: 80 }}
             value={form.charts_per_coder}
             onChange={e => setForm(f => ({ ...f, charts_per_coder: parseInt(e.target.value) || 1 }))} />
         </div>
       </div>
 
-      {/* Assignment mode */}
-      <div style={styles.formGroup}>
-        <label style={styles.label}>Chart Assignment</label>
-        <div style={styles.modeToggle}>
-          <button style={assignMode === 'random' ? styles.modeTabActive : styles.modeTab} onClick={() => setAssignMode('random')}>Random from Pool</button>
-          <button style={assignMode === 'manual' ? styles.modeTabActive : styles.modeTab} onClick={() => { setAssignMode('manual'); runChartSearch() }}>Manual Selection</button>
-        </div>
-      </div>
-
-      {assignMode === 'manual' && (
-        <div style={styles.formGroup}>
-          <div style={styles.chartPickerHeader}>
-            <span style={styles.label}>Pick Charts <span style={{ color: '#4f46e5', fontWeight: 700 }}>{selectedChartIds.size > 0 ? `· ${selectedChartIds.size} selected` : ''}</span></span>
-            {selectedChartIds.size > 0 && <button style={styles.clearSmallBtn} onClick={() => setSelectedChartIds(new Set())}>Clear selection</button>}
-          </div>
-          <div style={styles.chartSearchRow}>
-            <input style={{ ...styles.input, flex: 1 }} placeholder="Chart number (e.g. IP002)" value={chartSearch}
-              onChange={e => setChartSearch(e.target.value)} onKeyDown={e => e.key === 'Enter' && runChartSearch()} />
-            <input style={{ ...styles.input, flex: 1 }} placeholder="Category" value={chartCatFilter}
-              onChange={e => setChartCatFilter(e.target.value)} onKeyDown={e => e.key === 'Enter' && runChartSearch()} />
-            <select style={styles.select} value={chartDiffFilter} onChange={e => { setChartDiffFilter(e.target.value) }}>
-              <option value="">All difficulties</option>
-              {['Beginner', 'Intermediate', 'Advanced'].map(d => <option key={d}>{d}</option>)}
-            </select>
-            <button style={styles.outlineBtn} onClick={runChartSearch} disabled={searchingCharts}>
-              {searchingCharts ? <Loader size={13} /> : <Search size={13} />} Search
-            </button>
-          </div>
-
-          {chartSearchResults.length > 0 && (
-            <div style={styles.chartPickerList}>
-              <div style={styles.chartPickerListHeader}>
-                <span>Chart</span><span>Category</span><span>Difficulty</span><span></span>
-              </div>
-              {chartSearchResults.map(c => {
-                const selected = selectedChartIds.has(c.id)
-                return (
-                  <div key={c.id} style={{ ...styles.chartPickerRow, background: selected ? '#eef2ff' : '#fff' }}
-                    onClick={() => toggleChart(c.id)}>
-                    <span style={styles.chartPickerNum}>{c.chart_number}</span>
-                    <span style={styles.chartPickerCat}>{c.category}</span>
-                    <span style={styles.chartPickerDiff}>{c.difficulty}</span>
-                    <span>{selected ? <CheckSquare size={16} color="#4f46e5" /> : <Square size={16} color="#d1d5db" />}</span>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-          {chartSearchResults.length === 0 && !searchingCharts && (
-            <div style={styles.hint}>Search to find charts with answer keys. Click rows to select/deselect.</div>
-          )}
-        </div>
-      )}
-
-      {/* Live pool count */}
-      {assignMode === 'random' && pool && (
-        <div style={needed > available && available > 0 ? styles.warnBox : styles.infoBox}>
-          <strong>Matching pool:</strong> {pool.total_matching} charts · {pool.with_answer_key} have answer keys
-          {needed > available && available > 0 && (
-            <span style={{ color: '#b45309', marginLeft: 8 }}>
-              ⚠ {coders.length} coders × {form.charts_per_coder} charts = {needed} needed. Some charts will repeat.
-            </span>
-          )}
-          {available === 0 && <span style={{ color: '#dc2626', marginLeft: 8 }}>⚠ No keyed charts — upload answer keys first.</span>}
+      {pool && (
+        <div style={styles.infoBox}>
+          <strong>Pool preview:</strong> {pool.total_matching} matching charts · {pool.with_answer_key} have answer keys
+          {pool.with_answer_key === 0 && <span style={{ color: '#dc2626', marginLeft: 8 }}>⚠ Upload answer keys before running allocation.</span>}
         </div>
       )}
 
@@ -606,7 +525,7 @@ function CreateBatchView({ onCreated, scoringCfg }: { onCreated: (id: number) =>
 
       <button style={creating ? { ...styles.primaryBtn, opacity: 0.6 } : styles.primaryBtn}
         disabled={creating} onClick={handleCreate}>
-        {creating ? <><Loader size={14} /> Creating...</> : 'Create Batch & Assign Charts'}
+        {creating ? <><Loader size={14} /> Creating...</> : 'Open Batch'}
       </button>
     </div>
   )
@@ -614,11 +533,150 @@ function CreateBatchView({ onCreated, scoringCfg }: { onCreated: (id: number) =>
 
 // ── Batch Detail ──────────────────────────────────────────────────────────────
 
+function AllocationPanel({ batch, onDone }: { batch: any; onDone: () => void }) {
+  const [form, setForm] = useState({
+    charts_per_coder: batch.charts_per_coder,
+    notes: '',
+    assignMode: 'random' as 'random' | 'manual',
+  })
+  const [chartSearch, setChartSearch] = useState('')
+  const [chartCatFilter, setChartCatFilter] = useState('')
+  const [chartDiffFilter, setChartDiffFilter] = useState('')
+  const [chartSearchResults, setChartSearchResults] = useState<any[]>([])
+  const [selectedChartIds, setSelectedChartIds] = useState<Set<number>>(new Set())
+  const [searchingCharts, setSearchingCharts] = useState(false)
+  const [running, setRunning] = useState(false)
+
+  const runChartSearch = async () => {
+    setSearchingCharts(true)
+    try {
+      const res = await searchChartsForBatch(batch.specialty, chartSearch || undefined, chartCatFilter || undefined, chartDiffFilter || undefined)
+      setChartSearchResults(res)
+    } catch { toast.error('Chart search failed') }
+    finally { setSearchingCharts(false) }
+  }
+
+  const toggleChart = (id: number) => {
+    setSelectedChartIds(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  const handleRun = async () => {
+    if (form.assignMode === 'manual' && selectedChartIds.size === 0) return toast.error('Select at least one chart')
+    setRunning(true)
+    const tid = toast.loading('Running allocation…')
+    try {
+      const res = await runAllocation(batch.id, {
+        charts_per_coder: form.charts_per_coder,
+        manual_chart_ids: form.assignMode === 'manual' ? Array.from(selectedChartIds) : [],
+        run_by: trainerName(),
+        notes: form.notes || undefined,
+      })
+      toast.dismiss(tid)
+      const assignedCount = Object.values(res.assigned).reduce((a: number, b: any) => a + b, 0)
+      toast.success(`Cycle ${res.cycle_number} complete — ${assignedCount} charts assigned`)
+      if (res.warnings.length) res.warnings.forEach((w: string) => toast(w, { icon: '⚠️', duration: 6000 }))
+      onDone()
+    } catch (err: any) {
+      toast.dismiss(tid)
+      toast.error(err?.response?.data?.detail || 'Allocation failed')
+    } finally { setRunning(false) }
+  }
+
+  const nextCycle = (batch.allocation_cycles?.length || 0) + 1
+
+  return (
+    <div style={styles.allocationPanel}>
+      <div style={{ fontWeight: 700, fontSize: 14, color: '#0f766e', marginBottom: 12 }}>
+        Run Allocation — Cycle {nextCycle}
+      </div>
+
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' as const, alignItems: 'flex-end', marginBottom: 12 }}>
+        <div style={styles.formGroup}>
+          <label style={styles.label}>Charts per Coder</label>
+          <input type="number" min={1} max={20} style={{ ...styles.input, width: 80 }}
+            value={form.charts_per_coder}
+            onChange={e => setForm(f => ({ ...f, charts_per_coder: parseInt(e.target.value) || 1 }))} />
+        </div>
+        <div style={styles.formGroup}>
+          <label style={styles.label}>Assignment</label>
+          <div style={styles.modeToggle}>
+            <button style={form.assignMode === 'random' ? styles.modeTabActive : styles.modeTab} onClick={() => setForm(f => ({ ...f, assignMode: 'random' }))}>Random</button>
+            <button style={form.assignMode === 'manual' ? styles.modeTabActive : styles.modeTab} onClick={() => { setForm(f => ({ ...f, assignMode: 'manual' })); runChartSearch() }}>Manual</button>
+          </div>
+        </div>
+        <div style={{ ...styles.formGroup, flex: 1 }}>
+          <label style={styles.label}>Notes <span style={styles.hint}>(optional)</span></label>
+          <input style={styles.input} value={form.notes} placeholder="e.g. Week 2 push"
+            onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
+        </div>
+      </div>
+
+      {form.assignMode === 'manual' && (
+        <div style={{ marginBottom: 12 }}>
+          <div style={styles.chartSearchRow}>
+            <input style={{ ...styles.input, flex: 1 }} placeholder="Chart number" value={chartSearch}
+              onChange={e => setChartSearch(e.target.value)} onKeyDown={e => e.key === 'Enter' && runChartSearch()} />
+            <input style={{ ...styles.input, flex: 1 }} placeholder="Category" value={chartCatFilter}
+              onChange={e => setChartCatFilter(e.target.value)} onKeyDown={e => e.key === 'Enter' && runChartSearch()} />
+            <select style={styles.select} value={chartDiffFilter} onChange={e => setChartDiffFilter(e.target.value)}>
+              <option value="">All difficulties</option>
+              {['Beginner', 'Intermediate', 'Advanced'].map(d => <option key={d}>{d}</option>)}
+            </select>
+            <button style={styles.outlineBtn} onClick={runChartSearch} disabled={searchingCharts}>
+              {searchingCharts ? <Loader size={13} /> : <Search size={13} />} Search
+            </button>
+          </div>
+          {selectedChartIds.size > 0 && (
+            <div style={{ fontSize: 12, color: '#4f46e5', fontWeight: 700, marginBottom: 6 }}>
+              {selectedChartIds.size} chart{selectedChartIds.size !== 1 ? 's' : ''} selected
+              <button style={{ ...styles.clearSmallBtn, marginLeft: 10 }} onClick={() => setSelectedChartIds(new Set())}>Clear</button>
+            </div>
+          )}
+          {chartSearchResults.length > 0 && (
+            <div style={styles.chartPickerList}>
+              <div style={styles.chartPickerListHeader}>
+                <span>Chart</span><span>Category</span><span>Difficulty</span><span></span>
+              </div>
+              {chartSearchResults.map(c => {
+                const selected = selectedChartIds.has(c.id)
+                return (
+                  <div key={c.id} style={{ ...styles.chartPickerRow, background: selected ? '#eef2ff' : '#fff' }}
+                    onClick={() => toggleChart(c.id)}>
+                    <span style={styles.chartPickerNum}>{c.chart_number}</span>
+                    <span style={styles.chartPickerCat}>{c.category}</span>
+                    <span style={styles.chartPickerDiff}>{c.difficulty}</span>
+                    <span>{selected ? <CheckSquare size={16} color="#4f46e5" /> : <Square size={16} color="#d1d5db" />}</span>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 10 }}>
+        <button style={running ? { ...styles.primaryBtn, opacity: 0.6 } : styles.primaryBtn}
+          disabled={running} onClick={handleRun}>
+          {running ? <><Loader size={14} /> Running…</> : `▶ Run Cycle ${nextCycle}`}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
   const [batch, setBatch] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [grading, setGrading] = useState(false)
   const [gradingResult, setGradingResult] = useState<any>(null)
+  const [showAllocationPanel, setShowAllocationPanel] = useState(false)
+  const [closing, setClosing] = useState(false)
+  const [showNoteBox, setShowNoteBox] = useState(false)
+  const [noteText, setNoteText] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { loadBatch() }, [batchId])
@@ -650,52 +708,143 @@ function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
     }
   }
 
+  async function handleClose() {
+    if (!window.confirm('Close this batch? This locks all results. You can still view and export but no new allocations or grading will be allowed.')) return
+    setClosing(true)
+    try {
+      await closeBatch(batchId, trainerName())
+      toast.success('Batch closed')
+      loadBatch()
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail || 'Failed to close batch')
+    } finally { setClosing(false) }
+  }
+
+  async function handleAddNote() {
+    if (!noteText.trim()) return
+    try {
+      await addBatchNote(batchId, noteText.trim(), trainerName())
+      toast.success('Note added')
+      setNoteText('')
+      setShowNoteBox(false)
+      loadBatch()
+    } catch { toast.error('Failed to add note') }
+  }
+
   if (loading) return <div style={styles.center}><Loader size={24} /></div>
   if (!batch) return <div style={styles.center}>Batch not found</div>
 
   const sc = SPECIALTY_COLORS[batch.specialty as keyof typeof SPECIALTY_COLORS]
-  const pendingDRG = batch.coders?.some((c: any) =>
-    c.charts?.some((ch: any) => ch.submission_status === 'Submitted')
-  ) && batch.status === 'Grading'
+  const isOpen = batch.status === 'Open'
+  const hasResults = batch.coders?.some((c: any) => c.charts?.some((ch: any) => ch.submission_status === 'Submitted'))
+  const pendingDRG = hasResults  // show DRG review link whenever there are submissions
 
   return (
     <div style={styles.section}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8, flexWrap: 'wrap' as const }}>
         <span style={{ ...styles.badge, background: sc?.light || '#f3f4f6', color: sc?.bg || '#374151', fontSize: 13 }}>
           {batch.specialty}
         </span>
         <span style={styles.sectionTitle}>{batch.name}</span>
-        <span style={{ fontSize: 12, color: '#6b7280' }}>by {batch.created_by} · {new Date(batch.created_at).toLocaleDateString()}</span>
+        <span style={{ fontSize: 12, fontWeight: 700, padding: '3px 12px', borderRadius: 20, border: '1.5px solid',
+          color: isOpen ? '#2563eb' : '#16a34a', borderColor: isOpen ? '#2563eb' : '#16a34a' }}>
+          {batch.status}
+        </span>
+        {isOpen && batch.days_open != null && (
+          <span style={{ fontSize: 12, color: batch.days_open > 14 ? '#d97706' : '#6b7280' }}>
+            {batch.days_open} day{batch.days_open !== 1 ? 's' : ''} open
+          </span>
+        )}
+        {batch.force_closed && (
+          <span style={{ fontSize: 11, background: '#fee2e2', color: '#dc2626', padding: '2px 10px', borderRadius: 20, fontWeight: 700 }}>
+            Force-closed
+          </span>
+        )}
+        <span style={{ fontSize: 12, color: '#9ca3af' }}>by {batch.created_by} · {new Date(batch.created_at).toLocaleDateString()}</span>
       </div>
 
-      {/* Action buttons */}
+      {batch.force_close_reason && (
+        <div style={styles.warnBox}>Force-close reason: {batch.force_close_reason}</div>
+      )}
+
+      {/* Allocation cycles section */}
+      <div style={styles.cycleSection}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+          <span style={{ fontWeight: 700, fontSize: 14, color: '#374151' }}>
+            Allocation Cycles ({batch.allocation_cycles?.length || 0})
+          </span>
+          {isOpen && (
+            <button style={{ ...styles.primaryBtn, background: '#4f46e5' }}
+              onClick={() => setShowAllocationPanel(p => !p)}>
+              {showAllocationPanel ? '✕ Cancel' : '▶ Run New Cycle'}
+            </button>
+          )}
+        </div>
+
+        {showAllocationPanel && isOpen && (
+          <AllocationPanel batch={batch} onDone={() => { setShowAllocationPanel(false); loadBatch() }} />
+        )}
+
+        {(batch.allocation_cycles || []).length === 0 && !showAllocationPanel && (
+          <div style={{ fontSize: 13, color: '#9ca3af', padding: '12px 0' }}>No cycles yet — run the first allocation to assign charts.</div>
+        )}
+
+        {(batch.allocation_cycles || []).map((c: any) => (
+          <div key={c.id} style={styles.cycleRow}>
+            <div style={styles.cycleBadge}>Cycle {c.cycle_number}</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 600 }}>
+                {c.charts_per_coder} charts/coder · {c.assigned_count} assignments
+              </div>
+              <div style={{ fontSize: 11, color: '#9ca3af' }}>
+                by {c.run_by} on {new Date(c.run_at).toLocaleDateString()}
+                {c.notes && <span style={{ marginLeft: 8, color: '#6b7280' }}>— {c.notes}</span>}
+              </div>
+            </div>
+            <button style={styles.outlineBtn} onClick={() => downloadCycleExcel(batchId, c.id)}>
+              <Download size={13} /> Cycle {c.cycle_number} Sheets
+            </button>
+          </div>
+        ))}
+
+        {(batch.allocation_cycles || []).length > 0 && (
+          <div style={{ marginTop: 6 }}>
+            <button style={{ ...styles.outlineBtn, fontSize: 12 }} onClick={() => downloadBatchExcel(batchId)}>
+              <Download size={13} /> All Cycles (ZIP)
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Grade uploads + results */}
       <div style={styles.actionRow}>
-        <button style={styles.outlineBtn} onClick={() => downloadBatchExcel(batchId)}>
-          <Download size={15} /> Download Answer Sheets (ZIP)
-        </button>
         <label style={grading ? { ...styles.primaryBtn, opacity: 0.6 } : styles.primaryBtn}>
           {grading ? <><Loader size={14} /> Grading...</> : <><Upload size={15} /> Upload Returned Sheets</>}
           <input ref={fileRef} type="file" accept=".xlsx" multiple style={{ display: 'none' }}
             onChange={handleGradeUpload} disabled={grading} />
         </label>
-        {(batch.status === 'Grading' || batch.status === 'Complete') && (
+        {hasResults && (
           <>
-            {pendingDRG && (
-              <button style={{ ...styles.primaryBtn, background: '#d97706' }} onClick={onDRGReview}>
-                DRG Review Required
-              </button>
-            )}
+            <button style={styles.outlineBtn} onClick={onDRGReview}>
+              DRG Review
+            </button>
             <button style={styles.outlineBtn} onClick={onResults}>
               <BarChart2 size={15} /> View Results
             </button>
             <button style={styles.outlineBtn} onClick={() => downloadBatchResultsExcel(batchId)}>
-              <Download size={15} /> Export Excel
+              <Download size={15} /> Export Results
             </button>
           </>
         )}
+        {isOpen && (
+          <button style={{ ...styles.outlineBtn, color: '#dc2626', borderColor: '#fca5a5', marginLeft: 'auto' }}
+            disabled={closing} onClick={handleClose}>
+            {closing ? 'Closing…' : '✕ Close Batch'}
+          </button>
+        )}
       </div>
 
-      {/* Grading result summary */}
       {gradingResult && (
         <div style={styles.infoBox}>
           <strong>Grading complete:</strong> {gradingResult.graded.length} submission(s) processed.
@@ -710,14 +859,14 @@ function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
       {/* Coders table */}
       <div style={styles.sectionHeader}>
         <span style={{ fontSize: 14, fontWeight: 700, color: '#374151' }}>
-          Coders ({batch.coders?.length || 0}) · {batch.charts_per_coder} charts each
+          Coders ({batch.coders?.length || 0})
         </span>
       </div>
 
       <div style={styles.table}>
         <div style={styles.tableHeader}>
           <span>Coder</span>
-          <span>Excel Generated</span>
+          <span>Emp ID</span>
           <span>Charts Assigned</span>
           <span>Submitted</span>
         </div>
@@ -726,9 +875,7 @@ function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
           return (
             <div key={c.name} style={styles.tableRow}>
               <span style={{ fontWeight: 600 }}>{c.name}</span>
-              <span style={{ color: c.excel_generated ? '#16a34a' : '#9ca3af' }}>
-                {c.excel_generated ? '✓ Generated' : '—'}
-              </span>
+              <span style={{ color: '#0f766e', fontWeight: 600 }}>{c.emp_id || '—'}</span>
               <span>{c.charts.length}</span>
               <span style={{ color: submitted > 0 ? '#16a34a' : '#9ca3af' }}>
                 {submitted} / {c.charts.length}
@@ -736,6 +883,36 @@ function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
             </div>
           )
         })}
+      </div>
+
+      {/* Batch notes */}
+      <div style={styles.cycleSection}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+          <span style={{ fontWeight: 700, fontSize: 13, color: '#374151' }}>Batch Log</span>
+          <button style={{ ...styles.outlineBtn, fontSize: 12, padding: '4px 10px' }}
+            onClick={() => setShowNoteBox(p => !p)}>
+            {showNoteBox ? 'Cancel' : '+ Add Note'}
+          </button>
+        </div>
+        {showNoteBox && (
+          <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+            <input style={{ ...styles.input, flex: 1 }} placeholder="Note for this batch…"
+              value={noteText} onChange={e => setNoteText(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleAddNote()} />
+            <button style={styles.primaryBtn} onClick={handleAddNote}>Add</button>
+          </div>
+        )}
+        {(batch.notes || []).length === 0 && !showNoteBox && (
+          <div style={{ fontSize: 12, color: '#9ca3af' }}>No notes yet.</div>
+        )}
+        {(batch.notes || []).map((n: any, i: number) => (
+          <div key={i} style={styles.noteRow}>
+            <span style={{ fontSize: 13, flex: 1 }}>{n.text}</span>
+            <span style={{ fontSize: 11, color: '#9ca3af', whiteSpace: 'nowrap' as const }}>
+              {n.author} · {new Date(n.ts).toLocaleDateString()}
+            </span>
+          </div>
+        ))}
       </div>
     </div>
   )
@@ -1502,4 +1679,12 @@ const styles: Record<string, React.CSSProperties> = {
   dpoSupBadge: { fontSize: 10, fontWeight: 700, background: '#dbeafe', color: '#1d4ed8', padding: '2px 8px', borderRadius: 10, letterSpacing: 0.3 },
   dpoPanelRow: { display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' as const },
   dpoDivider: { width: 1, height: 36, background: '#bfdbfe', margin: '0 4px' },
+  // Batch management — cycles
+  cycleSection: { background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 8 },
+  cycleRow: { display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', background: '#f9fafb', borderRadius: 8, border: '1px solid #e5e7eb' },
+  cycleBadge: { fontSize: 11, fontWeight: 800, background: '#dbeafe', color: '#1d4ed8', padding: '3px 10px', borderRadius: 20, whiteSpace: 'nowrap' as const },
+  allocationPanel: { background: '#f0fdf4', border: '1.5px solid #86efac', borderRadius: 10, padding: '16px 18px', marginBottom: 10 },
+  noteRow: { display: 'flex', alignItems: 'flex-start', gap: 12, padding: '8px 0', borderBottom: '1px solid #f3f4f6', fontSize: 13 },
+  emptyState: { fontSize: 13, color: '#9ca3af', padding: '20px 0', textAlign: 'center' as const },
+  dropzone: { border: '2px dashed #d1d5db', borderRadius: 10, padding: '28px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, cursor: 'pointer', background: '#fafafa' },
 }
