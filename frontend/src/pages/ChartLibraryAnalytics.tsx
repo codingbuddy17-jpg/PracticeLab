@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { ChevronLeft, TrendingUp, TrendingDown, PieChart } from 'lucide-react'
 import { getAnalytics } from '../api'
 
-export function TrainerAnalytics() {
+export function ChartLibraryAnalytics() {
   const navigate = useNavigate()
   const [data, setData] = useState<any>(null)
 

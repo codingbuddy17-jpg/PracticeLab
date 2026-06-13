@@ -5,7 +5,7 @@ import { TrainerHome } from './pages/TrainerHome'
 import { TrainerUpload } from './pages/TrainerUpload'
 import { TrainerCharts } from './pages/TrainerCharts'
 import { TrainerReports } from './pages/TrainerReports'
-import { TrainerAnalytics } from './pages/TrainerAnalytics'
+import { ChartLibraryAnalytics } from './pages/ChartLibraryAnalytics'
 import { TrainerFeedback } from './pages/TrainerFeedback'
 import { TrainerPracticeLab } from './pages/TrainerPracticeLab'
 import { CoderSelfPractice } from './pages/CoderSelfPractice'
@@ -21,7 +21,7 @@ export default function App() {
         <Route path="/trainer/upload" element={<TrainerUpload />} />
         <Route path="/trainer/charts" element={<TrainerCharts />} />
         <Route path="/trainer/reports" element={<TrainerReports />} />
-        <Route path="/trainer/analytics" element={<TrainerAnalytics />} />
+        <Route path="/trainer/analytics" element={<ChartLibraryAnalytics />} />
         <Route path="/trainer/feedback" element={<TrainerFeedback />} />
         <Route path="/trainer/practicelab" element={<TrainerPracticeLab />} />
       </Routes>
