@@ -9,6 +9,7 @@ import {
   uploadAnswerKeys, getBatch, downloadBatchExcel, downloadCycleExcel, gradeSubmissions,
   getDRGReview, submitDRGDecision, getBatchResults, downloadBatchResultsExcel,
   getAnswerKeyStatus, getPLAnalyticsOverview,
+  getPLAnalyticsBySpecialty, getPLAnalyticsByChart, getPLAnalyticsByBatch, getCoderTrend,
   downloadCoderListTemplate, parseCoderList,
   getScoringConfigs, updateScoringConfig,
   getBatchInsights,
@@ -76,7 +77,10 @@ export function TrainerPracticeLab() {
           )}
           {view === 'home' && (
             <>
-                  <button style={styles.navBtn} onClick={() => setView('scoring-config')}>
+              <button style={styles.navBtn} onClick={() => setView('analytics')}>
+                <BarChart2 size={15} /> Analytics
+              </button>
+              <button style={styles.navBtn} onClick={() => setView('scoring-config')}>
                 <Settings size={15} /> Scoring Config
               </button>
               <button style={styles.navBtn} onClick={() => setView('answer-keys')}>
@@ -122,6 +126,7 @@ export function TrainerPracticeLab() {
         {view === 'results' && selectedBatchId && (
           <ResultsView batchId={selectedBatchId} />
         )}
+        {view === 'analytics' && <PLAnalyticsView />}
         {view === 'scoring-config' && <ScoringConfigView />}
         {view === 'self-practice' && <SelfPracticeInlineView />}
       </div>
@@ -1641,7 +1646,8 @@ function SPStandalonePanel({ trainerName }: { trainerName: string }) {
       )}
 
       {results && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <StandaloneInsights results={results.results} />
           <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
             <div style={{ display: 'grid', gridTemplateColumns: '140px 100px 70px 70px 80px 80px', padding: '7px 12px', background: '#f9fafb', fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' as const, letterSpacing: 0.5, borderBottom: '1px solid #e5e7eb' }}>
               <span>Coder</span><span>Chart</span><span>Score</span><span>Result</span><span>Dx Acc</span><span>Proc Acc</span>
@@ -1663,6 +1669,317 @@ function SPStandalonePanel({ trainerName }: { trainerName: string }) {
     </div>
   )
 }
+
+// ── Standalone Grading Insights ───────────────────────────────────────────────
+
+function StandaloneInsights({ results }: { results: any[] }) {
+  if (!results.length) return null
+  const scored = results.filter(r => r.weighted_score != null)
+  if (!scored.length) return null
+
+  const passed = scored.filter(r => r.pass_fail === 'PASS').length
+  const avgScore = Math.round(scored.reduce((s, r) => s + r.weighted_score, 0) / scored.length)
+  const passRate = Math.round(passed / scored.length * 100)
+
+  // Aggregate feedback_items
+  const issueCounts: Record<string, number> = {}
+  const sectionCounts: Record<string, number> = {}
+  const missedCodes: Record<string, number> = {}
+  for (const r of results) {
+    for (const f of r.feedback_items || []) {
+      const issue = f.issue || f.issue_type || ''
+      const section = f.section || ''
+      if (issue) issueCounts[issue] = (issueCounts[issue] || 0) + 1
+      if (section) sectionCounts[section] = (sectionCounts[section] || 0) + 1
+      if ((issue === 'Missed' || issue === 'missed') && f.ak_code) {
+        missedCodes[f.ak_code] = (missedCodes[f.ak_code] || 0) + 1
+      }
+    }
+  }
+  const totalFb = Object.values(issueCounts).reduce((a, b) => a + b, 0)
+  const topIssues = Object.entries(issueCounts).sort((a, b) => b[1] - a[1])
+  const topMissed = Object.entries(missedCodes).sort((a, b) => b[1] - a[1]).slice(0, 6)
+
+  const ISSUE_COLORS: Record<string, string> = {
+    Missed: '#dc2626', Over_coded: '#d97706', Wrong_Code: '#7c3aed', Wrong_POA: '#0891b2', Wrong_Modifier: '#6b7280',
+  }
+
+  return (
+    <div style={{ background: '#f8faff', border: '1.5px solid #a5b4fc', borderRadius: 12, padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ fontSize: 13, fontWeight: 800, color: '#312e81' }}>✦ Grading Summary</div>
+
+      {/* Summary cards */}
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        {[
+          { label: 'Charts Graded', value: scored.length, color: '#111' },
+          { label: 'Passed', value: passed, color: '#16a34a' },
+          { label: 'Failed', value: scored.length - passed, color: '#dc2626' },
+          { label: 'Pass Rate', value: `${passRate}%`, color: passRate >= 80 ? '#16a34a' : passRate >= 60 ? '#d97706' : '#dc2626' },
+          { label: 'Avg Score', value: `${avgScore}%`, color: '#111' },
+        ].map(s => (
+          <div key={s.label} style={{ background: '#fff', border: '1px solid #e0e7ff', borderRadius: 8, padding: '10px 14px', textAlign: 'center', minWidth: 90 }}>
+            <div style={{ fontSize: 20, fontWeight: 800, color: s.color }}>{s.value}</div>
+            <div style={{ fontSize: 10, color: '#6b7280', marginTop: 2 }}>{s.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {totalFb > 0 && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+          {/* Error breakdown */}
+          <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: '12px 14px' }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#111', marginBottom: 10 }}>Error Breakdown</div>
+            {topIssues.map(([type, count]) => {
+              const pct = Math.round(count / totalFb * 100)
+              return (
+                <div key={type} style={{ marginBottom: 7 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: ISSUE_COLORS[type] || '#374151' }}>{type.replace(/_/g, ' ')}</span>
+                    <span style={{ fontSize: 11, color: '#6b7280' }}>{count} ({pct}%)</span>
+                  </div>
+                  <div style={{ height: 4, background: '#f3f4f6', borderRadius: 3 }}>
+                    <div style={{ height: 4, width: `${pct}%`, background: ISSUE_COLORS[type] || '#374151', borderRadius: 3 }} />
+                  </div>
+                </div>
+              )
+            })}
+            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 10 }}>
+              {Object.entries(sectionCounts).map(([sec, cnt]) => (
+                <span key={sec} style={{ fontSize: 10, fontWeight: 700, background: '#dbeafe', color: '#1d4ed8', padding: '1px 8px', borderRadius: 10 }}>{sec} {cnt}×</span>
+              ))}
+            </div>
+          </div>
+
+          {/* Top missed codes */}
+          <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: '12px 14px' }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#111', marginBottom: 10 }}>Top Missed Codes</div>
+            {topMissed.length === 0 ? (
+              <div style={{ fontSize: 12, color: '#9ca3af' }}>None</div>
+            ) : topMissed.map(([code, cnt]) => (
+              <div key={code} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #f3f4f6', fontSize: 12 }}>
+                <span style={{ fontWeight: 700, color: '#dc2626' }}>{code}</span>
+                <span style={{ color: '#6b7280' }}>{cnt}×</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+
+// ── PracticeLab Analytics (standalone tab) ────────────────────────────────────
+
+function PLAnalyticsView() {
+  const [tab, setTab] = useState<'overview' | 'specialty' | 'chart' | 'batch' | 'coder'>('overview')
+  const [overview, setOverview] = useState<any>(null)
+  const [bySpecialty, setBySpecialty] = useState<any[]>([])
+  const [byChart, setByChart] = useState<any[]>([])
+  const [byBatch, setByBatch] = useState<any[]>([])
+  const [coderName, setCoderName] = useState('')
+  const [coderTrend, setCoderTrend] = useState<any[]>([])
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    setLoading(true)
+    Promise.all([
+      getPLAnalyticsOverview(),
+      getPLAnalyticsBySpecialty(),
+      getPLAnalyticsByBatch(),
+    ]).then(([ov, sp, bt]) => {
+      setOverview(ov); setBySpecialty(sp); setByBatch(bt)
+    }).catch(() => toast.error('Failed to load analytics')).finally(() => setLoading(false))
+  }, [])
+
+  useEffect(() => {
+    if (tab === 'chart' && byChart.length === 0) {
+      getPLAnalyticsByChart().then(setByChart).catch(() => {})
+    }
+  }, [tab])
+
+  async function loadCoderTrend() {
+    if (!coderName.trim()) return
+    const data = await getCoderTrend(coderName.trim()).catch(() => null)
+    if (data) setCoderTrend(data)
+    else toast.error('No data for this coder')
+  }
+
+  const TABS = [
+    { key: 'overview', label: 'Overview' },
+    { key: 'specialty', label: 'By Specialty' },
+    { key: 'chart', label: 'By Chart' },
+    { key: 'batch', label: 'By Batch' },
+    { key: 'coder', label: 'Coder Trend' },
+  ]
+
+  if (loading) return <div style={styles.center}><Loader size={24} /></div>
+
+  return (
+    <div style={styles.section}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+        <span style={styles.sectionTitle}>Analytics</span>
+      </div>
+
+      {/* Tab bar */}
+      <div style={{ display: 'flex', border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden', alignSelf: 'flex-start' }}>
+        {TABS.map(t => (
+          <button key={t.key}
+            style={tab === t.key ? { ...styles.modeTab, background: '#4f46e5', color: '#fff', padding: '7px 16px' } : { ...styles.modeTab, padding: '7px 16px' }}
+            onClick={() => setTab(t.key as any)}>{t.label}</button>
+        ))}
+      </div>
+
+      {/* Overview */}
+      {tab === 'overview' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+          {!overview ? (
+            <div style={styles.emptyState}>No grading data yet</div>
+          ) : (
+            <>
+              <div style={styles.statsRow}>
+                {[
+                  { label: 'Total Batches', value: overview.total_batches },
+                  { label: 'Open Batches', value: overview.open_batches ?? 0, color: '#2563eb' },
+                  { label: 'Closed Batches', value: overview.complete_batches ?? 0, color: '#16a34a' },
+                  { label: 'Total Graded', value: overview.total_graded },
+                  { label: 'Overall Pass Rate', value: `${overview.overall_pass_rate}%`, color: overview.overall_pass_rate >= 80 ? '#16a34a' : overview.overall_pass_rate >= 60 ? '#d97706' : '#dc2626' },
+                ].map(s => (
+                  <div key={s.label} style={styles.statCard}>
+                    <div style={{ ...styles.statValue, color: s.color || '#111' }}>{s.value}</div>
+                    <div style={styles.statLabel}>{s.label}</div>
+                  </div>
+                ))}
+              </div>
+              {overview.total_graded === 0 && (
+                <div style={styles.warnBox}>No grading results yet. Complete at least one batch grading cycle to see analytics.</div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* By Specialty */}
+      {tab === 'specialty' && (
+        <div>
+          {bySpecialty.length === 0 ? (
+            <div style={styles.emptyState}>No data yet — complete a grading cycle first</div>
+          ) : (
+            <div style={styles.table}>
+              <div style={{ ...styles.tableHeader, gridTemplateColumns: '2fr 1fr 1fr 1fr' }}>
+                <span>Specialty</span><span>Graded</span><span>Avg Score</span><span>Pass Rate</span>
+              </div>
+              {bySpecialty.map((r: any) => (
+                <div key={r.specialty} style={{ ...styles.tableRow, gridTemplateColumns: '2fr 1fr 1fr 1fr' }}>
+                  <span style={{ fontWeight: 600 }}>{r.specialty}</span>
+                  <span>{r.total}</span>
+                  <span style={{ fontWeight: 700, color: r.avg_score >= 80 ? '#16a34a' : r.avg_score >= 60 ? '#d97706' : '#dc2626' }}>{r.avg_score}%</span>
+                  <span>—</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* By Chart */}
+      {tab === 'chart' && (
+        <div>
+          {byChart.length === 0 ? (
+            <div style={styles.emptyState}>No chart data yet</div>
+          ) : (
+            <div style={styles.table}>
+              <div style={{ ...styles.tableHeader, gridTemplateColumns: '120px 1fr 1fr 80px 80px' }}>
+                <span>Chart</span><span>Category</span><span>Specialty</span><span>Attempts</span><span>Avg Score</span>
+              </div>
+              {byChart.map((r: any) => (
+                <div key={r.chart_number} style={{ ...styles.tableRow, gridTemplateColumns: '120px 1fr 1fr 80px 80px', flexDirection: 'column' as const, height: 'auto', alignItems: 'stretch', padding: 0 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr 1fr 80px 80px', padding: '10px 16px', alignItems: 'center' }}>
+                    <span style={{ fontWeight: 700, color: '#1e40af' }}>{r.chart_number}</span>
+                    <span style={{ fontSize: 12 }}>{r.category}</span>
+                    <span style={{ fontSize: 12, color: '#6b7280' }}>{r.specialty}</span>
+                    <span>{r.attempt_count}</span>
+                    <span style={{ fontWeight: 700, color: r.avg_score >= 80 ? '#16a34a' : r.avg_score >= 60 ? '#d97706' : '#dc2626' }}>{r.avg_score}%</span>
+                  </div>
+                  {r.top_missed?.length > 0 && (
+                    <div style={{ padding: '4px 16px 8px 132px', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {r.top_missed.map(([code, cnt]: any) => (
+                        <span key={code} style={{ fontSize: 10, fontWeight: 700, background: '#fee2e2', color: '#dc2626', padding: '1px 8px', borderRadius: 10 }}>{code} {cnt}×</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* By Batch */}
+      {tab === 'batch' && (
+        <div>
+          {byBatch.length === 0 ? (
+            <div style={styles.emptyState}>No batch results yet</div>
+          ) : (
+            <div style={styles.table}>
+              <div style={{ ...styles.tableHeader, gridTemplateColumns: '2fr 100px 80px 80px 80px' }}>
+                <span>Batch</span><span>Specialty</span><span>Coders</span><span>Avg Score</span><span>Pass Rate</span>
+              </div>
+              {byBatch.map((r: any) => (
+                <div key={r.batch_id} style={{ ...styles.tableRow, gridTemplateColumns: '2fr 100px 80px 80px 80px' }}>
+                  <span style={{ fontWeight: 600, fontSize: 13 }}>{r.batch_name}</span>
+                  <span style={{ fontSize: 12, color: '#6b7280' }}>{r.specialty}</span>
+                  <span>{r.coder_count}</span>
+                  <span style={{ fontWeight: 700, color: r.avg_score >= 80 ? '#16a34a' : r.avg_score >= 60 ? '#d97706' : '#dc2626' }}>{r.avg_score}%</span>
+                  <span style={{ fontWeight: 700, color: r.pass_rate >= 80 ? '#16a34a' : r.pass_rate >= 60 ? '#d97706' : '#dc2626' }}>{r.pass_rate}%</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Coder Trend */}
+      {tab === 'coder' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <input style={{ ...styles.input, width: 260 }} placeholder="Enter coder name exactly"
+              value={coderName} onChange={e => setCoderName(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && loadCoderTrend()} />
+            <button style={styles.primaryBtn} onClick={loadCoderTrend}>Look Up</button>
+          </div>
+          {coderTrend.length === 0 ? (
+            <div style={styles.emptyState}>Enter a coder name to see their score trend across batches</div>
+          ) : (
+            <div style={styles.table}>
+              <div style={{ ...styles.tableHeader, gridTemplateColumns: '2fr 120px 80px 80px' }}>
+                <span>Batch</span><span>Date</span><span>Charts</span><span>Avg Score</span>
+              </div>
+              {coderTrend.map((r: any, i: number) => {
+                const prev = coderTrend[i - 1]
+                const delta = prev ? round1(r.avg_score - prev.avg_score) : null
+                return (
+                  <div key={r.batch_id} style={{ ...styles.tableRow, gridTemplateColumns: '2fr 120px 80px 80px' }}>
+                    <span style={{ fontWeight: 600, fontSize: 13 }}>{r.batch_name}</span>
+                    <span style={{ fontSize: 12, color: '#6b7280' }}>{r.created_at ? new Date(r.created_at).toLocaleDateString() : '—'}</span>
+                    <span>{r.chart_count}</span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontWeight: 700, color: r.avg_score >= 80 ? '#16a34a' : r.avg_score >= 60 ? '#d97706' : '#dc2626' }}>{r.avg_score}%</span>
+                      {delta != null && <span style={{ fontSize: 11, fontWeight: 700, color: delta > 0 ? '#16a34a' : delta < 0 ? '#dc2626' : '#9ca3af' }}>{delta > 0 ? '↑' : delta < 0 ? '↓' : '→'}{Math.abs(delta)}%</span>}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function round1(n: number) { return Math.round(n * 10) / 10 }
+
 
 // ── Insights Panel (A + B) ────────────────────────────────────────────────────
 

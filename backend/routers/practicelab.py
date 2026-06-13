@@ -1844,6 +1844,7 @@ def standalone_grade(
             all_results.append({
                 "coder_name": coder_name,
                 "chart_number": chart_num,
+                "feedback_items": feedback_items,
                 **result_kwargs,
             })
 
