@@ -180,6 +180,9 @@ def _run_migrations():
     # ── P2: backfill orphan batch_charts into synthetic legacy cycles ─────────
     _backfill_legacy_cycles()
 
+    # ── Scrub "None" sentinel strings from answer key JSON arrays ─────────────
+    _clean_none_in_answer_keys()
+
 
 def _backfill_legacy_cycles() -> None:
     """
@@ -228,3 +231,49 @@ def _backfill_legacy_cycles() -> None:
                 "WHERE batch_id = :bid AND cycle_id IS NULL"
             ), {"cid": cycle_id, "bid": bid})
             conn.commit()
+
+
+def _clean_none_in_answer_keys() -> None:
+    """
+    Remove entries whose code is the string 'None' or '' from the sdx/pcs/cpt
+    JSON arrays stored in answer_keys.  These were created when the Excel parser
+    did str(None) → 'None' on empty template cells.
+    """
+    import json
+
+    def _scrub(arr):
+        if not isinstance(arr, list):
+            return arr
+        return [
+            item for item in arr
+            if item.get("code", "").strip().lower() not in ("none", "")
+        ]
+
+    with engine.connect() as conn:
+        try:
+            rows = conn.execute(text("SELECT id, sdx, pcs, cpt FROM answer_keys")).fetchall()
+        except Exception:
+            return
+
+        for (ak_id, sdx_raw, pcs_raw, cpt_raw) in rows:
+            try:
+                sdx = json.loads(sdx_raw) if isinstance(sdx_raw, str) else (sdx_raw or [])
+                pcs = json.loads(pcs_raw) if isinstance(pcs_raw, str) else (pcs_raw or [])
+                cpt = json.loads(cpt_raw) if isinstance(cpt_raw, str) else (cpt_raw or [])
+
+                clean_sdx = _scrub(sdx)
+                clean_pcs = _scrub(pcs)
+                clean_cpt = _scrub(cpt)
+
+                if clean_sdx != sdx or clean_pcs != pcs or clean_cpt != cpt:
+                    conn.execute(text(
+                        "UPDATE answer_keys SET sdx=:sdx, pcs=:pcs, cpt=:cpt WHERE id=:id"
+                    ), {
+                        "sdx": json.dumps(clean_sdx),
+                        "pcs": json.dumps(clean_pcs),
+                        "cpt": json.dumps(clean_cpt),
+                        "id": ak_id,
+                    })
+                    conn.commit()
+            except Exception:
+                conn.rollback()

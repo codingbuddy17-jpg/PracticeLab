@@ -102,21 +102,29 @@ class OPGradingResult:
 
 # ── Normalization ─────────────────────────────────────────────────────────────
 
-def norm_dx(code: str) -> str:
-    return code.replace(".", "").replace(" ", "").upper().strip()
+def _clean(code) -> str:
+    """Convert any value to string, treating None/'None'/'' as empty."""
+    if code is None:
+        return ""
+    s = str(code).strip()
+    return "" if s.lower() == "none" else s
 
 
-def norm_pcs(code: str) -> str:
-    code = code.replace(" ", "").upper().strip()
-    return code.replace("O", "0").replace("I", "1")
+def norm_dx(code) -> str:
+    return _clean(code).replace(".", "").replace(" ", "").upper()
 
 
-def norm_cpt(code: str) -> str:
-    return code.replace(" ", "").upper().strip()
+def norm_pcs(code) -> str:
+    c = _clean(code).replace(" ", "").upper()
+    return c.replace("O", "0").replace("I", "1")
 
 
-def norm_mod(mod: str) -> str:
-    return mod.replace("-", "").replace(" ", "").upper().strip()
+def norm_cpt(code) -> str:
+    return _clean(code).replace(" ", "").upper()
+
+
+def norm_mod(mod) -> str:
+    return _clean(mod).replace("-", "").replace(" ", "").upper()
 
 
 # ── Order-independent matching ────────────────────────────────────────────────

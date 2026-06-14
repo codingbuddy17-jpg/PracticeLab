@@ -507,28 +507,36 @@ def parse_answer_key_upload(file_bytes: bytes, specialty: str) -> list[dict]:
     HEADER_NAMES = {"chart_number", "chart number", "chart#", "chartnumber"}
     results = []
 
+    def _cell(row, idx) -> str:
+        """Safely read a cell value, returning "" for None/empty/'None' sentinel."""
+        val = row[idx] if idx < len(row) else None
+        if val is None:
+            return ""
+        s = str(val).strip()
+        return "" if s.lower() == "none" else s
+
     for row in ws.iter_rows(min_row=1, values_only=True):
         if not row or row[0] is None:
             continue
-        chart_number = str(row[0]).strip()
+        chart_number = _cell(row, 0)
         if not chart_number or chart_number.lower().replace(" ", "_") in HEADER_NAMES:
             continue
 
         if is_ip:
-            pdx_code = str(row[1] or "").strip()
-            pdx_poa = str(row[2] or "").strip().upper()
+            pdx_code = _cell(row, 1)
+            pdx_poa = _cell(row, 2).upper()
             sdx = []
             col = 3
             for _ in range(IP_SDX_COUNT):
-                code = str(row[col] if col < len(row) else "").strip()
-                poa = str(row[col + 1] if col + 1 < len(row) else "").strip().upper()
-                ccmcc = str(row[col + 2] if col + 2 < len(row) else "").strip().upper()
+                code = _cell(row, col)
+                poa = _cell(row, col + 1).upper()
+                ccmcc = _cell(row, col + 2).upper()
                 if code:
                     sdx.append({"code": code, "poa": poa, "ccmcc": ccmcc or "-"})
                 col += 3
             pcs = []
             for _ in range(IP_PCS_COUNT):
-                code = str(row[col] if col < len(row) else "").strip()
+                code = _cell(row, col)
                 if code:
                     pcs.append({"code": code})
                 col += 1
@@ -544,14 +552,14 @@ def parse_answer_key_upload(file_bytes: bytes, specialty: str) -> list[dict]:
             sdx = []
             col = 2
             for _ in range(OP_SDX_COUNT):
-                code = str(row[col] if col < len(row) else "").strip()
+                code = _cell(row, col)
                 if code:
                     sdx.append({"code": code})
                 col += 1
             cpt = []
             for _ in range(OP_CPT_COUNT):
-                code = str(row[col] if col < len(row) else "").strip()
-                modifier = str(row[col + 1] if col + 1 < len(row) else "").strip()
+                code = _cell(row, col)
+                modifier = _cell(row, col + 1)
                 if code:
                     cpt.append({"code": code, "modifier": modifier})
                 col += 2
