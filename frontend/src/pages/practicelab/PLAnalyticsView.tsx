@@ -8,7 +8,7 @@ import {
 import {
   getPLAnalyticsOverview, getPLAnalyticsBySpecialty, getPLAnalyticsByChart,
   getPLAnalyticsByBatch, getCoderTrend,
-  getPLAnalyticsByCategory, getPLChartTeachingValue, getPLCoderMatrix,
+  getPLAnalyticsByCategory, getPLChartTeachingValue, getPLCoderMatrix, getPLChartDetail,
 } from '../../api'
 import { round1 } from './shared'
 import styles from './styles'
@@ -41,6 +41,9 @@ export function PLAnalyticsView() {
   const [matrixData, setMatrixData] = useState<{ batches: any[]; coders: string[]; cells: any[] } | null>(null)
   const [teachingFilter, setTeachingFilter] = useState<string>('All')
   const [loading, setLoading] = useState(false)
+  const [expandedCategory, setExpandedCategory] = useState<string | null>(null)
+  const [expandedChart, setExpandedChart] = useState<string | null>(null)
+  const [chartDetail, setChartDetail] = useState<Record<string, any>>({})
 
   useEffect(() => {
     setLoading(true)
@@ -66,6 +69,30 @@ export function PLAnalyticsView() {
     if (data) setCoderTrend(data)
     else toast.error('No data for this coder')
   }
+
+  function jumpToCoder(name: string) {
+    setCoderName(name)
+    setTab('coder')
+    setCoderTrend([])
+    getCoderTrend(name).then(setCoderTrend).catch(() => toast.error('No data for this coder'))
+  }
+
+  async function toggleChartDetail(chartNumber: string) {
+    if (expandedChart === chartNumber) { setExpandedChart(null); return }
+    if (chartDetail[chartNumber]) { setExpandedChart(chartNumber); return }
+    try {
+      const d = await getPLChartDetail(chartNumber)
+      setChartDetail(prev => ({ ...prev, [chartNumber]: d }))
+      setExpandedChart(chartNumber)
+    } catch { toast.error('Failed to load chart detail') }
+  }
+
+  const coderLink = (name: string) => (
+    <button onClick={() => jumpToCoder(name)}
+      style={{ background: 'none', border: 'none', padding: 0, color: '#4f46e5', fontWeight: 700, cursor: 'pointer', fontSize: 'inherit', textDecoration: 'underline' }}>
+      {name}
+    </button>
+  )
 
   const TABS = [
     { key: 'overview', label: 'Overview' },
@@ -216,18 +243,45 @@ export function PLAnalyticsView() {
               </div>
               {byChart.map((r: any) => (
                 <div key={r.chart_number} style={{ ...styles.tableRow, gridTemplateColumns: '120px 1fr 1fr 80px 80px', flexDirection: 'column' as const, height: 'auto', alignItems: 'stretch', padding: 0 }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr 1fr 80px 80px', padding: '10px 16px', alignItems: 'center' }}>
-                    <span style={{ fontWeight: 700, color: '#1e40af' }}>{r.chart_number}</span>
+                  <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr 1fr 80px 80px', padding: '10px 16px', alignItems: 'center', cursor: 'pointer', background: expandedChart === r.chart_number ? '#f5f3ff' : undefined }}
+                    onClick={() => toggleChartDetail(r.chart_number)}>
+                    <span style={{ fontWeight: 700, color: '#4f46e5' }}>{r.chart_number} {expandedChart === r.chart_number ? '▲' : '▼'}</span>
                     <span style={{ fontSize: 12 }}>{r.category}</span>
                     <span style={{ fontSize: 12, color: '#6b7280' }}>{r.specialty}</span>
                     <span>{r.attempt_count}</span>
                     <span style={{ fontWeight: 700, color: r.avg_score >= 80 ? '#16a34a' : r.avg_score >= 60 ? '#d97706' : '#dc2626' }}>{r.avg_score}%</span>
                   </div>
-                  {r.top_missed?.length > 0 && (
+                  {r.top_missed?.length > 0 && expandedChart !== r.chart_number && (
                     <div style={{ padding: '4px 16px 8px 132px', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                       {r.top_missed.map(([code, cnt]: any) => (
                         <span key={code} style={{ fontSize: 10, fontWeight: 700, background: '#fee2e2', color: '#dc2626', padding: '1px 8px', borderRadius: 10 }}>{code} {cnt}×</span>
                       ))}
+                    </div>
+                  )}
+                  {expandedChart === r.chart_number && chartDetail[r.chart_number] && (
+                    <div style={{ padding: '12px 16px', background: '#fafafa', borderTop: '1px solid #ede9fe' }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: '#6b7280', marginBottom: 8, textTransform: 'uppercase' as const, letterSpacing: 0.4 }}>Coder breakdown</div>
+                      {chartDetail[r.chart_number].coders.length === 0 ? (
+                        <div style={{ fontSize: 12, color: '#9ca3af' }}>No graded results for this chart.</div>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          {chartDetail[r.chart_number].coders.map((c: any) => (
+                            <div key={`${c.coder_name}-${c.batch_name}`} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '6px 10px', background: '#fff', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 12 }}>
+                              <span style={{ minWidth: 140 }}>{coderLink(c.coder_name)}</span>
+                              <span style={{ fontSize: 11, color: '#9ca3af', flex: 1 }}>{c.batch_name}</span>
+                              <span style={{ fontWeight: 700, color: (c.total_score ?? 0) >= 80 ? '#16a34a' : (c.total_score ?? 0) >= 60 ? '#d97706' : '#dc2626' }}>{c.total_score}%</span>
+                              <span style={{ fontWeight: 700, fontSize: 11, color: c.pass_fail === 'PASS' ? '#16a34a' : '#dc2626' }}>{c.pass_fail}</span>
+                              {c.missed_codes?.length > 0 && (
+                                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                                  {c.missed_codes.map((code: string) => (
+                                    <span key={code} style={{ fontSize: 10, fontWeight: 700, background: '#fee2e2', color: '#dc2626', padding: '1px 6px', borderRadius: 8 }}>{code}</span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -347,6 +401,53 @@ export function PLAnalyticsView() {
                   </BarChart>
                 </ResponsiveContainer>
               </div>
+              {/* Clickable category rows with drill-through */}
+              <div style={styles.table}>
+                <div style={{ ...styles.tableHeader, gridTemplateColumns: '2fr 70px 80px 80px' }}>
+                  <span>Category</span><span>Attempts</span><span>Avg Score</span><span>Pass Rate</span>
+                </div>
+                {categoryData.team.map((cat: any) => {
+                  const isExp = expandedCategory === cat.category
+                  const catCharts = byChart.filter((c: any) => c.category === cat.category).sort((a: any, b: any) => a.avg_score - b.avg_score)
+                  const catCoders = categoryData.coder_category.filter((r: any) => r.category === cat.category).sort((a: any, b: any) => a.avg_score - b.avg_score)
+                  return (
+                    <div key={cat.category}>
+                      <div style={{ ...styles.tableRow, gridTemplateColumns: '2fr 70px 80px 80px', cursor: 'pointer', background: isExp ? '#f5f3ff' : undefined }}
+                        onClick={() => setExpandedCategory(isExp ? null : cat.category)}>
+                        <span style={{ fontWeight: 600 }}>{cat.category} <span style={{ fontSize: 11, color: '#9ca3af' }}>{isExp ? '▲' : '▼'}</span></span>
+                        <span>{cat.attempt_count}</span>
+                        <span style={{ fontWeight: 700, color: cat.avg_score >= 80 ? '#16a34a' : cat.avg_score >= 60 ? '#d97706' : '#dc2626' }}>{cat.avg_score}%</span>
+                        <span style={{ fontWeight: 700, color: cat.pass_rate >= 80 ? '#16a34a' : cat.pass_rate >= 60 ? '#d97706' : '#dc2626' }}>{cat.pass_rate}%</span>
+                      </div>
+                      {isExp && (
+                        <div style={{ padding: '12px 16px', background: '#fafafa', borderBottom: '1px solid #ede9fe', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                          <div>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' as const, letterSpacing: 0.4, marginBottom: 8 }}>Weak charts in this category</div>
+                            {catCharts.length === 0 ? <div style={{ fontSize: 12, color: '#9ca3af' }}>No chart data yet</div> : catCharts.slice(0, 6).map((c: any) => (
+                              <div key={c.chart_number} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #f3f4f6', fontSize: 12 }}>
+                                <span style={{ fontWeight: 700, color: '#4f46e5', cursor: 'pointer' }} onClick={e => { e.stopPropagation(); setExpandedChart(null); setTab('chart') }}>{c.chart_number}</span>
+                                <span style={{ color: '#6b7280' }}>{c.attempt_count} attempts</span>
+                                <span style={{ fontWeight: 700, color: c.avg_score >= 80 ? '#16a34a' : c.avg_score >= 60 ? '#d97706' : '#dc2626' }}>{c.avg_score}%</span>
+                              </div>
+                            ))}
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' as const, letterSpacing: 0.4, marginBottom: 8 }}>Coders by performance</div>
+                            {catCoders.length === 0 ? <div style={{ fontSize: 12, color: '#9ca3af' }}>No coder data yet</div> : catCoders.map((c: any) => (
+                              <div key={c.coder_name} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #f3f4f6', fontSize: 12 }}>
+                                {coderLink(c.coder_name)}
+                                <span style={{ color: '#6b7280' }}>{c.attempt_count} charts</span>
+                                <span style={{ fontWeight: 700, color: c.avg_score >= 80 ? '#16a34a' : c.avg_score >= 60 ? '#d97706' : '#dc2626' }}>{c.avg_score}%</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+
               {categoryData.coder_category.length > 0 && (() => {
                 const coders = Array.from(new Set(categoryData.coder_category.map((r: any) => r.coder_name)))
                 const cats = categoryData.team.map((r: any) => r.category)
@@ -370,7 +471,7 @@ export function PLAnalyticsView() {
                       <tbody>
                         {coders.map((coder: string) => (
                           <tr key={coder}>
-                            <td style={{ padding: '6px 10px', fontWeight: 600, borderBottom: '1px solid #f3f4f6', whiteSpace: 'nowrap' }}>{coder}</td>
+                            <td style={{ padding: '6px 10px', fontWeight: 600, borderBottom: '1px solid #f3f4f6', whiteSpace: 'nowrap' }}>{coderLink(coder)}</td>
                             {cats.map((cat: string) => {
                               const cell = cellMap[coder]?.[cat]
                               const score = cell?.avg_score
@@ -495,7 +596,7 @@ export function PLAnalyticsView() {
                       coderCells.forEach((c: any) => { cellMap[c.batch_id] = c })
                       return (
                         <tr key={coder}>
-                          <td style={{ padding: '7px 12px', fontWeight: 600, borderBottom: '1px solid #f3f4f6', whiteSpace: 'nowrap', color: '#111' }}>{coder}</td>
+                          <td style={{ padding: '7px 12px', fontWeight: 600, borderBottom: '1px solid #f3f4f6', whiteSpace: 'nowrap' }}>{coderLink(coder)}</td>
                           {matrixData.batches.map((b: any) => {
                             const cell = cellMap[b.id]
                             const score = cell?.avg_score

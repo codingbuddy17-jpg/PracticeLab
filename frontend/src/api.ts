@@ -306,6 +306,11 @@ export async function getPLCoderMatrix() {
   return data as { batches: any[]; coders: string[]; cells: any[] }
 }
 
+export async function getPLChartDetail(chartNumber: string) {
+  const { data } = await api.get(`/practicelab/analytics/chart-detail/${encodeURIComponent(chartNumber)}`)
+  return data as { chart_number: string; coders: { coder_name: string; batch_name: string; total_score: number; pass_fail: string; missed_codes: string[] }[] }
+}
+
 // ── Self-Practice ─────────────────────────────────────────────────────────────
 
 export function downloadSelfPracticeTemplate() {

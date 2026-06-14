@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import func, Integer
 from database import get_db
-from models import Batch, BatchStatus, GradingResult, Chart, PassFail
+from models import Batch, BatchStatus, GradingResult, GradingFeedback, Chart, PassFail
 
 router = APIRouter()
 
@@ -305,4 +305,27 @@ def analytics_coder_matrix(db: Session = Depends(get_db)):
         "batches": [{"id": b.id, "name": b.name, "specialty": b.specialty.value} for b in batches],
         "coders": all_coders,
         "cells": cells,
+    }
+
+
+@router.get("/analytics/chart-detail/{chart_number:path}")
+def chart_detail(chart_number: str, db: Session = Depends(get_db)):
+    results = (db.query(GradingResult)
+               .join(Chart, GradingResult.chart_id == Chart.id)
+               .filter(Chart.chart_number == chart_number,
+                       GradingResult.total_score.isnot(None))
+               .all())
+    coders = []
+    for r in results:
+        missed = [f.ak_code for f in r.feedback if f.issue_type.value == "Missed" and f.ak_code]
+        coders.append({
+            "coder_name": r.coder_name,
+            "batch_name": r.batch.name if r.batch else None,
+            "total_score": r.total_score,
+            "pass_fail": r.pass_fail.value if r.pass_fail else None,
+            "missed_codes": missed[:5],
+        })
+    return {
+        "chart_number": chart_number,
+        "coders": sorted(coders, key=lambda x: x["total_score"] or 0),
     }
