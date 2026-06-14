@@ -48,3 +48,13 @@ a:hover > div { box-shadow: 0 4px 16px rgba(0,0,0,0.1); transform: translateY(-1
 
 /* Search input focus */
 input:focus, select:focus { border-color: #a5b4fc !important; outline: none; box-shadow: 0 0 0 3px rgba(99,102,241,0.1); }
+
+/* PracticeLab table row states */
+.pl-tr { transition: background 0.1s; }
+.pl-tr:hover { background: #f5f3ff !important; }
+.pl-tr-alt { background: #fafafa; }
+.pl-tr-alt:hover { background: #ede9fe !important; }
+
+/* PracticeLab batch row hover */
+.pl-batch-row { transition: box-shadow 0.15s, background 0.1s; }
+.pl-batch-row:hover { box-shadow: 0 2px 10px rgba(0,0,0,0.09); background: #fafffe !important; }

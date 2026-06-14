@@ -266,8 +266,8 @@ export function PLAnalyticsView() {
                 <div style={{ ...styles.tableHeader, gridTemplateColumns: '2fr 1fr 1fr 1fr' }}>
                   <span>Specialty</span><span>Graded</span><span>Avg Score</span><span>Pass Rate</span>
                 </div>
-                {bySpecialty.map((r: any) => (
-                  <div key={r.specialty} style={{ ...styles.tableRow, gridTemplateColumns: '2fr 1fr 1fr 1fr' }}>
+                {bySpecialty.map((r: any, i: number) => (
+                  <div key={r.specialty} className={i % 2 === 1 ? 'pl-tr-alt' : 'pl-tr'} style={{ ...styles.tableRow, gridTemplateColumns: '2fr 1fr 1fr 1fr' }}>
                     <span style={{ fontWeight: 600 }}>{r.specialty}</span>
                     <span>{r.total}</span>
                     <span style={{ fontWeight: 700, color: r.avg_score >= 80 ? '#16a34a' : r.avg_score >= 60 ? '#d97706' : '#dc2626' }}>{r.avg_score}%</span>
@@ -287,9 +287,9 @@ export function PLAnalyticsView() {
               <div style={{ ...styles.tableHeader, gridTemplateColumns: '120px 1fr 1fr 80px 80px' }}>
                 <span>Chart</span><span>Category</span><span>Specialty</span><span>Attempts</span><span>Avg Score</span>
               </div>
-              {byChart.map((r: any) => (
+              {byChart.map((r: any, i: number) => (
                 <div key={r.chart_number} style={{ ...styles.tableRow, gridTemplateColumns: '120px 1fr 1fr 80px 80px', flexDirection: 'column' as const, height: 'auto', alignItems: 'stretch', padding: 0 }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr 1fr 80px 80px', padding: '10px 16px', alignItems: 'center', cursor: 'pointer', background: expandedChart === r.chart_number ? '#f5f3ff' : undefined }}
+                  <div className={expandedChart !== r.chart_number ? (i % 2 === 1 ? 'pl-tr-alt' : 'pl-tr') : ''} style={{ display: 'grid', gridTemplateColumns: '120px 1fr 1fr 80px 80px', padding: '10px 16px', alignItems: 'center', cursor: 'pointer', background: expandedChart === r.chart_number ? '#f5f3ff' : undefined }}
                     onClick={() => toggleChartDetail(r.chart_number)}>
                     <span style={{ fontWeight: 700, color: '#4f46e5' }}>{r.chart_number} {expandedChart === r.chart_number ? '▲' : '▼'}</span>
                     <span style={{ fontSize: 12 }}>{r.category}</span>
@@ -359,8 +359,8 @@ export function PLAnalyticsView() {
                 <div style={{ ...styles.tableHeader, gridTemplateColumns: '2fr 100px 80px 80px 80px' }}>
                   <span>Batch</span><span>Specialty</span><span>Coders</span><span>Avg Score</span><span>Pass Rate</span>
                 </div>
-                {byBatch.map((r: any) => (
-                  <div key={r.batch_id} style={{ ...styles.tableRow, gridTemplateColumns: '2fr 100px 80px 80px 80px' }}>
+                {byBatch.map((r: any, i: number) => (
+                  <div key={r.batch_id} className={i % 2 === 1 ? 'pl-tr-alt' : 'pl-tr'} style={{ ...styles.tableRow, gridTemplateColumns: '2fr 100px 80px 80px 80px' }}>
                     <span style={{ fontWeight: 600, fontSize: 13 }}>{r.batch_name}</span>
                     <span style={{ fontSize: 12, color: '#6b7280' }}>{r.specialty}</span>
                     <span>{r.coder_count}</span>
@@ -407,7 +407,7 @@ export function PLAnalyticsView() {
                   const prev = coderTrend[i - 1]
                   const delta = prev ? round1(r.avg_score - prev.avg_score) : null
                   return (
-                    <div key={r.batch_id} style={{ ...styles.tableRow, gridTemplateColumns: '2fr 120px 80px 80px' }}>
+                    <div key={r.batch_id} className={i % 2 === 1 ? 'pl-tr-alt' : 'pl-tr'} style={{ ...styles.tableRow, gridTemplateColumns: '2fr 120px 80px 80px' }}>
                       <span style={{ fontWeight: 600, fontSize: 13 }}>{r.batch_name}</span>
                       <span style={{ fontSize: 12, color: '#6b7280' }}>{r.created_at ? new Date(r.created_at).toLocaleDateString() : '—'}</span>
                       <span>{r.chart_count}</span>
@@ -452,13 +452,13 @@ export function PLAnalyticsView() {
                 <div style={{ ...styles.tableHeader, gridTemplateColumns: '2fr 70px 80px 80px' }}>
                   <span>Category</span><span>Attempts</span><span>Avg Score</span><span>Pass Rate</span>
                 </div>
-                {categoryData.team.map((cat: any) => {
+                {categoryData.team.map((cat: any, i: number) => {
                   const isExp = expandedCategory === cat.category
                   const catCharts = byChart.filter((c: any) => c.category === cat.category).sort((a: any, b: any) => a.avg_score - b.avg_score)
                   const catCoders = categoryData.coder_category.filter((r: any) => r.category === cat.category).sort((a: any, b: any) => a.avg_score - b.avg_score)
                   return (
                     <div key={cat.category}>
-                      <div style={{ ...styles.tableRow, gridTemplateColumns: '2fr 70px 80px 80px', cursor: 'pointer', background: isExp ? '#f5f3ff' : undefined }}
+                      <div className={!isExp ? (i % 2 === 1 ? 'pl-tr-alt' : 'pl-tr') : ''} style={{ ...styles.tableRow, gridTemplateColumns: '2fr 70px 80px 80px', cursor: 'pointer', background: isExp ? '#f5f3ff' : undefined }}
                         onClick={() => setExpandedCategory(isExp ? null : cat.category)}>
                         <span style={{ fontWeight: 600 }}>{cat.category} <span style={{ fontSize: 11, color: '#9ca3af' }}>{isExp ? '▲' : '▼'}</span></span>
                         <span>{cat.attempt_count}</span>

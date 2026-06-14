@@ -377,7 +377,7 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
         {hasResults && (
           <>
             {pendingDRG && (
-              <button style={{ ...styles.primaryBtn, background: '#d97706' }} onClick={onDRGReview}>DRG Review Required</button>
+              <button style={styles.warningBtn} onClick={onDRGReview}>DRG Review Required</button>
             )}
             <button style={styles.outlineBtn} onClick={onResults}><BarChart2 size={15} /> View Results</button>
             <button style={{ ...styles.outlineBtn, color: '#4f46e5', borderColor: '#a5b4fc' }}
@@ -392,12 +392,12 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
           </>
         )}
         {isOpen && closeBlockers.length === 0 && !confirmingClose && (
-          <button style={{ ...styles.outlineBtn, color: '#dc2626', borderColor: '#fca5a5', marginLeft: 'auto' }} onClick={() => setConfirmingClose(true)}>✕ Close Batch</button>
+          <button style={{ ...styles.destructiveOutlineBtn, marginLeft: 'auto' }} onClick={() => setConfirmingClose(true)}>✕ Close Batch</button>
         )}
         {isOpen && closeBlockers.length === 0 && confirmingClose && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 'auto', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 8, padding: '6px 12px' }}>
             <span style={{ fontSize: 12, color: '#92400e', fontWeight: 600 }}>Lock all results?</span>
-            <button style={{ ...styles.primaryBtn, background: '#dc2626', padding: '5px 12px', fontSize: 12 }} disabled={closing} onClick={handleClose}>
+            <button style={{ ...styles.destructiveBtn, padding: '5px 12px', fontSize: 12 }} disabled={closing} onClick={handleClose}>
               {closing ? 'Closing…' : 'Yes, Close'}
             </button>
             <button style={{ ...styles.outlineBtn, padding: '5px 12px', fontSize: 12 }} onClick={() => setConfirmingClose(false)}>Cancel</button>
@@ -423,10 +423,10 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
       </div>
       <div style={styles.table}>
         <div style={styles.tableHeader}><span>Coder</span><span>Emp ID</span><span>Charts Assigned</span><span>Submitted</span></div>
-        {(batch.coders || []).map((c: any) => {
+        {(batch.coders || []).map((c: any, i: number) => {
           const submitted = c.charts.filter((ch: any) => ch.submission_status === 'Submitted').length
           return (
-            <div key={c.name} style={styles.tableRow}>
+            <div key={c.name} className={i % 2 === 1 ? 'pl-tr-alt' : 'pl-tr'} style={styles.tableRow}>
               <span style={{ fontWeight: 600 }}>{c.name}</span>
               <span style={{ color: '#0f766e', fontWeight: 600 }}>{c.emp_id || '—'}</span>
               <span>{c.charts.length}</span>

@@ -69,7 +69,7 @@ function BatchRow({ b, onOpen, statusColor }: any) {
   }
 
   return (
-    <div style={styles.batchRow} onClick={() => onOpen(b.id)}>
+    <div className="pl-batch-row" style={styles.batchRow} onClick={() => onOpen(b.id)}>
       <div style={{ ...styles.batchAccent, background: sc?.bg || '#6b7280' }} />
       <div style={styles.batchInfo}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

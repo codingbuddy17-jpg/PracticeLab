@@ -98,9 +98,9 @@ export function ResultsView({ batchId }: any) {
           {!is_ip && <span>CPT</span>}
           <span>Total</span><span>Result</span>
         </div>
-        {coder_summaries.map((c: any) => (
+        {coder_summaries.map((c: any, i: number) => (
           <div key={c.coder_name}>
-            <div style={{ ...styles.tableRow, cursor: 'pointer', gridTemplateColumns: is_ip ? '2fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr' : '2fr 1fr 1fr 1fr 1fr 1fr' }}
+            <div className={i % 2 === 1 ? 'pl-tr-alt' : 'pl-tr'} style={{ ...styles.tableRow, cursor: 'pointer', gridTemplateColumns: is_ip ? '2fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr' : '2fr 1fr 1fr 1fr 1fr 1fr' }}
               onClick={() => setExpanded(expanded === c.coder_name ? null : c.coder_name)}>
               <span style={{ fontWeight: 600 }}>{c.coder_name} {expanded === c.coder_name ? '▲' : '▼'}</span>
               <span>{c.avg_pdx}</span><span>{c.avg_sdx}</span>
