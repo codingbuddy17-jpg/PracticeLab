@@ -173,15 +173,13 @@ def upload_answer_keys(
             from openpyxl import load_workbook as _lw
             import io as _io
             _wb = _lw(_io.BytesIO(file_bytes), data_only=True)
-            sheet_names = _wb.sheetnames
             first_ws = _wb.worksheets[0]
-            first_row = list(first_ws.iter_rows(min_row=1, max_row=1, values_only=True))
-            second_row = list(first_ws.iter_rows(min_row=2, max_row=2, values_only=True))
+            all_rows = list(first_ws.iter_rows(min_row=2, max_row=6, values_only=True))
+            # Show only first 3 columns of each row so the message fits on screen
+            preview = [(r[0], r[1] if len(r) > 1 else None, r[2] if len(r) > 2 else None) for r in all_rows]
             raise HTTPException(status_code=422, detail=(
-                f"No data rows found. Sheets in file: {sheet_names}. "
-                f"Sheet used: '{first_ws.title}'. "
-                f"Row 1 (headers): {first_row[0] if first_row else 'empty'}. "
-                f"Row 2 (first data): {second_row[0] if second_row else 'empty'}."
+                f"Parser found 0 data rows. Sheet: '{first_ws.title}'. "
+                f"Rows 2-6 cols A-C: {preview}"
             ))
         except HTTPException:
             raise
