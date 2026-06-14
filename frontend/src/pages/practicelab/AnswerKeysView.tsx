@@ -57,8 +57,7 @@ export function AnswerKeysView() {
       if (res.not_found.length) toast.error(`Chart numbers not found in PracticeLab: ${res.not_found.join(', ')}`)
       loadAll()
     } catch (err: any) {
-      const detail = err?.response?.data?.detail || 'Upload failed'
-      toast.error(detail, { duration: 8000 })
+      toast.error(err?.response?.data?.detail || 'Upload failed')
     } finally {
       setUploading(false)
       if (fileRef.current) fileRef.current.value = ''

@@ -167,25 +167,6 @@ def upload_answer_keys(
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Could not parse file: {e}")
 
-    if not rows:
-        # Return debug info about the sheet structure so the caller can diagnose
-        try:
-            from openpyxl import load_workbook as _lw
-            import io as _io
-            _wb = _lw(_io.BytesIO(file_bytes), data_only=True)
-            first_ws = _wb.worksheets[0]
-            all_rows = list(first_ws.iter_rows(min_row=2, max_row=6, values_only=True))
-            # Show only first 3 columns of each row so the message fits on screen
-            preview = [(r[0], r[1] if len(r) > 1 else None, r[2] if len(r) > 2 else None) for r in all_rows]
-            raise HTTPException(status_code=422, detail=(
-                f"Parser found 0 data rows. Sheet: '{first_ws.title}'. "
-                f"Rows 2-6 cols A-C: {preview}"
-            ))
-        except HTTPException:
-            raise
-        except Exception:
-            raise HTTPException(status_code=422, detail="No data rows found in the file.")
-
     stored, skipped, not_found = [], [], []
 
     for row in rows:
