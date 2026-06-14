@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_, func
 from typing import Optional
 from database import get_db
-from models import Chart, ChartFile, ChartStatus, Specialty, Difficulty
+from models import Chart, ChartFile, ChartStatus, Specialty, Difficulty, AnswerKey, GradingResult
 from schemas import ChartOut, ChartWithRationale, ChartUpdate
 from services.chart_service import get_chart_pages, increment_view, log_audit
 from services.storage import get_s3_client
@@ -158,6 +158,44 @@ def restore_chart(
     log_audit(db, chart_id, "RESTORE", actor)
     db.commit()
     return {"message": f"Chart {chart.chart_number} restored"}
+
+
+@router.delete("/{chart_id}/purge")
+def purge_chart(
+    chart_id: int,
+    passphrase: str = Query(...),
+    db: Session = Depends(get_db),
+):
+    """
+    Hard-delete a chart and its associated files.
+    Only allowed when the chart has no answer key and no grading history —
+    i.e. it was uploaded as a test/placeholder and never used in practice.
+    Requires the master admin passphrase.
+    """
+    if passphrase != settings.MASTER_ADMIN_PASSPHRASE:
+        raise HTTPException(status_code=403, detail="Invalid passphrase")
+
+    chart = _get_or_404(chart_id, db)
+
+    has_ak = db.query(AnswerKey).filter(AnswerKey.chart_id == chart_id).first()
+    if has_ak:
+        raise HTTPException(
+            status_code=409,
+            detail="Chart has an answer key — delete the answer key first, then purge the chart.",
+        )
+
+    graded = db.query(GradingResult).filter(GradingResult.chart_id == chart_id).first()
+    if graded:
+        raise HTTPException(
+            status_code=409,
+            detail="Chart has grading history and cannot be purged. Retire it instead.",
+        )
+
+    chart_number = chart.chart_number
+    db.query(ChartFile).filter(ChartFile.chart_id == chart_id).delete()
+    db.delete(chart)
+    db.commit()
+    return {"message": f"Chart {chart_number} permanently deleted"}
 
 
 @router.get("/{chart_id}/text-search")

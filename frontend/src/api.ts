@@ -129,6 +129,21 @@ export async function getAnswerKeyStatus(specialty?: string) {
   return data as { total_charts: number; with_answer_key: number; without_answer_key: number }
 }
 
+export async function getAnswerKeyList(specialty?: string) {
+  const { data } = await api.get('/practicelab/answer-key/list', { params: { specialty } })
+  return data as { chart_id: number; chart_number: string; specialty: string; category: string; entered_by: string; created_at: string | null }[]
+}
+
+export async function getChartsMissingKeys(specialty?: string) {
+  const { data } = await api.get('/practicelab/answer-key/missing', { params: { specialty } })
+  return data as { chart_id: number; chart_number: string; specialty: string; category: string; can_purge: boolean }[]
+}
+
+export async function purgeChart(chartId: number, passphrase: string) {
+  const { data } = await api.delete(`/charts/${chartId}/purge`, { params: { passphrase } })
+  return data
+}
+
 export async function getPoolPreview(specialty: string, categories?: string, difficulties?: string) {
   const { data } = await api.get('/practicelab/batches/pool-preview', {
     params: { specialty, categories, difficulties },

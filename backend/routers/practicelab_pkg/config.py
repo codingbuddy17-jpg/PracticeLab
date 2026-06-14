@@ -233,6 +233,54 @@ def reset_all_data(payload: ResetPayload, db: Session = Depends(get_db)):
     }
 
 
+@router.get("/answer-key/list")
+def list_answer_keys(specialty: Optional[str] = None, db: Session = Depends(get_db)):
+    """Return every chart that has an answer key, with metadata for the admin list view."""
+    q = db.query(AnswerKey, Chart).join(Chart, Chart.id == AnswerKey.chart_id)
+    if specialty:
+        is_ip = specialty.upper() in ("IP", "IP-DRG")
+        spec = Specialty.IP if is_ip else Specialty.OP
+        q = q.filter(Chart.specialty == spec)
+    rows = q.order_by(Chart.chart_number).all()
+    return [
+        {
+            "chart_id": chart.id,
+            "chart_number": chart.chart_number,
+            "specialty": chart.specialty.value,
+            "category": chart.category,
+            "entered_by": ak.entered_by,
+            "created_at": ak.created_at.isoformat() if ak.created_at else None,
+        }
+        for ak, chart in rows
+    ]
+
+
+@router.get("/answer-key/missing")
+def list_charts_without_keys(specialty: Optional[str] = None, db: Session = Depends(get_db)):
+    """Return active charts that have no answer key — purge candidates during testing."""
+    from models import GradingResult
+    q = (db.query(Chart)
+         .filter(Chart.status == ChartStatus.ACTIVE)
+         .outerjoin(AnswerKey, AnswerKey.chart_id == Chart.id)
+         .filter(AnswerKey.id == None))  # noqa: E711
+    if specialty:
+        is_ip = specialty.upper() in ("IP", "IP-DRG")
+        spec = Specialty.IP if is_ip else Specialty.OP
+        q = q.filter(Chart.specialty == spec)
+    charts = q.order_by(Chart.chart_number).all()
+    result = []
+    for c in charts:
+        has_grading = db.query(GradingResult).filter(GradingResult.chart_id == c.id).first() is not None
+        result.append({
+            "chart_id": c.id,
+            "chart_number": c.chart_number,
+            "specialty": c.specialty.value,
+            "category": c.category,
+            "can_purge": not has_grading,
+        })
+    return result
+
+
 @router.get("/answer-key/status")
 def get_answer_key_status(specialty: Optional[str] = None, db: Session = Depends(get_db)):
     q = db.query(Chart).filter(Chart.status == ChartStatus.ACTIVE)
