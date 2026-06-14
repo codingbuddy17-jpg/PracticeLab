@@ -350,16 +350,18 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
         )}
         {(batch.allocation_cycles || []).map((c: any) => (
           <div key={c.id} style={styles.cycleRow}>
-            <div style={styles.cycleBadge}>Cycle {c.cycle_number}</div>
+            <div style={styles.cycleBadge}>{c.cycle_number === 0 ? 'Legacy' : `Cycle ${c.cycle_number}`}</div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 13, fontWeight: 600 }}>{c.charts_per_coder} charts/coder · {c.assigned_count} assignments</div>
+              <div style={{ fontSize: 13, fontWeight: 600 }}>{c.assigned_count} assignment{c.assigned_count !== 1 ? 's' : ''}{c.assigned_count > 0 ? ` · ${c.charts_per_coder} charts/coder` : ' — pool exhausted'}</div>
               <div style={{ fontSize: 11, color: '#9ca3af' }}>by {c.run_by} on {new Date(c.run_at).toLocaleDateString()}{c.notes && <span style={{ marginLeft: 8, color: '#6b7280' }}>— {c.notes}</span>}</div>
             </div>
-            <button style={styles.outlineBtn} title={`Download a ZIP of all coder Excel answer sheets for Cycle ${c.cycle_number}`}
-              onClick={() => downloadCycleExcel(batchId, c.id)}><Download size={13} /> Cycle {c.cycle_number} Sheets</button>
+            {c.assigned_count > 0 && (
+              <button style={styles.outlineBtn} title={`Download a ZIP of all coder Excel answer sheets for Cycle ${c.cycle_number}`}
+                onClick={() => downloadCycleExcel(batchId, c.id)}><Download size={13} /> {c.cycle_number === 0 ? 'Legacy Sheets' : `Cycle ${c.cycle_number} Sheets`}</button>
+            )}
           </div>
         ))}
-        {(batch.allocation_cycles || []).length > 0 && (
+        {(batch.allocation_cycles || []).some((c: any) => c.assigned_count > 0) && (
           <div style={{ marginTop: 6 }}>
             <button style={{ ...styles.outlineBtn, fontSize: 12 }} title="Download answer sheets for ALL cycles bundled into one ZIP"
               onClick={() => downloadBatchExcel(batchId)}><Download size={13} /> All Cycles (ZIP)</button>
