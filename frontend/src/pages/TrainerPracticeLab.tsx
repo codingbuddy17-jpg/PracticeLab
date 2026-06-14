@@ -21,6 +21,7 @@ export function TrainerPracticeLab() {
   const [view, setView] = useState<View>('home')
   const [batches, setBatches] = useState<any[]>([])
   const [selectedBatchId, setSelectedBatchId] = useState<number | null>(null)
+  const [lastBatch, setLastBatch] = useState<{ id: number; name: string } | null>(null)
   const [overview, setOverview] = useState<any>(null)
   const [scoringCfg, setScoringCfg] = useState<any>(null)
   const [loading, setLoading] = useState(false)
@@ -42,7 +43,9 @@ export function TrainerPracticeLab() {
   }
 
   function openBatch(id: number) {
+    const b = batches.find((x: any) => x.id === id)
     setSelectedBatchId(id)
+    if (b) setLastBatch({ id, name: b.name })
     setView('batch-detail')
   }
 
@@ -65,6 +68,12 @@ export function TrainerPracticeLab() {
           )}
           {view === 'home' && (
             <>
+              {lastBatch && (
+                <button style={{ ...styles.navBtn, color: '#4f46e5', borderColor: '#c7d2fe' }}
+                  onClick={() => openBatch(lastBatch.id)}>
+                  ↩ {lastBatch.name}
+                </button>
+              )}
               <button style={styles.navBtn} onClick={() => setView('analytics')}><BarChart2 size={15} /> Analytics</button>
               <button style={styles.navBtn} onClick={() => setView('scoring-config')}><Settings size={15} /> Scoring Config</button>
               <button style={styles.navBtn} onClick={() => setView('answer-keys')}><Key size={15} /> Answer Keys</button>

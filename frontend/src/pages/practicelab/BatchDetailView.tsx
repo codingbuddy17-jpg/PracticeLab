@@ -351,12 +351,14 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
               <div style={{ fontSize: 13, fontWeight: 600 }}>{c.charts_per_coder} charts/coder · {c.assigned_count} assignments</div>
               <div style={{ fontSize: 11, color: '#9ca3af' }}>by {c.run_by} on {new Date(c.run_at).toLocaleDateString()}{c.notes && <span style={{ marginLeft: 8, color: '#6b7280' }}>— {c.notes}</span>}</div>
             </div>
-            <button style={styles.outlineBtn} onClick={() => downloadCycleExcel(batchId, c.id)}><Download size={13} /> Cycle {c.cycle_number} Sheets</button>
+            <button style={styles.outlineBtn} title={`Download a ZIP of all coder Excel answer sheets for Cycle ${c.cycle_number}`}
+              onClick={() => downloadCycleExcel(batchId, c.id)}><Download size={13} /> Cycle {c.cycle_number} Sheets</button>
           </div>
         ))}
         {(batch.allocation_cycles || []).length > 0 && (
           <div style={{ marginTop: 6 }}>
-            <button style={{ ...styles.outlineBtn, fontSize: 12 }} onClick={() => downloadBatchExcel(batchId)}><Download size={13} /> All Cycles (ZIP)</button>
+            <button style={{ ...styles.outlineBtn, fontSize: 12 }} title="Download answer sheets for ALL cycles bundled into one ZIP"
+              onClick={() => downloadBatchExcel(batchId)}><Download size={13} /> All Cycles (ZIP)</button>
           </div>
         )}
       </div>
@@ -381,7 +383,8 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
               }}>
               ✦ {showInsights ? 'Hide Insights' : 'View Insights'}
             </button>
-            <button style={styles.outlineBtn} onClick={() => downloadBatchResultsExcel(batchId)}><Download size={15} /> Export Results</button>
+            <button style={styles.outlineBtn} title="Download per-coder scores, pass/fail, and feedback detail as Excel (.xlsx)"
+              onClick={() => downloadBatchResultsExcel(batchId)}><Download size={15} /> Export Results (.xlsx)</button>
           </>
         )}
         {isOpen && closeBlockers.length === 0 && !confirmingClose && (

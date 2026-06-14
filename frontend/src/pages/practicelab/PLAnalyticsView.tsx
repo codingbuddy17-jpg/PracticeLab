@@ -22,8 +22,14 @@ const TEACHING_LABEL_META: Record<string, { color: string; bg: string; desc: str
   'Standard':      { color: '#374151', bg: '#f9fafb', desc: 'Typical performance range' },
 }
 
+const TAB_STORAGE_KEY = 'pl_analytics_tab'
+
 export function PLAnalyticsView() {
-  const [tab, setTab] = useState<'overview' | 'specialty' | 'chart' | 'batch' | 'coder' | 'category' | 'teaching' | 'matrix'>('overview')
+  const [tab, setTab] = useState<'overview' | 'specialty' | 'chart' | 'batch' | 'coder' | 'category' | 'teaching' | 'matrix'>(
+    () => (localStorage.getItem(TAB_STORAGE_KEY) as any) || 'overview'
+  )
+
+  useEffect(() => { localStorage.setItem(TAB_STORAGE_KEY, tab) }, [tab])
   const [overview, setOverview] = useState<any>(null)
   const [bySpecialty, setBySpecialty] = useState<any[]>([])
   const [byChart, setByChart] = useState<any[]>([])

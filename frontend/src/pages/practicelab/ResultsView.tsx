@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Loader, Download } from 'lucide-react'
+import { Loader, Download, Copy, Check } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { getBatchResults, downloadBatchResultsExcel, getBatchInsights } from '../../api'
 import { InsightsPanel } from './InsightsPanel'
@@ -11,6 +11,7 @@ export function ResultsView({ batchId }: any) {
   const [expanded, setExpanded] = useState<string | null>(null)
   const [insights, setInsights] = useState<any>(null)
   const [showInsights, setShowInsights] = useState(false)
+  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     getBatchResults(batchId).then(setData).catch(() => {}).finally(() => setLoading(false))
@@ -20,6 +21,21 @@ export function ResultsView({ batchId }: any) {
   if (!data) return <div style={styles.center}>No results yet</div>
 
   const { batch_summary: bs, coder_summaries, is_ip, use_dpo } = data
+
+  function copySummary() {
+    const lines = [
+      `Batch: ${data.batch_name}`,
+      `Coders: ${bs.total_coders}  Passed: ${bs.passed}  Failed: ${bs.failed}`,
+      `Pass Rate: ${bs.pass_rate}%  Avg Score: ${bs.avg_score}%`,
+    ]
+    if (bs.top_missed_codes?.length) {
+      lines.push(`Top Missed: ${bs.top_missed_codes.map((m: any) => `${m.code} (${m.count}×)`).join(', ')}`)
+    }
+    navigator.clipboard.writeText(lines.join('\n')).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
 
   function AccBadge({ val, label }: { val: number | null | undefined; label: string }) {
     if (val == null) return null
@@ -44,7 +60,11 @@ export function ResultsView({ batchId }: any) {
             }}>
             ✦ {showInsights ? 'Hide Insights' : 'View Insights'}
           </button>
-          <button style={styles.outlineBtn} onClick={() => downloadBatchResultsExcel(batchId)}><Download size={15} /> Export Excel</button>
+          <button style={styles.outlineBtn} onClick={copySummary} title="Copy batch summary to clipboard">
+            {copied ? <><Check size={15} /> Copied!</> : <><Copy size={15} /> Copy Summary</>}
+          </button>
+          <button style={styles.outlineBtn} title="Download per-coder scores, pass/fail, and feedback detail as Excel (.xlsx)"
+            onClick={() => downloadBatchResultsExcel(batchId)}><Download size={15} /> Export Results (.xlsx)</button>
         </div>
       </div>
 
