@@ -34,7 +34,10 @@ def _header(ws, col, row, value, fill=None, font=None):
     return cell
 
 
-def _input_cell(ws, col, row, value=""):
+def _input_cell(ws, col, row, value=None):
+    # Use value=None (not "") so openpyxl writes a plain styled empty cell.
+    # value="" creates t="inlineStr" cells which Excel for Mac rewrites in a
+    # format openpyxl cannot read back, causing all filled values to read as None.
     cell = ws.cell(row=row, column=col, value=value)
     cell.fill = INPUT_FILL
     cell.border = THIN_BORDER
