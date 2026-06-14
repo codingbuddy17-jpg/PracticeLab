@@ -246,13 +246,14 @@ export function downloadBatchExcel(batchId: number) {
   window.open(`${import.meta.env.VITE_API_URL || '/api'}/practicelab/batches/${batchId}/generate-excel`, '_blank')
 }
 
-export async function gradeSubmissions(batchId: number, files: File[]) {
+export async function gradeSubmissions(batchId: number, files: File[], regrade = false) {
   const form = new FormData()
   files.forEach(f => form.append('files', f))
   const { data } = await api.post(`/practicelab/batches/${batchId}/grade`, form, {
     headers: { 'Content-Type': 'multipart/form-data' },
+    params: regrade ? { regrade: true } : undefined,
   })
-  return data as { graded: string[]; errors: string[] }
+  return data as { graded: string[]; errors: string[]; needs_confirmation?: boolean; conflicts?: { coder: string; chart: string }[] }
 }
 
 export async function getDRGReview(batchId: number) {
