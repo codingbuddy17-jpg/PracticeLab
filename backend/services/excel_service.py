@@ -492,19 +492,23 @@ def parse_answer_key_upload(file_bytes: bytes, specialty: str) -> list[dict]:
       IP: {chart_number, pdx_code, pdx_poa, sdx:[{code,poa,ccmcc}], pcs:[{code}]}
       OP: {chart_number, pdx_code, sdx:[{code}], cpt:[{code,modifier}]}
     """
-    wb = load_workbook(io.BytesIO(file_bytes), data_only=True)
-    # Use index 0 — the template's Instructions sheet is created last which
-    # makes it wb.active; worksheets[0] always gets the data sheet.
+    # data_only=False is more compatible with files saved by Numbers/Google Sheets —
+    # data_only=True can return None for plain values in non-Excel-written xlsx files.
+    wb = load_workbook(io.BytesIO(file_bytes), data_only=False)
+    # worksheets[0] is always the data sheet; Instructions is created last so it
+    # becomes wb.active, but its index is always 1.
     ws = wb.worksheets[0]
     is_ip = specialty.upper() == "IP"
-    rows = list(ws.iter_rows(min_row=2, values_only=True))
+    # Scan ALL rows; skip the header row by name so this works regardless of
+    # whether data starts at row 2 or somewhere else (e.g. Numbers adds a blank row).
+    HEADER_NAMES = {"chart_number", "chart number", "chart#", "chartnumber"}
     results = []
 
-    for row in rows:
-        if not row or not row[0]:
+    for row in ws.iter_rows(min_row=1, values_only=True):
+        if not row or row[0] is None:
             continue
         chart_number = str(row[0]).strip()
-        if not chart_number:
+        if not chart_number or chart_number.lower().replace(" ", "_") in HEADER_NAMES:
             continue
 
         if is_ip:
