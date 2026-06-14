@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Loader, Download, Upload, BarChart2, Search, CheckSquare, Square } from 'lucide-react'
+import { Loader, Download, Upload, BarChart2, Search, CheckSquare, Square, CheckCircle, Circle, AlertCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import {
   getBatch, gradeSubmissions, closeBatch, addBatchNote,
@@ -227,11 +227,27 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
   const sc = SPECIALTY_COLORS[batch.specialty as keyof typeof SPECIALTY_COLORS]
   const isOpen = batch.status === 'Open'
   const isIP = batch.specialty === 'IP-DRG'
-  const hasResults = batch.coders?.some((c: any) => c.charts?.some((ch: any) => ch.submission_status === 'Submitted'))
+  const totalCoders = batch.coders?.length || 0
+  const totalAssigned = batch.coders?.reduce((sum: number, c: any) => sum + c.charts.length, 0) || 0
+  const totalSubmitted = batch.coders?.reduce((sum: number, c: any) => sum + c.charts.filter((ch: any) => ch.submission_status === 'Submitted').length, 0) || 0
+  const hasCycles = (batch.allocation_cycles?.length || 0) > 0
+  const hasResults = totalSubmitted > 0
   const pendingDRG = isIP && (batch.pending_drg_review ?? 0) > 0
+  const pendingSubs = batch.pending_submissions ?? 0
   const closeBlockers: string[] = []
-  if ((batch.pending_submissions ?? 0) > 0) closeBlockers.push(`${batch.pending_submissions} chart(s) still pending submission`)
+  if (pendingSubs > 0) closeBlockers.push(`${pendingSubs} chart(s) still pending submission`)
   if ((batch.pending_drg_review ?? 0) > 0) closeBlockers.push(`${batch.pending_drg_review} DRG review(s) unresolved`)
+  const canClose = isOpen && closeBlockers.length === 0 && hasResults
+
+  // Progression steps
+  const steps = [
+    { label: 'Run Cycle', done: hasCycles, active: !hasCycles },
+    { label: 'Download Sheets', done: hasCycles, active: hasCycles && totalSubmitted === 0 },
+    { label: 'Upload Returns', done: totalSubmitted > 0, active: hasCycles && totalSubmitted === 0 },
+    ...(isIP ? [{ label: 'DRG Review', done: !pendingDRG && hasResults, active: pendingDRG }] : []),
+    { label: 'View Results', done: false, active: hasResults && !pendingDRG },
+    { label: 'Close Batch', done: !isOpen, active: canClose },
+  ]
 
   return (
     <div style={styles.section}>
@@ -251,6 +267,66 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
         <span style={{ fontSize: 12, color: '#9ca3af' }}>by {batch.created_by} · {new Date(batch.created_at).toLocaleDateString()}</span>
       </div>
 
+      {/* Progression tracker */}
+      {isOpen && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#f8fafc', border: '1px solid #e5e7eb', borderRadius: 10, padding: '10px 16px', marginBottom: 14, flexWrap: 'wrap' as const }}>
+          {steps.map((step, i) => (
+            <div key={step.label} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              {i > 0 && <span style={{ color: '#d1d5db', fontSize: 14, margin: '0 4px' }}>→</span>}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5,
+                padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 600,
+                background: step.done ? '#dcfce7' : step.active ? '#eff6ff' : '#f3f4f6',
+                color: step.done ? '#166534' : step.active ? '#1d4ed8' : '#9ca3af',
+                border: `1px solid ${step.done ? '#bbf7d0' : step.active ? '#bfdbfe' : '#e5e7eb'}`,
+              }}>
+                {step.done
+                  ? <CheckCircle size={12} />
+                  : step.active
+                    ? <Circle size={12} style={{ opacity: 0.7 }} />
+                    : <Circle size={12} style={{ opacity: 0.3 }} />
+                }
+                {step.label}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Live status counts */}
+      {isOpen && hasCycles && (
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' as const, marginBottom: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: '6px 14px', fontSize: 13 }}>
+            <span style={{ fontWeight: 700, color: '#111' }}>{totalSubmitted}</span>
+            <span style={{ color: '#6b7280' }}>of</span>
+            <span style={{ fontWeight: 700, color: '#111' }}>{totalAssigned}</span>
+            <span style={{ color: '#6b7280' }}>charts submitted</span>
+            {totalAssigned > 0 && (
+              <span style={{ fontWeight: 700, color: totalSubmitted === totalAssigned ? '#16a34a' : '#d97706', marginLeft: 4 }}>
+                ({Math.round(totalSubmitted / totalAssigned * 100)}%)
+              </span>
+            )}
+          </div>
+          {pendingDRG && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 8, padding: '6px 14px', fontSize: 13 }}>
+              <AlertCircle size={14} color="#d97706" />
+              <span style={{ fontWeight: 700, color: '#92400e' }}>{batch.pending_drg_review} DRG review{batch.pending_drg_review !== 1 ? 's' : ''} pending</span>
+            </div>
+          )}
+          {canClose && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '6px 14px', fontSize: 13 }}>
+              <CheckCircle size={14} color="#16a34a" />
+              <span style={{ fontWeight: 700, color: '#166534' }}>Ready to close</span>
+            </div>
+          )}
+          {isOpen && closeBlockers.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '6px 14px', fontSize: 13 }}>
+              <AlertCircle size={14} color="#dc2626" />
+              <span style={{ color: '#991b1b', fontWeight: 600 }}>{closeBlockers.join(' · ')}</span>
+            </div>
+          )}
+        </div>
+      )}
+
       {batch.force_close_reason && <div style={styles.warnBox}>Force-close reason: {batch.force_close_reason}</div>}
 
       <div style={styles.cycleSection}>
@@ -264,7 +340,9 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
         </div>
         {showAllocationPanel && isOpen && <AllocationPanel batch={batch} onDone={() => { setShowAllocationPanel(false); loadBatch() }} />}
         {(batch.allocation_cycles || []).length === 0 && !showAllocationPanel && (
-          <div style={{ fontSize: 13, color: '#9ca3af', padding: '12px 0' }}>No cycles yet — run the first allocation to assign charts.</div>
+          <div style={{ fontSize: 13, color: '#6b7280', padding: '14px 16px', background: '#f8fafc', borderRadius: 8, border: '1px dashed #e5e7eb' }}>
+            No cycles yet. Click <strong>Run New Cycle</strong> above to assign charts to coders and generate their answer sheets.
+          </div>
         )}
         {(batch.allocation_cycles || []).map((c: any) => (
           <div key={c.id} style={styles.cycleRow}>
@@ -305,11 +383,6 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
             </button>
             <button style={styles.outlineBtn} onClick={() => downloadBatchResultsExcel(batchId)}><Download size={15} /> Export Results</button>
           </>
-        )}
-        {isOpen && closeBlockers.length > 0 && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 'auto', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '6px 12px' }}>
-            <span style={{ fontSize: 12, color: '#991b1b', fontWeight: 600 }}>Cannot close: {closeBlockers.join(' · ')}</span>
-          </div>
         )}
         {isOpen && closeBlockers.length === 0 && !confirmingClose && (
           <button style={{ ...styles.outlineBtn, color: '#dc2626', borderColor: '#fca5a5', marginLeft: 'auto' }} onClick={() => setConfirmingClose(true)}>✕ Close Batch</button>

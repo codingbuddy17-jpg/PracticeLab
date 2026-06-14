@@ -109,7 +109,9 @@ export function PLAnalyticsView() {
                 ))}
               </div>
               {overview.total_graded === 0 ? (
-                <div style={styles.warnBox}>No grading results yet. Complete at least one batch grading cycle to see analytics.</div>
+                <div style={{ ...styles.warnBox, lineHeight: 1.6 }}>
+                  No grading results yet. Run an allocation cycle inside a batch, distribute the Excel sheets to coders, then upload the returned files to unlock analytics.
+                </div>
               ) : (
                 <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '18px 16px', display: 'flex', alignItems: 'center', gap: 32 }}>
                   <div>
@@ -133,7 +135,7 @@ export function PLAnalyticsView() {
 
       {tab === 'specialty' && (
         <div>
-          {bySpecialty.length === 0 ? <div style={styles.emptyState}>No data yet — complete a grading cycle first</div> : (
+          {bySpecialty.length === 0 ? <div style={styles.emptyState}>No specialty data yet — upload and grade at least one batch to see a breakdown here.</div> : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '18px 16px' }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 16 }}>Avg Score & Pass Rate by Specialty</div>
@@ -169,7 +171,7 @@ export function PLAnalyticsView() {
 
       {tab === 'chart' && (
         <div>
-          {byChart.length === 0 ? <div style={styles.emptyState}>No chart data yet</div> : (
+          {byChart.length === 0 ? <div style={styles.emptyState}>No chart data yet — charts appear here once grading results are submitted.</div> : (
             <div style={styles.table}>
               <div style={{ ...styles.tableHeader, gridTemplateColumns: '120px 1fr 1fr 80px 80px' }}>
                 <span>Chart</span><span>Category</span><span>Specialty</span><span>Attempts</span><span>Avg Score</span>
@@ -199,7 +201,7 @@ export function PLAnalyticsView() {
 
       {tab === 'batch' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {byBatch.length === 0 ? <div style={styles.emptyState}>No batch results yet</div> : (
+          {byBatch.length === 0 ? <div style={styles.emptyState}>No batch results yet — close a batch after grading to see trends over time.</div> : (
             <>
               <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '18px 16px' }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 16 }}>Pass Rate & Avg Score Over Batches</div>
@@ -243,7 +245,7 @@ export function PLAnalyticsView() {
             <button style={styles.primaryBtn} onClick={loadCoderTrend}>Look Up</button>
           </div>
           {coderTrend.length === 0 ? (
-            <div style={styles.emptyState}>Enter a coder name to see their score trend across batches</div>
+            <div style={styles.emptyState}>Enter the coder's exact name (as used in batch creation) and press Look Up to see their score trend across batches.</div>
           ) : (
             <>
               <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '18px 16px' }}>
