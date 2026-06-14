@@ -168,6 +168,14 @@ def grade_submissions(
                         pcs=sub_data.get("pcs", []),
                     )
                     res = grade_ip(ak, s, ip_cfg)
+                    ip_total, ip_pass_fail, ip_drg_score = (None, None, None)
+                    if not res.drg_flag:
+                        ip_total, ip_pass_fail, ip_drg_score = finalize_ip_score(
+                            res.pdx_score, res.sdx_score, res.pcs_score,
+                            drg_error=False,
+                            drg_weight=ip_cfg.drg_weight,
+                            pass_threshold=ip_cfg.pass_threshold,
+                        )
                     gr = GradingResult(
                         batch_id=batch_id,
                         submission_id=sub.id,
@@ -177,8 +185,11 @@ def grade_submissions(
                         pdx_score=res.pdx_score,
                         sdx_score=res.sdx_score,
                         pcs_score=res.pcs_score,
+                        drg_score=ip_drg_score,
+                        total_score=ip_total,
+                        pass_fail=ip_pass_fail,
                         drg_flag=res.drg_flag,
-                        drg_reviewed=False,
+                        drg_reviewed=not res.drg_flag,
                     )
                 else:
                     ak = OPAnswerKey(
