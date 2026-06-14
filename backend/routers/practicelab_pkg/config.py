@@ -16,6 +16,15 @@ from .shared import MASTER_PASSPHRASE
 router = APIRouter()
 
 
+def _parse_chart_specialty(specialty: Optional[str]) -> Optional[Specialty]:
+    if not specialty:
+        return None
+    try:
+        return Specialty(specialty)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid specialty: {specialty}") from exc
+
+
 # ── Coder list ────────────────────────────────────────────────────────────────
 
 @router.get("/coders/template")
@@ -237,9 +246,8 @@ def reset_all_data(payload: ResetPayload, db: Session = Depends(get_db)):
 def list_answer_keys(specialty: Optional[str] = None, db: Session = Depends(get_db)):
     """Return every chart that has an answer key, with metadata for the admin list view."""
     q = db.query(AnswerKey, Chart).join(Chart, Chart.id == AnswerKey.chart_id)
-    if specialty:
-        is_ip = specialty.upper() in ("IP", "IP-DRG")
-        spec = Specialty.IP if is_ip else Specialty.OP
+    spec = _parse_chart_specialty(specialty)
+    if spec:
         q = q.filter(Chart.specialty == spec)
     rows = q.order_by(Chart.chart_number).all()
     return [
@@ -263,9 +271,8 @@ def list_charts_without_keys(specialty: Optional[str] = None, db: Session = Depe
          .filter(Chart.status == ChartStatus.ACTIVE)
          .outerjoin(AnswerKey, AnswerKey.chart_id == Chart.id)
          .filter(AnswerKey.id == None))  # noqa: E711
-    if specialty:
-        is_ip = specialty.upper() in ("IP", "IP-DRG")
-        spec = Specialty.IP if is_ip else Specialty.OP
+    spec = _parse_chart_specialty(specialty)
+    if spec:
         q = q.filter(Chart.specialty == spec)
     charts = q.order_by(Chart.chart_number).all()
     result = []
@@ -284,8 +291,9 @@ def list_charts_without_keys(specialty: Optional[str] = None, db: Session = Depe
 @router.get("/answer-key/status")
 def get_answer_key_status(specialty: Optional[str] = None, db: Session = Depends(get_db)):
     q = db.query(Chart).filter(Chart.status == ChartStatus.ACTIVE)
-    if specialty:
-        q = q.filter(Chart.specialty == specialty)
+    spec = _parse_chart_specialty(specialty)
+    if spec:
+        q = q.filter(Chart.specialty == spec)
     total = q.count()
     with_key = q.join(AnswerKey, AnswerKey.chart_id == Chart.id).count()
     return {"total_charts": total, "with_answer_key": with_key, "without_answer_key": total - with_key}
