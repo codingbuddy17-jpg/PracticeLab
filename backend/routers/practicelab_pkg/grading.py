@@ -81,8 +81,10 @@ def grade_submissions(
                                     GradingResult.chart_id == chart.id)
                             .first())
                 if existing:
-                    errors.append(f"{filename}: {chart_num} already graded for {coder_name} — skipped")
-                    continue
+                    # Re-grade: delete old result + feedback so fresh scores replace them
+                    db.query(GradingFeedback).filter(GradingFeedback.result_id == existing.id).delete()
+                    db.delete(existing)
+                    db.flush()
 
                 sub = Submission(
                     batch_id=batch_id,
