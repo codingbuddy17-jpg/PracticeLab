@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Loader, Download, Copy, Check } from 'lucide-react'
+import { Loader, Download, Copy, Check, ChevronDown, ChevronRight } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { getBatchResults, downloadBatchResultsExcel, getBatchInsights } from '../../api'
 import { InsightsPanel } from './InsightsPanel'
@@ -9,6 +9,7 @@ export function ResultsView({ batchId }: any) {
   const [data, setData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [expandedChart, setExpandedChart] = useState<string | null>(null)
   const [insights, setInsights] = useState<any>(null)
   const [showInsights, setShowInsights] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -47,6 +48,8 @@ export function ResultsView({ batchId }: any) {
       </div>
     )
   }
+
+  const scoreColor = (v: number) => v >= 90 ? '#16a34a' : v >= 80 ? '#d97706' : '#dc2626'
 
   return (
     <div style={styles.section}>
@@ -91,69 +94,109 @@ export function ResultsView({ batchId }: any) {
         </div>
       )}
 
+      {/* Coder summary table */}
       <div style={styles.table}>
-        <div style={{ ...styles.tableHeader, gridTemplateColumns: is_ip ? '2fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr' : '2fr 1fr 1fr 1fr 1fr 1fr' }}>
-          <span>Coder</span><span>PDx</span><span>SDx</span>
-          {is_ip && <><span>PCS</span><span>DRG</span></>}
-          {!is_ip && <span>CPT</span>}
-          <span>Total</span><span>Result</span>
+        <div style={{ ...styles.tableHeader, gridTemplateColumns: '2fr 80px 120px 80px' }}>
+          <span>Coder</span>
+          <span style={{ textAlign: 'center' }}>Charts</span>
+          <span style={{ textAlign: 'center' }}>Avg Accuracy</span>
+          <span style={{ textAlign: 'center' }}>Result</span>
         </div>
-        {coder_summaries.map((c: any, i: number) => (
-          <div key={c.coder_name}>
-            <div className={i % 2 === 1 ? 'pl-tr-alt' : 'pl-tr'} style={{ ...styles.tableRow, cursor: 'pointer', gridTemplateColumns: is_ip ? '2fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr' : '2fr 1fr 1fr 1fr 1fr 1fr' }}
-              onClick={() => setExpanded(expanded === c.coder_name ? null : c.coder_name)}>
-              <span style={{ fontWeight: 600 }}>{c.coder_name} {expanded === c.coder_name ? '▲' : '▼'}</span>
-              <span>{c.avg_pdx}</span><span>{c.avg_sdx}</span>
-              {is_ip && <><span>{c.avg_pcs}</span><span>{c.avg_drg}</span></>}
-              {!is_ip && <span>{c.avg_cpt}</span>}
-              <span style={{ fontWeight: 700 }}>{c.avg_total}%</span>
-              <span style={{ fontWeight: 700, color: c.pass_fail === 'PASS' ? '#16a34a' : '#dc2626' }}>{c.pass_fail}</span>
-            </div>
-            {expanded === c.coder_name && (
-              <div style={styles.chartDetail}>
-                {use_dpo && (c.dpo_dx_accuracy != null || c.dpo_overall_accuracy != null) && (
-                  <div style={styles.dpoPanel}>
-                    <div style={styles.dpoPanelTitle}>
-                      <span style={styles.dpoSupBadge}>DPO Supplementary</span>
-                      Coding Accuracy Breakdown
-                    </div>
-                    <div style={styles.dpoPanelRow}>
-                      <AccBadge val={c.dpo_dx_accuracy} label="Dx Accuracy" />
-                      {is_ip && <AccBadge val={c.dpo_poa_accuracy} label="POA Accuracy" />}
-                      <AccBadge val={c.dpo_proc_accuracy} label={is_ip ? 'PCS Accuracy' : 'CPT Accuracy'} />
-                      <div style={styles.dpoDivider} />
-                      <AccBadge val={c.dpo_overall_accuracy} label="Overall Accuracy" />
-                    </div>
-                  </div>
-                )}
-                {c.charts.map((ch: any) => (
-                  <div key={ch.chart_number} style={styles.chartDetailRow}>
-                    <span style={{ fontWeight: 600, minWidth: 70 }}>{ch.chart_number}</span>
-                    <span style={{ fontSize: 12, color: '#6b7280' }}>
-                      PDx:{ch.pdx_score} SDx:{ch.sdx_score}
-                      {is_ip ? ` PCS:${ch.pcs_score} DRG:${ch.drg_score ?? '—'}` : ` CPT:${ch.cpt_score}`}
-                    </span>
-                    <span style={{ fontWeight: 700 }}>{ch.total_score ?? '—'}%</span>
-                    <span style={{ color: ch.pass_fail === 'PASS' ? '#16a34a' : '#dc2626', fontWeight: 600 }}>{ch.pass_fail || '—'}</span>
-                    {ch.feedback?.length > 0 && (
-                      <div style={styles.fbList}>
-                        {ch.feedback.map((f: any, i: number) => (
-                          <div key={i} style={styles.fbRow}>
-                            <span style={styles.fbSection}>{f.section}</span>
-                            <span style={styles.fbIssue}>{f.issue_type}</span>
-                            {f.ak_code && <span style={{ fontSize: 11 }}>AK:{f.ak_code}</span>}
-                            {f.coder_code && <span style={{ fontSize: 11 }}>Cdr:{f.coder_code}</span>}
-                            {f.detail && <span style={{ fontSize: 11, color: '#6b7280' }}>{f.detail}</span>}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
+
+        {coder_summaries.map((c: any, i: number) => {
+          const isOpen = expanded === c.coder_name
+          return (
+            <div key={c.coder_name}>
+              {/* Coder row */}
+              <div
+                className={i % 2 === 1 ? 'pl-tr-alt' : 'pl-tr'}
+                style={{ ...styles.tableRow, cursor: 'pointer', gridTemplateColumns: '2fr 80px 120px 80px', alignItems: 'center' }}
+                onClick={() => { setExpanded(isOpen ? null : c.coder_name); setExpandedChart(null) }}
+              >
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
+                  {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                  {c.coder_name}
+                </span>
+                <span style={{ textAlign: 'center', color: '#374151' }}>{c.chart_count}</span>
+                <span style={{ textAlign: 'center', fontWeight: 700, color: scoreColor(c.avg_total) }}>{c.avg_total}%</span>
+                <span style={{ textAlign: 'center', fontWeight: 700, color: c.pass_fail === 'PASS' ? '#16a34a' : '#dc2626' }}>{c.pass_fail}</span>
               </div>
-            )}
-          </div>
-        ))}
+
+              {/* Expanded: DPO panel + per-chart rows */}
+              {isOpen && (
+                <div style={styles.chartDetail}>
+                  {use_dpo && c.dpo_overall_accuracy != null && (
+                    <div style={styles.dpoPanel}>
+                      <div style={styles.dpoPanelTitle}>
+                        <span style={styles.dpoSupBadge}>DPO Supplementary</span>
+                        Coding Accuracy Breakdown
+                      </div>
+                      <div style={styles.dpoPanelRow}>
+                        <AccBadge val={c.dpo_dx_accuracy} label="Dx Accuracy" />
+                        {is_ip && <AccBadge val={c.dpo_poa_accuracy} label="POA Accuracy" />}
+                        <AccBadge val={c.dpo_proc_accuracy} label={is_ip ? 'PCS Accuracy' : 'CPT Accuracy'} />
+                        <div style={styles.dpoDivider} />
+                        <AccBadge val={c.dpo_overall_accuracy} label="Overall Accuracy" />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Per-chart header */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '100px 1fr 100px 70px', gap: 8, padding: '6px 12px', fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid #f0f0f0' }}>
+                    <span>Chart</span>
+                    <span>Category</span>
+                    <span style={{ textAlign: 'center' }}>Accuracy</span>
+                    <span style={{ textAlign: 'center' }}>Result</span>
+                  </div>
+
+                  {c.charts.map((ch: any, ci: number) => {
+                    const chartKey = `${c.coder_name}:${ch.chart_number}`
+                    const chartOpen = expandedChart === chartKey
+                    return (
+                      <div key={ch.chart_number}>
+                        <div
+                          className={ci % 2 === 1 ? 'pl-tr-alt' : 'pl-tr'}
+                          style={{ display: 'grid', gridTemplateColumns: '100px 1fr 100px 70px', gap: 8, padding: '8px 12px', alignItems: 'center', cursor: ch.feedback?.length ? 'pointer' : 'default' }}
+                          onClick={() => ch.feedback?.length && setExpandedChart(chartOpen ? null : chartKey)}
+                        >
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontWeight: 600, fontSize: 13 }}>
+                            {ch.feedback?.length > 0 && (chartOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />)}
+                            {ch.chart_number}
+                          </span>
+                          <span style={{ fontSize: 12, color: '#374151' }}>
+                            {ch.category || '—'}
+                            {ch.specialty && <span style={{ ...styles.badge, marginLeft: 6, fontSize: 10, padding: '1px 6px' }}>{ch.specialty}</span>}
+                          </span>
+                          <span style={{ textAlign: 'center', fontWeight: 700, fontSize: 13, color: ch.total_score != null ? scoreColor(ch.total_score) : '#9ca3af' }}>
+                            {ch.total_score != null ? `${ch.total_score}%` : '—'}
+                          </span>
+                          <span style={{ textAlign: 'center', fontWeight: 700, fontSize: 12, color: ch.pass_fail === 'PASS' ? '#16a34a' : '#dc2626' }}>
+                            {ch.pass_fail || '—'}
+                          </span>
+                        </div>
+
+                        {/* Feedback detail */}
+                        {chartOpen && ch.feedback?.length > 0 && (
+                          <div style={{ ...styles.fbList, margin: '0 0 4px 24px' }}>
+                            {ch.feedback.map((f: any, fi: number) => (
+                              <div key={fi} style={styles.fbRow}>
+                                <span style={styles.fbSection}>{f.section}</span>
+                                <span style={styles.fbIssue}>{f.issue_type}</span>
+                                {f.ak_code && <span style={{ fontSize: 11 }}>AK:{f.ak_code}</span>}
+                                {f.coder_code && <span style={{ fontSize: 11 }}>Cdr:{f.coder_code}</span>}
+                                {f.detail && <span style={{ fontSize: 11, color: '#6b7280' }}>{f.detail}</span>}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )
+        })}
       </div>
     </div>
   )

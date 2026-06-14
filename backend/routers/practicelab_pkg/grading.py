@@ -28,9 +28,15 @@ router = APIRouter()
 def grade_submissions(
     batch_id: int,
     files: list[UploadFile] = File(...),
+    regrade: bool = False,
     db: Session = Depends(get_db),
 ):
-    """Upload returned coder Excel files → auto-grade → store results."""
+    """Upload returned coder Excel files → auto-grade → store results.
+
+    If any uploaded sheet has already been graded and regrade=False (default),
+    returns needs_confirmation=True with the list of affected coder/chart pairs
+    without writing anything.  Re-call with regrade=True to overwrite.
+    """
     batch = db.query(Batch).filter(Batch.id == batch_id).first()
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
@@ -41,6 +47,55 @@ def grade_submissions(
     op_cfg_row = db.query(ScoringConfig).filter(ScoringConfig.specialty_type == "OP").first()
     ip_cfg = cfg_from_db(ip_cfg_row) if ip_cfg_row else DEFAULT_IP_CFG
     op_cfg = cfg_from_db(op_cfg_row) if op_cfg_row else DEFAULT_OP_CFG
+
+    # ── Pre-flight: detect existing results before writing anything ───────────
+    if not regrade:
+        conflicts = []
+        for upload in files:
+            filename = upload.filename or "unknown"
+            stem = filename.replace("_Assessment.xlsx", "")
+            parts = stem.split("_", 1)
+            coder_name: str = ""
+            if len(parts) == 2:
+                bc_by_emp = (db.query(BatchCoder)
+                             .filter(BatchCoder.batch_id == batch_id,
+                                     BatchCoder.emp_id == parts[0])
+                             .first())
+                if bc_by_emp:
+                    coder_name = bc_by_emp.coder_name
+            if not coder_name:
+                coder_name = stem.replace("_", " ").strip()
+
+            try:
+                file_bytes = upload.file.read()
+                upload._body = file_bytes  # cache so we can re-read below if needed
+                chart_submissions = parse_submission(file_bytes)
+                for sub_data in chart_submissions:
+                    chart = db.query(Chart).filter(
+                        Chart.chart_number == sub_data["chart_number"]
+                    ).first()
+                    if not chart:
+                        continue
+                    existing = (db.query(GradingResult)
+                                .filter(GradingResult.batch_id == batch_id,
+                                        GradingResult.coder_name == coder_name,
+                                        GradingResult.chart_id == chart.id)
+                                .first())
+                    if existing:
+                        conflicts.append({
+                            "coder": coder_name,
+                            "chart": sub_data["chart_number"],
+                        })
+            except Exception:
+                pass
+
+        if conflicts:
+            return {
+                "needs_confirmation": True,
+                "conflicts": conflicts,
+                "graded": [],
+                "errors": [],
+            }
 
     graded, errors = [], []
 
@@ -60,7 +115,7 @@ def grade_submissions(
             coder_name = stem.replace("_", " ").strip()
 
         try:
-            file_bytes = upload.file.read()
+            file_bytes = getattr(upload, "_body", None) or upload.file.read()
             chart_submissions = parse_submission(file_bytes)
 
             for sub_data in chart_submissions:
@@ -81,7 +136,6 @@ def grade_submissions(
                                     GradingResult.chart_id == chart.id)
                             .first())
                 if existing:
-                    # Re-grade: delete old result + feedback so fresh scores replace them
                     db.query(GradingFeedback).filter(GradingFeedback.result_id == existing.id).delete()
                     db.delete(existing)
                     db.flush()
@@ -314,6 +368,8 @@ def get_batch_results(batch_id: int, db: Session = Depends(get_db)):
 
         d["charts"].append({
             "chart_number": r.chart.chart_number,
+            "category": r.chart.category,
+            "specialty": r.chart.specialty.value if r.chart.specialty else None,
             "pdx_score": r.pdx_score,
             "sdx_score": r.sdx_score,
             "pcs_score": r.pcs_score,

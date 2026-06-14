@@ -158,6 +158,8 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
   const [loading, setLoading] = useState(true)
   const [grading, setGrading] = useState(false)
   const [gradingResult, setGradingResult] = useState<any>(null)
+  const [pendingRegrade, setPendingRegrade] = useState<File[] | null>(null)
+  const [regradeConflicts, setRegradeConflicts] = useState<{ coder: string; chart: string }[] | null>(null)
   const [showAllocationPanel, setShowAllocationPanel] = useState(false)
   const [closing, setClosing] = useState(false)
   const [confirmingClose, setConfirmingClose] = useState(false)
@@ -182,8 +184,13 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
     const tid = toast.loading(`Grading ${files.length} file${files.length !== 1 ? 's' : ''}…`)
     try {
       const res = await gradeSubmissions(batchId, files)
-      setGradingResult(res)
       toast.dismiss(tid)
+      if (res.needs_confirmation) {
+        setPendingRegrade(files)
+        setRegradeConflicts(res.conflicts || [])
+        return
+      }
+      setGradingResult(res)
       if (res.graded.length) toast.success(`${res.graded.length} submission${res.graded.length !== 1 ? 's' : ''} graded${res.errors.length ? ` · ${res.errors.length} skipped` : ''}`)
       if (res.errors.length) res.errors.forEach((e: string) => toast.error(e, { duration: 6000 }))
       loadBatch()
@@ -225,6 +232,33 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
     } catch { toast.error('Failed to add note') }
   }
 
+  async function handleRegradeConfirm() {
+    if (!pendingRegrade) return
+    const files = pendingRegrade
+    setPendingRegrade(null)
+    setRegradeConflicts(null)
+    setGrading(true)
+    setGradingResult(null)
+    const tid = toast.loading(`Re-grading ${files.length} file${files.length !== 1 ? 's' : ''}…`)
+    try {
+      const res = await gradeSubmissions(batchId, files, true)
+      setGradingResult(res)
+      toast.dismiss(tid)
+      if (res.graded.length) toast.success(`${res.graded.length} submission${res.graded.length !== 1 ? 's' : ''} re-graded${res.errors.length ? ` · ${res.errors.length} skipped` : ''}`)
+      if (res.errors.length) res.errors.forEach((e: string) => toast.error(e, { duration: 6000 }))
+      loadBatch()
+      if (res.graded.length) {
+        getBatchInsights(batchId).then(ins => { setInsights(ins); if (ins.has_data) setShowInsights(true) }).catch(() => {})
+      }
+    } catch (err: any) {
+      toast.dismiss(tid)
+      toast.error(err?.response?.data?.detail || 'Re-grading failed')
+    } finally {
+      setGrading(false)
+      if (fileRef.current) fileRef.current.value = ''
+    }
+  }
+
   if (loading) return <div style={styles.center}><Loader size={24} /></div>
   if (!batch) return <div style={styles.center}>Batch not found</div>
 
@@ -255,6 +289,28 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
 
   return (
     <div style={styles.section}>
+      {/* Re-grade confirmation dialog */}
+      {regradeConflicts && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: '#fff', borderRadius: 12, padding: 28, maxWidth: 460, width: '90%', boxShadow: '0 8px 32px rgba(0,0,0,0.18)' }}>
+            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 8 }}>Re-grade existing submissions?</div>
+            <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 12 }}>
+              The following sheets have already been graded in this batch. Re-grading will overwrite their previous results.
+            </div>
+            <div style={{ background: '#f9fafb', borderRadius: 8, border: '1px solid #e5e7eb', padding: '8px 12px', marginBottom: 18, maxHeight: 180, overflowY: 'auto' }}>
+              {regradeConflicts.map((c, i) => (
+                <div key={i} style={{ fontSize: 13, padding: '3px 0', borderBottom: i < regradeConflicts.length - 1 ? '1px solid #f0f0f0' : undefined }}>
+                  <span style={{ fontWeight: 600 }}>{c.coder}</span> — Chart {c.chart}
+                </div>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button style={styles.outlineBtn} onClick={() => { setPendingRegrade(null); setRegradeConflicts(null); if (fileRef.current) fileRef.current.value = '' }}>Cancel</button>
+              <button style={styles.warningBtn} onClick={handleRegradeConfirm}>Re-grade (overwrite)</button>
+            </div>
+          </div>
+        </div>
+      )}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8, flexWrap: 'wrap' as const }}>
         <span style={{ ...styles.badge, background: sc?.light || '#f3f4f6', color: sc?.bg || '#374151', fontSize: 13 }}>{batch.specialty}</span>
         <span style={styles.sectionTitle}>{batch.name}</span>
