@@ -9,6 +9,7 @@ import {
   getPLAnalyticsOverview, getPLAnalyticsBySpecialty, getPLAnalyticsByChart,
   getPLAnalyticsByBatch, getCoderTrend,
   getPLAnalyticsByCategory, getPLChartTeachingValue, getPLCoderMatrix, getPLChartDetail,
+  type PLFilters,
 } from '../../api'
 import { round1 } from './shared'
 import styles from './styles'
@@ -44,24 +45,43 @@ export function PLAnalyticsView() {
   const [expandedCategory, setExpandedCategory] = useState<string | null>(null)
   const [expandedChart, setExpandedChart] = useState<string | null>(null)
   const [chartDetail, setChartDetail] = useState<Record<string, any>>({})
+  const [draftFilters, setDraftFilters] = useState<PLFilters>({})
+  const [filters, setFilters] = useState<PLFilters>({})
+  const [filterVersion, setFilterVersion] = useState(0)
+
+  const SPECIALTIES = ['IP-DRG', 'ED Facility', 'ED Profee', 'SDS', 'Edits', 'Denials', 'Ancillary', 'E/M']
+  const activeFilterCount = Object.values(filters).filter(Boolean).length
+
+  function applyFilters() {
+    setFilters({ ...draftFilters })
+    setByChart([]); setCategoryData(null); setTeachingData([]); setMatrixData(null)
+    setFilterVersion(v => v + 1)
+  }
+
+  function clearFilters() {
+    setDraftFilters({})
+    setFilters({})
+    setByChart([]); setCategoryData(null); setTeachingData([]); setMatrixData(null)
+    setFilterVersion(v => v + 1)
+  }
 
   useEffect(() => {
     setLoading(true)
     Promise.all([
-      getPLAnalyticsOverview(),
-      getPLAnalyticsBySpecialty(),
-      getPLAnalyticsByBatch(),
+      getPLAnalyticsOverview(filters),
+      getPLAnalyticsBySpecialty(filters),
+      getPLAnalyticsByBatch(filters),
     ]).then(([ov, sp, bt]) => {
       setOverview(ov); setBySpecialty(sp); setByBatch(bt)
     }).catch(() => toast.error('Failed to load analytics')).finally(() => setLoading(false))
-  }, [])
+  }, [filters])
 
   useEffect(() => {
-    if (tab === 'chart' && byChart.length === 0) getPLAnalyticsByChart().then(setByChart).catch(() => {})
-    if (tab === 'category' && !categoryData) getPLAnalyticsByCategory().then(setCategoryData).catch(() => {})
-    if (tab === 'teaching' && teachingData.length === 0) getPLChartTeachingValue().then(setTeachingData).catch(() => {})
-    if ((tab === 'matrix' || tab === 'coder') && !matrixData) getPLCoderMatrix().then(setMatrixData).catch(() => {})
-  }, [tab])
+    if (tab === 'chart' && byChart.length === 0) getPLAnalyticsByChart(filters).then(setByChart).catch(() => {})
+    if (tab === 'category' && !categoryData) getPLAnalyticsByCategory(filters).then(setCategoryData).catch(() => {})
+    if (tab === 'teaching' && teachingData.length === 0) getPLChartTeachingValue(filters).then(setTeachingData).catch(() => {})
+    if ((tab === 'matrix' || tab === 'coder') && !matrixData) getPLCoderMatrix(filters).then(setMatrixData).catch(() => {})
+  }, [tab, filterVersion])
 
   async function loadCoderTrend() {
     if (!coderName.trim()) return
@@ -111,6 +131,32 @@ export function PLAnalyticsView() {
     <div style={styles.section}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
         <span style={styles.sectionTitle}>Analytics</span>
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '10px 14px', background: '#f8fafc', border: '1px solid #e5e7eb', borderRadius: 8, marginBottom: 8, flexWrap: 'wrap' as const }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: '#6b7280', marginRight: 4 }}>Filter</span>
+        <input type="date" style={{ ...styles.input, width: 140, fontSize: 12 }}
+          value={draftFilters.from_date || ''}
+          onChange={e => setDraftFilters(f => ({ ...f, from_date: e.target.value || undefined }))} />
+        <span style={{ fontSize: 12, color: '#9ca3af' }}>→</span>
+        <input type="date" style={{ ...styles.input, width: 140, fontSize: 12 }}
+          value={draftFilters.to_date || ''}
+          onChange={e => setDraftFilters(f => ({ ...f, to_date: e.target.value || undefined }))} />
+        <select style={{ ...styles.select, fontSize: 12 }}
+          value={draftFilters.specialty || ''}
+          onChange={e => setDraftFilters(f => ({ ...f, specialty: e.target.value || undefined }))}>
+          <option value="">All specialties</option>
+          {SPECIALTIES.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+        <button style={styles.primaryBtn} onClick={applyFilters}>Apply</button>
+        {activeFilterCount > 0 && (
+          <button style={styles.outlineBtn} onClick={clearFilters}>
+            Clear {activeFilterCount > 0 ? `(${activeFilterCount})` : ''}
+          </button>
+        )}
+        {activeFilterCount > 0 && (
+          <span style={{ fontSize: 11, color: '#4f46e5', fontWeight: 700 }}>Filtered view active</span>
+        )}
       </div>
 
       <div style={{ display: 'flex', border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden', alignSelf: 'flex-start', flexWrap: 'wrap' }}>

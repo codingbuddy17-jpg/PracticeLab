@@ -1,25 +1,54 @@
 """Analytics endpoints for PracticeLab."""
-from collections import Counter
+from typing import Optional
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import func, Integer
 from database import get_db
-from models import Batch, BatchStatus, GradingResult, GradingFeedback, Chart, PassFail
+from models import Batch, BatchStatus, GradingResult, GradingFeedback, Chart, PassFail, Specialty
 
 router = APIRouter()
 
 
+def _gr_base(db: Session, from_date: Optional[str], to_date: Optional[str], specialty: Optional[str]):
+    q = db.query(GradingResult).filter(GradingResult.total_score.isnot(None))
+    if from_date:
+        q = q.filter(GradingResult.graded_at >= from_date)
+    if to_date:
+        q = q.filter(GradingResult.graded_at <= to_date + "T23:59:59")
+    if specialty:
+        spec = next((s for s in Specialty if s.value == specialty), None)
+        if spec:
+            q = q.filter(GradingResult.specialty == spec)
+    return q
+
+
+def _batch_base(db: Session, from_date: Optional[str], to_date: Optional[str], specialty: Optional[str]):
+    q = db.query(Batch)
+    if from_date:
+        q = q.filter(Batch.created_at >= from_date)
+    if to_date:
+        q = q.filter(Batch.created_at <= to_date + "T23:59:59")
+    if specialty:
+        spec = next((s for s in Specialty if s.value == specialty), None)
+        if spec:
+            q = q.filter(Batch.specialty == spec)
+    return q
+
+
 @router.get("/analytics/overview")
-def analytics_overview(db: Session = Depends(get_db)):
-    total_batches = db.query(Batch).count()
-    open_batches = db.query(Batch).filter(Batch.status == BatchStatus.OPEN).count()
-    closed_batches = db.query(Batch).filter(Batch.status == BatchStatus.CLOSED).count()
-    total_results = db.query(GradingResult).filter(GradingResult.total_score.isnot(None)).count()
-    passed = db.query(GradingResult).filter(GradingResult.pass_fail == "PASS").count()
+def analytics_overview(
+    from_date: Optional[str] = None, to_date: Optional[str] = None, specialty: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    base = _gr_base(db, from_date, to_date, specialty)
+    total_results = base.count()
+    passed = base.filter(GradingResult.pass_fail == PassFail.PASS).count()
+
+    b_base = _batch_base(db, from_date, to_date, specialty)
     return {
-        "total_batches": total_batches,
-        "open_batches": open_batches,
-        "complete_batches": closed_batches,
+        "total_batches": b_base.count(),
+        "open_batches": b_base.filter(Batch.status == BatchStatus.OPEN).count(),
+        "complete_batches": b_base.filter(Batch.status == BatchStatus.CLOSED).count(),
         "total_graded": total_results,
         "total_passed": passed,
         "overall_pass_rate": round(passed / total_results * 100, 1) if total_results else 0,
@@ -27,16 +56,17 @@ def analytics_overview(db: Session = Depends(get_db)):
 
 
 @router.get("/analytics/by-specialty")
-def analytics_by_specialty(db: Session = Depends(get_db)):
-    rows = (db.query(
+def analytics_by_specialty(
+    from_date: Optional[str] = None, to_date: Optional[str] = None, specialty: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    base = _gr_base(db, from_date, to_date, specialty)
+    rows = (base.with_entities(
                 GradingResult.specialty,
                 func.count(GradingResult.id).label("total"),
                 func.avg(GradingResult.total_score).label("avg_score"),
-                func.sum(
-                    func.cast(GradingResult.pass_fail == PassFail.PASS, Integer)
-                ).label("passed"),
+                func.sum(func.cast(GradingResult.pass_fail == PassFail.PASS, Integer)).label("passed"),
             )
-            .filter(GradingResult.total_score.isnot(None))
             .group_by(GradingResult.specialty)
             .all())
     return [
@@ -51,10 +81,11 @@ def analytics_by_specialty(db: Session = Depends(get_db)):
 
 
 @router.get("/analytics/by-chart")
-def analytics_by_chart(db: Session = Depends(get_db)):
-    results = (db.query(GradingResult)
-               .filter(GradingResult.total_score.isnot(None))
-               .join(Chart).all())
+def analytics_by_chart(
+    from_date: Optional[str] = None, to_date: Optional[str] = None, specialty: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    results = _gr_base(db, from_date, to_date, specialty).join(Chart).all()
 
     chart_map: dict[int, dict] = {}
     for r in results:
@@ -85,8 +116,11 @@ def analytics_by_chart(db: Session = Depends(get_db)):
 
 
 @router.get("/analytics/by-batch")
-def analytics_by_batch(db: Session = Depends(get_db)):
-    batches = db.query(Batch).order_by(Batch.created_at.desc()).all()
+def analytics_by_batch(
+    from_date: Optional[str] = None, to_date: Optional[str] = None, specialty: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    batches = _batch_base(db, from_date, to_date, specialty).order_by(Batch.created_at.desc()).all()
     out = []
     for b in batches:
         results = [r for r in b.results if r.total_score is not None]
@@ -139,11 +173,11 @@ def coder_trend(coder_name: str, db: Session = Depends(get_db)):
 
 
 @router.get("/analytics/by-category")
-def analytics_by_category(db: Session = Depends(get_db)):
-    results = (db.query(GradingResult)
-               .filter(GradingResult.total_score.isnot(None))
-               .join(Chart)
-               .all())
+def analytics_by_category(
+    from_date: Optional[str] = None, to_date: Optional[str] = None, specialty: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    results = _gr_base(db, from_date, to_date, specialty).join(Chart).all()
 
     if not results:
         return {"team": [], "coder_category": []}
@@ -197,11 +231,11 @@ def analytics_by_category(db: Session = Depends(get_db)):
 
 
 @router.get("/analytics/chart-teaching-value")
-def analytics_chart_teaching_value(db: Session = Depends(get_db)):
-    results = (db.query(GradingResult)
-               .filter(GradingResult.total_score.isnot(None))
-               .join(Chart)
-               .all())
+def analytics_chart_teaching_value(
+    from_date: Optional[str] = None, to_date: Optional[str] = None, specialty: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    results = _gr_base(db, from_date, to_date, specialty).join(Chart).all()
 
     if not results:
         return []
@@ -261,11 +295,20 @@ def analytics_chart_teaching_value(db: Session = Depends(get_db)):
 
 
 @router.get("/analytics/coder-matrix")
-def analytics_coder_matrix(db: Session = Depends(get_db)):
-    batches = (db.query(Batch)
-               .filter(Batch.status == BatchStatus.CLOSED)
-               .order_by(Batch.created_at)
-               .all())
+def analytics_coder_matrix(
+    from_date: Optional[str] = None, to_date: Optional[str] = None, specialty: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    b_q = db.query(Batch).filter(Batch.status == BatchStatus.CLOSED)
+    if from_date:
+        b_q = b_q.filter(Batch.closed_at >= from_date)
+    if to_date:
+        b_q = b_q.filter(Batch.closed_at <= to_date + "T23:59:59")
+    if specialty:
+        spec = next((s for s in Specialty if s.value == specialty), None)
+        if spec:
+            b_q = b_q.filter(Batch.specialty == spec)
+    batches = b_q.order_by(Batch.created_at).all()
 
     if not batches:
         return {"batches": [], "coders": [], "cells": []}

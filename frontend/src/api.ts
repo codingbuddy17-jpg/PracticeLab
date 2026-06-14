@@ -266,23 +266,37 @@ export function downloadBatchResultsExcel(batchId: number) {
   window.open(`${import.meta.env.VITE_API_URL || '/api'}/practicelab/batches/${batchId}/results/export`, '_blank')
 }
 
-export async function getPLAnalyticsOverview() {
-  const { data } = await api.get('/practicelab/analytics/overview')
+export interface PLFilters {
+  from_date?: string
+  to_date?: string
+  specialty?: string
+}
+
+function fp(f: PLFilters) {
+  const p: Record<string, string> = {}
+  if (f.from_date) p.from_date = f.from_date
+  if (f.to_date) p.to_date = f.to_date
+  if (f.specialty) p.specialty = f.specialty
+  return p
+}
+
+export async function getPLAnalyticsOverview(f: PLFilters = {}) {
+  const { data } = await api.get('/practicelab/analytics/overview', { params: fp(f) })
   return data
 }
 
-export async function getPLAnalyticsBySpecialty() {
-  const { data } = await api.get('/practicelab/analytics/by-specialty')
+export async function getPLAnalyticsBySpecialty(f: PLFilters = {}) {
+  const { data } = await api.get('/practicelab/analytics/by-specialty', { params: fp(f) })
   return data
 }
 
-export async function getPLAnalyticsByChart() {
-  const { data } = await api.get('/practicelab/analytics/by-chart')
+export async function getPLAnalyticsByChart(f: PLFilters = {}) {
+  const { data } = await api.get('/practicelab/analytics/by-chart', { params: fp(f) })
   return data
 }
 
-export async function getPLAnalyticsByBatch() {
-  const { data } = await api.get('/practicelab/analytics/by-batch')
+export async function getPLAnalyticsByBatch(f: PLFilters = {}) {
+  const { data } = await api.get('/practicelab/analytics/by-batch', { params: fp(f) })
   return data
 }
 
@@ -291,18 +305,18 @@ export async function getCoderTrend(coderName: string) {
   return data
 }
 
-export async function getPLAnalyticsByCategory() {
-  const { data } = await api.get('/practicelab/analytics/by-category')
+export async function getPLAnalyticsByCategory(f: PLFilters = {}) {
+  const { data } = await api.get('/practicelab/analytics/by-category', { params: fp(f) })
   return data as { team: any[]; coder_category: any[] }
 }
 
-export async function getPLChartTeachingValue() {
-  const { data } = await api.get('/practicelab/analytics/chart-teaching-value')
+export async function getPLChartTeachingValue(f: PLFilters = {}) {
+  const { data } = await api.get('/practicelab/analytics/chart-teaching-value', { params: fp(f) })
   return data as any[]
 }
 
-export async function getPLCoderMatrix() {
-  const { data } = await api.get('/practicelab/analytics/coder-matrix')
+export async function getPLCoderMatrix(f: PLFilters = {}) {
+  const { data } = await api.get('/practicelab/analytics/coder-matrix', { params: fp(f) })
   return data as { batches: any[]; coders: string[]; cells: any[] }
 }
 
