@@ -493,7 +493,9 @@ def parse_answer_key_upload(file_bytes: bytes, specialty: str) -> list[dict]:
       OP: {chart_number, pdx_code, sdx:[{code}], cpt:[{code,modifier}]}
     """
     wb = load_workbook(io.BytesIO(file_bytes), data_only=True)
-    ws = wb.active
+    # Use index 0 — the template's Instructions sheet is created last which
+    # makes it wb.active; worksheets[0] always gets the data sheet.
+    ws = wb.worksheets[0]
     is_ip = specialty.upper() == "IP"
     rows = list(ws.iter_rows(min_row=2, values_only=True))
     results = []
