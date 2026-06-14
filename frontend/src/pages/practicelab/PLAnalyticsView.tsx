@@ -57,7 +57,7 @@ export function PLAnalyticsView() {
     if (tab === 'chart' && byChart.length === 0) getPLAnalyticsByChart().then(setByChart).catch(() => {})
     if (tab === 'category' && !categoryData) getPLAnalyticsByCategory().then(setCategoryData).catch(() => {})
     if (tab === 'teaching' && teachingData.length === 0) getPLChartTeachingValue().then(setTeachingData).catch(() => {})
-    if (tab === 'matrix' && !matrixData) getPLCoderMatrix().then(setMatrixData).catch(() => {})
+    if ((tab === 'matrix' || tab === 'coder') && !matrixData) getPLCoderMatrix().then(setMatrixData).catch(() => {})
   }, [tab])
 
   async function loadCoderTrend() {
@@ -114,6 +114,38 @@ export function PLAnalyticsView() {
                   </div>
                 ))}
               </div>
+              {/* Attention banner */}
+              {overview.total_graded > 0 && (() => {
+                const atRisk = bySpecialty.filter((s: any) => s.pass_rate < 70)
+                if (!atRisk.length) return null
+                return (
+                  <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 10, padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#92400e' }}>⚠ Needs attention</div>
+                    {atRisk.map((s: any) => (
+                      <div key={s.specialty} style={{ fontSize: 13, color: '#92400e' }}>
+                        <strong>{s.specialty}</strong> — {s.pass_rate}% pass rate (below 70% target)
+                        {s.pass_rate < 50 && <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, background: '#fecaca', color: '#991b1b', padding: '1px 8px', borderRadius: 10 }}>Critical</span>}
+                      </div>
+                    ))}
+                  </div>
+                )
+              })()}
+
+              {/* Mini batch trend */}
+              {byBatch.length > 1 && (
+                <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '14px 16px' }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: '#6b7280', marginBottom: 10, textTransform: 'uppercase' as const, letterSpacing: 0.5 }}>Pass rate trend — last {Math.min(byBatch.length, 8)} batches</div>
+                  <ResponsiveContainer width="100%" height={100}>
+                    <LineChart data={byBatch.slice(-8).map((b: any) => ({ ...b, label: b.batch_name.length > 12 ? b.batch_name.slice(0, 12) + '…' : b.batch_name }))} margin={{ left: 0, right: 16, top: 4, bottom: 4 }}>
+                      <XAxis dataKey="label" tick={{ fontSize: 10 }} />
+                      <YAxis domain={[0, 100]} tickFormatter={v => `${v}%`} tick={{ fontSize: 10 }} width={32} />
+                      <Tooltip formatter={(v: any) => [`${v}%`, 'Pass Rate']} contentStyle={{ fontSize: 11, borderRadius: 8 }} />
+                      <Line type="monotone" dataKey="pass_rate" stroke="#16a34a" strokeWidth={2} dot={{ r: 4, fill: '#16a34a' }} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+
               {overview.total_graded === 0 ? (
                 <div style={{ ...styles.warnBox, lineHeight: 1.6 }}>
                   No grading results yet. Run an allocation cycle inside a batch, distribute the Excel sheets to coders, then upload the returned files to unlock analytics.
@@ -245,9 +277,10 @@ export function PLAnalyticsView() {
       {tab === 'coder' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-            <input style={{ ...styles.input, width: 260 }} placeholder="Enter coder name exactly"
+            <input list="coder-suggestions" style={{ ...styles.input, width: 260 }} placeholder="Enter or select coder name"
               value={coderName} onChange={e => setCoderName(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && loadCoderTrend()} />
+            <datalist id="coder-suggestions">{(matrixData?.coders || []).map((n: string) => <option key={n} value={n} />)}</datalist>
             <button style={styles.primaryBtn} onClick={loadCoderTrend}>Look Up</button>
           </div>
           {coderTrend.length === 0 ? (

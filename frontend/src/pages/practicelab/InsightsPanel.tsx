@@ -47,6 +47,28 @@ export function InsightsPanel({ insights, onClose }: { insights: any; onClose: (
   const deltaColor = (d: number | null) => d == null ? '#6b7280' : d > 0 ? '#16a34a' : d < 0 ? '#dc2626' : '#6b7280'
   const deltaLabel = (d: number | null) => d == null ? '' : `${d > 0 ? '+' : ''}${d}%`
 
+  const recommendations = (() => {
+    const recs: { icon: string; text: string; type: 'warn' | 'info' | 'ok' }[] = []
+    if (bs.pass_rate < 70)
+      recs.push({ icon: '⚠', type: 'warn', text: `Pass rate is ${bs.pass_rate}% — below 70% threshold. Schedule a retraining session before the next batch.` })
+    if (bs.pass_rate >= 85 && bs.pass_rate_delta != null && bs.pass_rate_delta > 0)
+      recs.push({ icon: '✓', type: 'ok', text: `Pass rate improved by ${bs.pass_rate_delta}% vs the prior batch — team is trending in the right direction.` })
+    const topError = te.by_issue_type[0]
+    if (topError && topError.pct >= 40)
+      recs.push({ icon: '↗', type: 'info', text: `"${topError.type.replace(/_/g, ' ')}" accounts for ${topError.pct}% of all errors. Focus next feedback session on this pattern.` })
+    const topMissed = te.top_missed_codes[0]
+    if (topMissed && topMissed.count >= 3)
+      recs.push({ icon: '↗', type: 'info', text: `Code ${topMissed.code} was missed ${topMissed.count} times across the team. Verify the answer key and add to training materials.` })
+    const worstCat = cp[0]
+    if (worstCat && worstCat.pass_rate < 60)
+      recs.push({ icon: '⚠', type: 'warn', text: `${worstCat.category} has a ${worstCat.pass_rate}% pass rate — lowest of all categories. Consider a focused drill pack.` })
+    const sortedCoders = [...ci].sort((a: any, b: any) => a.avg_score - b.avg_score)
+    const worstCoder = sortedCoders[0]
+    if (worstCoder && worstCoder.avg_score < 65 && ci.length > 1)
+      recs.push({ icon: '⚠', type: 'warn', text: `${worstCoder.coder_name} scored ${worstCoder.avg_score}% — significantly below team average. Recommend a targeted 1:1 feedback session.` })
+    return recs
+  })()
+
   return (
     <div style={{ background: '#f8faff', border: '1.5px solid #a5b4fc', borderRadius: 12, padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -83,6 +105,22 @@ export function InsightsPanel({ insights, onClose }: { insights: any; onClose: (
           </div>
         )}
       </div>
+
+      {recommendations.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#374151', textTransform: 'uppercase' as const, letterSpacing: 0.5 }}>Recommendations</div>
+          {recommendations.map((r, i) => (
+            <div key={i} style={{
+              display: 'flex', gap: 10, alignItems: 'flex-start', padding: '10px 14px', borderRadius: 8, fontSize: 13,
+              background: r.type === 'warn' ? '#fff7ed' : r.type === 'ok' ? '#f0fdf4' : '#eff6ff',
+              border: `1px solid ${r.type === 'warn' ? '#fed7aa' : r.type === 'ok' ? '#bbf7d0' : '#bfdbfe'}`,
+            }}>
+              <span style={{ fontSize: 15, flexShrink: 0, marginTop: 1 }}>{r.icon}</span>
+              <span style={{ color: r.type === 'warn' ? '#92400e' : r.type === 'ok' ? '#166534' : '#1e40af', lineHeight: 1.5 }}>{r.text}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
         <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '14px 16px' }}>

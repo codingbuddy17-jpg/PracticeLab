@@ -4,7 +4,7 @@ import toast from 'react-hot-toast'
 import {
   getBatch, gradeSubmissions, closeBatch, addBatchNote,
   downloadBatchExcel, downloadCycleExcel, downloadBatchResultsExcel,
-  getBatchInsights, runAllocation, searchChartsForBatch,
+  getBatchInsights, runAllocation, searchChartsForBatch, getCategories,
 } from '../../api'
 import { SPECIALTY_COLORS } from '../../theme'
 import { trainerName } from './shared'
@@ -19,6 +19,9 @@ function AllocationPanel({ batch, onDone }: { batch: any; onDone: () => void }) 
   })
   const [chartSearch, setChartSearch] = useState('')
   const [chartCatFilter, setChartCatFilter] = useState('')
+  const [knownCategories, setKnownCategories] = useState<string[]>([])
+
+  useEffect(() => { getCategories(batch.specialty).then(setKnownCategories).catch(() => {}) }, [])
   const [chartDiffFilter, setChartDiffFilter] = useState('')
   const [chartSearchResults, setChartSearchResults] = useState<any[]>([])
   const [selectedChartIds, setSelectedChartIds] = useState<Set<number>>(new Set())
@@ -106,8 +109,9 @@ function AllocationPanel({ batch, onDone }: { batch: any; onDone: () => void }) 
           <div style={styles.chartSearchRow}>
             <input style={{ ...styles.input, flex: 1 }} placeholder="Chart number" value={chartSearch}
               onChange={e => setChartSearch(e.target.value)} onKeyDown={e => e.key === 'Enter' && runChartSearch()} />
-            <input style={{ ...styles.input, flex: 1 }} placeholder="Category" value={chartCatFilter}
+            <input list="cat-suggestions" style={{ ...styles.input, flex: 1 }} placeholder="Category" value={chartCatFilter}
               onChange={e => setChartCatFilter(e.target.value)} onKeyDown={e => e.key === 'Enter' && runChartSearch()} />
+            <datalist id="cat-suggestions">{knownCategories.map(c => <option key={c} value={c} />)}</datalist>
             <select style={styles.select} value={chartDiffFilter} onChange={e => setChartDiffFilter(e.target.value)}>
               <option value="">All difficulties</option>
               {['Beginner', 'Intermediate', 'Advanced'].map(d => <option key={d}>{d}</option>)}
