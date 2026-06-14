@@ -52,17 +52,13 @@ export function AnswerKeysView() {
     try {
       const isIP = specialty === 'IP-DRG'
       const res = await uploadAnswerKeys(file, isIP ? 'IP' : 'OP', trainerName())
-      const total = res.stored.length + res.skipped_duplicates.length + res.not_found.length
-      if (total === 0) {
-        toast.error('No rows were read from the file. Make sure you used the downloaded template and have data starting in row 2.')
-      } else {
-        if (res.stored.length) toast.success(`Stored ${res.stored.length} key${res.stored.length !== 1 ? 's' : ''}: ${res.stored.join(', ')}`)
-        if (res.skipped_duplicates.length) toast(`Already exist (skipped): ${res.skipped_duplicates.join(', ')}`, { icon: '⚠️' })
-        if (res.not_found.length) toast.error(`Chart numbers not found in PracticeLab: ${res.not_found.join(', ')}`)
-      }
+      if (res.stored.length) toast.success(`Stored ${res.stored.length} key${res.stored.length !== 1 ? 's' : ''}: ${res.stored.join(', ')}`)
+      if (res.skipped_duplicates.length) toast(`Already exist (skipped): ${res.skipped_duplicates.join(', ')}`, { icon: '⚠️' })
+      if (res.not_found.length) toast.error(`Chart numbers not found in PracticeLab: ${res.not_found.join(', ')}`)
       loadAll()
     } catch (err: any) {
-      toast.error(err?.response?.data?.detail || 'Upload failed')
+      const detail = err?.response?.data?.detail || 'Upload failed'
+      toast.error(detail, { duration: 8000 })
     } finally {
       setUploading(false)
       if (fileRef.current) fileRef.current.value = ''

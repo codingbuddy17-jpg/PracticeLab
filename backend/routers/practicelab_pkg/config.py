@@ -162,7 +162,31 @@ def upload_answer_keys(
     db: Session = Depends(get_db),
 ):
     file_bytes = file.file.read()
-    rows = parse_answer_key_upload(file_bytes, specialty)
+    try:
+        rows = parse_answer_key_upload(file_bytes, specialty)
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"Could not parse file: {e}")
+
+    if not rows:
+        # Return debug info about the sheet structure so the caller can diagnose
+        try:
+            from openpyxl import load_workbook as _lw
+            import io as _io
+            _wb = _lw(_io.BytesIO(file_bytes), data_only=True)
+            sheet_names = _wb.sheetnames
+            first_ws = _wb.worksheets[0]
+            first_row = list(first_ws.iter_rows(min_row=1, max_row=1, values_only=True))
+            second_row = list(first_ws.iter_rows(min_row=2, max_row=2, values_only=True))
+            raise HTTPException(status_code=422, detail=(
+                f"No data rows found. Sheets in file: {sheet_names}. "
+                f"Sheet used: '{first_ws.title}'. "
+                f"Row 1 (headers): {first_row[0] if first_row else 'empty'}. "
+                f"Row 2 (first data): {second_row[0] if second_row else 'empty'}."
+            ))
+        except HTTPException:
+            raise
+        except Exception:
+            raise HTTPException(status_code=422, detail="No data rows found in the file.")
 
     stored, skipped, not_found = [], [], []
 
