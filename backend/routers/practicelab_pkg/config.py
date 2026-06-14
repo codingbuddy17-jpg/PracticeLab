@@ -6,7 +6,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from database import get_db
-from models import Chart, ChartStatus, Specialty, AnswerKey, ScoringConfig
+from models import Chart, ChartStatus, Specialty, AnswerKey, ScoringConfig, Batch, SelfPracticeSubmission
 from services.excel_service import (
     generate_answer_key_template, generate_coder_list_template,
     parse_answer_key_upload, parse_coder_list,
@@ -200,6 +200,37 @@ def delete_answer_key(
     db.delete(ak)
     db.commit()
     return {"message": "Answer key deleted"}
+
+
+class ResetPayload(BaseModel):
+    passphrase: str
+    confirm: str  # must equal "RESET_ALL_DATA"
+
+
+@router.post("/admin/reset-data")
+def reset_all_data(payload: ResetPayload, db: Session = Depends(get_db)):
+    """
+    Wipe all batches (cascades to grading results, feedback, allocations)
+    and all self-practice submissions. Charts, answer keys, scoring config
+    and the coder list are preserved.
+    """
+    if payload.passphrase != MASTER_PASSPHRASE:
+        raise HTTPException(status_code=403, detail="Invalid passphrase")
+    if payload.confirm != "RESET_ALL_DATA":
+        raise HTTPException(status_code=400, detail="confirm field must equal 'RESET_ALL_DATA'")
+
+    sp_count = db.query(SelfPracticeSubmission).count()
+    batch_count = db.query(Batch).count()
+
+    db.query(SelfPracticeSubmission).delete(synchronize_session=False)
+    db.query(Batch).delete(synchronize_session=False)
+    db.commit()
+
+    return {
+        "message": "Reset complete. Charts, answer keys, and scoring config are intact.",
+        "batches_deleted": batch_count,
+        "self_practice_submissions_deleted": sp_count,
+    }
 
 
 @router.get("/answer-key/status")
