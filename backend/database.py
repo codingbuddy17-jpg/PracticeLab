@@ -104,6 +104,13 @@ def _run_migrations():
     _add_col("grading_results", "dpo_poa_accuracy",  "FLOAT")
     _add_col("grading_results", "dpo_proc_accuracy", "FLOAT")
     _add_col("grading_results", "dpo_overall_accuracy", "FLOAT")
+    # Raw DPO counts for correct cumulative aggregation
+    _add_col("grading_results", "dpo_dx_correct",   "INTEGER")
+    _add_col("grading_results", "dpo_dx_total",     "INTEGER")
+    _add_col("grading_results", "dpo_poa_correct",  "INTEGER")
+    _add_col("grading_results", "dpo_poa_total",    "INTEGER")
+    _add_col("grading_results", "dpo_proc_correct", "INTEGER")
+    _add_col("grading_results", "dpo_proc_total",   "INTEGER")
 
     # ── batch_allocation_cycles (must exist before batch_charts FK ref) ───────
     _run("""CREATE TABLE IF NOT EXISTS batch_allocation_cycles (

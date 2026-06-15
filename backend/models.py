@@ -290,6 +290,13 @@ class GradingResult(Base):
     dpo_poa_accuracy = Column(Float, nullable=True)   # POA accuracy 0–100 (IP only)
     dpo_proc_accuracy = Column(Float, nullable=True)  # PCS or CPT accuracy 0–100
     dpo_overall_accuracy = Column(Float, nullable=True)
+    # Raw DPO counts for correct cumulative aggregation (sum, not avg-of-avgs)
+    dpo_dx_correct = Column(Integer, nullable=True)
+    dpo_dx_total = Column(Integer, nullable=True)
+    dpo_poa_correct = Column(Integer, nullable=True)
+    dpo_poa_total = Column(Integer, nullable=True)
+    dpo_proc_correct = Column(Integer, nullable=True)
+    dpo_proc_total = Column(Integer, nullable=True)
 
     batch = relationship("Batch", back_populates="results")
     submission = relationship("Submission", back_populates="result")

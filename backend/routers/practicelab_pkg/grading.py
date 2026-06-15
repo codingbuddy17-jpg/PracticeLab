@@ -236,6 +236,13 @@ def grade_submissions(
                     gr.dpo_poa_accuracy = dpo.poa.accuracy
                     gr.dpo_proc_accuracy = dpo.proc.accuracy
                     gr.dpo_overall_accuracy = dpo.overall_accuracy
+                    # Raw counts for correct cumulative aggregation
+                    gr.dpo_dx_correct = dpo.dx.opportunities - dpo.dx.defects
+                    gr.dpo_dx_total = dpo.dx.opportunities
+                    gr.dpo_poa_correct = dpo.poa.opportunities - dpo.poa.defects
+                    gr.dpo_poa_total = dpo.poa.opportunities
+                    gr.dpo_proc_correct = dpo.proc.opportunities - dpo.proc.defects
+                    gr.dpo_proc_total = dpo.proc.opportunities
 
                 db.add(gr)
                 db.flush()
@@ -350,12 +357,12 @@ def get_batch_results(batch_id: int, db: Session = Depends(get_db)):
             coder_map[name] = {
                 "coder_name": name, "chart_count": 0,
                 "pdx_sum": 0, "sdx_sum": 0, "pcs_sum": 0,
-                "cpt_sum": 0, "drg_sum": 0, "total_sum": 0,
+                "cpt_sum": 0, "drg_sum": 0, "total_sum": 0, "total_cnt": 0,
                 "pass_count": 0, "charts": [],
-                "dpo_dx_sum": 0, "dpo_dx_cnt": 0,
-                "dpo_poa_sum": 0, "dpo_poa_cnt": 0,
-                "dpo_proc_sum": 0, "dpo_proc_cnt": 0,
-                "dpo_overall_sum": 0, "dpo_overall_cnt": 0,
+                # Raw DPO counts for correct cumulative (sum not avg-of-avgs)
+                "dpo_dx_correct": 0, "dpo_dx_total": 0,
+                "dpo_poa_correct": 0, "dpo_poa_total": 0,
+                "dpo_proc_correct": 0, "dpo_proc_total": 0,
             }
         d = coder_map[name]
         d["chart_count"] += 1
@@ -364,18 +371,20 @@ def get_batch_results(batch_id: int, db: Session = Depends(get_db)):
         d["pcs_sum"] += r.pcs_score or 0
         d["cpt_sum"] += r.cpt_score or 0
         d["drg_sum"] += r.drg_score or 0
-        if r.total_score:
+        if r.total_score is not None:
             d["total_sum"] += r.total_score
-        if r.pass_fail == "PASS":
+            d["total_cnt"] += 1
+        if r.pass_fail and r.pass_fail.value == "PASS":
             d["pass_count"] += 1
-        if r.dpo_dx_accuracy is not None:
-            d["dpo_dx_sum"] += r.dpo_dx_accuracy; d["dpo_dx_cnt"] += 1
-        if r.dpo_poa_accuracy is not None:
-            d["dpo_poa_sum"] += r.dpo_poa_accuracy; d["dpo_poa_cnt"] += 1
-        if r.dpo_proc_accuracy is not None:
-            d["dpo_proc_sum"] += r.dpo_proc_accuracy; d["dpo_proc_cnt"] += 1
-        if r.dpo_overall_accuracy is not None:
-            d["dpo_overall_sum"] += r.dpo_overall_accuracy; d["dpo_overall_cnt"] += 1
+        if r.dpo_dx_total is not None:
+            d["dpo_dx_correct"] += r.dpo_dx_correct or 0
+            d["dpo_dx_total"] += r.dpo_dx_total
+        if r.dpo_poa_total is not None:
+            d["dpo_poa_correct"] += r.dpo_poa_correct or 0
+            d["dpo_poa_total"] += r.dpo_poa_total
+        if r.dpo_proc_total is not None:
+            d["dpo_proc_correct"] += r.dpo_proc_correct or 0
+            d["dpo_proc_total"] += r.dpo_proc_total
 
         d["charts"].append({
             "chart_number": r.chart.chart_number,
@@ -401,26 +410,47 @@ def get_batch_results(batch_id: int, db: Session = Depends(get_db)):
             ],
         })
 
-    def _avg(s, c): return round(s / c, 1) if c else None
+    def _dpo_acc(correct, total):
+        if not total:
+            return None
+        return round(correct / total * 100, 1)
 
     coder_summaries = []
     for d in coder_map.values():
         cnt = d["chart_count"] or 1
-        total_avg = round(d["total_sum"] / cnt, 1)
+        scored_cnt = d["total_cnt"] or 1
+        total_avg = round(d["total_sum"] / scored_cnt, 1)
+
+        # Cumulative DPO: sum raw counts then compute accuracy
+        dx_acc = _dpo_acc(d["dpo_dx_correct"], d["dpo_dx_total"])
+        poa_acc = _dpo_acc(d["dpo_poa_correct"], d["dpo_poa_total"])
+        proc_acc = _dpo_acc(d["dpo_proc_correct"], d["dpo_proc_total"])
+        total_opp = d["dpo_dx_total"] + d["dpo_poa_total"] + d["dpo_proc_total"]
+        total_correct = d["dpo_dx_correct"] + d["dpo_poa_correct"] + d["dpo_proc_correct"]
+        overall_acc = _dpo_acc(total_correct, total_opp)
+
         coder_summaries.append({
             "coder_name": d["coder_name"],
             "chart_count": cnt,
-            "avg_pdx": round(d["pdx_sum"] / cnt, 1),
-            "avg_sdx": round(d["sdx_sum"] / cnt, 1),
-            "avg_pcs": round(d["pcs_sum"] / cnt, 1) if is_ip else None,
-            "avg_cpt": round(d["cpt_sum"] / cnt, 1) if not is_ip else None,
-            "avg_drg": round(d["drg_sum"] / cnt, 1) if is_ip else None,
+            "charts_scored": d["total_cnt"],
+            "charts_passed": d["pass_count"],
             "avg_total": total_avg,
-            "pass_fail": "PASS" if d["pass_count"] > cnt / 2 else "FAIL",
-            "dpo_dx_accuracy": _avg(d["dpo_dx_sum"], d["dpo_dx_cnt"]),
-            "dpo_poa_accuracy": _avg(d["dpo_poa_sum"], d["dpo_poa_cnt"]),
-            "dpo_proc_accuracy": _avg(d["dpo_proc_sum"], d["dpo_proc_cnt"]),
-            "dpo_overall_accuracy": _avg(d["dpo_overall_sum"], d["dpo_overall_cnt"]),
+            "pass_fail": "PASS" if d["pass_count"] >= d["total_cnt"] / 2 else "FAIL",
+            # Cumulative DPO (correct methodology)
+            "cumulative_dpo": {
+                "dx_accuracy": dx_acc,
+                "poa_accuracy": poa_acc,
+                "proc_accuracy": proc_acc,
+                "overall_accuracy": overall_acc,
+                "dx_correct": d["dpo_dx_correct"], "dx_total": d["dpo_dx_total"],
+                "poa_correct": d["dpo_poa_correct"], "poa_total": d["dpo_poa_total"],
+                "proc_correct": d["dpo_proc_correct"], "proc_total": d["dpo_proc_total"],
+            } if d["dpo_dx_total"] or d["dpo_proc_total"] else None,
+            # Keep legacy per-chart DPO fields for existing chart-level display
+            "dpo_dx_accuracy": dx_acc,
+            "dpo_poa_accuracy": poa_acc,
+            "dpo_proc_accuracy": proc_acc,
+            "dpo_overall_accuracy": overall_acc,
             "charts": d["charts"],
         })
 

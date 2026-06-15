@@ -122,24 +122,72 @@ export function ResultsView({ batchId }: any) {
                 <span style={{ textAlign: 'center', fontWeight: 700, color: c.pass_fail === 'PASS' ? '#16a34a' : '#dc2626' }}>{c.pass_fail}</span>
               </div>
 
-              {/* Expanded: DPO panel + per-chart rows */}
+              {/* Expanded: cumulative panel + per-chart rows */}
               {isOpen && (
                 <div style={styles.chartDetail}>
-                  {use_dpo && c.dpo_overall_accuracy != null && (
-                    <div style={styles.dpoPanel}>
-                      <div style={styles.dpoPanelTitle}>
-                        <span style={styles.dpoSupBadge}>DPO Supplementary</span>
-                        Coding Accuracy Breakdown
+                  {/* Cumulative summary */}
+                  <div style={{ background: '#f8faff', border: '1px solid #e0e7ff', borderRadius: 10, padding: '14px 18px', marginBottom: 12 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#6366f1', textTransform: 'uppercase' as const, letterSpacing: 0.6, marginBottom: 10 }}>Cumulative — This Batch</div>
+                    <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' as const, alignItems: 'flex-start' }}>
+                      {/* Core stats */}
+                      <div style={{ display: 'flex', gap: 20 }}>
+                        <div style={{ textAlign: 'center' as const }}>
+                          <div style={{ fontSize: 22, fontWeight: 800, color: '#374151' }}>{c.charts_scored ?? c.chart_count}</div>
+                          <div style={{ fontSize: 10, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.4 }}>Charts Graded</div>
+                        </div>
+                        <div style={{ textAlign: 'center' as const }}>
+                          <div style={{ fontSize: 22, fontWeight: 800, color: scoreColor(c.avg_total) }}>{c.avg_total}%</div>
+                          <div style={{ fontSize: 10, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.4 }}>Weighted Accuracy</div>
+                        </div>
+                        <div style={{ textAlign: 'center' as const }}>
+                          <div style={{ fontSize: 22, fontWeight: 800, color: c.pass_fail === 'PASS' ? '#16a34a' : '#dc2626' }}>{c.charts_passed ?? 0}/{c.charts_scored ?? c.chart_count}</div>
+                          <div style={{ fontSize: 10, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.4 }}>Charts Passed</div>
+                        </div>
                       </div>
-                      <div style={styles.dpoPanelRow}>
-                        <AccBadge val={c.dpo_dx_accuracy} label="Dx Accuracy" />
-                        {is_ip && <AccBadge val={c.dpo_poa_accuracy} label="POA Accuracy" />}
-                        <AccBadge val={c.dpo_proc_accuracy} label={is_ip ? 'PCS Accuracy' : 'CPT Accuracy'} />
-                        <div style={styles.dpoDivider} />
-                        <AccBadge val={c.dpo_overall_accuracy} label="Overall Accuracy" />
-                      </div>
+                      {/* DPO cumulative */}
+                      {use_dpo && c.cumulative_dpo && (
+                        <>
+                          <div style={{ width: 1, background: '#e0e7ff', alignSelf: 'stretch' }} />
+                          <div>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: '#6366f1', textTransform: 'uppercase' as const, letterSpacing: 0.5, marginBottom: 8 }}>DPO Cumulative <span style={{ fontWeight: 400, color: '#9ca3af' }}>(total correct / total opportunities)</span></div>
+                            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' as const }}>
+                              {c.cumulative_dpo.dx_total > 0 && (
+                                <div style={{ textAlign: 'center' as const }}>
+                                  <div style={{ fontSize: 18, fontWeight: 800, color: scoreColor(c.cumulative_dpo.dx_accuracy) }}>{c.cumulative_dpo.dx_accuracy}%</div>
+                                  <div style={{ fontSize: 10, color: '#6b7280' }}>{c.cumulative_dpo.dx_correct}/{c.cumulative_dpo.dx_total}</div>
+                                  <div style={{ fontSize: 10, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.4 }}>Dx</div>
+                                </div>
+                              )}
+                              {is_ip && c.cumulative_dpo.poa_total > 0 && (
+                                <div style={{ textAlign: 'center' as const }}>
+                                  <div style={{ fontSize: 18, fontWeight: 800, color: scoreColor(c.cumulative_dpo.poa_accuracy) }}>{c.cumulative_dpo.poa_accuracy}%</div>
+                                  <div style={{ fontSize: 10, color: '#6b7280' }}>{c.cumulative_dpo.poa_correct}/{c.cumulative_dpo.poa_total}</div>
+                                  <div style={{ fontSize: 10, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.4 }}>POA</div>
+                                </div>
+                              )}
+                              {c.cumulative_dpo.proc_total > 0 && (
+                                <div style={{ textAlign: 'center' as const }}>
+                                  <div style={{ fontSize: 18, fontWeight: 800, color: scoreColor(c.cumulative_dpo.proc_accuracy) }}>{c.cumulative_dpo.proc_accuracy}%</div>
+                                  <div style={{ fontSize: 10, color: '#6b7280' }}>{c.cumulative_dpo.proc_correct}/{c.cumulative_dpo.proc_total}</div>
+                                  <div style={{ fontSize: 10, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.4 }}>{is_ip ? 'PCS' : 'CPT'}</div>
+                                </div>
+                              )}
+                              {c.cumulative_dpo.overall_accuracy != null && (
+                                <>
+                                  <div style={{ width: 1, background: '#e0e7ff' }} />
+                                  <div style={{ textAlign: 'center' as const }}>
+                                    <div style={{ fontSize: 18, fontWeight: 800, color: scoreColor(c.cumulative_dpo.overall_accuracy) }}>{c.cumulative_dpo.overall_accuracy}%</div>
+                                    <div style={{ fontSize: 10, color: '#6b7280' }}>{c.cumulative_dpo.dx_correct + c.cumulative_dpo.poa_correct + c.cumulative_dpo.proc_correct}/{c.cumulative_dpo.dx_total + c.cumulative_dpo.poa_total + c.cumulative_dpo.proc_total}</div>
+                                    <div style={{ fontSize: 10, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.4 }}>Overall DPO</div>
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        </>
+                      )}
                     </div>
-                  )}
+                  </div>
 
                   {/* Per-chart header */}
                   <div style={{ display: 'grid', gridTemplateColumns: '100px 1fr 100px 70px', gap: 8, padding: '6px 12px', fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid #f0f0f0' }}>
