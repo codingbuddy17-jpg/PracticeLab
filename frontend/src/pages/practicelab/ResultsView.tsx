@@ -149,26 +149,23 @@ export function ResultsView({ batchId }: any) {
                         <>
                           <div style={{ width: 1, background: '#e0e7ff', alignSelf: 'stretch' }} />
                           <div>
-                            <div style={{ fontSize: 10, fontWeight: 700, color: '#6366f1', textTransform: 'uppercase' as const, letterSpacing: 0.5, marginBottom: 8 }}>DPO Cumulative <span style={{ fontWeight: 400, color: '#9ca3af' }}>(total correct / total opportunities)</span></div>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: '#6366f1', textTransform: 'uppercase' as const, letterSpacing: 0.5, marginBottom: 8 }}>DPO Cumulative</div>
                             <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' as const }}>
                               {c.cumulative_dpo.dx_total > 0 && (
                                 <div style={{ textAlign: 'center' as const }}>
                                   <div style={{ fontSize: 18, fontWeight: 800, color: scoreColor(c.cumulative_dpo.dx_accuracy) }}>{c.cumulative_dpo.dx_accuracy}%</div>
-                                  <div style={{ fontSize: 10, color: '#6b7280' }}>{c.cumulative_dpo.dx_correct}/{c.cumulative_dpo.dx_total}</div>
                                   <div style={{ fontSize: 10, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.4 }}>Dx</div>
                                 </div>
                               )}
                               {is_ip && c.cumulative_dpo.poa_total > 0 && (
                                 <div style={{ textAlign: 'center' as const }}>
                                   <div style={{ fontSize: 18, fontWeight: 800, color: scoreColor(c.cumulative_dpo.poa_accuracy) }}>{c.cumulative_dpo.poa_accuracy}%</div>
-                                  <div style={{ fontSize: 10, color: '#6b7280' }}>{c.cumulative_dpo.poa_correct}/{c.cumulative_dpo.poa_total}</div>
                                   <div style={{ fontSize: 10, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.4 }}>POA</div>
                                 </div>
                               )}
                               {c.cumulative_dpo.proc_total > 0 && (
                                 <div style={{ textAlign: 'center' as const }}>
                                   <div style={{ fontSize: 18, fontWeight: 800, color: scoreColor(c.cumulative_dpo.proc_accuracy) }}>{c.cumulative_dpo.proc_accuracy}%</div>
-                                  <div style={{ fontSize: 10, color: '#6b7280' }}>{c.cumulative_dpo.proc_correct}/{c.cumulative_dpo.proc_total}</div>
                                   <div style={{ fontSize: 10, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.4 }}>{is_ip ? 'PCS' : 'CPT'}</div>
                                 </div>
                               )}
@@ -177,7 +174,6 @@ export function ResultsView({ batchId }: any) {
                                   <div style={{ width: 1, background: '#e0e7ff' }} />
                                   <div style={{ textAlign: 'center' as const }}>
                                     <div style={{ fontSize: 18, fontWeight: 800, color: scoreColor(c.cumulative_dpo.overall_accuracy) }}>{c.cumulative_dpo.overall_accuracy}%</div>
-                                    <div style={{ fontSize: 10, color: '#6b7280' }}>{c.cumulative_dpo.dx_correct + c.cumulative_dpo.poa_correct + c.cumulative_dpo.proc_correct}/{c.cumulative_dpo.dx_total + c.cumulative_dpo.poa_total + c.cumulative_dpo.proc_total}</div>
                                     <div style={{ fontSize: 10, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.4 }}>Overall DPO</div>
                                   </div>
                                 </>
