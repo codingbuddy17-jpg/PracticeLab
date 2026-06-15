@@ -99,7 +99,7 @@ export function AnswerKeysView() {
       </div>
       <p style={styles.helpText}>
         Answer keys are stored permanently per chart and reused across all batches automatically.
-        You can upload answer keys before or after uploading charts — both are independent processes.
+        Charts must be uploaded first — answer keys are linked by system-assigned chart numbers.
         Deleting a key requires the master passphrase and allows re-uploading a corrected version.
       </p>
 
@@ -142,11 +142,11 @@ export function AnswerKeysView() {
           <AlertTriangle size={18} color="#d97706" style={{ flexShrink: 0, marginTop: 1 }} />
           <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 700, fontSize: 13, color: '#92400e', marginBottom: 4 }}>
-              {pendingCharts.length} answer key{pendingCharts.length !== 1 ? 's' : ''} could not be saved — chart{pendingCharts.length !== 1 ? 's' : ''} not uploaded yet
+              {pendingCharts.length} answer key{pendingCharts.length !== 1 ? 's' : ''} not saved — chart numbers not found in the chart bank
             </div>
             <div style={{ fontSize: 12, color: '#78350f', lineHeight: 1.6, marginBottom: 8 }}>
-              These chart numbers were in your answer key file but don't exist in the chart bank yet.
-              Once you upload the matching charts, re-upload this answer key file and the keys will be saved automatically.
+              Answer keys must be uploaded after their charts. Upload the charts first (the system assigns their chart numbers),
+              then return here and upload this answer key file again using the correct system-assigned chart numbers.
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 6 }}>
               {pendingCharts.map(cn => (
