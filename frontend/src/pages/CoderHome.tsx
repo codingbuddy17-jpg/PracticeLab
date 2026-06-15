@@ -210,6 +210,25 @@ export function CoderHome() {
           </div>
         )}
 
+        {/* Coding Resources — compact strip when search is active */}
+        {resources.length > 0 && hasSearched && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' as const }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase' as const, letterSpacing: 0.5, whiteSpace: 'nowrap' as const, display: 'flex', alignItems: 'center', gap: 5 }}>
+              <BookOpen size={12} color="#9ca3af" /> Resources
+            </span>
+            {resources.map((r, i) => {
+              const STRIP_COLORS = ['#7c3aed','#2563eb','#16a34a','#d97706','#db2777','#0891b2']
+              const c = STRIP_COLORS[i % STRIP_COLORS.length]
+              return (
+                <a key={r.id} href={r.url} target="_blank" rel="noopener noreferrer"
+                  style={{ fontSize: 12, fontWeight: 600, color: c, background: '#fff', border: `1px solid ${c}22`, borderRadius: 20, padding: '3px 12px', textDecoration: 'none', whiteSpace: 'nowrap' as const, display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <ExternalLink size={11} /> {r.title}
+                </a>
+              )
+            })}
+          </div>
+        )}
+
         {/* Results */}
         <div style={styles.resultsSection}>
           {!hasSearched ? (
@@ -269,8 +288,8 @@ export function CoderHome() {
           )}
         </div>
 
-        {/* Coding Resources */}
-        {resources.length > 0 && (() => {
+        {/* Coding Resources — full cards when no search active */}
+        {resources.length > 0 && !hasSearched && (() => {
           const PALETTE = [
             { bg: '#ede9fe', border: '#c4b5fd', icon: '#7c3aed', hover: '#ddd6fe' },
             { bg: '#dbeafe', border: '#93c5fd', icon: '#2563eb', hover: '#bfdbfe' },
