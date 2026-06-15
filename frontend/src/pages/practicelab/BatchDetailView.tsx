@@ -514,7 +514,7 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
 
       <div style={styles.sectionHeader}>
         <span style={{ fontSize: 14, fontWeight: 700, color: '#374151' }}>Coders ({batch.coders?.length || 0})</span>
-        {batch.status === 'open' && (
+        {batch.status === 'Open' && (
           <button style={{ ...styles.outlineBtn, fontSize: 12, padding: '4px 10px' }} onClick={() => { setShowAddCoder(p => !p); setNewCoders([{ name: '', emp_id: '' }]) }}>
             {showAddCoder ? 'Cancel' : '+ Add Coder'}
           </button>
