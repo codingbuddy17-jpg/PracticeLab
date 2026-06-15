@@ -61,11 +61,11 @@ def export_report(
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Charts"
-    ws.append(["Chart Number", "Specialty", "Category", "Difficulty", "Status", "Uploaded By", "Upload Date", "View Count"])
+    ws.append(["Chart Number", "Alias", "Specialty", "Category", "Difficulty", "Status", "Uploaded By", "Upload Date", "View Count"])
 
     for c in charts:
         ws.append([
-            c.chart_number, c.specialty.value, c.category, c.difficulty.value,
+            c.chart_number, c.alias or "", c.specialty.value, c.category, c.difficulty.value,
             c.status.value, c.uploaded_by,
             c.created_at.strftime("%Y-%m-%d %H:%M") if c.created_at else "",
             c.view_count,
@@ -123,7 +123,8 @@ def _apply_filters(query, specialty, category, difficulty, status, uploaded_by, 
 
 def _chart_row(c: Chart) -> dict:
     return {
-        "id": c.id, "chart_number": c.chart_number, "specialty": c.specialty.value,
+        "id": c.id, "chart_number": c.chart_number, "alias": c.alias,
+        "specialty": c.specialty.value,
         "category": c.category, "difficulty": c.difficulty.value, "status": c.status.value,
         "uploaded_by": c.uploaded_by,
         "created_at": c.created_at.isoformat() if c.created_at else None,

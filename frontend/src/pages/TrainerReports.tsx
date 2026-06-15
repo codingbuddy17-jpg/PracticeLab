@@ -72,7 +72,7 @@ export function TrainerReports() {
         <div style={styles.tableWrap}>
           <table style={styles.table}>
             <thead>
-              <tr>{['Chart #', 'Specialty', 'Category', 'Difficulty', 'Status', 'Uploaded By', 'Date', 'Views'].map(h => (
+              <tr>{['Chart #', 'Alias', 'Specialty', 'Category', 'Difficulty', 'Status', 'Uploaded By', 'Date', 'Views'].map(h => (
                 <th key={h} style={styles.th}>{h}</th>
               ))}</tr>
             </thead>
@@ -80,6 +80,7 @@ export function TrainerReports() {
               {results.map((r: any) => (
                 <tr key={r.id} style={styles.tr}>
                   <td style={styles.td}><strong>{r.chart_number}</strong></td>
+                  <td style={styles.td}>{r.alias || <span style={{ color: '#d1d5db' }}>—</span>}</td>
                   <td style={styles.td}>{r.specialty}</td>
                   <td style={styles.td}>{r.category}</td>
                   <td style={styles.td}>{r.difficulty}</td>
