@@ -280,7 +280,7 @@ export function CoderHome() {
             { bg: '#cffafe', border: '#67e8f9', icon: '#0891b2', hover: '#a5f3fc' },
           ]
           return (
-            <div style={{ marginTop: 40 }}>
+            <div style={{ marginTop: 16 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
                 <div style={{ flex: 1, height: 1, background: '#e5e7eb' }} />
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
