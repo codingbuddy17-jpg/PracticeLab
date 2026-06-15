@@ -125,15 +125,24 @@ export function downloadAnswerKeyTemplate(specialty: string) {
   window.open(`${import.meta.env.VITE_API_URL || '/api'}/practicelab/answer-key/template?specialty=${specialty}`)
 }
 
-export async function uploadAnswerKeys(file: File, specialty: string, enteredBy: string) {
+export async function uploadAnswerKeys(file: File, specialty: string, enteredBy: string, replace = false, passphrase = '') {
   const form = new FormData()
   form.append('file', file)
   form.append('specialty', specialty)
   form.append('entered_by', enteredBy)
+  form.append('replace', String(replace))
+  form.append('passphrase', passphrase)
   const { data } = await api.post('/practicelab/answer-key/upload', form, {
     headers: { 'Content-Type': 'multipart/form-data' },
   })
-  return data as { stored: string[]; skipped_duplicates: string[]; not_found: string[] }
+  return data as { stored: string[]; replaced: string[]; skipped_duplicates: string[]; not_found: string[] }
+}
+
+export function downloadAnswerKeyExport(passphrase: string, specialty?: string) {
+  const base = import.meta.env.VITE_API_URL || '/api'
+  const params = new URLSearchParams({ passphrase })
+  if (specialty) params.set('specialty', specialty)
+  window.open(`${base}/practicelab/answer-key/export?${params}`)
 }
 
 export async function deleteAnswerKey(chartId: number, passphrase: string) {

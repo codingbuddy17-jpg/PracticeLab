@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
-import { Download, Upload, Loader, Trash2, X, AlertTriangle } from 'lucide-react'
+import { Download, Upload, Loader, Trash2, X, AlertTriangle, RefreshCw } from 'lucide-react'
 import toast from 'react-hot-toast'
 import {
   getAnswerKeyStatus, getAnswerKeyList, getChartsMissingKeys,
   downloadAnswerKeyTemplate, uploadAnswerKeys, deleteAnswerKey, purgeChart,
+  downloadAnswerKeyExport,
 } from '../../api'
 import { trainerName, SPECIALTIES } from './shared'
 import styles from './styles'
@@ -33,7 +34,11 @@ export function AnswerKeysView() {
   const [passphrase, setPassphrase] = useState('')
   const [acting, setActing] = useState(false)
   const [pendingCharts, setPendingCharts] = useState<string[]>([])
+  const [replaceMode, setReplaceMode] = useState(false)
+  const [exportPassphrase, setExportPassphrase] = useState('')
+  const [showExportPrompt, setShowExportPrompt] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+  const replaceRef = useRef<HTMLInputElement>(null)
   const ppRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { loadAll() }, [specialty])
@@ -46,23 +51,33 @@ export function AnswerKeysView() {
     finally { setListLoading(false) }
   }
 
-  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>, pp?: string) {
     const file = e.target.files?.[0]
     if (!file) return
     setUploading(true)
     try {
       const isIP = specialty === 'IP-DRG'
-      const res = await uploadAnswerKeys(file, isIP ? 'IP' : 'OP', trainerName())
-      if (res.stored.length) toast.success(`Stored ${res.stored.length} key${res.stored.length !== 1 ? 's' : ''}`)
-      if (res.skipped_duplicates.length) toast(`Already exist (skipped): ${res.skipped_duplicates.join(', ')}`, { icon: '⚠️' })
+      const res = await uploadAnswerKeys(file, isIP ? 'IP' : 'OP', trainerName(), replaceMode, pp || '')
+      if (res.stored.length) toast.success(`Saved ${res.stored.length} new key${res.stored.length !== 1 ? 's' : ''}`)
+      if (res.replaced?.length) toast.success(`Replaced ${res.replaced.length} existing key${res.replaced.length !== 1 ? 's' : ''}`)
+      if (res.skipped_duplicates.length) toast(`Already exist, skipped ${res.skipped_duplicates.length} (use Replace mode to overwrite)`, { icon: 'ℹ️' })
       if (res.not_found.length) setPendingCharts(res.not_found)
+      setReplaceMode(false)
       loadAll()
     } catch (err: any) {
       toast.error(err?.response?.data?.detail || 'Upload failed')
     } finally {
       setUploading(false)
       if (fileRef.current) fileRef.current.value = ''
+      if (replaceRef.current) replaceRef.current.value = ''
     }
+  }
+
+  function handleExport() {
+    if (!exportPassphrase.trim()) { toast.error('Enter the master passphrase'); return }
+    downloadAnswerKeyExport(exportPassphrase.trim(), specialty !== 'All' ? specialty : undefined)
+    setShowExportPrompt(false)
+    setExportPassphrase('')
   }
 
   function openDialog(mode: PassphraseDialog['mode'], chartId: number, chartNumber: string) {
@@ -111,13 +126,56 @@ export function AnswerKeysView() {
           </select>
         </div>
         <button style={styles.outlineBtn} onClick={() => downloadAnswerKeyTemplate(isIP ? 'IP' : 'OP')}>
-          <Download size={15} /> Download Blank Template ({isIP ? 'IP' : 'OP'})
+          <Download size={15} /> Blank Template
         </button>
-        <label style={uploading ? { ...styles.primaryBtn, opacity: 0.6 } : styles.primaryBtn}>
-          {uploading ? <><Loader size={14} /> Uploading...</> : <><Upload size={15} /> Upload Filled Key</>}
-          <input ref={fileRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={handleUpload} disabled={uploading} />
-        </label>
+        <button style={{ ...styles.outlineBtn, color: '#16a34a', borderColor: '#86efac' }} onClick={() => setShowExportPrompt(s => !s)}>
+          <Download size={15} /> Export All Keys
+        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <label style={{ ...uploading ? { ...styles.primaryBtn, opacity: 0.6 } : styles.primaryBtn, background: replaceMode ? '#dc2626' : undefined, borderColor: replaceMode ? '#dc2626' : undefined }}>
+            {uploading ? <><Loader size={14} /> Uploading...</> : replaceMode ? <><RefreshCw size={15} /> Upload & Replace</> : <><Upload size={15} /> Upload Keys</>}
+            <input ref={fileRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={e => handleUpload(e, replaceRef.current?.value || '')} disabled={uploading} />
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#6b7280', cursor: 'pointer', userSelect: 'none' as const }}>
+            <input type="checkbox" checked={replaceMode} onChange={e => setReplaceMode(e.target.checked)} />
+            Replace existing
+          </label>
+        </div>
       </div>
+
+      {/* Replace mode passphrase prompt */}
+      {replaceMode && (
+        <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 8, padding: '10px 14px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' as const }}>
+          <AlertTriangle size={15} color="#d97706" />
+          <span style={{ fontSize: 12, color: '#92400e', fontWeight: 600 }}>Replace mode: existing keys will be overwritten. Enter master passphrase to unlock:</span>
+          <input
+            ref={replaceRef}
+            type="password"
+            placeholder="Master passphrase"
+            style={{ ...styles.input, width: 200, fontSize: 12, margin: 0 }}
+            onKeyDown={e => { if (e.key === 'Enter' && fileRef.current) fileRef.current.click() }}
+          />
+          <span style={{ fontSize: 11, color: '#9ca3af' }}>Then choose your file above</span>
+        </div>
+      )}
+
+      {/* Export passphrase prompt */}
+      {showExportPrompt && (
+        <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 8, padding: '10px 14px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' as const }}>
+          <span style={{ fontSize: 12, color: '#166534', fontWeight: 600 }}>Master passphrase required to export:</span>
+          <input
+            type="password"
+            placeholder="Enter passphrase"
+            style={{ ...styles.input, width: 200, fontSize: 12, margin: 0 }}
+            value={exportPassphrase}
+            onChange={e => setExportPassphrase(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handleExport()}
+            autoFocus
+          />
+          <button style={styles.primaryBtn} onClick={handleExport}><Download size={14} /> Download</button>
+          <button style={styles.outlineBtn} onClick={() => { setShowExportPrompt(false); setExportPassphrase('') }}>Cancel</button>
+        </div>
+      )}
 
       {status && (
         <div style={{ ...styles.statsRow, marginBottom: 20 }}>

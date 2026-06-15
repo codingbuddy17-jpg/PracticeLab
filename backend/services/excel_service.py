@@ -224,6 +224,75 @@ def generate_answer_key_template(specialty: str) -> bytes:
     return buf.getvalue()
 
 
+# ── Consolidated answer key export ───────────────────────────────────────────
+
+def export_all_answer_keys(answer_keys: list) -> bytes:
+    """
+    Export all stored answer keys as a filled Excel workbook.
+    answer_keys: list of (AnswerKey, Chart) tuples from DB query.
+    Produces one sheet per specialty group, same column layout as the upload template.
+    """
+    wb = Workbook()
+    wb.remove(wb.active)
+
+    # Group by specialty type (IP vs OP)
+    ip_rows = [(ak, ch) for ak, ch in answer_keys if ch.specialty.value == "IP-DRG"]
+    op_rows = [(ak, ch) for ak, ch in answer_keys if ch.specialty.value != "IP-DRG"]
+
+    def _fill_sheet(ws, rows, is_ip):
+        if is_ip:
+            _build_ip_ak_headers(ws)
+        else:
+            _build_op_ak_headers(ws)
+        ws.column_dimensions["A"].width = 16
+        ws.column_dimensions["B"].width = 14
+        ws.column_dimensions["C"].width = 14
+
+        for row_num, (ak, ch) in enumerate(sorted(rows, key=lambda x: x[1].chart_number), start=2):
+            col = 1
+            if is_ip:
+                _input_cell(ws, col, row_num, ch.chart_number); col += 1
+                _input_cell(ws, col, row_num, ak.pdx_code or ""); col += 1
+                _input_cell(ws, col, row_num, ak.pdx_poa or ""); col += 1
+                sdx_list = ak.sdx or []
+                for i in range(IP_SDX_COUNT):
+                    entry = sdx_list[i] if i < len(sdx_list) else {}
+                    _input_cell(ws, col, row_num, entry.get("code", "")); col += 1
+                    _input_cell(ws, col, row_num, entry.get("poa", "")); col += 1
+                    _input_cell(ws, col, row_num, entry.get("ccmcc", "")); col += 1
+                pcs_list = ak.pcs or []
+                for i in range(IP_PCS_COUNT):
+                    entry = pcs_list[i] if i < len(pcs_list) else {}
+                    _input_cell(ws, col, row_num, entry.get("code", "")); col += 1
+            else:
+                _input_cell(ws, col, row_num, ch.chart_number); col += 1
+                _input_cell(ws, col, row_num, ak.pdx_code or ""); col += 1
+                sdx_list = ak.sdx or []
+                for i in range(OP_SDX_COUNT):
+                    entry = sdx_list[i] if i < len(sdx_list) else {}
+                    _input_cell(ws, col, row_num, entry.get("code", "")); col += 1
+                cpt_list = ak.cpt or []
+                for i in range(OP_CPT_COUNT):
+                    entry = cpt_list[i] if i < len(cpt_list) else {}
+                    _input_cell(ws, col, row_num, entry.get("code", "")); col += 1
+                    _input_cell(ws, col, row_num, entry.get("modifier", "")); col += 1
+
+    if ip_rows:
+        ws_ip = wb.create_sheet("IP-DRG")
+        _fill_sheet(ws_ip, ip_rows, is_ip=True)
+    if op_rows:
+        ws_op = wb.create_sheet("OP")
+        _fill_sheet(ws_op, op_rows, is_ip=False)
+
+    if not wb.sheetnames:
+        ws = wb.create_sheet("No Data")
+        ws.cell(1, 1, "No answer keys found.")
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
 # ── Coder answer sheet ────────────────────────────────────────────────────────
 
 def generate_coder_sheet(

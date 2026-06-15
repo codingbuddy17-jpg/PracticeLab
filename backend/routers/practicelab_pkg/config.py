@@ -9,7 +9,7 @@ from database import get_db
 from models import Chart, ChartStatus, Specialty, AnswerKey, ScoringConfig, Batch, SelfPracticeSubmission
 from services.excel_service import (
     generate_answer_key_template, generate_coder_list_template,
-    parse_answer_key_upload, parse_coder_list,
+    parse_answer_key_upload, parse_coder_list, export_all_answer_keys,
 )
 from .shared import MASTER_PASSPHRASE
 
@@ -159,15 +159,20 @@ def upload_answer_keys(
     file: UploadFile = File(...),
     specialty: str = Form(...),
     entered_by: str = Form(...),
+    replace: bool = Form(False),
+    passphrase: str = Form(""),
     db: Session = Depends(get_db),
 ):
+    if replace and passphrase != MASTER_PASSPHRASE:
+        raise HTTPException(status_code=403, detail="Invalid passphrase for replace mode")
+
     file_bytes = file.file.read()
     try:
         rows = parse_answer_key_upload(file_bytes, specialty)
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Could not parse file: {e}")
 
-    stored, skipped, not_found = [], [], []
+    stored, replaced, skipped, not_found = [], [], [], []
 
     for row in rows:
         chart_num = row["chart_number"]
@@ -178,7 +183,16 @@ def upload_answer_keys(
 
         existing = db.query(AnswerKey).filter(AnswerKey.chart_id == chart.id).first()
         if existing:
-            skipped.append(chart_num)
+            if replace:
+                existing.pdx_code = row.get("pdx_code", "")
+                existing.pdx_poa = row.get("pdx_poa", "")
+                existing.sdx = row.get("sdx", [])
+                existing.pcs = row.get("pcs", [])
+                existing.cpt = row.get("cpt", [])
+                existing.entered_by = entered_by
+                replaced.append(chart_num)
+            else:
+                skipped.append(chart_num)
             continue
 
         ak = AnswerKey(
@@ -195,7 +209,28 @@ def upload_answer_keys(
         stored.append(chart_num)
 
     db.commit()
-    return {"stored": stored, "skipped_duplicates": skipped, "not_found": not_found}
+    return {"stored": stored, "replaced": replaced, "skipped_duplicates": skipped, "not_found": not_found}
+
+
+@router.get("/answer-key/export")
+def export_answer_keys(
+    passphrase: str = Query(...),
+    specialty: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    if passphrase != MASTER_PASSPHRASE:
+        raise HTTPException(status_code=403, detail="Invalid passphrase")
+    q = db.query(AnswerKey, Chart).join(Chart, Chart.id == AnswerKey.chart_id)
+    spec = _parse_chart_specialty(specialty)
+    if spec:
+        q = q.filter(Chart.specialty == spec)
+    rows = q.order_by(Chart.chart_number).all()
+    data = export_all_answer_keys(rows)
+    return StreamingResponse(
+        io.BytesIO(data),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=answer_keys_export.xlsx"},
+    )
 
 
 @router.delete("/answer-key/{chart_id}")
