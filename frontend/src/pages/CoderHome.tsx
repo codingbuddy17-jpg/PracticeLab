@@ -279,10 +279,16 @@ export function CoderHome() {
                   )
                 })}
               </div>
-              {total > page * 20 && (
+              {page < 3 && total > page * 20 && (
                 <button style={styles.loadMoreBtn} onClick={() => doSearch(page + 1)}>
-                  Load more charts
+                  Load more — {Math.min(total - page * 20, 20)} more of {total - page * 20} remaining
                 </button>
+              )}
+              {(page >= 3 && total > 60) && (
+                <div style={{ textAlign: 'center' as const, padding: '18px 16px', background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 10, margin: '16px 0', fontSize: 13, color: '#92400e' }}>
+                  <div style={{ fontWeight: 700, marginBottom: 4 }}>Showing 60 of {total} charts</div>
+                  <div style={{ color: '#b45309' }}>Add a chart number or category to narrow down your results.</div>
+                </div>
               )}
             </>
           )}
