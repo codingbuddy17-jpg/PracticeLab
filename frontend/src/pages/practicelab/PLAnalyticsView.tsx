@@ -49,6 +49,12 @@ export function PLAnalyticsView() {
   const [draftFilters, setDraftFilters] = useState<PLFilters>({})
   const [filters, setFilters] = useState<PLFilters>({})
   const [filterVersion, setFilterVersion] = useState(0)
+  const [matrixCoderSearch, setMatrixCoderSearch] = useState('')
+  const [matrixShowAll, setMatrixShowAll] = useState(false)
+  const [heatmapCoderSearch, setHeatmapCoderSearch] = useState('')
+  const [heatmapShowAll, setHeatmapShowAll] = useState(false)
+
+  const CODER_PAGE = 25
 
   const SPECIALTIES = ['IP-DRG', 'ED Facility', 'ED Profee', 'SDS', 'Edits', 'Denials', 'Ancillary', 'E/M']
   const activeFilterCount = Object.values(filters).filter(Boolean).length
@@ -604,13 +610,22 @@ export function PLAnalyticsView() {
                           </div>
                           <div>
                             <div style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' as const, letterSpacing: 0.4, marginBottom: 8 }}>Coders by performance</div>
-                            {catCoders.length === 0 ? <div style={{ fontSize: 12, color: '#9ca3af' }}>No coder data yet</div> : catCoders.map((c: any) => (
-                              <div key={c.coder_name} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #f3f4f6', fontSize: 12 }}>
-                                {coderLink(c.coder_name)}
-                                <span style={{ color: '#6b7280' }}>{c.attempt_count} charts</span>
-                                <span style={{ fontWeight: 700, color: c.avg_score >= 80 ? '#16a34a' : c.avg_score >= 60 ? '#d97706' : '#dc2626' }}>{c.avg_score}%</span>
-                              </div>
-                            ))}
+                            {catCoders.length === 0 ? <div style={{ fontSize: 12, color: '#9ca3af' }}>No coder data yet</div> : (
+                              <>
+                                {catCoders.slice(0, 10).map((c: any) => (
+                                  <div key={c.coder_name} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #f3f4f6', fontSize: 12 }}>
+                                    {coderLink(c.coder_name)}
+                                    <span style={{ color: '#6b7280' }}>{c.attempt_count} charts</span>
+                                    <span style={{ fontWeight: 700, color: c.avg_score >= 80 ? '#16a34a' : c.avg_score >= 60 ? '#d97706' : '#dc2626' }}>{c.avg_score}%</span>
+                                  </div>
+                                ))}
+                                {catCoders.length > 10 && (
+                                  <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>
+                                    + {catCoders.length - 10} more coders — use Coder Matrix for full view
+                                  </div>
+                                )}
+                              </>
+                            )}
                           </div>
                         </div>
                       )}
@@ -620,45 +635,78 @@ export function PLAnalyticsView() {
               </div>
 
               {categoryData.coder_category.length > 0 && (() => {
-                const coders = Array.from(new Set(categoryData.coder_category.map((r: any) => r.coder_name)))
+                const allCoders = Array.from(new Set(categoryData.coder_category.map((r: any) => r.coder_name))) as string[]
                 const cats = categoryData.team.map((r: any) => r.category)
                 const cellMap: Record<string, Record<string, any>> = {}
                 categoryData.coder_category.forEach((r: any) => {
                   if (!cellMap[r.coder_name]) cellMap[r.coder_name] = {}
                   cellMap[r.coder_name][r.category] = r
                 })
+                const filteredCoders = heatmapCoderSearch.trim()
+                  ? allCoders.filter(n => n.toLowerCase().includes(heatmapCoderSearch.toLowerCase()))
+                  : allCoders
+                const visibleCoders = heatmapShowAll ? filteredCoders : filteredCoders.slice(0, CODER_PAGE)
+                const hiddenCount = filteredCoders.length - visibleCoders.length
                 return (
-                  <div style={{ overflowX: 'auto' }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 10 }}>Coder × Category Heatmap</div>
-                    <table style={{ borderCollapse: 'collapse', fontSize: 12, minWidth: '100%' }}>
-                      <thead>
-                        <tr>
-                          <th style={{ textAlign: 'left', padding: '6px 10px', background: '#f9fafb', borderBottom: '1px solid #e5e7eb', whiteSpace: 'nowrap' }}>Coder</th>
-                          {cats.map((c: string) => (
-                            <th key={c} style={{ padding: '6px 8px', background: '#f9fafb', borderBottom: '1px solid #e5e7eb', whiteSpace: 'nowrap', textAlign: 'center', fontWeight: 600 }}>{c}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {coders.map((coder: string) => (
-                          <tr key={coder}>
-                            <td style={{ padding: '6px 10px', fontWeight: 600, borderBottom: '1px solid #f3f4f6', whiteSpace: 'nowrap' }}>{coderLink(coder)}</td>
-                            {cats.map((cat: string) => {
-                              const cell = cellMap[coder]?.[cat]
-                              const score = cell?.avg_score
-                              const bg = score == null ? '#f9fafb' : score >= 80 ? '#dcfce7' : score >= 60 ? '#fef3c7' : '#fee2e2'
-                              const color = score == null ? '#9ca3af' : score >= 80 ? '#166534' : score >= 60 ? '#92400e' : '#991b1b'
-                              return (
-                                <td key={cat} style={{ padding: '6px 8px', textAlign: 'center', background: bg, color, fontWeight: 700, borderBottom: '1px solid #f3f4f6', borderLeft: '1px solid #f3f4f6' }}>
-                                  {score != null ? `${score}%` : '—'}
-                                </td>
-                              )
-                            })}
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, flexWrap: 'wrap' as const, gap: 8 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: '#111' }}>Coder × Category Heatmap</div>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        {allCoders.length > CODER_PAGE && (
+                          <input
+                            placeholder={`Search coders (${allCoders.length} total)…`}
+                            value={heatmapCoderSearch}
+                            onChange={e => { setHeatmapCoderSearch(e.target.value); setHeatmapShowAll(false) }}
+                            style={{ padding: '5px 10px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 12, width: 200 }}
+                          />
+                        )}
+                        <span style={{ fontSize: 11, color: '#9ca3af' }}>Showing {visibleCoders.length} of {filteredCoders.length}</span>
+                      </div>
+                    </div>
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ borderCollapse: 'collapse', fontSize: 12, minWidth: '100%' }}>
+                        <thead>
+                          <tr>
+                            <th style={{ textAlign: 'left', padding: '6px 10px', background: '#f9fafb', borderBottom: '1px solid #e5e7eb', whiteSpace: 'nowrap' as const }}>Coder</th>
+                            {cats.map((c: string) => (
+                              <th key={c} style={{ padding: '6px 8px', background: '#f9fafb', borderBottom: '1px solid #e5e7eb', whiteSpace: 'nowrap' as const, textAlign: 'center', fontWeight: 600 }}>{c}</th>
+                            ))}
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                    <div style={{ fontSize: 11, color: '#6b7280', marginTop: 8 }}>Green ≥80% · Yellow 60–79% · Red &lt;60% · — no data</div>
+                        </thead>
+                        <tbody>
+                          {visibleCoders.map((coder: string, i: number) => (
+                            <tr key={coder} style={{ background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
+                              <td style={{ padding: '6px 10px', fontWeight: 600, borderBottom: '1px solid #f3f4f6', whiteSpace: 'nowrap' as const }}>{coderLink(coder)}</td>
+                              {cats.map((cat: string) => {
+                                const cell = cellMap[coder]?.[cat]
+                                const score = cell?.avg_score
+                                const bg = score == null ? 'transparent' : score >= 80 ? '#dcfce7' : score >= 60 ? '#fef3c7' : '#fee2e2'
+                                const color = score == null ? '#d1d5db' : score >= 80 ? '#166534' : score >= 60 ? '#92400e' : '#991b1b'
+                                return (
+                                  <td key={cat} style={{ padding: '6px 8px', textAlign: 'center', background: bg, color, fontWeight: 700, borderBottom: '1px solid #f3f4f6', borderLeft: '1px solid #f3f4f6' }}>
+                                    {score != null ? `${score}%` : '—'}
+                                  </td>
+                                )
+                              })}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    {hiddenCount > 0 && (
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 10 }}>
+                        <span style={{ fontSize: 12, color: '#6b7280' }}>{hiddenCount} more coder{hiddenCount !== 1 ? 's' : ''} not shown</span>
+                        <button onClick={() => setHeatmapShowAll(true)} style={{ fontSize: 12, color: '#4f46e5', background: 'none', border: '1px solid #e5e7eb', borderRadius: 6, padding: '4px 12px', cursor: 'pointer', fontWeight: 600 }}>
+                          Show all {filteredCoders.length}
+                        </button>
+                      </div>
+                    )}
+                    {heatmapShowAll && allCoders.length > CODER_PAGE && (
+                      <button onClick={() => setHeatmapShowAll(false)} style={{ marginTop: 8, fontSize: 12, color: '#6b7280', background: 'none', border: '1px solid #e5e7eb', borderRadius: 6, padding: '4px 12px', cursor: 'pointer' }}>
+                        Collapse to {CODER_PAGE}
+                      </button>
+                    )}
+                    <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 8 }}>Green ≥80% · Yellow 60–79% · Red &lt;60% · — no data</div>
                   </div>
                 )
               })()}
@@ -741,59 +789,96 @@ export function PLAnalyticsView() {
             <div style={styles.emptyState}>No closed batch results yet — close a batch to see the coder matrix.</div>
           ) : (
             <>
-              <div style={{ fontSize: 13, color: '#6b7280' }}>
-                Cross-batch performance grid — each cell shows the coder's avg score for that batch. Only closed batches are shown.
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' as const, gap: 8 }}>
+                <div style={{ fontSize: 13, color: '#6b7280' }}>
+                  Cross-batch performance grid — each cell shows the coder's avg score for that batch. Only closed batches are shown.
+                </div>
+                {matrixData.coders.length > CODER_PAGE && (
+                  <input
+                    placeholder={`Search coders (${matrixData.coders.length} total)…`}
+                    value={matrixCoderSearch}
+                    onChange={e => { setMatrixCoderSearch(e.target.value); setMatrixShowAll(false) }}
+                    style={{ padding: '5px 10px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 12, width: 220 }}
+                  />
+                )}
               </div>
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ borderCollapse: 'collapse', fontSize: 12, minWidth: '100%' }}>
-                  <thead>
-                    <tr>
-                      <th style={{ textAlign: 'left', padding: '7px 12px', background: '#f9fafb', borderBottom: '2px solid #e5e7eb', whiteSpace: 'nowrap', fontWeight: 700, color: '#374151' }}>Coder</th>
-                      {matrixData.batches.map((b: any) => (
-                        <th key={b.id} style={{ padding: '7px 10px', background: '#f9fafb', borderBottom: '2px solid #e5e7eb', whiteSpace: 'nowrap', textAlign: 'center', fontWeight: 600, color: '#374151', minWidth: 80 }}>
-                          <div>{b.name.length > 14 ? b.name.slice(0, 14) + '…' : b.name}</div>
-                          <div style={{ fontSize: 10, fontWeight: 400, color: '#9ca3af' }}>{b.closed_at ? new Date(b.closed_at).toLocaleDateString() : ''}</div>
-                        </th>
-                      ))}
-                      <th style={{ padding: '7px 10px', background: '#f1f5f9', borderBottom: '2px solid #e5e7eb', textAlign: 'center', fontWeight: 700, color: '#374151', minWidth: 70 }}>Overall</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {matrixData.coders.map((coder: string) => {
-                      const coderCells = matrixData.cells.filter((c: any) => c.coder_name === coder)
-                      const allScores = coderCells.filter((c: any) => c.avg_score != null).map((c: any) => c.avg_score)
-                      const overall = allScores.length ? Math.round(allScores.reduce((a: number, b: number) => a + b, 0) / allScores.length) : null
-                      const cellMap: Record<number, any> = {}
-                      coderCells.forEach((c: any) => { cellMap[c.batch_id] = c })
-                      return (
-                        <tr key={coder}>
-                          <td style={{ padding: '7px 12px', fontWeight: 600, borderBottom: '1px solid #f3f4f6', whiteSpace: 'nowrap' }}>{coderLink(coder)}</td>
-                          {matrixData.batches.map((b: any) => {
-                            const cell = cellMap[b.id]
-                            const score = cell?.avg_score
-                            const bg = score == null ? '#f9fafb' : score >= 80 ? '#dcfce7' : score >= 60 ? '#fef3c7' : '#fee2e2'
-                            const color = score == null ? '#9ca3af' : score >= 80 ? '#166534' : score >= 60 ? '#92400e' : '#991b1b'
+              {(() => {
+                const filteredCoders = matrixCoderSearch.trim()
+                  ? matrixData.coders.filter((n: string) => n.toLowerCase().includes(matrixCoderSearch.toLowerCase()))
+                  : matrixData.coders
+                const visibleCoders = matrixShowAll ? filteredCoders : filteredCoders.slice(0, CODER_PAGE)
+                const hiddenCount = filteredCoders.length - visibleCoders.length
+                return (
+                  <>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <span style={{ fontSize: 12, color: '#9ca3af' }}>Showing {visibleCoders.length} of {filteredCoders.length} coders</span>
+                    </div>
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ borderCollapse: 'collapse', fontSize: 12, minWidth: '100%' }}>
+                        <thead>
+                          <tr>
+                            <th style={{ textAlign: 'left', padding: '7px 12px', background: '#f9fafb', borderBottom: '2px solid #e5e7eb', whiteSpace: 'nowrap' as const, fontWeight: 700, color: '#374151' }}>Coder</th>
+                            {matrixData.batches.map((b: any) => (
+                              <th key={b.id} style={{ padding: '7px 10px', background: '#f9fafb', borderBottom: '2px solid #e5e7eb', whiteSpace: 'nowrap' as const, textAlign: 'center', fontWeight: 600, color: '#374151', minWidth: 80 }}>
+                                <div>{b.name.length > 14 ? b.name.slice(0, 14) + '…' : b.name}</div>
+                                <div style={{ fontSize: 10, fontWeight: 400, color: '#9ca3af' }}>{b.closed_at ? new Date(b.closed_at).toLocaleDateString() : ''}</div>
+                              </th>
+                            ))}
+                            <th style={{ padding: '7px 10px', background: '#f1f5f9', borderBottom: '2px solid #e5e7eb', textAlign: 'center', fontWeight: 700, color: '#374151', minWidth: 70 }}>Overall</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {visibleCoders.map((coder: string, i: number) => {
+                            const coderCells = matrixData.cells.filter((c: any) => c.coder_name === coder)
+                            const allScores = coderCells.filter((c: any) => c.avg_score != null).map((c: any) => c.avg_score)
+                            const overall = allScores.length ? Math.round(allScores.reduce((a: number, b: number) => a + b, 0) / allScores.length) : null
+                            const cellMap: Record<number, any> = {}
+                            coderCells.forEach((c: any) => { cellMap[c.batch_id] = c })
                             return (
-                              <td key={b.id} style={{ padding: '7px 10px', textAlign: 'center', background: bg, color, fontWeight: 700, borderBottom: '1px solid #f3f4f6', borderLeft: '1px solid #f3f4f6' }}>
-                                {score != null ? (
-                                  <div>
-                                    <div>{score}%</div>
-                                    {cell?.chart_count != null && <div style={{ fontSize: 10, fontWeight: 400, color: '#6b7280' }}>{cell.chart_count} charts</div>}
-                                  </div>
-                                ) : '—'}
-                              </td>
+                              <tr key={coder} style={{ background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
+                                <td style={{ padding: '7px 12px', fontWeight: 600, borderBottom: '1px solid #f3f4f6', whiteSpace: 'nowrap' as const }}>{coderLink(coder)}</td>
+                                {matrixData.batches.map((b: any) => {
+                                  const cell = cellMap[b.id]
+                                  const score = cell?.avg_score
+                                  const bg = score == null ? 'transparent' : score >= 80 ? '#dcfce7' : score >= 60 ? '#fef3c7' : '#fee2e2'
+                                  const color = score == null ? '#d1d5db' : score >= 80 ? '#166534' : score >= 60 ? '#92400e' : '#991b1b'
+                                  return (
+                                    <td key={b.id} style={{ padding: '7px 10px', textAlign: 'center', background: bg, color, fontWeight: 700, borderBottom: '1px solid #f3f4f6', borderLeft: '1px solid #f3f4f6' }}>
+                                      {score != null ? (
+                                        <div>
+                                          <div>{score}%</div>
+                                          {cell?.chart_count != null && <div style={{ fontSize: 10, fontWeight: 400, color: '#6b7280' }}>{cell.chart_count} charts</div>}
+                                        </div>
+                                      ) : '—'}
+                                    </td>
+                                  )
+                                })}
+                                <td style={{ padding: '7px 10px', textAlign: 'center', background: overall == null ? 'transparent' : overall >= 80 ? '#bbf7d0' : overall >= 60 ? '#fde68a' : '#fecaca', color: overall == null ? '#d1d5db' : overall >= 80 ? '#14532d' : overall >= 60 ? '#78350f' : '#7f1d1d', fontWeight: 800, borderBottom: '1px solid #f3f4f6', borderLeft: '2px solid #e5e7eb' }}>
+                                  {overall != null ? `${overall}%` : '—'}
+                                </td>
+                              </tr>
                             )
                           })}
-                          <td style={{ padding: '7px 10px', textAlign: 'center', background: overall == null ? '#f9fafb' : overall >= 80 ? '#bbf7d0' : overall >= 60 ? '#fde68a' : '#fecaca', color: overall == null ? '#9ca3af' : overall >= 80 ? '#14532d' : overall >= 60 ? '#78350f' : '#7f1d1d', fontWeight: 800, borderBottom: '1px solid #f3f4f6', borderLeft: '2px solid #e5e7eb' }}>
-                            {overall != null ? `${overall}%` : '—'}
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-              <div style={{ fontSize: 11, color: '#6b7280' }}>Green ≥80% · Yellow 60–79% · Red &lt;60%</div>
+                        </tbody>
+                      </table>
+                    </div>
+                    {hiddenCount > 0 && (
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span style={{ fontSize: 12, color: '#6b7280' }}>{hiddenCount} more coder{hiddenCount !== 1 ? 's' : ''} not shown</span>
+                        <button onClick={() => setMatrixShowAll(true)} style={{ fontSize: 12, color: '#4f46e5', background: 'none', border: '1px solid #e5e7eb', borderRadius: 6, padding: '4px 12px', cursor: 'pointer', fontWeight: 600 }}>
+                          Show all {filteredCoders.length}
+                        </button>
+                      </div>
+                    )}
+                    {matrixShowAll && matrixData.coders.length > CODER_PAGE && (
+                      <button onClick={() => setMatrixShowAll(false)} style={{ fontSize: 12, color: '#6b7280', background: 'none', border: '1px solid #e5e7eb', borderRadius: 6, padding: '4px 12px', cursor: 'pointer' }}>
+                        Collapse to {CODER_PAGE}
+                      </button>
+                    )}
+                    <div style={{ fontSize: 11, color: '#9ca3af' }}>Green ≥80% · Yellow 60–79% · Red &lt;60%</div>
+                  </>
+                )
+              })()}
             </>
           )}
         </div>
