@@ -7,7 +7,7 @@ import {
 } from 'recharts'
 import {
   getPLAnalyticsOverview, getPLAnalyticsBySpecialty, getPLAnalyticsByChart,
-  getPLAnalyticsByBatch, getCoderTrend,
+  getPLAnalyticsByBatch, getCoderTrend, getCoderSummary,
   getPLAnalyticsByCategory, getPLChartTeachingValue, getPLCoderMatrix, getPLChartDetail,
   type PLFilters,
 } from '../../api'
@@ -37,6 +37,7 @@ export function PLAnalyticsView() {
   const [byBatch, setByBatch] = useState<any[]>([])
   const [coderName, setCoderName] = useState('')
   const [coderTrend, setCoderTrend] = useState<any[]>([])
+  const [coderSummary, setCoderSummary] = useState<any>(null)
   const [categoryData, setCategoryData] = useState<{ team: any[]; coder_category: any[] } | null>(null)
   const [teachingData, setTeachingData] = useState<any[]>([])
   const [matrixData, setMatrixData] = useState<{ batches: any[]; coders: string[]; cells: any[] } | null>(null)
@@ -85,16 +86,29 @@ export function PLAnalyticsView() {
 
   async function loadCoderTrend() {
     if (!coderName.trim()) return
-    const data = await getCoderTrend(coderName.trim()).catch(() => null)
-    if (data) setCoderTrend(data)
-    else toast.error('No data for this coder')
+    const name = coderName.trim()
+    setCoderSummary(null)
+    setCoderTrend([])
+    const [summary, trend] = await Promise.all([
+      getCoderSummary(name).catch(() => null),
+      getCoderTrend(name).catch(() => null),
+    ])
+    if (!summary && !trend?.length) { toast.error('No data for this coder'); return }
+    if (summary) setCoderSummary(summary)
+    if (trend) setCoderTrend(trend)
   }
 
   function jumpToCoder(name: string) {
     setCoderName(name)
     setTab('coder')
+    setCoderSummary(null)
     setCoderTrend([])
-    getCoderTrend(name).then(setCoderTrend).catch(() => toast.error('No data for this coder'))
+    Promise.all([getCoderSummary(name).catch(() => null), getCoderTrend(name).catch(() => null)])
+      .then(([summary, trend]) => {
+        if (summary) setCoderSummary(summary)
+        if (trend) setCoderTrend(trend)
+      })
+      .catch(() => toast.error('No data for this coder'))
   }
 
   async function toggleChartDetail(chartNumber: string) {
@@ -383,42 +397,149 @@ export function PLAnalyticsView() {
             <datalist id="coder-suggestions">{(matrixData?.coders || []).map((n: string) => <option key={n} value={n} />)}</datalist>
             <button style={styles.primaryBtn} onClick={loadCoderTrend}>Look Up</button>
           </div>
-          {coderTrend.length === 0 ? (
-            <div style={styles.emptyState}>Enter the coder's exact name (as used in batch creation) and press Look Up to see their score trend across batches.</div>
+
+          {!coderSummary && coderTrend.length === 0 ? (
+            <div style={styles.emptyState}>Enter the coder's name and press Look Up to see their full performance profile across all batches.</div>
           ) : (
             <>
-              <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '18px 16px' }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 16 }}>Score Trend — {coderName}</div>
-                <ResponsiveContainer width="100%" height={220}>
-                  <LineChart data={coderTrend.map(r => ({ ...r, label: r.batch_name.length > 14 ? r.batch_name.slice(0, 14) + '…' : r.batch_name }))} margin={{ left: 10, right: 20, top: 8, bottom: 8 }}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="label" tick={{ fontSize: 11 }} />
-                    <YAxis domain={[0, 100]} tickFormatter={v => `${v}%`} tick={{ fontSize: 11 }} />
-                    <Tooltip formatter={(v: any) => [`${v}%`, 'Avg Score']} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
-                    <Line type="monotone" dataKey="avg_score" stroke="#4f46e5" strokeWidth={2.5} dot={{ r: 6, fill: '#4f46e5' }} activeDot={{ r: 8 }} name="Avg Score" />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-              <div style={styles.table}>
-                <div style={{ ...styles.tableHeader, gridTemplateColumns: '2fr 120px 80px 80px' }}>
-                  <span>Batch</span><span>Date</span><span>Charts</span><span>Avg Score</span>
-                </div>
-                {coderTrend.map((r: any, i: number) => {
-                  const prev = coderTrend[i - 1]
-                  const delta = prev ? round1(r.avg_score - prev.avg_score) : null
-                  return (
-                    <div key={r.batch_id} className={i % 2 === 1 ? 'pl-tr-alt' : 'pl-tr'} style={{ ...styles.tableRow, gridTemplateColumns: '2fr 120px 80px 80px' }}>
-                      <span style={{ fontWeight: 600, fontSize: 13 }}>{r.batch_name}</span>
-                      <span style={{ fontSize: 12, color: '#6b7280' }}>{r.created_at ? new Date(r.created_at).toLocaleDateString() : '—'}</span>
-                      <span>{r.chart_count}</span>
-                      <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span style={{ fontWeight: 700, color: r.avg_score >= 80 ? '#16a34a' : r.avg_score >= 60 ? '#d97706' : '#dc2626' }}>{r.avg_score}%</span>
-                        {delta != null && <span style={{ fontSize: 11, fontWeight: 700, color: delta > 0 ? '#16a34a' : delta < 0 ? '#dc2626' : '#9ca3af' }}>{delta > 0 ? '↑' : delta < 0 ? '↓' : '→'}{Math.abs(delta)}%</span>}
-                      </span>
+              {/* Summary stat cards */}
+              {coderSummary && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <div style={styles.statsRow}>
+                    <div style={styles.statCard}>
+                      <div style={styles.statValue}>{coderSummary.total_charts ?? 0}</div>
+                      <div style={styles.statLabel}>Charts Completed</div>
                     </div>
-                  )
-                })}
-              </div>
+                    <div style={styles.statCard}>
+                      <div style={{ ...styles.statValue, color: '#16a34a' }}>{coderSummary.charts_passed ?? 0}</div>
+                      <div style={styles.statLabel}>Charts Passed</div>
+                    </div>
+                    {coderSummary.weighted_accuracy != null && (
+                      <div style={styles.statCard}>
+                        <div style={{ ...styles.statValue, color: coderSummary.weighted_accuracy >= 90 ? '#16a34a' : coderSummary.weighted_accuracy >= 80 ? '#d97706' : '#dc2626' }}>
+                          {coderSummary.weighted_accuracy}%
+                        </div>
+                        <div style={styles.statLabel}>Weighted Accuracy</div>
+                      </div>
+                    )}
+                    {coderSummary.cumulative_dpo?.overall_accuracy != null && (
+                      <div style={styles.statCard}>
+                        <div style={{ ...styles.statValue, color: coderSummary.cumulative_dpo.overall_accuracy >= 90 ? '#16a34a' : coderSummary.cumulative_dpo.overall_accuracy >= 80 ? '#d97706' : '#dc2626' }}>
+                          {coderSummary.cumulative_dpo.overall_accuracy}%
+                        </div>
+                        <div style={styles.statLabel}>Overall DPO</div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* DPO breakdown */}
+                  {coderSummary.cumulative_dpo && (coderSummary.cumulative_dpo.dx_accuracy != null || coderSummary.cumulative_dpo.poa_accuracy != null || coderSummary.cumulative_dpo.proc_accuracy != null) && (
+                    <div style={{ background: '#f8faff', border: '1px solid #e0e7ff', borderRadius: 10, padding: '14px 18px' }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: '#6366f1', textTransform: 'uppercase' as const, letterSpacing: 0.6, marginBottom: 10 }}>DPO Cumulative (All Batches)</div>
+                      <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' as const }}>
+                        {coderSummary.cumulative_dpo.dx_accuracy != null && (
+                          <div style={{ textAlign: 'center' as const }}>
+                            <div style={{ fontSize: 20, fontWeight: 800, color: coderSummary.cumulative_dpo.dx_accuracy >= 90 ? '#16a34a' : coderSummary.cumulative_dpo.dx_accuracy >= 80 ? '#d97706' : '#dc2626' }}>{coderSummary.cumulative_dpo.dx_accuracy}%</div>
+                            <div style={{ fontSize: 10, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.4 }}>Dx</div>
+                          </div>
+                        )}
+                        {coderSummary.cumulative_dpo.poa_accuracy != null && (
+                          <div style={{ textAlign: 'center' as const }}>
+                            <div style={{ fontSize: 20, fontWeight: 800, color: coderSummary.cumulative_dpo.poa_accuracy >= 90 ? '#16a34a' : coderSummary.cumulative_dpo.poa_accuracy >= 80 ? '#d97706' : '#dc2626' }}>{coderSummary.cumulative_dpo.poa_accuracy}%</div>
+                            <div style={{ fontSize: 10, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.4 }}>POA</div>
+                          </div>
+                        )}
+                        {coderSummary.cumulative_dpo.proc_accuracy != null && (
+                          <div style={{ textAlign: 'center' as const }}>
+                            <div style={{ fontSize: 20, fontWeight: 800, color: coderSummary.cumulative_dpo.proc_accuracy >= 90 ? '#16a34a' : coderSummary.cumulative_dpo.proc_accuracy >= 80 ? '#d97706' : '#dc2626' }}>{coderSummary.cumulative_dpo.proc_accuracy}%</div>
+                            <div style={{ fontSize: 10, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.4 }}>PCS/CPT</div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Top / Bottom categories */}
+                  {coderSummary.by_category?.length > 0 && (() => {
+                    const cats: any[] = coderSummary.by_category
+                    const top = cats.slice(0, 3)
+                    const bottom = cats.slice(-3).reverse()
+                    return (
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                        <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '12px 14px' }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: '#166534', textTransform: 'uppercase' as const, letterSpacing: 0.5, marginBottom: 8 }}>Top Categories</div>
+                          {top.map((c: any) => (
+                            <div key={c.category} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #dcfce7', fontSize: 12 }}>
+                              <span style={{ fontWeight: 600, color: '#111' }}>{c.category}</span>
+                              <span style={{ display: 'flex', gap: 8, color: '#6b7280' }}>
+                                <span>{c.charts} charts</span>
+                                <span style={{ fontWeight: 700, color: '#16a34a' }}>{c.avg_score}%</span>
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                        <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 10, padding: '12px 14px' }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: '#92400e', textTransform: 'uppercase' as const, letterSpacing: 0.5, marginBottom: 8 }}>Needs Work</div>
+                          {bottom.map((c: any) => (
+                            <div key={c.category} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #fde68a', fontSize: 12 }}>
+                              <span style={{ fontWeight: 600, color: '#111' }}>{c.category}</span>
+                              <span style={{ display: 'flex', gap: 8, color: '#6b7280' }}>
+                                <span>{c.charts} charts</span>
+                                <span style={{ fontWeight: 700, color: c.avg_score >= 80 ? '#16a34a' : c.avg_score >= 60 ? '#d97706' : '#dc2626' }}>{c.avg_score}%</span>
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })()}
+                </div>
+              )}
+
+              {/* Score trend chart */}
+              {coderTrend.length > 1 && (
+                <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '18px 16px' }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 16 }}>Score Trend — {coderName}</div>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <LineChart data={coderTrend.map(r => ({ ...r, label: r.batch_name.length > 14 ? r.batch_name.slice(0, 14) + '…' : r.batch_name }))} margin={{ left: 10, right: 20, top: 8, bottom: 8 }}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                      <YAxis domain={[0, 100]} tickFormatter={v => `${v}%`} tick={{ fontSize: 11 }} />
+                      <Tooltip formatter={(v: any) => [`${v}%`, 'Avg Score']} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                      <Line type="monotone" dataKey="avg_score" stroke="#4f46e5" strokeWidth={2.5} dot={{ r: 6, fill: '#4f46e5' }} activeDot={{ r: 8 }} name="Avg Score" />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+
+              {/* Batch history table */}
+              {(coderSummary?.batches?.length > 0 || coderTrend.length > 0) && (() => {
+                const rows: any[] = coderSummary?.batches?.length ? coderSummary.batches : coderTrend
+                return (
+                  <div style={styles.table}>
+                    <div style={{ ...styles.tableHeader, gridTemplateColumns: '2fr 100px 100px 80px 80px 80px' }}>
+                      <span>Batch</span><span>Specialty</span><span>Date</span><span>Charts</span><span>Avg Score</span><span>Passed</span>
+                    </div>
+                    {rows.map((r: any, i: number) => {
+                      const prev = rows[i - 1]
+                      const delta = prev?.avg_score != null && r.avg_score != null ? round1(r.avg_score - prev.avg_score) : null
+                      return (
+                        <div key={r.batch_id} className={i % 2 === 1 ? 'pl-tr-alt' : 'pl-tr'} style={{ ...styles.tableRow, gridTemplateColumns: '2fr 100px 100px 80px 80px 80px' }}>
+                          <span style={{ fontWeight: 600, fontSize: 13 }}>{r.batch_name}</span>
+                          <span style={{ fontSize: 12, color: '#6b7280' }}>{r.specialty || '—'}</span>
+                          <span style={{ fontSize: 12, color: '#6b7280' }}>{r.created_at ? new Date(r.created_at).toLocaleDateString() : '—'}</span>
+                          <span>{r.chart_count ?? r.charts ?? '—'}</span>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                            <span style={{ fontWeight: 700, color: (r.avg_score ?? 0) >= 80 ? '#16a34a' : (r.avg_score ?? 0) >= 60 ? '#d97706' : '#dc2626' }}>{r.avg_score != null ? `${r.avg_score}%` : '—'}</span>
+                            {delta != null && <span style={{ fontSize: 11, fontWeight: 700, color: delta > 0 ? '#16a34a' : delta < 0 ? '#dc2626' : '#9ca3af' }}>{delta > 0 ? '↑' : delta < 0 ? '↓' : '→'}{Math.abs(delta)}%</span>}
+                          </span>
+                          <span style={{ fontWeight: 700, color: '#16a34a' }}>{r.charts_passed != null ? `${r.charts_passed}/${r.chart_count ?? r.charts ?? '?'}` : '—'}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )
+              })()}
             </>
           )}
         </div>
