@@ -308,30 +308,142 @@ def generate_coder_sheet(
     wb = Workbook()
     wb.remove(wb.active)
 
-    # INFO sheet
+    # ── INFO sheet ────────────────────────────────────────────────────────────
     info = wb.create_sheet("INFO", 0)
-    info_data = [
-        ("PracticeLab — Coding Assessment", True),
-        ("", False),
-        ("Coder Name:", False), (coder_name, False),
-        ("Emp ID:", False), (emp_id or "—", False),
-        ("Batch:", False), (batch_name, False),
-        ("", False),
-        ("INSTRUCTIONS:", True),
-        ("1. Do NOT rename this file or the individual sheets.", False),
-        ("2. Fill your answers in the YELLOW cells only.", False),
-        ("3. Open the chart in PracticeLab using the link on each sheet.", False),
-        ("4. Save and return this file to your trainer when complete.", False),
-        ("", False),
-        ("Charts assigned to you:", True),
+
+    BANNER_FILL   = PatternFill("solid", fgColor="1F3864")
+    ACCENT_FILL   = PatternFill("solid", fgColor="2E75B6")
+    ROW_ALT_FILL  = PatternFill("solid", fgColor="EBF3FB")
+    ROW_BASE_FILL = PatternFill("solid", fgColor="FFFFFF")
+    LABEL_FILL    = PatternFill("solid", fgColor="D6E4F0")
+    INSTRUCT_FILL = PatternFill("solid", fgColor="FFF8E1")
+    CHART_HDR_FILL= PatternFill("solid", fgColor="1F3864")
+    CHART_ALT_FILL= PatternFill("solid", fgColor="F0F7FF")
+    MED_BORDER = Border(
+        left=Side(style="medium", color="2E75B6"),
+        right=Side(style="medium", color="2E75B6"),
+        top=Side(style="medium", color="2E75B6"),
+        bottom=Side(style="medium", color="2E75B6"),
+    )
+
+    def _info_set(ws, row, col, value, fill=None, font=None, align=None, border=None):
+        cell = ws.cell(row=row, column=col, value=value)
+        if fill:  cell.fill = fill
+        if font:  cell.font = font
+        if align: cell.alignment = align
+        if border: cell.border = border
+        return cell
+
+    CENTER = Alignment(horizontal="center", vertical="center")
+    LEFT   = Alignment(horizontal="left",   vertical="center", wrap_text=True)
+
+    # Row 1: Banner
+    info.merge_cells("A1:F1")
+    _info_set(info, 1, 1, "PracticeLab — Coding Assessment",
+              fill=BANNER_FILL,
+              font=Font(bold=True, size=16, color="FFFFFF"),
+              align=CENTER)
+    info.row_dimensions[1].height = 36
+
+    # Row 2: Sub-banner
+    info.merge_cells("A2:F2")
+    _info_set(info, 2, 1, "Confidential — For Internal Use Only",
+              fill=ACCENT_FILL,
+              font=Font(italic=True, size=10, color="FFFFFF"),
+              align=CENTER)
+    info.row_dimensions[2].height = 18
+
+    # Row 3: blank spacer
+    info.row_dimensions[3].height = 8
+
+    # Rows 4-6: Coder details table
+    details = [
+        ("Coder Name", coder_name or "—"),
+        ("Employee ID", emp_id or "—"),
+        ("Batch",       batch_name or "—"),
     ]
-    for r, (text, bold) in enumerate(info_data, 1):
-        cell = info.cell(row=r, column=1, value=text)
-        cell.font = Font(bold=bold, size=11 if bold else 10)
-    for i, ch in enumerate(charts, 1):
-        info.cell(row=len(info_data) + i, column=1,
-                  value=f"{i}. {ch['chart_number']} — {ch['specialty']} | {ch['category']} | {ch['difficulty']}")
-    info.column_dimensions["A"].width = 70
+    for i, (label, value) in enumerate(details):
+        r = 4 + i
+        info.merge_cells(f"A{r}:B{r}")
+        info.merge_cells(f"C{r}:F{r}")
+        alt = ROW_ALT_FILL if i % 2 == 0 else ROW_BASE_FILL
+        _info_set(info, r, 1, label,
+                  fill=LABEL_FILL,
+                  font=Font(bold=True, size=11, color="1F3864"),
+                  align=LEFT, border=THIN_BORDER)
+        _info_set(info, r, 3, value,
+                  fill=alt,
+                  font=Font(size=11),
+                  align=LEFT, border=THIN_BORDER)
+        info.row_dimensions[r].height = 22
+
+    # Row 7: spacer
+    info.row_dimensions[7].height = 10
+
+    # Rows 8-13: Instructions box
+    info.merge_cells("A8:F8")
+    _info_set(info, 8, 1, "INSTRUCTIONS",
+              fill=ACCENT_FILL,
+              font=Font(bold=True, size=11, color="FFFFFF"),
+              align=CENTER)
+    info.row_dimensions[8].height = 22
+
+    instructions = [
+        "Do NOT rename this file or any of the chart tabs — the file name and tab names are used during grading.",
+        "Fill your answers in the YELLOW cells only. Do not modify section headers or row numbers.",
+        "Each tab below this INFO sheet represents one assigned chart. Complete all charts.",
+        "For each chart tab, refer to the chart number shown at the top to locate the chart in PracticeLab.",
+        "Save this file and return it to your trainer by the agreed deadline.",
+    ]
+    for i, text in enumerate(instructions):
+        r = 9 + i
+        info.merge_cells(f"A{r}:F{r}")
+        alt = INSTRUCT_FILL if i % 2 == 0 else PatternFill("solid", fgColor="FFFDE7")
+        cell = _info_set(info, r, 1, f"{i+1}.  {text}",
+                         fill=alt,
+                         font=Font(size=10),
+                         align=LEFT, border=THIN_BORDER)
+        info.row_dimensions[r].height = 28
+
+    # Row 14: spacer
+    info.row_dimensions[14].height = 10
+
+    # Row 15: Charts table header
+    info.merge_cells("A15:F15")
+    _info_set(info, 15, 1, f"CHARTS ASSIGNED — {len(charts)} CHART(S)",
+              fill=CHART_HDR_FILL,
+              font=Font(bold=True, size=11, color="FFFFFF"),
+              align=CENTER)
+    info.row_dimensions[15].height = 22
+
+    # Row 16: column headers
+    chart_cols = ["#", "Chart Number", "Specialty", "Category", "Difficulty", "Tab Name"]
+    for ci, h in enumerate(chart_cols, 1):
+        _info_set(info, 16, ci, h,
+                  fill=ACCENT_FILL,
+                  font=Font(bold=True, size=10, color="FFFFFF"),
+                  align=CENTER, border=THIN_BORDER)
+    info.row_dimensions[16].height = 20
+
+    for i, ch in enumerate(charts):
+        r = 17 + i
+        alt = CHART_ALT_FILL if i % 2 == 0 else ROW_BASE_FILL
+        row_vals = [i+1, ch["chart_number"], ch["specialty"], ch["category"], ch["difficulty"], ch["chart_number"]]
+        for ci, val in enumerate(row_vals, 1):
+            _info_set(info, r, ci, val,
+                      fill=alt,
+                      font=Font(size=10, bold=(ci == 2)),
+                      align=CENTER if ci != 4 else LEFT,
+                      border=THIN_BORDER)
+        info.row_dimensions[r].height = 18
+
+    # Column widths
+    info.column_dimensions["A"].width = 5
+    info.column_dimensions["B"].width = 18
+    info.column_dimensions["C"].width = 14
+    info.column_dimensions["D"].width = 24
+    info.column_dimensions["E"].width = 14
+    info.column_dimensions["F"].width = 16
 
     # One sheet per chart
     for ch in charts:
@@ -340,23 +452,36 @@ def generate_coder_sheet(
         is_ip = specialty == "IP-DRG"
         ws = wb.create_sheet(chart_num)
 
-        # Chart info header
+        # ── Chart tab header ─────────────────────────────────────────────────
+        # Row 1: dark banner
         ws.merge_cells("A1:F1")
         title = ws["A1"]
-        title.value = f"Chart: {chart_num}  |  {specialty}  |  {ch['category']}  |  {ch['difficulty']}"
-        title.font = Font(bold=True, size=12, color="FFFFFF")
+        title.value = "PracticeLab — Coding Assessment"
+        title.font = Font(bold=True, size=13, color="FFFFFF")
         title.fill = PatternFill("solid", fgColor="1F3864")
         title.alignment = Alignment(horizontal="center", vertical="center")
-        ws.row_dimensions[1].height = 24
+        ws.row_dimensions[1].height = 26
 
-        # Chart URL
-        ws["A2"] = "Chart URL:"
-        ws["A2"].font = Font(bold=True)
-        ws["B2"] = ch.get("chart_url", "See PracticeLab")
-        ws["B2"].font = Font(color="0563C1", underline="single")
-        ws.row_dimensions[2].height = 20
+        # Row 2: chart identity bar
+        ws.merge_cells("A2:F2")
+        id_cell = ws["A2"]
+        id_cell.value = f"Chart #: {chart_num}     |     {specialty}     |     {ch['category']}     |     Difficulty: {ch['difficulty']}"
+        id_cell.font = Font(bold=True, size=11, color="1F3864")
+        id_cell.fill = PatternFill("solid", fgColor="D6E4F0")
+        id_cell.alignment = Alignment(horizontal="center", vertical="center")
+        id_cell.border = THIN_BORDER
+        ws.row_dimensions[2].height = 22
 
-        row = 4
+        # Row 3: coder reminder
+        ws.merge_cells("A3:F3")
+        remind = ws["A3"]
+        remind.value = f"Coder: {coder_name}     |     Fill YELLOW cells only     |     Do not rename this tab"
+        remind.font = Font(italic=True, size=9, color="555555")
+        remind.fill = PatternFill("solid", fgColor="F5F5F5")
+        remind.alignment = Alignment(horizontal="center", vertical="center")
+        ws.row_dimensions[3].height = 16
+
+        row = 5
 
         # PDx section
         _header(ws, 1, row, "SECTION 1 — Principal Diagnosis (PDx)",
