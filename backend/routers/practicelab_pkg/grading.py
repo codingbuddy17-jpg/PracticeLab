@@ -138,6 +138,12 @@ def grade_submissions(
                 if existing:
                     db.query(GradingFeedback).filter(GradingFeedback.result_id == existing.id).delete()
                     db.delete(existing)
+                    # also remove the stale submission so regrade doesn't accumulate orphaned rows
+                    db.query(Submission).filter(
+                        Submission.batch_id == batch_id,
+                        Submission.coder_name == coder_name,
+                        Submission.chart_id == chart.id,
+                    ).delete()
                     db.flush()
 
                 sub = Submission(

@@ -117,7 +117,7 @@ def add_coders_to_batch(batch_id: int, payload: AddCoders, db: Session = Depends
     batch = db.query(Batch).filter(Batch.id == batch_id).first()
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
-    if batch.status.value == "closed":
+    if batch.status != BatchStatus.OPEN:
         raise HTTPException(status_code=400, detail="Cannot add coders to a closed batch")
 
     existing_names = {c.coder_name for c in batch.coders}
@@ -131,6 +131,7 @@ def add_coders_to_batch(batch_id: int, payload: AddCoders, db: Session = Depends
         else:
             db.add(BatchCoder(batch_id=batch_id, coder_name=name, emp_id=coder.emp_id or ""))
             added.append(name)
+            existing_names.add(name)  # prevent duplicates within same request
 
     db.commit()
     return {"added": added, "skipped_duplicates": skipped}
@@ -167,10 +168,11 @@ def run_allocation(batch_id: int, payload: AllocationRun, db: Session = Depends(
     if payload.manual_chart_ids:
         pool = (db.query(Chart)
                 .filter(Chart.id.in_(payload.manual_chart_ids),
-                        Chart.status == ChartStatus.ACTIVE)
+                        Chart.status == ChartStatus.ACTIVE,
+                        Chart.specialty == specialty)
                 .all())
         if not pool:
-            raise HTTPException(status_code=400, detail="None of the selected charts are active.")
+            raise HTTPException(status_code=400, detail="None of the selected charts are active or match this batch's specialty.")
     else:
         q = (db.query(Chart)
              .filter(Chart.status == ChartStatus.ACTIVE, Chart.specialty == specialty))
@@ -221,9 +223,14 @@ def run_allocation(batch_id: int, payload: AllocationRun, db: Session = Depends(
             if pool_size == 0:
                 pool_warnings.append(f"{coder.coder_name}: pool exhausted (all charts previously assigned)")
                 continue
+            if pool_size < charts_per_coder:
+                pool_warnings.append(
+                    f"{coder.coder_name}: only {pool_size} chart(s) available in pool "
+                    f"(requested {charts_per_coder}) — assigning all available"
+                )
             shuffled = available.copy()
             random.shuffle(shuffled)
-            assigned = (shuffled * ((charts_per_coder // pool_size) + 1))[:charts_per_coder]
+            assigned = shuffled[:charts_per_coder]  # never exceed available pool
 
         for chart in assigned:
             db.add(BatchChart(
