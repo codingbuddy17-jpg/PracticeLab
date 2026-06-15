@@ -53,8 +53,20 @@ export function PLAnalyticsView() {
   const [matrixShowAll, setMatrixShowAll] = useState(false)
   const [heatmapCoderSearch, setHeatmapCoderSearch] = useState('')
   const [heatmapShowAll, setHeatmapShowAll] = useState(false)
+  const [heatmapSort, setHeatmapSort] = useState<{ col: string; dir: 'asc' | 'desc' }>({ col: 'coder', dir: 'asc' })
+  const [matrixSort, setMatrixSort] = useState<{ col: string; dir: 'asc' | 'desc' }>({ col: 'overall', dir: 'desc' })
+  const [chartValueShowAll, setChartValueShowAll] = useState(false)
 
   const CODER_PAGE = 25
+  const CHART_VALUE_PAGE = 24
+
+  function sortIcon(col: string, active: { col: string; dir: string }) {
+    if (active.col !== col) return <span style={{ color: '#d1d5db', fontSize: 10 }}> ⇅</span>
+    return <span style={{ color: '#4f46e5', fontSize: 10 }}>{active.dir === 'asc' ? ' ↑' : ' ↓'}</span>
+  }
+  function toggleSort(col: string, current: { col: string; dir: 'asc' | 'desc' }, setter: (v: any) => void) {
+    setter(current.col === col ? { col, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { col, dir: 'asc' })
+  }
 
   const SPECIALTIES = ['IP-DRG', 'ED Facility', 'ED Profee', 'SDS', 'Edits', 'Denials', 'Ancillary', 'E/M']
   const activeFilterCount = Object.values(filters).filter(Boolean).length
@@ -335,7 +347,7 @@ export function PLAnalyticsView() {
                         <div style={{ fontSize: 12, color: '#9ca3af' }}>No graded results for this chart.</div>
                       ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                          {chartDetail[r.chart_number].coders.map((c: any) => (
+                          {chartDetail[r.chart_number].coders.slice(0, 8).map((c: any) => (
                             <div key={`${c.coder_name}-${c.batch_name}`} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '6px 10px', background: '#fff', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 12 }}>
                               <span style={{ minWidth: 140 }}>{coderLink(c.coder_name)}</span>
                               <span style={{ fontSize: 11, color: '#9ca3af', flex: 1 }}>{c.batch_name}</span>
@@ -350,6 +362,11 @@ export function PLAnalyticsView() {
                               )}
                             </div>
                           ))}
+                          {chartDetail[r.chart_number].coders.length > 8 && (
+                            <div style={{ fontSize: 11, color: '#6b7280', padding: '4px 10px' }}>
+                              + {chartDetail[r.chart_number].coders.length - 8} more attempts — use Coder Matrix for full view
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -645,8 +662,15 @@ export function PLAnalyticsView() {
                 const filteredCoders = heatmapCoderSearch.trim()
                   ? allCoders.filter(n => n.toLowerCase().includes(heatmapCoderSearch.toLowerCase()))
                   : allCoders
-                const visibleCoders = heatmapShowAll ? filteredCoders : filteredCoders.slice(0, CODER_PAGE)
-                const hiddenCount = filteredCoders.length - visibleCoders.length
+                const sortedCoders = [...filteredCoders].sort((a, b) => {
+                  const dir = heatmapSort.dir === 'asc' ? 1 : -1
+                  if (heatmapSort.col === 'coder') return a.localeCompare(b) * dir
+                  const sa = cellMap[a]?.[heatmapSort.col]?.avg_score ?? -1
+                  const sb = cellMap[b]?.[heatmapSort.col]?.avg_score ?? -1
+                  return (sa - sb) * dir
+                })
+                const visibleCoders = heatmapShowAll ? sortedCoders : sortedCoders.slice(0, CODER_PAGE)
+                const hiddenCount = sortedCoders.length - visibleCoders.length
                 return (
                   <div>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, flexWrap: 'wrap' as const, gap: 8 }}>
@@ -667,9 +691,13 @@ export function PLAnalyticsView() {
                       <table style={{ borderCollapse: 'collapse', fontSize: 12, minWidth: '100%' }}>
                         <thead>
                           <tr>
-                            <th style={{ textAlign: 'left', padding: '6px 10px', background: '#f9fafb', borderBottom: '1px solid #e5e7eb', whiteSpace: 'nowrap' as const }}>Coder</th>
+                            <th onClick={() => toggleSort('coder', heatmapSort, setHeatmapSort)} style={{ textAlign: 'left', padding: '6px 10px', background: '#f9fafb', borderBottom: '1px solid #e5e7eb', whiteSpace: 'nowrap' as const, cursor: 'pointer', userSelect: 'none' as const }}>
+                              Coder{sortIcon('coder', heatmapSort)}
+                            </th>
                             {cats.map((c: string) => (
-                              <th key={c} style={{ padding: '6px 8px', background: '#f9fafb', borderBottom: '1px solid #e5e7eb', whiteSpace: 'nowrap' as const, textAlign: 'center', fontWeight: 600 }}>{c}</th>
+                              <th key={c} onClick={() => toggleSort(c, heatmapSort, setHeatmapSort)} style={{ padding: '6px 8px', background: '#f9fafb', borderBottom: '1px solid #e5e7eb', whiteSpace: 'nowrap' as const, textAlign: 'center', fontWeight: 600, cursor: 'pointer', userSelect: 'none' as const }}>
+                                {c}{sortIcon(c, heatmapSort)}
+                              </th>
                             ))}
                           </tr>
                         </thead>
@@ -746,7 +774,7 @@ export function PLAnalyticsView() {
                 </div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   {filterOptions.map(opt => (
-                    <button key={opt} onClick={() => setTeachingFilter(opt)}
+                    <button key={opt} onClick={() => { setTeachingFilter(opt); setChartValueShowAll(false) }}
                       style={{ padding: '5px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
                         background: teachingFilter === opt ? '#4f46e5' : '#f3f4f6',
                         color: teachingFilter === opt ? '#fff' : '#374151',
@@ -755,27 +783,42 @@ export function PLAnalyticsView() {
                     </button>
                   ))}
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 10 }}>
-                  {filtered.map((c: any, i: number) => {
-                    const meta = TEACHING_LABEL_META[c.teaching_label] || { color: '#374151', bg: '#f9fafb', desc: '' }
-                    return (
-                      <div key={i} style={{ background: meta.bg, border: `1px solid ${meta.color}30`, borderRadius: 8, padding: '12px 14px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
-                          <span style={{ fontWeight: 700, fontSize: 13, color: '#111' }}>{c.chart_number}</span>
-                          <span style={{ fontSize: 11, fontWeight: 700, color: meta.color, background: '#fff', border: `1px solid ${meta.color}40`, borderRadius: 10, padding: '2px 8px' }}>{c.teaching_label}</span>
-                        </div>
-                        <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 6 }}>{c.specialty} · {c.category}</div>
-                        <div style={{ display: 'flex', gap: 12, fontSize: 12 }}>
-                          <span><b style={{ color: '#111' }}>{c.attempt_count}</b> attempts</span>
-                          <span><b style={{ color: c.avg_score >= 80 ? '#16a34a' : c.avg_score >= 60 ? '#d97706' : '#dc2626' }}>{c.avg_score}%</b> avg</span>
-                          <span><b style={{ color: c.pass_rate >= 80 ? '#16a34a' : c.pass_rate >= 60 ? '#d97706' : '#dc2626' }}>{c.pass_rate}%</b> pass</span>
-                        </div>
-                        {c.error_variety > 0 && <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>{c.error_variety} distinct error type{c.error_variety > 1 ? 's' : ''}</div>}
-                      </div>
-                    )
-                  })}
-                </div>
-                {filtered.length === 0 && <div style={styles.emptyState}>No charts in this category.</div>}
+                {filtered.length === 0 ? (
+                  <div style={styles.emptyState}>No charts in this category.</div>
+                ) : (
+                  <>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                      <span style={{ fontSize: 12, color: '#9ca3af' }}>
+                        Showing {Math.min(chartValueShowAll ? filtered.length : CHART_VALUE_PAGE, filtered.length)} of {filtered.length} charts
+                      </span>
+                      {filtered.length > CHART_VALUE_PAGE && (
+                        <button onClick={() => setChartValueShowAll(v => !v)} style={{ fontSize: 12, color: '#4f46e5', background: 'none', border: '1px solid #e5e7eb', borderRadius: 6, padding: '4px 12px', cursor: 'pointer', fontWeight: 600 }}>
+                          {chartValueShowAll ? `Collapse to ${CHART_VALUE_PAGE}` : `Show all ${filtered.length}`}
+                        </button>
+                      )}
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 10 }}>
+                      {(chartValueShowAll ? filtered : filtered.slice(0, CHART_VALUE_PAGE)).map((c: any, i: number) => {
+                        const meta = TEACHING_LABEL_META[c.teaching_label] || { color: '#374151', bg: '#f9fafb', desc: '' }
+                        return (
+                          <div key={i} style={{ background: meta.bg, border: `1px solid ${meta.color}30`, borderRadius: 8, padding: '12px 14px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+                              <span style={{ fontWeight: 700, fontSize: 13, color: '#111' }}>{c.chart_number}</span>
+                              <span style={{ fontSize: 11, fontWeight: 700, color: meta.color, background: '#fff', border: `1px solid ${meta.color}40`, borderRadius: 10, padding: '2px 8px' }}>{c.teaching_label}</span>
+                            </div>
+                            <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 6 }}>{c.specialty} · {c.category}</div>
+                            <div style={{ display: 'flex', gap: 12, fontSize: 12 }}>
+                              <span><b style={{ color: '#111' }}>{c.attempt_count}</b> attempts</span>
+                              <span><b style={{ color: c.avg_score >= 80 ? '#16a34a' : c.avg_score >= 60 ? '#d97706' : '#dc2626' }}>{c.avg_score}%</b> avg</span>
+                              <span><b style={{ color: c.pass_rate >= 80 ? '#16a34a' : c.pass_rate >= 60 ? '#d97706' : '#dc2626' }}>{c.pass_rate}%</b> pass</span>
+                            </div>
+                            {c.error_variety > 0 && <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>{c.error_variety} distinct error type{c.error_variety > 1 ? 's' : ''}</div>}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </>
+                )}
               </>
             )
           })()}
@@ -806,8 +849,23 @@ export function PLAnalyticsView() {
                 const filteredCoders = matrixCoderSearch.trim()
                   ? matrixData.coders.filter((n: string) => n.toLowerCase().includes(matrixCoderSearch.toLowerCase()))
                   : matrixData.coders
-                const visibleCoders = matrixShowAll ? filteredCoders : filteredCoders.slice(0, CODER_PAGE)
-                const hiddenCount = filteredCoders.length - visibleCoders.length
+                const sortedMatrixCoders = [...filteredCoders].sort((a: string, b: string) => {
+                  const dir = matrixSort.dir === 'asc' ? 1 : -1
+                  if (matrixSort.col === 'coder') return a.localeCompare(b) * dir
+                  if (matrixSort.col === 'overall') {
+                    const scoreOf = (name: string) => {
+                      const cells = matrixData.cells.filter((c: any) => c.coder_name === name && c.avg_score != null)
+                      return cells.length ? cells.reduce((s: number, c: any) => s + c.avg_score, 0) / cells.length : -1
+                    }
+                    return (scoreOf(a) - scoreOf(b)) * dir
+                  }
+                  const batchId = Number(matrixSort.col)
+                  const sa = matrixData.cells.find((c: any) => c.coder_name === a && c.batch_id === batchId)?.avg_score ?? -1
+                  const sb = matrixData.cells.find((c: any) => c.coder_name === b && c.batch_id === batchId)?.avg_score ?? -1
+                  return (sa - sb) * dir
+                })
+                const visibleCoders = matrixShowAll ? sortedMatrixCoders : sortedMatrixCoders.slice(0, CODER_PAGE)
+                const hiddenCount = sortedMatrixCoders.length - visibleCoders.length
                 return (
                   <>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -817,14 +875,18 @@ export function PLAnalyticsView() {
                       <table style={{ borderCollapse: 'collapse', fontSize: 12, minWidth: '100%' }}>
                         <thead>
                           <tr>
-                            <th style={{ textAlign: 'left', padding: '7px 12px', background: '#f9fafb', borderBottom: '2px solid #e5e7eb', whiteSpace: 'nowrap' as const, fontWeight: 700, color: '#374151' }}>Coder</th>
+                            <th onClick={() => toggleSort('coder', matrixSort, setMatrixSort)} style={{ textAlign: 'left', padding: '7px 12px', background: '#f9fafb', borderBottom: '2px solid #e5e7eb', whiteSpace: 'nowrap' as const, fontWeight: 700, color: '#374151', cursor: 'pointer', userSelect: 'none' as const }}>
+                              Coder{sortIcon('coder', matrixSort)}
+                            </th>
                             {matrixData.batches.map((b: any) => (
-                              <th key={b.id} style={{ padding: '7px 10px', background: '#f9fafb', borderBottom: '2px solid #e5e7eb', whiteSpace: 'nowrap' as const, textAlign: 'center', fontWeight: 600, color: '#374151', minWidth: 80 }}>
+                              <th key={b.id} onClick={() => toggleSort(String(b.id), matrixSort, setMatrixSort)} style={{ padding: '7px 10px', background: '#f9fafb', borderBottom: '2px solid #e5e7eb', whiteSpace: 'nowrap' as const, textAlign: 'center', fontWeight: 600, color: '#374151', minWidth: 80, cursor: 'pointer', userSelect: 'none' as const }}>
                                 <div>{b.name.length > 14 ? b.name.slice(0, 14) + '…' : b.name}</div>
-                                <div style={{ fontSize: 10, fontWeight: 400, color: '#9ca3af' }}>{b.closed_at ? new Date(b.closed_at).toLocaleDateString() : ''}</div>
+                                <div style={{ fontSize: 10, fontWeight: 400, color: '#9ca3af' }}>{b.closed_at ? new Date(b.closed_at).toLocaleDateString() : ''}{sortIcon(String(b.id), matrixSort)}</div>
                               </th>
                             ))}
-                            <th style={{ padding: '7px 10px', background: '#f1f5f9', borderBottom: '2px solid #e5e7eb', textAlign: 'center', fontWeight: 700, color: '#374151', minWidth: 70 }}>Overall</th>
+                            <th onClick={() => toggleSort('overall', matrixSort, setMatrixSort)} style={{ padding: '7px 10px', background: '#f1f5f9', borderBottom: '2px solid #e5e7eb', textAlign: 'center', fontWeight: 700, color: '#374151', minWidth: 70, cursor: 'pointer', userSelect: 'none' as const }}>
+                              Overall{sortIcon('overall', matrixSort)}
+                            </th>
                           </tr>
                         </thead>
                         <tbody>
