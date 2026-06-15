@@ -74,6 +74,7 @@ def bulk_upload(
             category = meta["category"].strip()
             uploaded_by = meta.get("uploaded_by", "Unknown").strip()
             rationale = meta.get("rationale")
+            alias = meta.get("alias", "").strip() or None
 
             chart_number = next_chart_number(db, specialty)
 
@@ -83,6 +84,7 @@ def bulk_upload(
                 category=category,
                 difficulty=difficulty,
                 rationale=rationale,
+                alias=alias,
                 uploaded_by=uploaded_by,
                 status=ChartStatus.ACTIVE,
             )

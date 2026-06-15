@@ -58,7 +58,7 @@ export function TrainerUpload() {
       existingNames.add(file.name)
       const detected = detectSpecialtyFromFilename(file.name)
       const specialty: Specialty = detected ?? 'IP-DRG'
-      newRows.push({ file, uploaded_by: trainerName, specialty, category: '', difficulty: 'Beginner', rationale: '', complete: false, specialtyMismatch: false })
+      newRows.push({ file, uploaded_by: trainerName, specialty, category: '', difficulty: 'Beginner', rationale: '', alias: '', complete: false, specialtyMismatch: false })
     }
 
     if (rejected.length) toast.error(`${rejected.length} file${rejected.length > 1 ? 's' : ''} skipped — unsupported type: ${rejected.join(', ')}`, { duration: 6000 })
@@ -125,6 +125,7 @@ export function TrainerUpload() {
         category: r.category,
         difficulty: r.difficulty,
         rationale: r.rationale,
+        alias: r.alias || undefined,
       }))
 
       // Simulate progress
@@ -276,6 +277,10 @@ export function TrainerUpload() {
                       <select style={styles.select} value={row.difficulty} onChange={e => updateRow(idx, 'difficulty', e.target.value)}>
                         {DIFFICULTIES.map(d => <option key={d} value={d}>{d}</option>)}
                       </select>
+                    </div>
+                    <div style={styles.field}>
+                      <label style={styles.label}>Alias <span style={{ fontWeight: 400, color: '#9ca3af' }}>(optional)</span></label>
+                      <input style={styles.input} value={(row as any).alias ?? ''} onChange={e => updateRow(idx, 'alias' as any, e.target.value)} placeholder="e.g. AAA repair 3" />
                     </div>
                   </div>
                   <div style={styles.field}>

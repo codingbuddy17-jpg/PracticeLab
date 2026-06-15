@@ -24,6 +24,7 @@ export interface ChartFile {
 export interface Chart {
   id: number
   chart_number: string
+  alias: string | null
   specialty: Specialty
   category: string
   difficulty: Difficulty
@@ -68,6 +69,7 @@ export interface BulkUploadMeta {
   category: string
   difficulty: Difficulty
   rationale?: string
+  alias?: string
 }
 
 export const SPECIALTIES: Specialty[] = [

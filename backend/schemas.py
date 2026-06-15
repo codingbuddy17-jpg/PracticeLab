@@ -31,6 +31,7 @@ class AuditLogOut(BaseModel):
 class ChartOut(BaseModel):
     id: int
     chart_number: str
+    alias: Optional[str] = None
     specialty: Specialty
     category: str
     difficulty: Difficulty
@@ -54,6 +55,7 @@ class ChartUpdate(BaseModel):
     category: Optional[str] = None
     difficulty: Optional[Difficulty] = None
     rationale: Optional[str] = None
+    alias: Optional[str] = None
 
 
 class BulkUploadItem(BaseModel):

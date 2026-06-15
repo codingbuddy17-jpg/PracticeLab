@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Search, BookOpen, Clock, X, ArrowUpDown, Pencil } from 'lucide-react'
+import { Search, BookOpen, Clock, X, ArrowUpDown, Pencil, ExternalLink } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
-import { searchCharts, getCategories } from '../api'
+import { searchCharts, getCategories, getResources } from '../api'
 import { ChartViewer } from '../components/ChartViewer'
 import { useLocalStorage } from '../hooks/useLocalStorage'
 import type { Chart, Specialty, Difficulty } from '../types'
@@ -32,6 +32,11 @@ export function CoderHome() {
 
   const [selectedChart, setSelectedChart] = useState<Chart | null>(null)
   const [recentlyViewed, setRecentlyViewed] = useLocalStorage<Chart[]>('recently_viewed', [])
+  const [resources, setResources] = useState<{ id: number; title: string; description: string | null; url: string }[]>([])
+
+  useEffect(() => {
+    getResources().then(setResources).catch(() => {})
+  }, [])
 
   const hasFilters = !!(specialty || category || difficulty)
 
@@ -187,6 +192,32 @@ export function CoderHome() {
           </div>
         </div>
 
+        {/* Coding Resources */}
+        {resources.length > 0 && (
+          <div style={{ marginBottom: 20 }}>
+            <div style={styles.sectionLabel}><BookOpen size={13} /> Coding Resources</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 10 }}>
+              {resources.map(r => (
+                <a
+                  key={r.id}
+                  href={r.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 14px', background: 'rgba(255,255,255,0.7)', border: '1px solid rgba(229,231,235,0.8)', borderRadius: 10, textDecoration: 'none', color: 'inherit', cursor: 'pointer', minWidth: 180, maxWidth: 280, flex: '1 1 180px', boxShadow: '0 1px 4px rgba(0,0,0,0.05)', transition: 'box-shadow 0.15s' }}
+                  onMouseEnter={e => (e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)')}
+                  onMouseLeave={e => (e.currentTarget.style.boxShadow = '0 1px 4px rgba(0,0,0,0.05)')}
+                >
+                  <ExternalLink size={14} style={{ color: '#4f46e5', marginTop: 2, flexShrink: 0 }} />
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#111' }}>{r.title}</div>
+                    {r.description && <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2, lineHeight: 1.4 }}>{r.description}</div>}
+                  </div>
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Recently viewed */}
         {recentlyViewed.length > 0 && !hasSearched && (
           <div style={styles.recentSection}>
@@ -243,7 +274,10 @@ export function CoderHome() {
                   return (
                     <button key={chart.id} style={styles.listRow} onClick={() => openChart(chart)}>
                       <div style={{ ...styles.listAccent, background: sc.bg }} />
-                      <div style={styles.listChartNum}>{chart.chart_number}</div>
+                      <div style={styles.listChartNum}>
+                        {chart.chart_number}
+                        {chart.alias && <div style={{ fontSize: 10, fontWeight: 500, color: '#6b7280', marginTop: 1 }}>{chart.alias}</div>}
+                      </div>
                       <div style={{ ...styles.listSpecBadge, background: sc.light, color: sc.bg }}>{chart.specialty}</div>
                       <div style={styles.listCategory}>{chart.category}</div>
                       <div style={{ ...styles.listDiffBadge, ...dc }}>{chart.difficulty}</div>

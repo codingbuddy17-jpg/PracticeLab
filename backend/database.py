@@ -177,6 +177,20 @@ def _run_migrations():
         feedback_items TEXT DEFAULT '[]'
     )""")
 
+    # ── charts — alias field ──────────────────────────────────────────────────
+    _add_col("charts", "alias", "VARCHAR(100)")
+
+    # ── coding_resources table ────────────────────────────────────────────────
+    _run("""CREATE TABLE IF NOT EXISTS coding_resources (
+        id INTEGER PRIMARY KEY,
+        title VARCHAR(200) NOT NULL,
+        description VARCHAR(500),
+        url VARCHAR(1000) NOT NULL,
+        created_by VARCHAR(100) NOT NULL,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )""")
+
     # ── P2: backfill orphan batch_charts into synthetic legacy cycles ─────────
     _backfill_legacy_cycles()
 

@@ -1,16 +1,43 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { Upload, BarChart2, FileText, Settings, BookOpen, Flag, GraduationCap, ChevronRight } from 'lucide-react'
-import { getUnresolvedCount, getPLAnalyticsOverview } from '../api'
+import { Upload, BarChart2, FileText, Settings, BookOpen, Flag, GraduationCap, ChevronRight, Plus, Trash2, ExternalLink } from 'lucide-react'
+import toast from 'react-hot-toast'
+import { getUnresolvedCount, getPLAnalyticsOverview, getResources, createResource, deleteResource } from '../api'
 
 export function TrainerHome() {
   const [unresolvedCount, setUnresolvedCount] = useState(0)
   const [plStats, setPlStats] = useState<{ total_batches: number; complete_batches: number; total_graded: number; overall_pass_rate: number } | null>(null)
+  const [resources, setResources] = useState<{ id: number; title: string; description: string | null; url: string }[]>([])
+  const [showAddResource, setShowAddResource] = useState(false)
+  const [newTitle, setNewTitle] = useState('')
+  const [newDesc, setNewDesc] = useState('')
+  const [newUrl, setNewUrl] = useState('')
+
+  const trainerName = localStorage.getItem('trainer_name') || 'Trainer'
 
   useEffect(() => {
     getUnresolvedCount().then(setUnresolvedCount).catch(() => {})
     getPLAnalyticsOverview().then(setPlStats).catch(() => {})
+    getResources().then(setResources).catch(() => {})
   }, [])
+
+  async function handleAddResource() {
+    if (!newTitle.trim() || !newUrl.trim()) { toast.error('Title and URL are required'); return }
+    try {
+      await createResource({ title: newTitle.trim(), description: newDesc.trim() || undefined, url: newUrl.trim(), created_by: trainerName })
+      toast.success('Resource added')
+      setNewTitle(''); setNewDesc(''); setNewUrl(''); setShowAddResource(false)
+      getResources().then(setResources).catch(() => {})
+    } catch { toast.error('Failed to add resource') }
+  }
+
+  async function handleDeleteResource(id: number) {
+    try {
+      await deleteResource(id)
+      setResources(r => r.filter(x => x.id !== id))
+      toast.success('Resource removed')
+    } catch { toast.error('Failed to remove resource') }
+  }
 
   const cards = [
     { to: '/trainer/upload', icon: <Upload size={24} />, title: 'Upload Charts', desc: 'Bulk upload new charts with metadata', color: '#4f46e5', light: '#ede9fe', badge: null },
@@ -110,6 +137,76 @@ export function TrainerHome() {
           </Link>
 
         </div>
+
+        {/* Coding Resources management */}
+        <div style={styles.plDivider}>
+          <span style={styles.plDividerLine} />
+          <span style={styles.plDividerLabel}>Coding Resources</span>
+          <span style={styles.plDividerLine} />
+        </div>
+
+        <div style={{ background: 'rgba(255,255,255,0.5)', backdropFilter: 'blur(14px)', border: '1px solid rgba(255,255,255,0.6)', borderRadius: 14, padding: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 700, color: '#374151' }}>
+              <BookOpen size={16} /> Resources visible to all coders
+            </div>
+            <button
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: '#4f46e5', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 700 }}
+              onClick={() => setShowAddResource(s => !s)}
+            >
+              <Plus size={14} /> Add Resource
+            </button>
+          </div>
+
+          {showAddResource && (
+            <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 10, padding: 16, marginBottom: 16, display: 'flex', flexDirection: 'column' as const, gap: 10 }}>
+              <input
+                style={{ padding: '9px 12px', border: '1px solid #e5e7eb', borderRadius: 7, fontSize: 13 }}
+                placeholder="Title *"
+                value={newTitle}
+                onChange={e => setNewTitle(e.target.value)}
+              />
+              <input
+                style={{ padding: '9px 12px', border: '1px solid #e5e7eb', borderRadius: 7, fontSize: 13 }}
+                placeholder="Short description (optional)"
+                value={newDesc}
+                onChange={e => setNewDesc(e.target.value)}
+              />
+              <input
+                style={{ padding: '9px 12px', border: '1px solid #e5e7eb', borderRadius: 7, fontSize: 13 }}
+                placeholder="URL * (e.g. https://cms.gov/...)"
+                value={newUrl}
+                onChange={e => setNewUrl(e.target.value)}
+              />
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button style={{ padding: '8px 18px', background: '#4f46e5', color: '#fff', border: 'none', borderRadius: 7, cursor: 'pointer', fontSize: 13, fontWeight: 700 }} onClick={handleAddResource}>Save</button>
+                <button style={{ padding: '8px 14px', background: 'none', border: '1px solid #e5e7eb', borderRadius: 7, cursor: 'pointer', fontSize: 13, color: '#6b7280' }} onClick={() => setShowAddResource(false)}>Cancel</button>
+              </div>
+            </div>
+          )}
+
+          {resources.length === 0 && !showAddResource && (
+            <div style={{ fontSize: 13, color: '#9ca3af', textAlign: 'center', padding: '20px 0' }}>No resources yet. Add links to coding guides, CMS PDFs, or tool URLs.</div>
+          )}
+
+          <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 8 }}>
+            {resources.map(r => (
+              <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: '#fff', border: '1px solid #f3f4f6', borderRadius: 8 }}>
+                <ExternalLink size={13} style={{ color: '#4f46e5', flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700 }}>{r.title}</div>
+                  {r.description && <div style={{ fontSize: 11, color: '#6b7280' }}>{r.description}</div>}
+                  <div style={{ fontSize: 11, color: '#9ca3af', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{r.url}</div>
+                </div>
+                <a href={r.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: '#4f46e5', textDecoration: 'none', fontWeight: 600, flexShrink: 0 }}>Open</a>
+                <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', padding: 4, display: 'flex' }} onClick={() => handleDeleteResource(r.id)} title="Remove resource">
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+
       </div>
     </div>
   )

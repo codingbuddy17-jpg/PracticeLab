@@ -35,9 +35,26 @@ export async function getChartTrainer(chartId: number): Promise<ChartWithRationa
   return data
 }
 
-export async function updateChart(chartId: number, actor: string, payload: Partial<{ category: string; difficulty: string; rationale: string }>) {
+export async function updateChart(chartId: number, actor: string, payload: Partial<{ category: string; difficulty: string; rationale: string; alias: string }>) {
   const { data } = await api.patch(`/charts/${chartId}`, payload, { params: { actor } })
   return data as Chart
+}
+
+// ── Coding Resources ──────────────────────────────────────────────────────────
+
+export async function getResources() {
+  const { data } = await api.get('/resources')
+  return data as { id: number; title: string; description: string | null; url: string; created_by: string; sort_order: number; created_at: string }[]
+}
+
+export async function createResource(payload: { title: string; description?: string; url: string; created_by: string; sort_order?: number }) {
+  const { data } = await api.post('/resources', payload)
+  return data
+}
+
+export async function deleteResource(id: number) {
+  const { data } = await api.delete(`/resources/${id}`)
+  return data
 }
 
 export async function retireChart(chartId: number, actor: string, passphrase?: string) {

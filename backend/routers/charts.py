@@ -28,7 +28,7 @@ def search_charts(
 
     if q:
         query = query.filter(
-            or_(Chart.chart_number.ilike(f"%{q}%"), Chart.category.ilike(f"%{q}%"))
+            or_(Chart.chart_number.ilike(f"%{q}%"), Chart.category.ilike(f"%{q}%"), Chart.alias.ilike(f"%{q}%"))
         )
     if specialty:
         query = query.filter(Chart.specialty == specialty)
@@ -115,6 +115,9 @@ def update_chart(
     if payload.rationale is not None:
         chart.rationale = payload.rationale
         changes.append("rationale updated")
+    if payload.alias is not None:
+        changes.append(f"alias: {chart.alias or '—'} → {payload.alias or '—'}")
+        chart.alias = payload.alias or None
 
     if changes:
         log_audit(db, chart_id, "UPDATE", actor, "; ".join(changes))

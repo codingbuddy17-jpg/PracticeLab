@@ -51,6 +51,7 @@ class Chart(Base):
     specialty = Column(SAEnum(Specialty), nullable=False, index=True)
     category = Column(String(200), nullable=False, index=True)
     difficulty = Column(SAEnum(Difficulty), nullable=False, index=True)
+    alias = Column(String(100), nullable=True)
     rationale = Column(Text, nullable=True)
     status = Column(SAEnum(ChartStatus), default=ChartStatus.ACTIVE, nullable=False, index=True)
     uploaded_by = Column(String(100), nullable=False)
@@ -377,3 +378,15 @@ class ScoringConfig(Base):
     dpo_pass_threshold = Column(Float, nullable=False, default=80.0)
     updated_by = Column(String(100), nullable=True)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class CodingResource(Base):
+    __tablename__ = "coding_resources"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(200), nullable=False)
+    description = Column(String(500), nullable=True)
+    url = Column(String(1000), nullable=False)
+    created_by = Column(String(100), nullable=False)
+    sort_order = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
