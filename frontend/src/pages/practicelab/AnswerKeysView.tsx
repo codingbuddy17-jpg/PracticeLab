@@ -131,16 +131,14 @@ export function AnswerKeysView() {
         <button style={{ ...styles.outlineBtn, color: '#16a34a', borderColor: '#86efac' }} onClick={() => setShowExportPrompt(s => !s)}>
           <Download size={15} /> Export All Keys
         </button>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <label style={{ ...uploading ? { ...styles.primaryBtn, opacity: 0.6 } : styles.primaryBtn, background: replaceMode ? '#dc2626' : undefined, borderColor: replaceMode ? '#dc2626' : undefined }}>
-            {uploading ? <><Loader size={14} /> Uploading...</> : replaceMode ? <><RefreshCw size={15} /> Upload & Replace</> : <><Upload size={15} /> Upload Keys</>}
-            <input ref={fileRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={e => handleUpload(e, replaceRef.current?.value || '')} disabled={uploading} />
-          </label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#6b7280', cursor: 'pointer', userSelect: 'none' as const }}>
-            <input type="checkbox" checked={replaceMode} onChange={e => setReplaceMode(e.target.checked)} />
-            Replace existing
-          </label>
-        </div>
+        <label style={uploading ? { ...styles.primaryBtn, opacity: 0.6 } : replaceMode ? { ...styles.primaryBtn, background: '#dc2626', borderColor: '#dc2626' } : styles.primaryBtn}>
+          {uploading ? <><Loader size={14} /> Uploading...</> : replaceMode ? <><RefreshCw size={15} /> Upload & Replace</> : <><Upload size={15} /> Upload Filled Key</>}
+          <input ref={fileRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={e => handleUpload(e, replaceRef.current?.value || '')} disabled={uploading} />
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#6b7280', cursor: 'pointer', userSelect: 'none' as const }}>
+          <input type="checkbox" checked={replaceMode} onChange={e => setReplaceMode(e.target.checked)} />
+          Replace existing
+        </label>
       </div>
 
       {/* Replace mode passphrase prompt */}
