@@ -298,23 +298,27 @@ export function PLAnalyticsView() {
         <div>
           {byChart.length === 0 ? <div style={styles.emptyState}>No chart data yet — charts appear here once grading results are submitted.</div> : (
             <div style={styles.table}>
-              <div style={{ ...styles.tableHeader, gridTemplateColumns: '120px 1fr 1fr 80px 80px' }}>
-                <span>Chart</span><span>Category</span><span>Specialty</span><span>Attempts</span><span>Avg Score</span>
+              <div style={{ ...styles.tableHeader, gridTemplateColumns: '120px 1fr 1fr 80px 90px' }}>
+                <span>Chart</span><span>Category</span><span>Specialty</span>
+                <span style={{ textAlign: 'center' as const }}>Attempts</span>
+                <span style={{ textAlign: 'center' as const }}>Avg Score</span>
               </div>
               {byChart.map((r: any, i: number) => (
-                <div key={r.chart_number} style={{ ...styles.tableRow, gridTemplateColumns: '120px 1fr 1fr 80px 80px', flexDirection: 'column' as const, height: 'auto', alignItems: 'stretch', padding: 0 }}>
-                  <div className={expandedChart !== r.chart_number ? (i % 2 === 1 ? 'pl-tr-alt' : 'pl-tr') : ''} style={{ display: 'grid', gridTemplateColumns: '120px 1fr 1fr 80px 80px', padding: '10px 16px', alignItems: 'center', cursor: 'pointer', background: expandedChart === r.chart_number ? '#f5f3ff' : undefined }}
+                <div key={r.chart_number} style={{ borderBottom: '1px solid #f3f4f6', background: expandedChart === r.chart_number ? '#f5f3ff' : i % 2 === 1 ? '#f9fafb' : '#fff' }}>
+                  {/* Main data row */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr 1fr 80px 90px', padding: '10px 16px', alignItems: 'center', cursor: 'pointer' }}
                     onClick={() => toggleChartDetail(r.chart_number)}>
-                    <span style={{ fontWeight: 700, color: '#4f46e5' }}>{r.chart_number} {expandedChart === r.chart_number ? '▲' : '▼'}</span>
-                    <span style={{ fontSize: 12 }}>{r.category}</span>
+                    <span style={{ fontWeight: 700, color: '#4f46e5', fontSize: 13 }}>{r.chart_number} {expandedChart === r.chart_number ? '▲' : '▼'}</span>
+                    <span style={{ fontSize: 12, color: '#374151' }}>{r.category}</span>
                     <span style={{ fontSize: 12, color: '#6b7280' }}>{r.specialty}</span>
-                    <span>{r.attempt_count}</span>
-                    <span style={{ fontWeight: 700, color: r.avg_score >= 80 ? '#16a34a' : r.avg_score >= 60 ? '#d97706' : '#dc2626' }}>{r.avg_score}%</span>
+                    <span style={{ fontSize: 13, textAlign: 'center' as const }}>{r.attempt_count}</span>
+                    <span style={{ fontWeight: 700, fontSize: 13, textAlign: 'center' as const, color: r.avg_score >= 80 ? '#16a34a' : r.avg_score >= 60 ? '#d97706' : '#dc2626' }}>{r.avg_score}%</span>
                   </div>
+                  {/* Top missed badges — only when collapsed */}
                   {r.top_missed?.length > 0 && expandedChart !== r.chart_number && (
-                    <div style={{ padding: '4px 16px 8px 132px', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    <div style={{ padding: '0 16px 8px 136px', display: 'flex', gap: 6, flexWrap: 'wrap' as const }}>
                       {r.top_missed.map(([code, cnt]: any) => (
-                        <span key={code} style={{ fontSize: 10, fontWeight: 700, background: '#fee2e2', color: '#dc2626', padding: '1px 8px', borderRadius: 10 }}>{code} {cnt}×</span>
+                        <span key={code} style={{ fontSize: 10, fontWeight: 700, background: '#fee2e2', color: '#dc2626', padding: '2px 8px', borderRadius: 10 }}>{code} {cnt}×</span>
                       ))}
                     </div>
                   )}
