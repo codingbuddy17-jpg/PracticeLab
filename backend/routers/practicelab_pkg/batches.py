@@ -106,6 +106,35 @@ def create_batch(payload: BatchCreate, db: Session = Depends(get_db)):
     return {"batch_id": batch.id, "name": batch.name, "warning": warning}
 
 
+class AddCoders(BaseModel):
+    coders: list[CoderEntry]
+
+
+@router.post("/batches/{batch_id}/coders")
+def add_coders_to_batch(batch_id: int, payload: AddCoders, db: Session = Depends(get_db)):
+    """Add one or more coders to an open batch between allocation cycles."""
+    batch = db.query(Batch).filter(Batch.id == batch_id).first()
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    if batch.status.value == "closed":
+        raise HTTPException(status_code=400, detail="Cannot add coders to a closed batch")
+
+    existing_names = {c.coder_name for c in batch.coders}
+    added, skipped = [], []
+    for coder in payload.coders:
+        name = coder.name.strip()
+        if not name:
+            continue
+        if name in existing_names:
+            skipped.append(name)
+        else:
+            db.add(BatchCoder(batch_id=batch_id, coder_name=name, emp_id=coder.emp_id or ""))
+            added.append(name)
+
+    db.commit()
+    return {"added": added, "skipped_duplicates": skipped}
+
+
 @router.post("/batches/{batch_id}/run-allocation")
 def run_allocation(batch_id: int, payload: AllocationRun, db: Session = Depends(get_db)):
     """Run a new allocation cycle for an open batch. Excludes charts already assigned in prior cycles."""

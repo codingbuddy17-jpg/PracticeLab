@@ -243,6 +243,11 @@ export async function addBatchNote(batchId: number, text: string, author: string
   return data
 }
 
+export async function addCodersToBatch(batchId: number, coders: { name: string; emp_id: string }[]) {
+  const { data } = await api.post(`/practicelab/batches/${batchId}/coders`, { coders })
+  return data as { added: string[]; skipped_duplicates: string[] }
+}
+
 export function downloadCycleExcel(batchId: number, cycleId: number) {
   window.open(`${import.meta.env.VITE_API_URL || '/api'}/practicelab/batches/${batchId}/cycles/${cycleId}/generate-excel`, '_blank')
 }

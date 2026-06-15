@@ -5,6 +5,7 @@ import {
   getBatch, gradeSubmissions, closeBatch, addBatchNote,
   downloadBatchExcel, downloadCycleExcel, downloadBatchResultsExcel,
   getBatchInsights, runAllocation, searchChartsForBatch, getCategories,
+  addCodersToBatch,
 } from '../../api'
 import { SPECIALTY_COLORS } from '../../theme'
 import { trainerName } from './shared'
@@ -164,6 +165,9 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
   const [closing, setClosing] = useState(false)
   const [confirmingClose, setConfirmingClose] = useState(false)
   const [showNoteBox, setShowNoteBox] = useState(false)
+  const [showAddCoder, setShowAddCoder] = useState(false)
+  const [newCoders, setNewCoders] = useState([{ name: '', emp_id: '' }])
+  const [addingCoders, setAddingCoders] = useState(false)
   const [noteText, setNoteText] = useState('')
   const [insights, setInsights] = useState<any>(null)
   const [showInsights, setShowInsights] = useState(false)
@@ -510,7 +514,63 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
 
       <div style={styles.sectionHeader}>
         <span style={{ fontSize: 14, fontWeight: 700, color: '#374151' }}>Coders ({batch.coders?.length || 0})</span>
+        {batch.status === 'open' && (
+          <button style={{ ...styles.outlineBtn, fontSize: 12, padding: '4px 10px' }} onClick={() => { setShowAddCoder(p => !p); setNewCoders([{ name: '', emp_id: '' }]) }}>
+            {showAddCoder ? 'Cancel' : '+ Add Coder'}
+          </button>
+        )}
       </div>
+
+      {showAddCoder && (
+        <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 10, padding: 16, marginBottom: 12 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#374151', marginBottom: 10 }}>Add coder(s) to this batch</div>
+          {newCoders.map((row, i) => (
+            <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
+              <input
+                style={{ ...styles.input, flex: 2, margin: 0, fontSize: 13 }}
+                placeholder="Coder name *"
+                value={row.name}
+                onChange={e => setNewCoders(prev => prev.map((r, j) => j === i ? { ...r, name: e.target.value } : r))}
+              />
+              <input
+                style={{ ...styles.input, flex: 1, margin: 0, fontSize: 13 }}
+                placeholder="Emp ID (optional)"
+                value={row.emp_id}
+                onChange={e => setNewCoders(prev => prev.map((r, j) => j === i ? { ...r, emp_id: e.target.value } : r))}
+              />
+              {newCoders.length > 1 && (
+                <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', fontSize: 18, lineHeight: 1, padding: '0 4px' }}
+                  onClick={() => setNewCoders(prev => prev.filter((_, j) => j !== i))}>×</button>
+              )}
+            </div>
+          ))}
+          <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+            <button style={{ ...styles.outlineBtn, fontSize: 12, padding: '5px 10px' }} onClick={() => setNewCoders(prev => [...prev, { name: '', emp_id: '' }])}>+ Add row</button>
+            <button
+              style={addingCoders ? { ...styles.primaryBtn, opacity: 0.6 } : styles.primaryBtn}
+              disabled={addingCoders || newCoders.every(r => !r.name.trim())}
+              onClick={async () => {
+                const valid = newCoders.filter(r => r.name.trim())
+                if (!valid.length) return
+                setAddingCoders(true)
+                try {
+                  const res = await addCodersToBatch(batchId, valid)
+                  if (res.added.length) toast.success(`Added: ${res.added.join(', ')}`)
+                  if (res.skipped_duplicates.length) toast(`Already in batch (skipped): ${res.skipped_duplicates.join(', ')}`, { icon: 'ℹ️' })
+                  setShowAddCoder(false)
+                  setNewCoders([{ name: '', emp_id: '' }])
+                  loadBatch()
+                } catch (err: any) {
+                  toast.error(err?.response?.data?.detail || 'Failed to add coders')
+                } finally { setAddingCoders(false) }
+              }}>
+              {addingCoders ? <><Loader size={13} /> Adding...</> : 'Add to Batch'}
+            </button>
+          </div>
+          <p style={{ fontSize: 11, color: '#9ca3af', margin: '8px 0 0' }}>New coders will be included in the next allocation cycle run.</p>
+        </div>
+      )}
+
       <div style={styles.table}>
         <div style={styles.tableHeader}><span>Coder</span><span>Emp ID</span><span>Charts Assigned</span><span>Submitted</span></div>
         {(batch.coders || []).map((c: any, i: number) => {
