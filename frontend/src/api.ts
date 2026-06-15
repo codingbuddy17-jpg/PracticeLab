@@ -347,13 +347,13 @@ export async function getPLAnalyticsByBatch(f: PLFilters = {}) {
   return data
 }
 
-export async function getCoderTrend(coderName: string) {
-  const { data } = await api.get('/practicelab/analytics/coder-trend', { params: { coder_name: coderName } })
+export async function getCoderTrend(coderName: string, f: PLFilters = {}) {
+  const { data } = await api.get('/practicelab/analytics/coder-trend', { params: { coder_name: coderName, ...fp(f) } })
   return data
 }
 
-export async function getCoderSummary(coderName: string) {
-  const { data } = await api.get('/practicelab/analytics/coder-summary', { params: { coder_name: coderName } })
+export async function getCoderSummary(coderName: string, f: PLFilters = {}) {
+  const { data } = await api.get('/practicelab/analytics/coder-summary', { params: { coder_name: coderName, ...fp(f) } })
   return data
 }
 

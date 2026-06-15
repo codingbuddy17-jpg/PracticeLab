@@ -120,14 +120,14 @@ def analytics_by_batch(
     from_date: Optional[str] = None, to_date: Optional[str] = None, specialty: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
-    batches = _batch_base(db, from_date, to_date, specialty).order_by(Batch.created_at.desc()).all()
+    batches = _batch_base(db, from_date, to_date, specialty).order_by(Batch.created_at.asc()).all()
     out = []
     for b in batches:
         results = [r for r in b.results if r.total_score is not None]
         if not results:
             continue
         scores = [r.total_score for r in results]
-        passed = sum(1 for r in results if r.pass_fail == "PASS")
+        passed = sum(1 for r in results if r.pass_fail == PassFail.PASS)
         out.append({
             "batch_id": b.id,
             "batch_name": b.name,
@@ -141,13 +141,25 @@ def analytics_by_batch(
 
 
 @router.get("/analytics/coder-trend")
-def coder_trend(coder_name: str, db: Session = Depends(get_db)):
-    results = (db.query(GradingResult)
-               .filter(GradingResult.coder_name == coder_name,
-                       GradingResult.total_score.isnot(None))
-               .join(Batch)
-               .order_by(Batch.created_at)
-               .all())
+def coder_trend(
+    coder_name: str,
+    from_date: Optional[str] = None, to_date: Optional[str] = None, specialty: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    q = (db.query(GradingResult)
+         .filter(GradingResult.coder_name == coder_name,
+                 GradingResult.total_score.isnot(None))
+         .join(Batch)
+         .order_by(Batch.created_at))
+    if from_date:
+        q = q.filter(GradingResult.graded_at >= from_date)
+    if to_date:
+        q = q.filter(GradingResult.graded_at <= to_date + "T23:59:59")
+    if specialty:
+        spec = next((s for s in Specialty if s.value == specialty), None)
+        if spec:
+            q = q.filter(GradingResult.specialty == spec)
+    results = q.all()
 
     batch_scores: dict[int, dict] = {}
     for r in results:
@@ -179,20 +191,32 @@ def coder_trend(coder_name: str, db: Session = Depends(get_db)):
 
 
 @router.get("/analytics/coder-summary")
-def coder_summary(coder_name: str, db: Session = Depends(get_db)):
+def coder_summary(
+    coder_name: str,
+    from_date: Optional[str] = None, to_date: Optional[str] = None, specialty: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
     """Full coder profile across all batches — cumulative weighted + DPO scores, category breakdown, batch history."""
-    results = (db.query(GradingResult)
-               .filter(GradingResult.coder_name == coder_name)
-               .join(Batch).join(Chart, GradingResult.chart_id == Chart.id)
-               .order_by(Batch.created_at)
-               .all())
+    q = (db.query(GradingResult)
+         .filter(GradingResult.coder_name == coder_name)
+         .join(Batch).join(Chart, GradingResult.chart_id == Chart.id)
+         .order_by(Batch.created_at))
+    if from_date:
+        q = q.filter(GradingResult.graded_at >= from_date)
+    if to_date:
+        q = q.filter(GradingResult.graded_at <= to_date + "T23:59:59")
+    if specialty:
+        spec = next((s for s in Specialty if s.value == specialty), None)
+        if spec:
+            q = q.filter(GradingResult.specialty == spec)
+    results = q.all()
 
     if not results:
         return None
 
     # ── Cumulative weighted ──────────────────────────────────────────────────
     scored = [r for r in results if r.total_score is not None]
-    total_charts = len(results)
+    total_charts = len(scored)
     charts_passed = sum(1 for r in scored if r.pass_fail and r.pass_fail.value == "PASS")
     weighted_accuracy = round(sum(r.total_score for r in scored) / len(scored), 1) if scored else None
 
@@ -368,7 +392,8 @@ def analytics_chart_teaching_value(
         if r.pass_fail and r.pass_fail.value == "PASS":
             chart_map[cn]["passed"] += 1
         for f in r.feedback:
-            chart_map[cn]["error_variety"].add(f.issue_type.value)
+            if f.issue_type.value == "Missed" and f.ak_code:
+                chart_map[cn]["error_variety"].add(f.ak_code)
 
     out = []
     for d in chart_map.values():
@@ -381,11 +406,11 @@ def analytics_chart_teaching_value(
             label = "Underused"
         elif avg >= 90:
             label = "Too Easy"
-        elif pass_rate <= 40 and error_variety >= 2:
+        elif pass_rate < 50 and error_variety >= 3:
             label = "High Confusion"
         elif 50 <= pass_rate <= 85 and error_variety >= 2 and attempts >= 3:
             label = "High Yield"
-        elif pass_rate <= 40:
+        elif pass_rate < 50:
             label = "High Fail"
         else:
             label = "Standard"
@@ -453,10 +478,11 @@ def analytics_coder_matrix(
                     "avg_score": round(sum(data["scores"]) / len(data["scores"]), 1),
                     "pass_rate": round(data["passed"] / data["total"] * 100, 1),
                     "chart_count": data["total"],
+                    "score_sum": sum(data["scores"]),
                 })
 
     return {
-        "batches": [{"id": b.id, "name": b.name, "specialty": b.specialty.value} for b in batches],
+        "batches": [{"id": b.id, "name": b.name, "specialty": b.specialty.value, "closed_at": b.closed_at.isoformat() if b.closed_at else None} for b in batches],
         "coders": all_coders,
         "cells": cells,
     }
@@ -477,7 +503,7 @@ def chart_detail(chart_number: str, db: Session = Depends(get_db)):
             "batch_name": r.batch.name if r.batch else None,
             "total_score": r.total_score,
             "pass_fail": r.pass_fail.value if r.pass_fail else None,
-            "missed_codes": missed[:5],
+            "missed_codes": missed,
         })
     return {
         "chart_number": chart_number,

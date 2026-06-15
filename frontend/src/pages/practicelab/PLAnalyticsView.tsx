@@ -97,7 +97,7 @@ export function PLAnalyticsView() {
   }, [filters])
 
   useEffect(() => {
-    if (tab === 'chart' && byChart.length === 0) getPLAnalyticsByChart(filters).then(setByChart).catch(() => {})
+    if ((tab === 'chart' || tab === 'category') && byChart.length === 0) getPLAnalyticsByChart(filters).then(setByChart).catch(() => {})
     if (tab === 'category' && !categoryData) getPLAnalyticsByCategory(filters).then(setCategoryData).catch(() => {})
     if (tab === 'teaching' && teachingData.length === 0) getPLChartTeachingValue(filters).then(setTeachingData).catch(() => {})
     if ((tab === 'matrix' || tab === 'coder') && !matrixData) getPLCoderMatrix(filters).then(setMatrixData).catch(() => {})
@@ -109,8 +109,8 @@ export function PLAnalyticsView() {
     setCoderSummary(null)
     setCoderTrend([])
     const [summary, trend] = await Promise.all([
-      getCoderSummary(name).catch(() => null),
-      getCoderTrend(name).catch(() => null),
+      getCoderSummary(name, filters).catch(() => null),
+      getCoderTrend(name, filters).catch(() => null),
     ])
     if (!summary && !trend?.length) { toast.error('No data for this coder'); return }
     if (summary) setCoderSummary(summary)
@@ -122,7 +122,7 @@ export function PLAnalyticsView() {
     setTab('coder')
     setCoderSummary(null)
     setCoderTrend([])
-    Promise.all([getCoderSummary(name).catch(() => null), getCoderTrend(name).catch(() => null)])
+    Promise.all([getCoderSummary(name, filters).catch(() => null), getCoderTrend(name, filters).catch(() => null)])
       .then(([summary, trend]) => {
         if (summary) setCoderSummary(summary)
         if (trend) setCoderTrend(trend)
@@ -355,10 +355,13 @@ export function PLAnalyticsView() {
                               <span style={{ fontWeight: 700, color: (c.total_score ?? 0) >= 80 ? '#16a34a' : (c.total_score ?? 0) >= 60 ? '#d97706' : '#dc2626' }}>{c.total_score}%</span>
                               <span style={{ fontWeight: 700, fontSize: 11, color: c.pass_fail === 'PASS' ? '#16a34a' : '#dc2626' }}>{c.pass_fail}</span>
                               {c.missed_codes?.length > 0 && (
-                                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                                  {c.missed_codes.map((code: string) => (
+                                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' as const, alignItems: 'center' }}>
+                                  {c.missed_codes.slice(0, 5).map((code: string) => (
                                     <span key={code} style={{ fontSize: 10, fontWeight: 700, background: '#fee2e2', color: '#dc2626', padding: '1px 6px', borderRadius: 8 }}>{code}</span>
                                   ))}
+                                  {c.missed_codes.length > 5 && (
+                                    <span style={{ fontSize: 10, color: '#9ca3af' }}>+{c.missed_codes.length - 5} more</span>
+                                  )}
                                 </div>
                               )}
                             </div>
@@ -490,10 +493,11 @@ export function PLAnalyticsView() {
                   {/* Top / Bottom categories */}
                   {coderSummary.by_category?.length > 0 && (() => {
                     const cats: any[] = coderSummary.by_category
-                    const top = cats.slice(0, 3)
-                    const bottom = cats.slice(-3).reverse()
+                    const splitAt = Math.min(3, Math.floor(cats.length / 2))
+                    const top = cats.slice(0, splitAt)
+                    const bottom = cats.length > splitAt ? cats.slice(-splitAt).reverse() : []
                     return (
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: bottom.length ? '1fr 1fr' : '1fr', gap: 12 }}>
                         <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '12px 14px' }}>
                           <div style={{ fontSize: 11, fontWeight: 700, color: '#166534', textTransform: 'uppercase' as const, letterSpacing: 0.5, marginBottom: 8 }}>Top Categories</div>
                           {top.map((c: any) => (
@@ -506,18 +510,20 @@ export function PLAnalyticsView() {
                             </div>
                           ))}
                         </div>
-                        <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 10, padding: '12px 14px' }}>
-                          <div style={{ fontSize: 11, fontWeight: 700, color: '#92400e', textTransform: 'uppercase' as const, letterSpacing: 0.5, marginBottom: 8 }}>Needs Work</div>
-                          {bottom.map((c: any) => (
-                            <div key={c.category} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #fde68a', fontSize: 12 }}>
-                              <span style={{ fontWeight: 600, color: '#111' }}>{c.category}</span>
-                              <span style={{ display: 'flex', gap: 8, color: '#6b7280' }}>
-                                <span>{c.charts} charts</span>
-                                <span style={{ fontWeight: 700, color: c.avg_score >= 80 ? '#16a34a' : c.avg_score >= 60 ? '#d97706' : '#dc2626' }}>{c.avg_score}%</span>
-                              </span>
-                            </div>
-                          ))}
-                        </div>
+                        {bottom.length > 0 && (
+                          <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 10, padding: '12px 14px' }}>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: '#92400e', textTransform: 'uppercase' as const, letterSpacing: 0.5, marginBottom: 8 }}>Needs Work</div>
+                            {bottom.map((c: any) => (
+                              <div key={c.category} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #fde68a', fontSize: 12 }}>
+                                <span style={{ fontWeight: 600, color: '#111' }}>{c.category}</span>
+                                <span style={{ display: 'flex', gap: 8, color: '#6b7280' }}>
+                                  <span>{c.charts} charts</span>
+                                  <span style={{ fontWeight: 700, color: c.avg_score >= 80 ? '#16a34a' : c.avg_score >= 60 ? '#d97706' : '#dc2626' }}>{c.avg_score}%</span>
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     )
                   })()}
@@ -620,7 +626,7 @@ export function PLAnalyticsView() {
                             <div style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' as const, letterSpacing: 0.4, marginBottom: 8 }}>Weak charts in this category</div>
                             {catCharts.length === 0 ? <div style={{ fontSize: 12, color: '#9ca3af' }}>No chart data yet</div> : catCharts.slice(0, 6).map((c: any) => (
                               <div key={c.chart_number} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #f3f4f6', fontSize: 12 }}>
-                                <span style={{ fontWeight: 700, color: '#4f46e5', cursor: 'pointer' }} onClick={e => { e.stopPropagation(); setExpandedChart(null); setTab('chart') }}>{c.chart_number}</span>
+                                <span style={{ fontWeight: 700, color: '#4f46e5', cursor: 'pointer' }} onClick={e => { e.stopPropagation(); setExpandedChart(c.chart_number); setTab('chart') }}>{c.chart_number}</span>
                                 <span style={{ color: '#6b7280' }}>{c.attempt_count} attempts</span>
                                 <span style={{ fontWeight: 700, color: c.avg_score >= 80 ? '#16a34a' : c.avg_score >= 60 ? '#d97706' : '#dc2626' }}>{c.avg_score}%</span>
                               </div>
@@ -871,15 +877,18 @@ export function PLAnalyticsView() {
                 const filteredCoders = matrixCoderSearch.trim()
                   ? matrixData.coders.filter((n: string) => n.toLowerCase().includes(matrixCoderSearch.toLowerCase()))
                   : matrixData.coders
+                const weightedOverall = new Map<string, number>()
+                for (const coder of filteredCoders) {
+                  const cells = matrixData.cells.filter((c: any) => c.coder_name === coder && c.avg_score != null)
+                  const totalCharts = cells.reduce((s: number, c: any) => s + c.chart_count, 0)
+                  const scoreSum = cells.reduce((s: number, c: any) => s + c.score_sum, 0)
+                  weightedOverall.set(coder, totalCharts > 0 ? scoreSum / totalCharts : -1)
+                }
                 const sortedMatrixCoders = [...filteredCoders].sort((a: string, b: string) => {
                   const dir = matrixSort.dir === 'asc' ? 1 : -1
                   if (matrixSort.col === 'coder') return a.localeCompare(b) * dir
                   if (matrixSort.col === 'overall') {
-                    const scoreOf = (name: string) => {
-                      const cells = matrixData.cells.filter((c: any) => c.coder_name === name && c.avg_score != null)
-                      return cells.length ? cells.reduce((s: number, c: any) => s + c.avg_score, 0) / cells.length : -1
-                    }
-                    return (scoreOf(a) - scoreOf(b)) * dir
+                    return ((weightedOverall.get(a) ?? -1) - (weightedOverall.get(b) ?? -1)) * dir
                   }
                   const batchId = Number(matrixSort.col)
                   const sa = matrixData.cells.find((c: any) => c.coder_name === a && c.batch_id === batchId)?.avg_score ?? -1
@@ -914,8 +923,10 @@ export function PLAnalyticsView() {
                         <tbody>
                           {visibleCoders.map((coder: string, i: number) => {
                             const coderCells = matrixData.cells.filter((c: any) => c.coder_name === coder)
-                            const allScores = coderCells.filter((c: any) => c.avg_score != null).map((c: any) => c.avg_score)
-                            const overall = allScores.length ? Math.round(allScores.reduce((a: number, b: number) => a + b, 0) / allScores.length) : null
+                            const scoredCells = coderCells.filter((c: any) => c.avg_score != null)
+                            const totalCharts = scoredCells.reduce((s: number, c: any) => s + c.chart_count, 0)
+                            const scoreSum = scoredCells.reduce((s: number, c: any) => s + c.score_sum, 0)
+                            const overall = totalCharts > 0 ? Math.round(scoreSum / totalCharts) : null
                             const cellMap: Record<number, any> = {}
                             coderCells.forEach((c: any) => { cellMap[c.batch_id] = c })
                             return (
