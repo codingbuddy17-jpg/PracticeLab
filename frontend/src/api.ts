@@ -338,6 +338,11 @@ export async function getCoderTrend(coderName: string) {
   return data
 }
 
+export async function getCoderSummary(coderName: string) {
+  const { data } = await api.get('/practicelab/analytics/coder-summary', { params: { coder_name: coderName } })
+  return data
+}
+
 export async function getPLAnalyticsByCategory(f: PLFilters = {}) {
   const { data } = await api.get('/practicelab/analytics/by-category', { params: fp(f) })
   return data as { team: any[]; coder_category: any[] }
