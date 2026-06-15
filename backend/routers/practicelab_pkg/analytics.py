@@ -155,21 +155,132 @@ def coder_trend(coder_name: str, db: Session = Depends(get_db)):
         if bid not in batch_scores:
             batch_scores[bid] = {
                 "batch_name": r.batch.name,
+                "specialty": r.batch.specialty.value if r.batch.specialty else None,
                 "created_at": r.batch.created_at.isoformat() if r.batch.created_at else None,
                 "scores": [],
+                "passed": 0,
             }
         batch_scores[bid]["scores"].append(r.total_score)
+        if r.pass_fail and r.pass_fail.value == "PASS":
+            batch_scores[bid]["passed"] += 1
 
     return [
         {
             "batch_id": bid,
             "batch_name": d["batch_name"],
+            "specialty": d["specialty"],
             "created_at": d["created_at"],
             "chart_count": len(d["scores"]),
             "avg_score": round(sum(d["scores"]) / len(d["scores"]), 1),
+            "charts_passed": d["passed"],
         }
         for bid, d in batch_scores.items()
     ]
+
+
+@router.get("/analytics/coder-summary")
+def coder_summary(coder_name: str, db: Session = Depends(get_db)):
+    """Full coder profile across all batches — cumulative weighted + DPO scores, category breakdown, batch history."""
+    results = (db.query(GradingResult)
+               .filter(GradingResult.coder_name == coder_name)
+               .join(Batch).join(Chart, GradingResult.chart_id == Chart.id)
+               .order_by(Batch.created_at)
+               .all())
+
+    if not results:
+        return None
+
+    # ── Cumulative weighted ──────────────────────────────────────────────────
+    scored = [r for r in results if r.total_score is not None]
+    total_charts = len(results)
+    charts_passed = sum(1 for r in scored if r.pass_fail and r.pass_fail.value == "PASS")
+    weighted_accuracy = round(sum(r.total_score for r in scored) / len(scored), 1) if scored else None
+
+    # ── Cumulative DPO (sum counts, not avg-of-avgs) ────────────────────────
+    dx_correct = dx_total = poa_correct = poa_total = proc_correct = proc_total = 0
+    has_dpo = False
+    for r in results:
+        if r.dpo_dx_total is not None:
+            has_dpo = True
+            dx_correct += r.dpo_dx_correct or 0
+            dx_total += r.dpo_dx_total
+        if r.dpo_poa_total is not None:
+            poa_correct += r.dpo_poa_correct or 0
+            poa_total += r.dpo_poa_total
+        if r.dpo_proc_total is not None:
+            proc_correct += r.dpo_proc_correct or 0
+            proc_total += r.dpo_proc_total
+
+    def _acc(c, t): return round(c / t * 100, 1) if t else None
+
+    cumulative_dpo = {
+        "dx_accuracy": _acc(dx_correct, dx_total),
+        "poa_accuracy": _acc(poa_correct, poa_total),
+        "proc_accuracy": _acc(proc_correct, proc_total),
+        "overall_accuracy": _acc(dx_correct + poa_correct + proc_correct, dx_total + poa_total + proc_total),
+    } if has_dpo else None
+
+    # ── Per-category breakdown ───────────────────────────────────────────────
+    cat_map: dict[str, dict] = {}
+    for r in scored:
+        cat = r.chart.category
+        if cat not in cat_map:
+            cat_map[cat] = {"scores": [], "passed": 0}
+        cat_map[cat]["scores"].append(r.total_score)
+        if r.pass_fail and r.pass_fail.value == "PASS":
+            cat_map[cat]["passed"] += 1
+
+    by_category = sorted([
+        {
+            "category": cat,
+            "charts": len(d["scores"]),
+            "avg_score": round(sum(d["scores"]) / len(d["scores"]), 1),
+            "pass_rate": round(d["passed"] / len(d["scores"]) * 100, 1),
+        }
+        for cat, d in cat_map.items()
+    ], key=lambda x: -x["avg_score"])
+
+    # ── Per-batch history ────────────────────────────────────────────────────
+    batch_map: dict[int, dict] = {}
+    for r in results:
+        bid = r.batch_id
+        if bid not in batch_map:
+            batch_map[bid] = {
+                "batch_id": bid,
+                "batch_name": r.batch.name,
+                "specialty": r.batch.specialty.value,
+                "created_at": r.batch.created_at.isoformat() if r.batch.created_at else None,
+                "scores": [],
+                "passed": 0,
+            }
+        if r.total_score is not None:
+            batch_map[bid]["scores"].append(r.total_score)
+            if r.pass_fail and r.pass_fail.value == "PASS":
+                batch_map[bid]["passed"] += 1
+
+    batches = [
+        {
+            "batch_id": d["batch_id"],
+            "batch_name": d["batch_name"],
+            "specialty": d["specialty"],
+            "created_at": d["created_at"],
+            "chart_count": len(d["scores"]),
+            "avg_score": round(sum(d["scores"]) / len(d["scores"]), 1) if d["scores"] else None,
+            "charts_passed": d["passed"],
+        }
+        for d in batch_map.values()
+    ]
+
+    return {
+        "coder_name": coder_name,
+        "total_charts": total_charts,
+        "charts_scored": len(scored),
+        "charts_passed": charts_passed,
+        "weighted_accuracy": weighted_accuracy,
+        "cumulative_dpo": cumulative_dpo,
+        "by_category": by_category,
+        "batches": batches,
+    }
 
 
 @router.get("/analytics/by-category")
