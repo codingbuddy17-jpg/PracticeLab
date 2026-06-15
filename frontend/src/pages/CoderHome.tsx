@@ -192,32 +192,6 @@ export function CoderHome() {
           </div>
         </div>
 
-        {/* Coding Resources */}
-        {resources.length > 0 && (
-          <div style={{ marginBottom: 20 }}>
-            <div style={styles.sectionLabel}><BookOpen size={13} /> Coding Resources</div>
-            <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 10 }}>
-              {resources.map(r => (
-                <a
-                  key={r.id}
-                  href={r.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 14px', background: 'rgba(255,255,255,0.7)', border: '1px solid rgba(229,231,235,0.8)', borderRadius: 10, textDecoration: 'none', color: 'inherit', cursor: 'pointer', minWidth: 180, maxWidth: 280, flex: '1 1 180px', boxShadow: '0 1px 4px rgba(0,0,0,0.05)', transition: 'box-shadow 0.15s' }}
-                  onMouseEnter={e => (e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)')}
-                  onMouseLeave={e => (e.currentTarget.style.boxShadow = '0 1px 4px rgba(0,0,0,0.05)')}
-                >
-                  <ExternalLink size={14} style={{ color: '#4f46e5', marginTop: 2, flexShrink: 0 }} />
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: '#111' }}>{r.title}</div>
-                    {r.description && <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2, lineHeight: 1.4 }}>{r.description}</div>}
-                  </div>
-                </a>
-              ))}
-            </div>
-          </div>
-        )}
-
         {/* Recently viewed */}
         {recentlyViewed.length > 0 && !hasSearched && (
           <div style={styles.recentSection}>
@@ -294,6 +268,40 @@ export function CoderHome() {
             </>
           )}
         </div>
+
+        {/* Coding Resources */}
+        {resources.length > 0 && (
+          <div style={{ marginTop: 40 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+              <div style={{ flex: 1, height: 1, background: '#e5e7eb' }} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <BookOpen size={16} color="#4f46e5" />
+                <span style={{ fontSize: 15, fontWeight: 800, color: '#111', letterSpacing: -0.3 }}>Coding Resources</span>
+              </div>
+              <div style={{ flex: 1, height: 1, background: '#e5e7eb' }} />
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 12 }}>
+              {resources.map(r => (
+                <a
+                  key={r.id}
+                  href={r.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '12px 16px', background: 'rgba(255,255,255,0.8)', border: '1px solid #e0e7ff', borderRadius: 12, textDecoration: 'none', color: 'inherit', minWidth: 200, maxWidth: 300, flex: '1 1 200px', boxShadow: '0 1px 4px rgba(99,102,241,0.07)', transition: 'box-shadow 0.15s, border-color 0.15s' }}
+                  onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 4px 14px rgba(99,102,241,0.15)'; e.currentTarget.style.borderColor = '#a5b4fc' }}
+                  onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 1px 4px rgba(99,102,241,0.07)'; e.currentTarget.style.borderColor = '#e0e7ff' }}
+                >
+                  <ExternalLink size={15} style={{ color: '#4f46e5', marginTop: 2, flexShrink: 0 }} />
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#111' }}>{r.title}</div>
+                    {r.description && <div style={{ fontSize: 11, color: '#6b7280', marginTop: 3, lineHeight: 1.5 }}>{r.description}</div>}
+                  </div>
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
+
       </div>
 
       {selectedChart && (
