@@ -132,15 +132,13 @@ def run_allocation(batch_id: int, payload: AllocationRun, db: Session = Depends(
 
     if payload.manual_chart_ids:
         pool = (db.query(Chart)
-                .join(AnswerKey, AnswerKey.chart_id == Chart.id)
                 .filter(Chart.id.in_(payload.manual_chart_ids),
                         Chart.status == ChartStatus.ACTIVE)
                 .all())
         if not pool:
-            raise HTTPException(status_code=400, detail="None of the selected charts have answer keys or are active.")
+            raise HTTPException(status_code=400, detail="None of the selected charts are active.")
     else:
         q = (db.query(Chart)
-             .join(AnswerKey, AnswerKey.chart_id == Chart.id)
              .filter(Chart.status == ChartStatus.ACTIVE, Chart.specialty == specialty))
 
         if batch.categories:
@@ -159,7 +157,7 @@ def run_allocation(batch_id: int, payload: AllocationRun, db: Session = Depends(
         pool = q.all()
 
     if not pool:
-        raise HTTPException(status_code=400, detail="No charts with answer keys match the batch pool filters.")
+        raise HTTPException(status_code=400, detail="No active charts match the batch pool filters.")
 
     cycle_number = len(batch.allocation_cycles) + 1
     cycle = BatchAllocationCycle(
@@ -318,7 +316,6 @@ def chart_search_for_manual(
         raise HTTPException(400, detail=f"Invalid specialty: {specialty}")
 
     query = (db.query(Chart)
-             .join(AnswerKey, AnswerKey.chart_id == Chart.id)
              .filter(Chart.status == ChartStatus.ACTIVE, Chart.specialty == spec))
 
     if q:
