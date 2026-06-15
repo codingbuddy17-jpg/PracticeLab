@@ -222,7 +222,7 @@ export async function createBatch(payload: {
 }
 
 export async function runAllocation(batchId: number, payload: {
-  charts_per_coder?: number; manual_chart_ids?: number[]; run_by: string; notes?: string;
+  charts_per_coder?: number; manual_chart_ids?: number[]; run_by: string; notes?: string; exclude_coders?: string[];
 }) {
   const { data } = await api.post(`/practicelab/batches/${batchId}/run-allocation`, payload)
   return data as { cycle_id: number; cycle_number: number; assigned: Record<string, number>; warnings: string[] }

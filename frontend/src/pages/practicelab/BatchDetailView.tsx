@@ -13,11 +13,16 @@ import { InsightsPanel } from './InsightsPanel'
 import styles from './styles'
 
 function AllocationPanel({ batch, onDone }: { batch: any; onDone: () => void }) {
+  const allCoderNames: string[] = (batch.coders || []).map((c: any) => c.coder_name)
   const [form, setForm] = useState({
     charts_per_coder: batch.charts_per_coder,
     notes: '',
     assignMode: 'random' as 'random' | 'manual',
   })
+  const [includedCoders, setIncludedCoders] = useState<Set<string>>(new Set(allCoderNames))
+
+  const toggleCoder = (name: string) =>
+    setIncludedCoders(prev => { const n = new Set(prev); n.has(name) ? n.delete(name) : n.add(name); return n })
   const [chartSearch, setChartSearch] = useState('')
   const [chartCatFilter, setChartCatFilter] = useState('')
   const [knownCategories, setKnownCategories] = useState<string[]>([])
@@ -51,11 +56,13 @@ function AllocationPanel({ batch, onDone }: { batch: any; onDone: () => void }) 
     setRunning(true)
     const tid = toast.loading('Running allocation…')
     try {
+      const excludedCoders = allCoderNames.filter(n => !includedCoders.has(n))
       const res = await runAllocation(batch.id, {
         charts_per_coder: form.charts_per_coder,
         manual_chart_ids: form.assignMode === 'manual' ? Array.from(selectedChartIds) : [],
         run_by: trainerName(),
         notes: form.notes || undefined,
+        exclude_coders: excludedCoders,
       })
       toast.dismiss(tid)
       const assignedCount = Object.values(res.assigned).reduce((a: number, b: any) => a + b, 0)
@@ -145,8 +152,37 @@ function AllocationPanel({ batch, onDone }: { batch: any; onDone: () => void }) 
           )}
         </div>
       )}
+      {allCoderNames.length > 0 && (
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 6 }}>
+            Include Coders <span style={{ fontWeight: 400, color: '#9ca3af' }}>(uncheck absent coders)</span>
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 8 }}>
+            {allCoderNames.map(name => {
+              const checked = includedCoders.has(name)
+              return (
+                <div key={name} onClick={() => toggleCoder(name)} style={{
+                  display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer',
+                  padding: '4px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600,
+                  background: checked ? '#ecfdf5' : '#f9fafb',
+                  border: `1px solid ${checked ? '#6ee7b7' : '#e5e7eb'}`,
+                  color: checked ? '#065f46' : '#9ca3af',
+                  userSelect: 'none' as const,
+                }}>
+                  {checked ? <CheckSquare size={13} color="#059669" /> : <Square size={13} color="#d1d5db" />}
+                  {name}
+                </div>
+              )
+            })}
+          </div>
+          {includedCoders.size === 0 && (
+            <div style={{ fontSize: 11, color: '#dc2626', marginTop: 4 }}>Select at least one coder to run the cycle.</div>
+          )}
+        </div>
+      )}
       <div style={{ display: 'flex', gap: 10 }}>
-        <button style={running ? { ...styles.primaryBtn, opacity: 0.6 } : styles.primaryBtn} disabled={running} onClick={handleRun}>
+        <button style={(running || includedCoders.size === 0) ? { ...styles.primaryBtn, opacity: 0.6 } : styles.primaryBtn}
+          disabled={running || includedCoders.size === 0} onClick={handleRun}>
           {running ? <><Loader size={14} /> Running…</> : `▶ Run Cycle ${nextCycle}`}
         </button>
       </div>

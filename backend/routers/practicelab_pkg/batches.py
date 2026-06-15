@@ -45,6 +45,7 @@ class AllocationRun(BaseModel):
     manual_chart_ids: list[int] = []
     run_by: str
     notes: Optional[str] = None
+    exclude_coders: list[str] = []
 
 
 class BatchClose(BaseModel):
@@ -144,9 +145,13 @@ def run_allocation(batch_id: int, payload: AllocationRun, db: Session = Depends(
     if batch.status != BatchStatus.OPEN:
         raise HTTPException(status_code=400, detail="Batch is closed — cannot run allocation")
 
-    coders = db.query(BatchCoder).filter(BatchCoder.batch_id == batch_id).all()
-    if not coders:
+    all_coders = db.query(BatchCoder).filter(BatchCoder.batch_id == batch_id).all()
+    if not all_coders:
         raise HTTPException(status_code=400, detail="No coders in this batch")
+    excluded = {n.strip().lower() for n in payload.exclude_coders}
+    coders = [c for c in all_coders if c.coder_name.strip().lower() not in excluded]
+    if not coders:
+        raise HTTPException(status_code=400, detail="All coders are excluded — uncheck at least one coder")
 
     charts_per_coder = payload.charts_per_coder or batch.charts_per_coder
     if charts_per_coder < 1:
