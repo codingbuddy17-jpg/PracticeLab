@@ -459,9 +459,12 @@ def get_batch_results(batch_id: int, db: Session = Depends(get_db)):
     total_coders = len(coder_summaries)
 
     missed = {}
+    error_type_counts: dict[str, int] = {}
     for r in results:
         for f in r.feedback:
-            if f.issue_type.value == "Missed" and f.ak_code:
+            it = f.issue_type.value
+            error_type_counts[it] = error_type_counts.get(it, 0) + 1
+            if it == "Missed" and f.ak_code:
                 missed[f.ak_code] = missed.get(f.ak_code, 0) + 1
     top_missed = sorted(missed.items(), key=lambda x: -x[1])[:10]
 
@@ -480,6 +483,7 @@ def get_batch_results(batch_id: int, db: Session = Depends(get_db)):
             "pass_rate": round(passed_coders / total_coders * 100, 1) if total_coders else 0,
             "avg_score": round(sum(all_totals) / len(all_totals), 1) if all_totals else 0,
             "top_missed_codes": [{"code": c, "count": n} for c, n in top_missed],
+            "error_type_counts": error_type_counts,
             "pending_drg_review": sum(1 for r in results if r.drg_flag and not r.drg_reviewed),
         },
         "coder_summaries": coder_summaries,

@@ -272,6 +272,8 @@ def _match_cpt(ak_cpt: list[dict], cdr_cpt: list[dict], penalty: bool):
                 feedback.append(FeedbackRow("CPT", "Wrong_Modifier",
                     ak.get("code", ""), cs.get("code", ""),
                     f"Modifier: {ak.get('modifier','')} vs {cs.get('modifier','')}"))
+                ak_used[ai] = True
+                cdr_used[ci] = True
                 break
 
     for ai, ak in enumerate(ak_cpt):

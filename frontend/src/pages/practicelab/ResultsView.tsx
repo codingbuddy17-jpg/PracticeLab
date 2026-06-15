@@ -81,18 +81,43 @@ export function ResultsView({ batchId }: any) {
         <div style={styles.statCard}><div style={styles.statValue}>{bs.avg_score}%</div><div style={styles.statLabel}>Avg Score</div></div>
       </div>
 
-      {bs.top_missed_codes?.length > 0 && (
-        <div style={{ ...styles.infoBox, marginBottom: 20 }}>
-          <strong>Top missed codes:</strong>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
-            {bs.top_missed_codes.map((m: any) => (
-              <span key={m.code} style={{ ...styles.badge, background: '#fee2e2', color: '#dc2626' }}>
-                {m.code} <span style={{ opacity: 0.7 }}>({m.count}×)</span>
-              </span>
-            ))}
+      {/* Error breakdown panel */}
+      {(bs.error_type_counts && Object.keys(bs.error_type_counts).length > 0) && (() => {
+        const ERROR_META: Record<string, { label: string; bg: string; color: string }> = {
+          'Missed':         { label: 'Missed Code',      bg: '#fee2e2', color: '#dc2626' },
+          'Wrong_Code':     { label: 'Wrong Code',       bg: '#fef3c7', color: '#d97706' },
+          'Wrong_POA':      { label: 'Wrong POA',        bg: '#fef9c3', color: '#a16207' },
+          'Wrong_Modifier': { label: 'Wrong Modifier',   bg: '#ede9fe', color: '#7c3aed' },
+          'Over_coded':     { label: 'Over-coded',       bg: '#dbeafe', color: '#2563eb' },
+        }
+        return (
+          <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 10, padding: '14px 16px', marginBottom: 20 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 10 }}>Error Breakdown — This Batch</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 8, marginBottom: bs.top_missed_codes?.length ? 12 : 0 }}>
+              {Object.entries(bs.error_type_counts).sort((a, b) => (b[1] as number) - (a[1] as number)).map(([type, count]: [string, any]) => {
+                const meta = ERROR_META[type] || { label: type, bg: '#f3f4f6', color: '#6b7280' }
+                return (
+                  <span key={type} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: meta.bg, color: meta.color, border: `1px solid ${meta.color}30`, borderRadius: 20, padding: '4px 12px', fontSize: 12, fontWeight: 700 }}>
+                    {meta.label} <span style={{ fontWeight: 400, opacity: 0.8 }}>{count}×</span>
+                  </span>
+                )
+              })}
+            </div>
+            {bs.top_missed_codes?.length > 0 && (
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase' as const, letterSpacing: 0.5, marginBottom: 6 }}>Top missed codes</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 6 }}>
+                  {bs.top_missed_codes.map((m: any) => (
+                    <span key={m.code} style={{ background: '#fee2e2', color: '#dc2626', border: '1px solid #fecaca', borderRadius: 20, padding: '3px 10px', fontSize: 12, fontWeight: 700 }}>
+                      {m.code} <span style={{ fontWeight: 400, opacity: 0.7 }}>({m.count}×)</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {/* Coder summary table */}
       <div style={styles.table}>
