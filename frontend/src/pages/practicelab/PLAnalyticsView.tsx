@@ -56,6 +56,7 @@ export function PLAnalyticsView() {
   const [heatmapSort, setHeatmapSort] = useState<{ col: string; dir: 'asc' | 'desc' }>({ col: 'coder', dir: 'asc' })
   const [matrixSort, setMatrixSort] = useState<{ col: string; dir: 'asc' | 'desc' }>({ col: 'overall', dir: 'desc' })
   const [chartValueShowAll, setChartValueShowAll] = useState(false)
+  const [chartValueSort, setChartValueSort] = useState<'score_asc' | 'attempts_desc' | 'score_desc'>('score_asc')
 
   const CODER_PAGE = 25
   const CHART_VALUE_PAGE = 24
@@ -749,7 +750,13 @@ export function PLAnalyticsView() {
           {teachingData.length === 0 ? <div style={styles.emptyState}>No chart grading data yet.</div> : (() => {
             const labels = Object.keys(TEACHING_LABEL_META)
             const filterOptions = ['All', ...labels]
-            const filtered = teachingFilter === 'All' ? teachingData : teachingData.filter((c: any) => c.teaching_label === teachingFilter)
+            const filtered = (teachingFilter === 'All' ? teachingData : teachingData.filter((c: any) => c.teaching_label === teachingFilter))
+              .slice()
+              .sort((a: any, b: any) => {
+                if (chartValueSort === 'score_asc') return a.avg_score - b.avg_score
+                if (chartValueSort === 'score_desc') return b.avg_score - a.avg_score
+                return b.attempt_count - a.attempt_count  // attempts_desc
+              })
             const grouped: Record<string, any[]> = {}
             teachingData.forEach((c: any) => {
               if (!grouped[c.teaching_label]) grouped[c.teaching_label] = []
@@ -787,10 +794,25 @@ export function PLAnalyticsView() {
                   <div style={styles.emptyState}>No charts in this category.</div>
                 ) : (
                   <>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-                      <span style={{ fontSize: 12, color: '#9ca3af' }}>
-                        Showing {Math.min(chartValueShowAll ? filtered.length : CHART_VALUE_PAGE, filtered.length)} of {filtered.length} charts
-                      </span>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4, flexWrap: 'wrap' as const, gap: 8 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontSize: 12, color: '#9ca3af' }}>
+                          Showing {Math.min(chartValueShowAll ? filtered.length : CHART_VALUE_PAGE, filtered.length)} of {filtered.length} charts
+                        </span>
+                        {[
+                          { key: 'score_asc', label: 'Most problematic first' },
+                          { key: 'attempts_desc', label: 'Most attempted' },
+                          { key: 'score_desc', label: 'Highest scoring' },
+                        ].map(opt => (
+                          <button key={opt.key} onClick={() => { setChartValueSort(opt.key as any); setChartValueShowAll(false) }}
+                            style={{ fontSize: 11, padding: '3px 10px', borderRadius: 20, cursor: 'pointer', fontWeight: 600, border: '1px solid',
+                              background: chartValueSort === opt.key ? '#4f46e5' : '#fff',
+                              color: chartValueSort === opt.key ? '#fff' : '#6b7280',
+                              borderColor: chartValueSort === opt.key ? '#4f46e5' : '#e5e7eb' }}>
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
                       {filtered.length > CHART_VALUE_PAGE && (
                         <button onClick={() => setChartValueShowAll(v => !v)} style={{ fontSize: 12, color: '#4f46e5', background: 'none', border: '1px solid #e5e7eb', borderRadius: 6, padding: '4px 12px', cursor: 'pointer', fontWeight: 600 }}>
                           {chartValueShowAll ? `Collapse to ${CHART_VALUE_PAGE}` : `Show all ${filtered.length}`}
