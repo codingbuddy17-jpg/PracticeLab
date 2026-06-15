@@ -270,37 +270,50 @@ export function CoderHome() {
         </div>
 
         {/* Coding Resources */}
-        {resources.length > 0 && (
-          <div style={{ marginTop: 40 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-              <div style={{ flex: 1, height: 1, background: '#e5e7eb' }} />
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <BookOpen size={16} color="#4f46e5" />
-                <span style={{ fontSize: 15, fontWeight: 800, color: '#111', letterSpacing: -0.3 }}>Coding Resources</span>
+        {resources.length > 0 && (() => {
+          const PALETTE = [
+            { bg: '#ede9fe', border: '#c4b5fd', icon: '#7c3aed', hover: '#ddd6fe' },
+            { bg: '#dbeafe', border: '#93c5fd', icon: '#2563eb', hover: '#bfdbfe' },
+            { bg: '#dcfce7', border: '#86efac', icon: '#16a34a', hover: '#bbf7d0' },
+            { bg: '#fef3c7', border: '#fcd34d', icon: '#d97706', hover: '#fde68a' },
+            { bg: '#fce7f3', border: '#f9a8d4', icon: '#db2777', hover: '#fbcfe8' },
+            { bg: '#cffafe', border: '#67e8f9', icon: '#0891b2', hover: '#a5f3fc' },
+          ]
+          return (
+            <div style={{ marginTop: 40 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+                <div style={{ flex: 1, height: 1, background: '#e5e7eb' }} />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <BookOpen size={16} color="#4f46e5" />
+                  <span style={{ fontSize: 15, fontWeight: 800, color: '#111', letterSpacing: -0.3 }}>Coding Resources</span>
+                </div>
+                <div style={{ flex: 1, height: 1, background: '#e5e7eb' }} />
               </div>
-              <div style={{ flex: 1, height: 1, background: '#e5e7eb' }} />
+              <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 12 }}>
+                {resources.map((r, i) => {
+                  const p = PALETTE[i % PALETTE.length]
+                  return (
+                    <a
+                      key={r.id}
+                      href={r.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '12px 16px', background: p.bg, border: `1px solid ${p.border}`, borderRadius: 12, textDecoration: 'none', color: 'inherit', minWidth: 200, maxWidth: 300, flex: '1 1 200px', boxShadow: '0 1px 4px rgba(0,0,0,0.06)', transition: 'box-shadow 0.15s, background 0.15s' }}
+                      onMouseEnter={e => { e.currentTarget.style.background = p.hover; e.currentTarget.style.boxShadow = '0 4px 14px rgba(0,0,0,0.1)' }}
+                      onMouseLeave={e => { e.currentTarget.style.background = p.bg; e.currentTarget.style.boxShadow = '0 1px 4px rgba(0,0,0,0.06)' }}
+                    >
+                      <ExternalLink size={15} style={{ color: p.icon, marginTop: 2, flexShrink: 0 }} />
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: '#111' }}>{r.title}</div>
+                        {r.description && <div style={{ fontSize: 11, color: '#374151', marginTop: 3, lineHeight: 1.5 }}>{r.description}</div>}
+                      </div>
+                    </a>
+                  )
+                })}
+              </div>
             </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 12 }}>
-              {resources.map(r => (
-                <a
-                  key={r.id}
-                  href={r.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '12px 16px', background: 'rgba(255,255,255,0.8)', border: '1px solid #e0e7ff', borderRadius: 12, textDecoration: 'none', color: 'inherit', minWidth: 200, maxWidth: 300, flex: '1 1 200px', boxShadow: '0 1px 4px rgba(99,102,241,0.07)', transition: 'box-shadow 0.15s, border-color 0.15s' }}
-                  onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 4px 14px rgba(99,102,241,0.15)'; e.currentTarget.style.borderColor = '#a5b4fc' }}
-                  onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 1px 4px rgba(99,102,241,0.07)'; e.currentTarget.style.borderColor = '#e0e7ff' }}
-                >
-                  <ExternalLink size={15} style={{ color: '#4f46e5', marginTop: 2, flexShrink: 0 }} />
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: '#111' }}>{r.title}</div>
-                    {r.description && <div style={{ fontSize: 11, color: '#6b7280', marginTop: 3, lineHeight: 1.5 }}>{r.description}</div>}
-                  </div>
-                </a>
-              ))}
-            </div>
-          </div>
-        )}
+          )
+        })()}
 
       </div>
 
