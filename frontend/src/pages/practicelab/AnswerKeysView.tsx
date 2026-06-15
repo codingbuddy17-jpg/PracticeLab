@@ -32,6 +32,7 @@ export function AnswerKeysView() {
   const [dialog, setDialog] = useState<PassphraseDialog | null>(null)
   const [passphrase, setPassphrase] = useState('')
   const [acting, setActing] = useState(false)
+  const [pendingCharts, setPendingCharts] = useState<string[]>([])
   const fileRef = useRef<HTMLInputElement>(null)
   const ppRef = useRef<HTMLInputElement>(null)
 
@@ -52,9 +53,9 @@ export function AnswerKeysView() {
     try {
       const isIP = specialty === 'IP-DRG'
       const res = await uploadAnswerKeys(file, isIP ? 'IP' : 'OP', trainerName())
-      if (res.stored.length) toast.success(`Stored ${res.stored.length} key${res.stored.length !== 1 ? 's' : ''}: ${res.stored.join(', ')}`)
+      if (res.stored.length) toast.success(`Stored ${res.stored.length} key${res.stored.length !== 1 ? 's' : ''}`)
       if (res.skipped_duplicates.length) toast(`Already exist (skipped): ${res.skipped_duplicates.join(', ')}`, { icon: '⚠️' })
-      if (res.not_found.length) toast.error(`Chart numbers not found in PracticeLab: ${res.not_found.join(', ')}`)
+      if (res.not_found.length) setPendingCharts(res.not_found)
       loadAll()
     } catch (err: any) {
       toast.error(err?.response?.data?.detail || 'Upload failed')
@@ -98,6 +99,7 @@ export function AnswerKeysView() {
       </div>
       <p style={styles.helpText}>
         Answer keys are stored permanently per chart and reused across all batches automatically.
+        You can upload answer keys before or after uploading charts — both are independent processes.
         Deleting a key requires the master passphrase and allows re-uploading a corrected version.
       </p>
 
@@ -131,6 +133,30 @@ export function AnswerKeysView() {
             <div style={{ ...styles.statValue, color: '#dc2626' }}>{status.without_answer_key}</div>
             <div style={styles.statLabel}>Missing Key</div>
           </div>
+        </div>
+      )}
+
+      {/* Pending charts banner — keys uploaded before charts exist */}
+      {pendingCharts.length > 0 && (
+        <div style={{ background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 10, padding: '14px 16px', marginBottom: 20, display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+          <AlertTriangle size={18} color="#d97706" style={{ flexShrink: 0, marginTop: 1 }} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: 13, color: '#92400e', marginBottom: 4 }}>
+              {pendingCharts.length} answer key{pendingCharts.length !== 1 ? 's' : ''} could not be saved — chart{pendingCharts.length !== 1 ? 's' : ''} not uploaded yet
+            </div>
+            <div style={{ fontSize: 12, color: '#78350f', lineHeight: 1.6, marginBottom: 8 }}>
+              These chart numbers were in your answer key file but don't exist in the chart bank yet.
+              Once you upload the matching charts, re-upload this answer key file and the keys will be saved automatically.
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 6 }}>
+              {pendingCharts.map(cn => (
+                <span key={cn} style={{ fontSize: 12, fontWeight: 700, background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d', padding: '2px 10px', borderRadius: 20 }}>{cn}</span>
+              ))}
+            </div>
+          </div>
+          <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', padding: 2, flexShrink: 0 }} onClick={() => setPendingCharts([])}>
+            <X size={16} />
+          </button>
         </div>
       )}
 
