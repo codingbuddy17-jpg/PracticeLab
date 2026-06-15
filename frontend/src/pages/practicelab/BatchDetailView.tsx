@@ -191,8 +191,11 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
         return
       }
       setGradingResult(res)
-      if (res.graded.length) toast.success(`${res.graded.length} submission${res.graded.length !== 1 ? 's' : ''} graded${res.errors.length ? ` · ${res.errors.length} skipped` : ''}`)
-      if (res.errors.length) res.errors.forEach((e: string) => toast.error(e, { duration: 6000 }))
+      const missingKeys = (res.errors as string[]).filter(e => e.includes('no answer key'))
+      const otherErrors = (res.errors as string[]).filter(e => !e.includes('no answer key'))
+      if (res.graded.length) toast.success(`${res.graded.length} chart${res.graded.length !== 1 ? 's' : ''} graded${res.errors.length ? ` · ${res.errors.length} skipped` : ''}`)
+      if (missingKeys.length) toast(`${missingKeys.length} chart${missingKeys.length !== 1 ? 's' : ''} skipped — answer key missing. Upload keys then re-grade.`, { icon: '🔑', duration: 8000 })
+      if (otherErrors.length) otherErrors.forEach((e: string) => toast.error(e, { duration: 6000 }))
       loadBatch()
       if (res.graded.length) {
         getBatchInsights(batchId).then(ins => { setInsights(ins); if (ins.has_data) setShowInsights(true) }).catch(() => {})
@@ -244,8 +247,11 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
       const res = await gradeSubmissions(batchId, files, true)
       setGradingResult(res)
       toast.dismiss(tid)
-      if (res.graded.length) toast.success(`${res.graded.length} submission${res.graded.length !== 1 ? 's' : ''} re-graded${res.errors.length ? ` · ${res.errors.length} skipped` : ''}`)
-      if (res.errors.length) res.errors.forEach((e: string) => toast.error(e, { duration: 6000 }))
+      const missingKeys2 = (res.errors as string[]).filter(e => e.includes('no answer key'))
+      const otherErrors2 = (res.errors as string[]).filter(e => !e.includes('no answer key'))
+      if (res.graded.length) toast.success(`${res.graded.length} chart${res.graded.length !== 1 ? 's' : ''} re-graded${res.errors.length ? ` · ${res.errors.length} skipped` : ''}`)
+      if (missingKeys2.length) toast(`${missingKeys2.length} chart${missingKeys2.length !== 1 ? 's' : ''} skipped — answer key missing. Upload keys then re-grade.`, { icon: '🔑', duration: 8000 })
+      if (otherErrors2.length) otherErrors2.forEach((e: string) => toast.error(e, { duration: 6000 }))
       loadBatch()
       if (res.graded.length) {
         getBatchInsights(batchId).then(ins => { setInsights(ins); if (ins.has_data) setShowInsights(true) }).catch(() => {})
@@ -463,16 +469,42 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
         )}
       </div>
 
-      {gradingResult && (
-        <div style={styles.infoBox}>
-          <strong>Grading complete:</strong> {gradingResult.graded.length} submission(s) processed.
-          {gradingResult.errors.length > 0 && (
-            <ul style={{ margin: '6px 0 0 0', paddingLeft: 18, color: '#dc2626', fontSize: 12 }}>
-              {gradingResult.errors.map((e: string, i: number) => <li key={i}>{e}</li>)}
-            </ul>
-          )}
-        </div>
-      )}
+      {gradingResult && (() => {
+        const missingKeyErrs = (gradingResult.errors as string[]).filter((e: string) => e.includes('no answer key'))
+        const otherErrs = (gradingResult.errors as string[]).filter((e: string) => !e.includes('no answer key'))
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 8 }}>
+            <div style={styles.infoBox}>
+              <strong>Grading complete:</strong> {gradingResult.graded.length} chart{gradingResult.graded.length !== 1 ? 's' : ''} graded
+              {gradingResult.errors.length > 0 && <span style={{ color: '#6b7280' }}> · {gradingResult.errors.length} skipped</span>}
+            </div>
+            {missingKeyErrs.length > 0 && (
+              <div style={{ background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 8, padding: '12px 14px' }}>
+                <div style={{ fontWeight: 700, fontSize: 13, color: '#92400e', marginBottom: 6 }}>
+                  🔑 {missingKeyErrs.length} chart{missingKeyErrs.length !== 1 ? 's' : ''} skipped — answer key not found
+                </div>
+                <div style={{ fontSize: 12, color: '#78350f', marginBottom: 8 }}>
+                  Upload answer keys for these charts in the Answer Keys section, then re-upload this grading sheet.
+                </div>
+                <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12, color: '#92400e' }}>
+                  {missingKeyErrs.map((e: string, i: number) => {
+                    const match = e.match(/no answer key for (.+)$/)
+                    return <li key={i}>{match ? match[1] : e}</li>
+                  })}
+                </ul>
+              </div>
+            )}
+            {otherErrs.length > 0 && (
+              <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '12px 14px' }}>
+                <div style={{ fontWeight: 700, fontSize: 13, color: '#dc2626', marginBottom: 6 }}>Other errors ({otherErrs.length})</div>
+                <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12, color: '#dc2626' }}>
+                  {otherErrs.map((e: string, i: number) => <li key={i}>{e}</li>)}
+                </ul>
+              </div>
+            )}
+          </div>
+        )
+      })()}
 
       {showInsights && insights?.has_data && <InsightsPanel insights={insights} onClose={() => setShowInsights(false)} />}
 
