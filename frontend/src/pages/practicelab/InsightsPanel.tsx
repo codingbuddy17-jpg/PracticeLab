@@ -12,6 +12,7 @@ export function InsightsPanel({ insights, onClose }: { insights: any; onClose: (
     top_categories: topCats, bottom_categories: bottomCats, top_performers: topPerf, bottom_performers: bottomPerf,
     score_distribution: scoreDist } = insights
   const [expandedCoder, setExpandedCoder] = useState<string | null>(null)
+  const [selectedBucket, setSelectedBucket] = useState<string | null>(null)
 
   function buildCopyText() {
     const lines: string[] = [
@@ -116,7 +117,8 @@ export function InsightsPanel({ insights, onClose }: { insights: any; onClose: (
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10 }}>
         {[
           { label: 'Coders', value: bs.n_coders, color: '#111' },
-          { label: 'Charts Coded', value: bs.n_distinct_charts, color: '#111' },
+          { label: 'Distinct Charts', value: bs.n_distinct_charts, color: '#111' },
+          { label: 'Total Attempts', value: bs.total_graded, color: '#111' },
           { label: 'Chart Pass Rate', value: `${bs.pass_rate}%`, color: bs.pass_rate >= 80 ? '#16a34a' : bs.pass_rate >= 60 ? '#d97706' : '#dc2626' },
           { label: 'Avg Score', value: `${bs.avg_score}%`, color: '#111' },
           { label: 'Passed', value: bs.passed, color: '#16a34a' },
@@ -135,30 +137,54 @@ export function InsightsPanel({ insights, onClose }: { insights: any; onClose: (
           </div>
         )}
       </div>
-
-      {scoreDist?.length > 0 && (
-        <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 24, flexWrap: 'wrap' as const }}>
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 4 }}>Score Distribution</div>
-            <div style={{ fontSize: 11, color: '#9ca3af' }}>Cumulative chart-weighted score per coder</div>
-          </div>
-          <PieChart width={160} height={160}>
-            <Pie data={scoreDist} dataKey="count" nameKey="label" cx={80} cy={80} innerRadius={40} outerRadius={70} paddingAngle={3}>
-              {scoreDist.map((b: any) => <Cell key={b.label} fill={b.color} />)}
-            </Pie>
-            <Tooltip formatter={(v: any, _n: any, p: any) => [`${v} coder${v !== 1 ? 's' : ''}`, p.payload.label]} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
-          </PieChart>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {scoreDist.map((b: any) => (
-              <div key={b.label} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
-                <span style={{ width: 10, height: 10, borderRadius: '50%', background: b.color, flexShrink: 0 }} />
-                <span style={{ fontWeight: 700, color: '#111' }}>{b.count}</span>
-                <span style={{ color: '#6b7280' }}>coder{b.count !== 1 ? 's' : ''} scored <b style={{ color: b.color }}>{b.label}</b></span>
-              </div>
-            ))}
-          </div>
+      {bs.total_graded > bs.n_distinct_charts && (
+        <div style={{ fontSize: 11, color: '#9ca3af', marginTop: -8 }}>
+          {bs.n_distinct_charts} distinct chart{bs.n_distinct_charts !== 1 ? 's' : ''} were coded by {bs.n_coders} coder{bs.n_coders !== 1 ? 's' : ''}, producing {bs.total_graded} graded attempts ({bs.passed} passed, {bs.failed} failed).
         </div>
       )}
+
+      {scoreDist?.length > 0 && (() => {
+        const active = scoreDist.find((b: any) => b.label === selectedBucket)
+        return (
+          <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 24, flexWrap: 'wrap' as const }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 4 }}>Score Distribution</div>
+                <div style={{ fontSize: 11, color: '#9ca3af' }}>Cumulative chart-weighted score per coder</div>
+                <div style={{ fontSize: 11, color: '#a5b4fc', marginTop: 4, fontStyle: 'italic' as const }}>Click a segment or row to see coder names</div>
+              </div>
+              <PieChart width={160} height={160}>
+                <Pie data={scoreDist} dataKey="count" nameKey="label" cx={80} cy={80} innerRadius={40} outerRadius={70} paddingAngle={3}
+                  onClick={(d: any) => setSelectedBucket(prev => prev === d.label ? null : d.label)}
+                  style={{ cursor: 'pointer' }}>
+                  {scoreDist.map((b: any) => (
+                    <Cell key={b.label} fill={b.color} stroke={selectedBucket === b.label ? '#111' : undefined} strokeWidth={selectedBucket === b.label ? 2 : 0} />
+                  ))}
+                </Pie>
+                <Tooltip formatter={(v: any, _n: any, p: any) => [`${v} coder${v !== 1 ? 's' : ''} — click for names`, p.payload.label]} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+              </PieChart>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {scoreDist.map((b: any) => (
+                  <div key={b.label} onClick={() => setSelectedBucket(prev => prev === b.label ? null : b.label)}
+                    style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer', padding: '2px 6px', borderRadius: 6, background: selectedBucket === b.label ? '#f5f3ff' : 'transparent' }}>
+                    <span style={{ width: 10, height: 10, borderRadius: '50%', background: b.color, flexShrink: 0 }} />
+                    <span style={{ fontWeight: 700, color: '#111' }}>{b.count}</span>
+                    <span style={{ color: '#6b7280' }}>coder{b.count !== 1 ? 's' : ''} scored <b style={{ color: b.color }}>{b.label}</b></span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            {active && (
+              <div style={{ borderTop: '1px solid #f3f4f6', paddingTop: 10, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' as const }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: active.color, textTransform: 'uppercase' as const, letterSpacing: 0.4 }}>{active.label}:</span>
+                {active.coders.map((name: string) => (
+                  <span key={name} style={{ fontSize: 12, fontWeight: 600, background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 12, padding: '3px 10px' }}>{name}</span>
+                ))}
+              </div>
+            )}
+          </div>
+        )
+      })()}
 
       {recommendations.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
