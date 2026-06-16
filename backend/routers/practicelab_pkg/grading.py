@@ -608,6 +608,10 @@ def get_batch_insights(batch_id: int, db: Session = Depends(get_db)):
         for cat, d in cat_map.items()
     ], key=lambda x: x["avg_score"])
 
+    cat_split = min(5, len(category_performance) // 2)
+    bottom_categories = category_performance[:cat_split]
+    top_categories = list(reversed(category_performance[-cat_split:])) if cat_split > 0 else []
+
     chart_map: dict = {}
     for r in results:
         cn = r.chart.chart_number
@@ -646,6 +650,9 @@ def get_batch_insights(batch_id: int, db: Session = Depends(get_db)):
             if r.total_score is not None:
                 prior_coder_scores.setdefault(r.coder_name, []).append(r.total_score)
 
+    n_coders = len(coder_results)
+    n_distinct_charts = len(set(r.chart_id for r in results))
+
     coder_insights = []
     for cname, d in sorted(coder_results.items()):
         coder_avg = round(sum(d["scores"]) / len(d["scores"]), 1)
@@ -678,6 +685,11 @@ def get_batch_insights(batch_id: int, db: Session = Depends(get_db)):
             "total_feedback_items": total_coder_fb,
         })
 
+    ranked_coders = sorted(coder_insights, key=lambda x: -x["avg_score"])
+    coder_split = min(3, len(ranked_coders) // 2)
+    top_performers = ranked_coders[:coder_split]
+    bottom_performers = list(reversed(ranked_coders[-coder_split:])) if coder_split > 0 else []
+
     return {
         "has_data": True,
         "batch_name": batch.name,
@@ -685,6 +697,8 @@ def get_batch_insights(batch_id: int, db: Session = Depends(get_db)):
         "is_ip": is_ip,
         "batch_summary": {
             "total_graded": len(results),
+            "n_coders": n_coders,
+            "n_distinct_charts": n_distinct_charts,
             "passed": n_passed,
             "failed": len(results) - n_passed,
             "pass_rate": pass_rate,
@@ -700,9 +714,13 @@ def get_batch_insights(batch_id: int, db: Session = Depends(get_db)):
             "top_missed_codes": top_missed_codes,
         },
         "category_performance": category_performance,
+        "top_categories": top_categories,
+        "bottom_categories": bottom_categories,
         "chart_signals": {
             "high_fail": high_fail[:6],
             "all_pass": all_pass_charts[:6],
         },
         "coder_insights": coder_insights,
+        "top_performers": top_performers,
+        "bottom_performers": bottom_performers,
     }

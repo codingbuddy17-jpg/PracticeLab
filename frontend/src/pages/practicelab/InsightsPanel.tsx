@@ -8,7 +8,8 @@ import { ISSUE_COLORS } from './shared'
 import styles from './styles'
 
 export function InsightsPanel({ insights, onClose }: { insights: any; onClose: () => void }) {
-  const { batch_summary: bs, team_errors: te, category_performance: cp, chart_signals: cs, coder_insights: ci, is_ip } = insights
+  const { batch_summary: bs, team_errors: te, category_performance: cp, chart_signals: cs, coder_insights: ci, is_ip,
+    top_categories: topCats, bottom_categories: bottomCats, top_performers: topPerf, bottom_performers: bottomPerf } = insights
   const [expandedCoder, setExpandedCoder] = useState<string | null>(null)
 
   function buildCopyText() {
@@ -17,10 +18,31 @@ export function InsightsPanel({ insights, onClose }: { insights: any; onClose: (
       `Specialty: ${insights.specialty}`,
       '',
       'SUMMARY',
+      `Coders: ${bs.n_coders}  |  Charts Coded: ${bs.n_distinct_charts}  |  Total Graded: ${bs.total_graded}`,
       `Pass Rate: ${bs.pass_rate}% (${bs.passed}/${bs.total_graded} passed)${bs.pass_rate_delta != null ? `  vs prior batch: ${bs.pass_rate_delta > 0 ? '+' : ''}${bs.pass_rate_delta}%` : ''}`,
       `Avg Score: ${bs.avg_score}%`,
       '',
     ]
+    if (topPerf?.length) {
+      lines.push('TOP PERFORMERS')
+      topPerf.forEach((c: any) => lines.push(`  ${c.coder_name}: ${c.avg_score}%`))
+      lines.push('')
+    }
+    if (bottomPerf?.length) {
+      lines.push('NEEDS ATTENTION (LOWEST SCORES)')
+      bottomPerf.forEach((c: any) => lines.push(`  ${c.coder_name}: ${c.avg_score}%`))
+      lines.push('')
+    }
+    if (topCats?.length) {
+      lines.push('TOP CATEGORIES (BEST CODED)')
+      topCats.forEach((c: any) => lines.push(`  ${c.category}: ${c.avg_score}% avg, ${c.pass_rate}% pass rate`))
+      lines.push('')
+    }
+    if (bottomCats?.length) {
+      lines.push('BOTTOM CATEGORIES (NEEDS WORK)')
+      bottomCats.forEach((c: any) => lines.push(`  ${c.category}: ${c.avg_score}% avg, ${c.pass_rate}% pass rate`))
+      lines.push('')
+    }
     if (te.by_issue_type.length) {
       lines.push('TOP ERROR TYPES (team-wide)')
       te.by_issue_type.slice(0, 4).forEach((e: any) => lines.push(`  ${e.type}: ${e.count} occurrences (${e.pct}%)`))
@@ -87,6 +109,8 @@ export function InsightsPanel({ insights, onClose }: { insights: any; onClose: (
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10 }}>
         {[
+          { label: 'Coders', value: bs.n_coders, color: '#111' },
+          { label: 'Charts Coded', value: bs.n_distinct_charts, color: '#111' },
           { label: 'Chart Pass Rate', value: `${bs.pass_rate}%`, color: bs.pass_rate >= 80 ? '#16a34a' : bs.pass_rate >= 60 ? '#d97706' : '#dc2626' },
           { label: 'Avg Score', value: `${bs.avg_score}%`, color: '#111' },
           { label: 'Passed', value: bs.passed, color: '#16a34a' },
@@ -119,6 +143,66 @@ export function InsightsPanel({ insights, onClose }: { insights: any; onClose: (
               <span style={{ color: r.type === 'warn' ? '#92400e' : r.type === 'ok' ? '#166534' : '#1e40af', lineHeight: 1.5 }}>{r.text}</span>
             </div>
           ))}
+        </div>
+      )}
+
+      {(topPerf?.length > 0 || bottomPerf?.length > 0) && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          {topPerf?.length > 0 && (
+            <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '14px 16px' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#166534', textTransform: 'uppercase' as const, letterSpacing: 0.5, marginBottom: 10 }}>Top Performers</div>
+              {topPerf.map((c: any, i: number) => (
+                <div key={c.coder_name} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', borderBottom: i < topPerf.length - 1 ? '1px solid #dcfce7' : 'none' }}>
+                  <span style={{ fontSize: 11, fontWeight: 800, color: '#16a34a', width: 18 }}>#{i + 1}</span>
+                  <span style={{ fontWeight: 600, fontSize: 13, flex: 1 }}>{c.coder_name}</span>
+                  <span style={{ fontWeight: 800, fontSize: 14, color: '#16a34a' }}>{c.avg_score}%</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {bottomPerf?.length > 0 && (
+            <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 10, padding: '14px 16px' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#92400e', textTransform: 'uppercase' as const, letterSpacing: 0.5, marginBottom: 10 }}>Needs Attention</div>
+              {bottomPerf.map((c: any, i: number) => (
+                <div key={c.coder_name} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', borderBottom: i < bottomPerf.length - 1 ? '1px solid #fde68a' : 'none' }}>
+                  <span style={{ fontSize: 11, fontWeight: 800, color: '#dc2626', width: 18 }}>#{i + 1}</span>
+                  <span style={{ fontWeight: 600, fontSize: 13, flex: 1 }}>{c.coder_name}</span>
+                  <span style={{ fontWeight: 800, fontSize: 14, color: c.avg_score >= 60 ? '#d97706' : '#dc2626' }}>{c.avg_score}%</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {(topCats?.length > 0 || bottomCats?.length > 0) && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          {topCats?.length > 0 && (
+            <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '14px 16px' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#166534', textTransform: 'uppercase' as const, letterSpacing: 0.5, marginBottom: 10 }}>Top Categories — Best Coded</div>
+              {topCats.map((c: any, i: number) => (
+                <div key={c.category} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', borderBottom: i < topCats.length - 1 ? '1px solid #dcfce7' : 'none' }}>
+                  <span style={{ fontSize: 11, fontWeight: 800, color: '#16a34a', width: 18 }}>#{i + 1}</span>
+                  <span style={{ fontWeight: 600, fontSize: 13, flex: 1 }}>{c.category}</span>
+                  <span style={{ fontSize: 11, color: '#6b7280' }}>{c.attempt_count} attempts</span>
+                  <span style={{ fontWeight: 800, fontSize: 14, color: '#16a34a' }}>{c.avg_score}%</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {bottomCats?.length > 0 && (
+            <div style={{ background: '#fff5f5', border: '1px solid #fecaca', borderRadius: 10, padding: '14px 16px' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#dc2626', textTransform: 'uppercase' as const, letterSpacing: 0.5, marginBottom: 10 }}>Bottom Categories — Needs Work</div>
+              {bottomCats.map((c: any, i: number) => (
+                <div key={c.category} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', borderBottom: i < bottomCats.length - 1 ? '1px solid #fee2e2' : 'none' }}>
+                  <span style={{ fontSize: 11, fontWeight: 800, color: '#dc2626', width: 18 }}>#{i + 1}</span>
+                  <span style={{ fontWeight: 600, fontSize: 13, flex: 1 }}>{c.category}</span>
+                  <span style={{ fontSize: 11, color: '#6b7280' }}>{c.attempt_count} attempts</span>
+                  <span style={{ fontWeight: 800, fontSize: 14, color: c.avg_score >= 60 ? '#d97706' : '#dc2626' }}>{c.avg_score}%</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
