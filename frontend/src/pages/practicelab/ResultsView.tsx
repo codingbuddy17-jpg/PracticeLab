@@ -71,7 +71,7 @@ export function ResultsView({ batchId }: any) {
         </div>
       </div>
 
-      {showInsights && insights?.has_data && <InsightsPanel insights={insights} onClose={() => setShowInsights(false)} />}
+      {showInsights && insights?.has_data && <InsightsPanel insights={insights} batchId={batchId} onClose={() => setShowInsights(false)} />}
 
       <div style={styles.statsRow}>
         <div style={styles.statCard}><div style={styles.statValue}>{bs.total_coders}</div><div style={styles.statLabel}>Coders</div></div>

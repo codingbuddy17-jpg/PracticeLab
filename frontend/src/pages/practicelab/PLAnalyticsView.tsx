@@ -7,7 +7,7 @@ import {
 } from 'recharts'
 import {
   getPLAnalyticsOverview, getPLAnalyticsBySpecialty, getPLAnalyticsByChart,
-  getPLAnalyticsByBatch, getCoderTrend, getCoderSummary,
+  getPLAnalyticsByBatch, getCoderTrend, getCoderSummary, downloadCoderReportPdf,
   getPLAnalyticsByCategory, getPLChartTeachingValue, getPLCoderMatrix, getPLChartDetail,
   type PLFilters,
 } from '../../api'
@@ -433,6 +433,11 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
               onKeyDown={e => e.key === 'Enter' && loadCoderTrend()} />
             <datalist id="coder-suggestions">{(matrixData?.coders || []).map((n: string) => <option key={n} value={n} />)}</datalist>
             <button style={styles.primaryBtn} onClick={loadCoderTrend}>Look Up</button>
+            {(coderSummary || coderTrend.length > 0) && (
+              <button style={styles.outlineBtn} onClick={() => downloadCoderReportPdf(coderName.trim(), filters)}>
+                Download PDF Report
+              </button>
+            )}
           </div>
 
           {!coderSummary && coderTrend.length === 0 ? (

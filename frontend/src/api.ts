@@ -357,6 +357,15 @@ export async function getCoderSummary(coderName: string, f: PLFilters = {}) {
   return data
 }
 
+export function downloadCoderReportPdf(coderName: string, f: PLFilters = {}) {
+  const params = new URLSearchParams({ coder_name: coderName, ...(fp(f) as Record<string, string>) })
+  window.open(`${import.meta.env.VITE_API_URL || '/api'}/practicelab/analytics/coder-report.pdf?${params.toString()}`, '_blank')
+}
+
+export function downloadBatchReportPdf(batchId: number) {
+  window.open(`${import.meta.env.VITE_API_URL || '/api'}/practicelab/batches/${batchId}/insights/report.pdf`, '_blank')
+}
+
 export async function getPLAnalyticsByCategory(f: PLFilters = {}) {
   const { data } = await api.get('/practicelab/analytics/by-category', { params: fp(f) })
   return data as { team: any[]; coder_category: any[] }

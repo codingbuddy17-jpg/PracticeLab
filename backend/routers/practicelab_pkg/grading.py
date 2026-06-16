@@ -19,6 +19,7 @@ from services.grading_engine import (
     DEFAULT_IP_CFG, DEFAULT_OP_CFG,
 )
 from services.excel_service import parse_submission, export_batch_results
+from services.pdf_report_service import generate_batch_report_pdf
 from .shared import _is_ip
 
 router = APIRouter()
@@ -617,8 +618,9 @@ def get_batch_insights(batch_id: int, db: Session = Depends(get_db)):
     for r in results:
         cn = r.chart.chart_number
         if cn not in chart_map:
-            chart_map[cn] = {"category": r.chart.category, "passed": 0, "total": 0}
+            chart_map[cn] = {"category": r.chart.category, "passed": 0, "total": 0, "scores": []}
         chart_map[cn]["total"] += 1
+        chart_map[cn]["scores"].append(r.total_score)
         if r.pass_fail and r.pass_fail.value == "PASS":
             chart_map[cn]["passed"] += 1
 
@@ -630,6 +632,20 @@ def get_batch_insights(batch_id: int, db: Session = Depends(get_db)):
         elif d["passed"] == d["total"] and d["total"] >= 2:
             all_pass_charts.append({"chart_number": cn, "category": d["category"], "coder_count": d["total"]})
     high_fail.sort(key=lambda x: -x["fail_rate"])
+
+    chart_performance = sorted([
+        {
+            "chart_number": cn,
+            "category": d["category"],
+            "avg_score": round(sum(d["scores"]) / len(d["scores"]), 1),
+            "attempt_count": d["total"],
+        }
+        for cn, d in chart_map.items()
+    ], key=lambda x: x["avg_score"])
+    weak_charts = [c for c in chart_performance if c["avg_score"] < 90]
+    strong_charts = [c for c in chart_performance if c["avg_score"] >= 90]
+    bottom_charts = weak_charts[:5]
+    top_charts = list(reversed(strong_charts[-5:])) if strong_charts else []
 
     coder_results: dict = {}
     for r in results:
@@ -692,6 +708,11 @@ def get_batch_insights(batch_id: int, db: Session = Depends(get_db)):
     top_performers = strong_coders[:3]
     bottom_performers = list(reversed(weak_coders[-3:])) if weak_coders else []
 
+    highest_score = max((c["avg_score"] for c in coder_insights), default=None)
+    lowest_score = min((c["avg_score"] for c in coder_insights), default=None)
+    highest_score_coders = [c["coder_name"] for c in coder_insights if c["avg_score"] == highest_score]
+    lowest_score_coders = [c["coder_name"] for c in coder_insights if c["avg_score"] == lowest_score]
+
     score_buckets = [
         {"label": ">95%", "color": "#16a34a", "coders": []},
         {"label": "90-95%", "color": "#d97706", "coders": []},
@@ -726,6 +747,10 @@ def get_batch_insights(batch_id: int, db: Session = Depends(get_db)):
             "prior_batch_name": prior_name,
             "prior_batch_pass_rate": prior_pass_rate,
             "pass_rate_delta": pass_rate_delta,
+            "highest_score": highest_score,
+            "highest_score_coders": highest_score_coders,
+            "lowest_score": lowest_score,
+            "lowest_score_coders": lowest_score_coders,
         },
         "team_errors": {
             "total_feedback_items": total_fb,
@@ -736,6 +761,9 @@ def get_batch_insights(batch_id: int, db: Session = Depends(get_db)):
         "category_performance": category_performance,
         "top_categories": top_categories,
         "bottom_categories": bottom_categories,
+        "chart_performance": chart_performance,
+        "top_charts": top_charts,
+        "bottom_charts": bottom_charts,
         "chart_signals": {
             "high_fail": high_fail[:6],
             "all_pass": all_pass_charts[:6],
@@ -745,3 +773,17 @@ def get_batch_insights(batch_id: int, db: Session = Depends(get_db)):
         "bottom_performers": bottom_performers,
         "score_distribution": score_distribution,
     }
+
+
+@router.get("/batches/{batch_id}/insights/report.pdf")
+def batch_report_pdf(batch_id: int, db: Session = Depends(get_db)):
+    insights = get_batch_insights(batch_id, db)
+    if not insights.get("has_data"):
+        raise HTTPException(status_code=404, detail="No graded results yet for this batch")
+    pdf_bytes = generate_batch_report_pdf(insights)
+    safe_name = insights["batch_name"].replace(" ", "_")
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename={safe_name}_Batch_Report.pdf"},
+    )

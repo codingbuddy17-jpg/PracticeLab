@@ -546,7 +546,7 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
         )
       })()}
 
-      {showInsights && insights?.has_data && <InsightsPanel insights={insights} onClose={() => setShowInsights(false)} />}
+      {showInsights && insights?.has_data && <InsightsPanel insights={insights} batchId={batchId} onClose={() => setShowInsights(false)} />}
 
       <div style={styles.sectionHeader}>
         <span style={{ fontSize: 14, fontWeight: 700, color: '#374151' }}>Coders ({batch.coders?.length || 0})</span>

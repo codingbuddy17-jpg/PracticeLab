@@ -6,8 +6,9 @@ import {
 } from 'recharts'
 import { ISSUE_COLORS } from './shared'
 import styles from './styles'
+import { downloadBatchReportPdf } from '../../api'
 
-export function InsightsPanel({ insights, onClose }: { insights: any; onClose: () => void }) {
+export function InsightsPanel({ insights, batchId, onClose }: { insights: any; batchId: number; onClose: () => void }) {
   const { batch_summary: bs, team_errors: te, category_performance: cp, chart_signals: cs, coder_insights: ci, is_ip,
     top_categories: topCats, bottom_categories: bottomCats, top_performers: topPerf, bottom_performers: bottomPerf,
     score_distribution: scoreDist } = insights
@@ -109,6 +110,10 @@ export function InsightsPanel({ insights, onClose }: { insights: any; onClose: (
           <button style={{ ...styles.outlineBtn, fontSize: 12, color: '#4f46e5', borderColor: '#a5b4fc', padding: '5px 12px' }}
             onClick={() => { navigator.clipboard.writeText(buildCopyText()); toast.success('Copied to clipboard') }}>
             Copy Summary
+          </button>
+          <button style={{ ...styles.outlineBtn, fontSize: 12, color: '#4f46e5', borderColor: '#a5b4fc', padding: '5px 12px' }}
+            onClick={() => downloadBatchReportPdf(batchId)}>
+            Download PDF Report
           </button>
           <button style={{ ...styles.outlineBtn, fontSize: 12, padding: '5px 12px' }} onClick={onClose}>✕ Close</button>
         </div>

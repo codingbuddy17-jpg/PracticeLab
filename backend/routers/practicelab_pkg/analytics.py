@@ -1,10 +1,13 @@
 """Analytics endpoints for PracticeLab."""
+import io
 from typing import Optional
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, Integer
 from database import get_db
 from models import Batch, BatchStatus, GradingResult, GradingFeedback, Chart, PassFail, Specialty
+from services.pdf_report_service import generate_coder_report_pdf
 
 router = APIRouter()
 
@@ -305,6 +308,24 @@ def coder_summary(
         "by_category": by_category,
         "batches": batches,
     }
+
+
+@router.get("/analytics/coder-report.pdf")
+def coder_report_pdf(
+    coder_name: str,
+    from_date: Optional[str] = None, to_date: Optional[str] = None, specialty: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    summary = coder_summary(coder_name, from_date, to_date, specialty, db)
+    if not summary:
+        raise HTTPException(status_code=404, detail="No data for this coder")
+    pdf_bytes = generate_coder_report_pdf(coder_name, summary)
+    safe_name = coder_name.replace(" ", "_")
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename={safe_name}_Performance_Report.pdf"},
+    )
 
 
 @router.get("/analytics/by-category")
