@@ -101,7 +101,7 @@ export function TrainerPracticeLab() {
           <DRGReviewView batchId={selectedBatchId} onDone={() => setView('batch-detail')} />
         )}
         {view === 'results' && selectedBatchId && <ResultsView batchId={selectedBatchId} />}
-        {view === 'analytics' && <PLAnalyticsView />}
+        {view === 'analytics' && <PLAnalyticsView onOpenBatch={(id: number) => { setSelectedBatchId(id); setView('batch-detail') }} />}
         {view === 'scoring-config' && <ScoringConfigView />}
         {view === 'self-practice' && <SelfPracticeView />}
       </div>

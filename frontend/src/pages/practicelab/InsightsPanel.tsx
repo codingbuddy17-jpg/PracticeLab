@@ -196,63 +196,59 @@ export function InsightsPanel({ insights, onClose }: { insights: any; onClose: (
         </div>
       )}
 
-      {(topPerf?.length > 0 || bottomPerf?.length > 0) && (
+      {topPerf?.length > 0 && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-          {topPerf?.length > 0 && (
-            <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '14px 16px' }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: '#166534', textTransform: 'uppercase' as const, letterSpacing: 0.5, marginBottom: 10 }}>Top Performers</div>
-              {topPerf.map((c: any, i: number) => (
-                <div key={c.coder_name} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', borderBottom: i < topPerf.length - 1 ? '1px solid #dcfce7' : 'none' }}>
-                  <span style={{ fontSize: 11, fontWeight: 800, color: '#16a34a', width: 18 }}>#{i + 1}</span>
-                  <span style={{ fontWeight: 600, fontSize: 13, flex: 1 }}>{c.coder_name}</span>
-                  <span style={{ fontWeight: 800, fontSize: 14, color: '#16a34a' }}>{c.avg_score}%</span>
-                </div>
-              ))}
-            </div>
-          )}
-          {bottomPerf?.length > 0 && (
-            <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 10, padding: '14px 16px' }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: '#92400e', textTransform: 'uppercase' as const, letterSpacing: 0.5, marginBottom: 10 }}>Needs Attention</div>
-              {bottomPerf.map((c: any, i: number) => (
-                <div key={c.coder_name} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', borderBottom: i < bottomPerf.length - 1 ? '1px solid #fde68a' : 'none' }}>
-                  <span style={{ fontSize: 11, fontWeight: 800, color: '#dc2626', width: 18 }}>#{i + 1}</span>
-                  <span style={{ fontWeight: 600, fontSize: 13, flex: 1 }}>{c.coder_name}</span>
-                  <span style={{ fontWeight: 800, fontSize: 14, color: c.avg_score >= 60 ? '#d97706' : '#dc2626' }}>{c.avg_score}%</span>
-                </div>
-              ))}
-            </div>
-          )}
+          <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '14px 16px' }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#166534', textTransform: 'uppercase' as const, letterSpacing: 0.5, marginBottom: 10 }}>Top Performers</div>
+            {topPerf.map((c: any, i: number) => (
+              <div key={c.coder_name} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', borderBottom: i < topPerf.length - 1 ? '1px solid #dcfce7' : 'none' }}>
+                <span style={{ fontSize: 11, fontWeight: 800, color: '#16a34a', width: 18 }}>#{i + 1}</span>
+                <span style={{ fontWeight: 600, fontSize: 13, flex: 1 }}>{c.coder_name}</span>
+                <span style={{ fontWeight: 800, fontSize: 14, color: '#16a34a' }}>{c.avg_score}%</span>
+              </div>
+            ))}
+          </div>
+          <div style={{ background: bottomPerf?.length > 0 ? '#fff7ed' : '#f0fdf4', border: `1px solid ${bottomPerf?.length > 0 ? '#fed7aa' : '#bbf7d0'}`, borderRadius: 10, padding: '14px 16px' }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: bottomPerf?.length > 0 ? '#92400e' : '#166534', textTransform: 'uppercase' as const, letterSpacing: 0.5, marginBottom: 10 }}>Needs Attention</div>
+            {!bottomPerf?.length ? (
+              <div style={{ fontSize: 12, color: '#166534', fontWeight: 600 }}>None — every coder is at or above 90%</div>
+            ) : bottomPerf.map((c: any, i: number) => (
+              <div key={c.coder_name} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', borderBottom: i < bottomPerf.length - 1 ? '1px solid #fde68a' : 'none' }}>
+                <span style={{ fontSize: 11, fontWeight: 800, color: '#dc2626', width: 18 }}>#{i + 1}</span>
+                <span style={{ fontWeight: 600, fontSize: 13, flex: 1 }}>{c.coder_name}</span>
+                <span style={{ fontWeight: 800, fontSize: 14, color: c.avg_score >= 60 ? '#d97706' : '#dc2626' }}>{c.avg_score}%</span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
-      {(topCats?.length > 0 || bottomCats?.length > 0) && (
+      {topCats?.length > 0 && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-          {topCats?.length > 0 && (
-            <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '14px 16px' }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: '#166534', textTransform: 'uppercase' as const, letterSpacing: 0.5, marginBottom: 10 }}>Top Categories — Best Coded</div>
-              {topCats.map((c: any, i: number) => (
-                <div key={c.category} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', borderBottom: i < topCats.length - 1 ? '1px solid #dcfce7' : 'none' }}>
-                  <span style={{ fontSize: 11, fontWeight: 800, color: '#16a34a', width: 18 }}>#{i + 1}</span>
-                  <span style={{ fontWeight: 600, fontSize: 13, flex: 1 }}>{c.category}</span>
-                  <span style={{ fontSize: 11, color: '#6b7280' }}>{c.attempt_count} attempts</span>
-                  <span style={{ fontWeight: 800, fontSize: 14, color: '#16a34a' }}>{c.avg_score}%</span>
-                </div>
-              ))}
-            </div>
-          )}
-          {bottomCats?.length > 0 && (
-            <div style={{ background: '#fff5f5', border: '1px solid #fecaca', borderRadius: 10, padding: '14px 16px' }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: '#dc2626', textTransform: 'uppercase' as const, letterSpacing: 0.5, marginBottom: 10 }}>Bottom Categories — Needs Work</div>
-              {bottomCats.map((c: any, i: number) => (
-                <div key={c.category} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', borderBottom: i < bottomCats.length - 1 ? '1px solid #fee2e2' : 'none' }}>
-                  <span style={{ fontSize: 11, fontWeight: 800, color: '#dc2626', width: 18 }}>#{i + 1}</span>
-                  <span style={{ fontWeight: 600, fontSize: 13, flex: 1 }}>{c.category}</span>
-                  <span style={{ fontSize: 11, color: '#6b7280' }}>{c.attempt_count} attempts</span>
-                  <span style={{ fontWeight: 800, fontSize: 14, color: c.avg_score >= 60 ? '#d97706' : '#dc2626' }}>{c.avg_score}%</span>
-                </div>
-              ))}
-            </div>
-          )}
+          <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '14px 16px' }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#166534', textTransform: 'uppercase' as const, letterSpacing: 0.5, marginBottom: 10 }}>Top Categories — Best Coded</div>
+            {topCats.map((c: any, i: number) => (
+              <div key={c.category} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', borderBottom: i < topCats.length - 1 ? '1px solid #dcfce7' : 'none' }}>
+                <span style={{ fontSize: 11, fontWeight: 800, color: '#16a34a', width: 18 }}>#{i + 1}</span>
+                <span style={{ fontWeight: 600, fontSize: 13, flex: 1 }}>{c.category}</span>
+                <span style={{ fontSize: 11, color: '#6b7280' }}>{c.attempt_count} attempts</span>
+                <span style={{ fontWeight: 800, fontSize: 14, color: '#16a34a' }}>{c.avg_score}%</span>
+              </div>
+            ))}
+          </div>
+          <div style={{ background: bottomCats?.length > 0 ? '#fff5f5' : '#f0fdf4', border: `1px solid ${bottomCats?.length > 0 ? '#fecaca' : '#bbf7d0'}`, borderRadius: 10, padding: '14px 16px' }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: bottomCats?.length > 0 ? '#dc2626' : '#166534', textTransform: 'uppercase' as const, letterSpacing: 0.5, marginBottom: 10 }}>Bottom Categories — Needs Work</div>
+            {!bottomCats?.length ? (
+              <div style={{ fontSize: 12, color: '#166534', fontWeight: 600 }}>None — every category is at or above 90%</div>
+            ) : bottomCats.map((c: any, i: number) => (
+              <div key={c.category} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', borderBottom: i < bottomCats.length - 1 ? '1px solid #fee2e2' : 'none' }}>
+                <span style={{ fontSize: 11, fontWeight: 800, color: '#dc2626', width: 18 }}>#{i + 1}</span>
+                <span style={{ fontWeight: 600, fontSize: 13, flex: 1 }}>{c.category}</span>
+                <span style={{ fontSize: 11, color: '#6b7280' }}>{c.attempt_count} attempts</span>
+                <span style={{ fontWeight: 800, fontSize: 14, color: c.avg_score >= 60 ? '#d97706' : '#dc2626' }}>{c.avg_score}%</span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

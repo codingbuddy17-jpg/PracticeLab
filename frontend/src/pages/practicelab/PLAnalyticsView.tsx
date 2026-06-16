@@ -25,7 +25,7 @@ const TEACHING_LABEL_META: Record<string, { color: string; bg: string; desc: str
 
 const TAB_STORAGE_KEY = 'pl_analytics_tab'
 
-export function PLAnalyticsView() {
+export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: number) => void } = {}) {
   const [tab, setTab] = useState<'overview' | 'specialty' | 'chart' | 'batch' | 'coder' | 'category' | 'teaching' | 'matrix'>(
     () => (localStorage.getItem(TAB_STORAGE_KEY) as any) || 'overview'
   )
@@ -401,16 +401,22 @@ export function PLAnalyticsView() {
                 </ResponsiveContainer>
               </div>
               <div style={styles.table}>
-                <div style={{ ...styles.tableHeader, gridTemplateColumns: '2fr 100px 80px 80px 80px' }}>
-                  <span>Batch</span><span>Specialty</span><span>Coders</span><span>Avg Score</span><span>Pass Rate</span>
+                <div style={{ ...styles.tableHeader, gridTemplateColumns: '2fr 100px 80px 80px 80px 90px' }}>
+                  <span>Batch</span><span>Specialty</span><span>Coders</span><span>Avg Score</span><span>Pass Rate</span><span></span>
                 </div>
                 {byBatch.map((r: any, i: number) => (
-                  <div key={r.batch_id} className={i % 2 === 1 ? 'pl-tr-alt' : 'pl-tr'} style={{ ...styles.tableRow, gridTemplateColumns: '2fr 100px 80px 80px 80px' }}>
+                  <div key={r.batch_id} className={i % 2 === 1 ? 'pl-tr-alt' : 'pl-tr'} style={{ ...styles.tableRow, gridTemplateColumns: '2fr 100px 80px 80px 80px 90px', alignItems: 'center' }}>
                     <span style={{ fontWeight: 600, fontSize: 13 }}>{r.batch_name}</span>
                     <span style={{ fontSize: 12, color: '#6b7280' }}>{r.specialty}</span>
                     <span>{r.coder_count}</span>
                     <span style={{ fontWeight: 700, color: r.avg_score >= 80 ? '#16a34a' : r.avg_score >= 60 ? '#d97706' : '#dc2626' }}>{r.avg_score}%</span>
                     <span style={{ fontWeight: 700, color: r.pass_rate >= 80 ? '#16a34a' : r.pass_rate >= 60 ? '#d97706' : '#dc2626' }}>{r.pass_rate}%</span>
+                    {onOpenBatch ? (
+                      <button onClick={() => onOpenBatch(r.batch_id)}
+                        style={{ fontSize: 11, fontWeight: 700, color: '#4f46e5', background: 'none', border: '1px solid #e0e7ff', borderRadius: 6, padding: '4px 10px', cursor: 'pointer' }}>
+                        View Details →
+                      </button>
+                    ) : <span />}
                   </div>
                 ))}
               </div>
@@ -493,11 +499,12 @@ export function PLAnalyticsView() {
                   {/* Top / Bottom categories */}
                   {coderSummary.by_category?.length > 0 && (() => {
                     const cats: any[] = coderSummary.by_category
+                    const weak = cats.filter((c: any) => c.avg_score < 90)
                     const splitAt = Math.min(3, Math.floor(cats.length / 2))
                     const top = cats.slice(0, splitAt)
-                    const bottom = cats.length > splitAt ? cats.slice(-splitAt).reverse() : []
+                    const bottom = weak.length > 0 ? weak.slice(-Math.min(3, weak.length)).reverse() : []
                     return (
-                      <div style={{ display: 'grid', gridTemplateColumns: bottom.length ? '1fr 1fr' : '1fr', gap: 12 }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                         <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '12px 14px' }}>
                           <div style={{ fontSize: 11, fontWeight: 700, color: '#166534', textTransform: 'uppercase' as const, letterSpacing: 0.5, marginBottom: 8 }}>Top Categories</div>
                           {top.map((c: any) => (
@@ -510,20 +517,20 @@ export function PLAnalyticsView() {
                             </div>
                           ))}
                         </div>
-                        {bottom.length > 0 && (
-                          <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 10, padding: '12px 14px' }}>
-                            <div style={{ fontSize: 11, fontWeight: 700, color: '#92400e', textTransform: 'uppercase' as const, letterSpacing: 0.5, marginBottom: 8 }}>Needs Work</div>
-                            {bottom.map((c: any) => (
-                              <div key={c.category} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #fde68a', fontSize: 12 }}>
-                                <span style={{ fontWeight: 600, color: '#111' }}>{c.category}</span>
-                                <span style={{ display: 'flex', gap: 8, color: '#6b7280' }}>
-                                  <span>{c.charts} charts</span>
-                                  <span style={{ fontWeight: 700, color: c.avg_score >= 80 ? '#16a34a' : c.avg_score >= 60 ? '#d97706' : '#dc2626' }}>{c.avg_score}%</span>
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
+                        <div style={{ background: bottom.length > 0 ? '#fff7ed' : '#f0fdf4', border: `1px solid ${bottom.length > 0 ? '#fed7aa' : '#bbf7d0'}`, borderRadius: 10, padding: '12px 14px' }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: bottom.length > 0 ? '#92400e' : '#166534', textTransform: 'uppercase' as const, letterSpacing: 0.5, marginBottom: 8 }}>Needs Work</div>
+                          {bottom.length === 0 ? (
+                            <div style={{ fontSize: 12, color: '#166534', fontWeight: 600 }}>None — every category is at or above 90%</div>
+                          ) : bottom.map((c: any) => (
+                            <div key={c.category} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #fde68a', fontSize: 12 }}>
+                              <span style={{ fontWeight: 600, color: '#111' }}>{c.category}</span>
+                              <span style={{ display: 'flex', gap: 8, color: '#6b7280' }}>
+                                <span>{c.charts} charts</span>
+                                <span style={{ fontWeight: 700, color: c.avg_score >= 80 ? '#16a34a' : c.avg_score >= 60 ? '#d97706' : '#dc2626' }}>{c.avg_score}%</span>
+                              </span>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     )
                   })()}
@@ -604,8 +611,8 @@ export function PLAnalyticsView() {
               </div>
               {/* Clickable category rows with drill-through */}
               <div style={styles.table}>
-                <div style={{ ...styles.tableHeader, gridTemplateColumns: '2fr 70px 80px 80px' }}>
-                  <span>Category</span><span>Attempts</span><span>Avg Score</span><span>Pass Rate</span>
+                <div style={{ ...styles.tableHeader, gridTemplateColumns: '2fr 70px 80px' }}>
+                  <span>Category</span><span>Attempts</span><span>Avg Score</span>
                 </div>
                 {categoryData.team.map((cat: any, i: number) => {
                   const isExp = expandedCategory === cat.category
@@ -613,12 +620,11 @@ export function PLAnalyticsView() {
                   const catCoders = categoryData.coder_category.filter((r: any) => r.category === cat.category).sort((a: any, b: any) => a.avg_score - b.avg_score)
                   return (
                     <div key={cat.category}>
-                      <div className={!isExp ? (i % 2 === 1 ? 'pl-tr-alt' : 'pl-tr') : ''} style={{ ...styles.tableRow, gridTemplateColumns: '2fr 70px 80px 80px', cursor: 'pointer', background: isExp ? '#f5f3ff' : undefined }}
+                      <div className={!isExp ? (i % 2 === 1 ? 'pl-tr-alt' : 'pl-tr') : ''} style={{ ...styles.tableRow, gridTemplateColumns: '2fr 70px 80px', cursor: 'pointer', background: isExp ? '#f5f3ff' : undefined }}
                         onClick={() => setExpandedCategory(isExp ? null : cat.category)}>
                         <span style={{ fontWeight: 600 }}>{cat.category} <span style={{ fontSize: 11, color: '#9ca3af' }}>{isExp ? '▲' : '▼'}</span></span>
                         <span>{cat.attempt_count}</span>
                         <span style={{ fontWeight: 700, color: cat.avg_score >= 80 ? '#16a34a' : cat.avg_score >= 60 ? '#d97706' : '#dc2626' }}>{cat.avg_score}%</span>
-                        <span style={{ fontWeight: 700, color: cat.pass_rate >= 80 ? '#16a34a' : cat.pass_rate >= 60 ? '#d97706' : '#dc2626' }}>{cat.pass_rate}%</span>
                       </div>
                       {isExp && (
                         <div style={{ padding: '12px 16px', background: '#fafafa', borderBottom: '1px solid #ede9fe', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>

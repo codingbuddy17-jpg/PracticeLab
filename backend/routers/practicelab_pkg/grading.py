@@ -608,9 +608,10 @@ def get_batch_insights(batch_id: int, db: Session = Depends(get_db)):
         for cat, d in cat_map.items()
     ], key=lambda x: x["avg_score"])
 
-    cat_split = min(5, len(category_performance) // 2)
-    bottom_categories = category_performance[:cat_split]
-    top_categories = list(reversed(category_performance[-cat_split:])) if cat_split > 0 else []
+    weak_categories = [c for c in category_performance if c["avg_score"] < 90]
+    strong_categories = [c for c in category_performance if c["avg_score"] >= 90]
+    bottom_categories = weak_categories[:5]
+    top_categories = list(reversed(strong_categories[-5:])) if strong_categories else []
 
     chart_map: dict = {}
     for r in results:
@@ -686,9 +687,10 @@ def get_batch_insights(batch_id: int, db: Session = Depends(get_db)):
         })
 
     ranked_coders = sorted(coder_insights, key=lambda x: -x["avg_score"])
-    coder_split = min(3, len(ranked_coders) // 2)
-    top_performers = ranked_coders[:coder_split]
-    bottom_performers = list(reversed(ranked_coders[-coder_split:])) if coder_split > 0 else []
+    weak_coders = [c for c in ranked_coders if c["avg_score"] < 90]
+    strong_coders = [c for c in ranked_coders if c["avg_score"] >= 90]
+    top_performers = strong_coders[:3]
+    bottom_performers = list(reversed(weak_coders[-3:])) if weak_coders else []
 
     score_buckets = [
         {"label": ">95%", "color": "#16a34a", "coders": []},
