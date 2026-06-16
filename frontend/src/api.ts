@@ -218,7 +218,7 @@ export async function createBatch(payload: {
   use_weighted?: boolean; use_dpo?: boolean; is_direct_assignment?: boolean;
 }) {
   const { data } = await api.post('/practicelab/batches', payload)
-  return data as { batch_id: number; name: string; warning?: string }
+  return data as { batch_id: number; name: string; warning?: string; skipped_duplicates?: string[] }
 }
 
 export async function runAllocation(batchId: number, payload: {

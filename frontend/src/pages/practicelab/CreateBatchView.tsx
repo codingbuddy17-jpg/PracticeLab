@@ -82,6 +82,7 @@ export function CreateBatchView({ onCreated, scoringCfg, directMode: directModeP
         is_direct_assignment: directMode,
       })
       if (res.warning) toast(res.warning, { icon: '⚠️', duration: 5000 })
+      if (res.skipped_duplicates?.length) toast(`Skipped duplicate coder name(s): ${res.skipped_duplicates.join(', ')}`, { icon: '⚠️', duration: 6000 })
       toast.success(directMode ? 'Assignment created — pick charts next' : 'Batch created — run an allocation cycle to assign charts')
       onCreated(res.batch_id)
     } catch (err: any) {

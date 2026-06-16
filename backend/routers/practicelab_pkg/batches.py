@@ -78,6 +78,20 @@ def create_batch(payload: BatchCreate, db: Session = Depends(get_db)):
     if not payload.coders:
         raise HTTPException(status_code=400, detail="At least one coder is required")
 
+    seen_names: set[str] = set()
+    unique_coders, skipped_duplicates = [], []
+    for coder in payload.coders:
+        name = coder.name.strip()
+        if not name or name in seen_names:
+            if name:
+                skipped_duplicates.append(name)
+            continue
+        unique_coders.append((name, coder.emp_id))
+        seen_names.add(name)
+
+    if not unique_coders:
+        raise HTTPException(status_code=400, detail="At least one coder with a valid name is required")
+
     warning = None
     if not payload.is_direct_assignment:
         open_count = (db.query(Batch)
@@ -104,11 +118,11 @@ def create_batch(payload: BatchCreate, db: Session = Depends(get_db)):
     db.add(batch)
     db.flush()
 
-    for coder in payload.coders:
-        db.add(BatchCoder(batch_id=batch.id, coder_name=coder.name, emp_id=coder.emp_id))
+    for name, emp_id in unique_coders:
+        db.add(BatchCoder(batch_id=batch.id, coder_name=name, emp_id=emp_id))
 
     db.commit()
-    return {"batch_id": batch.id, "name": batch.name, "warning": warning}
+    return {"batch_id": batch.id, "name": batch.name, "warning": warning, "skipped_duplicates": skipped_duplicates}
 
 
 class AddCoders(BaseModel):
