@@ -339,7 +339,12 @@ def coder_report_pdf(
     summary = coder_summary(coder_name, from_date, to_date, specialty, db)
     if not summary:
         raise HTTPException(status_code=404, detail="No data for this coder")
-    pdf_bytes = generate_coder_report_pdf(coder_name, summary)
+
+    team_base = _gr_base(db, from_date, to_date, specialty, exclude_direct=True)
+    team_scores = [r.total_score for r in team_base.all()]
+    team_avg_score = round(sum(team_scores) / len(team_scores), 1) if team_scores else None
+
+    pdf_bytes = generate_coder_report_pdf(coder_name, summary, team_avg_score=team_avg_score)
     safe_name = coder_name.replace(" ", "_")
     return StreamingResponse(
         io.BytesIO(pdf_bytes),

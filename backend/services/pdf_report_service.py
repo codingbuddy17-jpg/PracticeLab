@@ -6,6 +6,7 @@ the top of each report so a leadership reader gets the headline in one glance.
 """
 import io
 from datetime import datetime
+from typing import Optional
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
@@ -14,6 +15,11 @@ from reportlab.lib.units import inch
 from reportlab.platypus import (
     SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, HRFlowable,
 )
+from reportlab.graphics.shapes import Drawing, Circle, String
+from reportlab.graphics.charts.piecharts import Pie
+from reportlab.graphics.charts.barcharts import HorizontalBarChart
+from reportlab.graphics.charts.lineplots import LinePlot
+from reportlab.graphics.widgets.markers import makeMarker
 
 # ── Theme ──────────────────────────────────────────────────────────────────
 R1_BLUE = colors.HexColor("#003DA5")
@@ -66,6 +72,88 @@ def _score_cell(score, suffix="%"):
         return Paragraph("—", NORMAL)
     style = ParagraphStyle("score", parent=NORMAL, textColor=_score_color(score), fontName="Helvetica-Bold")
     return Paragraph(f"{score}{suffix}", style)
+
+
+def _donut_chart(buckets: list[dict], size=150) -> Drawing:
+    """buckets: [{label, count, color}, ...] — color is a '#rrggbb' string."""
+    d = Drawing(size, size)
+    pie = Pie()
+    pie.x = 5
+    pie.y = 5
+    pie.width = size - 10
+    pie.height = size - 10
+    pie.data = [b["count"] for b in buckets]
+    pie.labels = None
+    pie.slices.strokeWidth = 1
+    pie.slices.strokeColor = CREAM_PANEL
+    pie.sideLabels = False
+    for i, b in enumerate(buckets):
+        pie.slices[i].fillColor = colors.HexColor(b["color"])
+    d.add(pie)
+    cx, cy = pie.x + pie.width / 2, pie.y + pie.height / 2
+    hole_r = pie.width * 0.38
+    d.add(Circle(cx, cy, hole_r, fillColor=CREAM_PANEL, strokeColor=None))
+    return d
+
+
+def _category_bar_chart(rows: list[dict], label_key: str, score_key: str = "avg_score", width=CONTENT_W) -> Drawing:
+    """Horizontal bar chart, one bar per row, color-coded green/amber/red by score."""
+    n = len(rows)
+    height = max(60, n * 20 + 30)
+    label_col_w = 130
+    d = Drawing(width, height)
+    chart = HorizontalBarChart()
+    chart.x = label_col_w
+    chart.y = 12
+    chart.width = width - label_col_w - 40
+    chart.height = height - 24
+    chart.data = [[r[score_key] for r in rows]]
+    chart.categoryAxis.categoryNames = [r[label_key] for r in rows]
+    chart.categoryAxis.labels.fontSize = 8
+    chart.categoryAxis.labels.fontName = "Helvetica"
+    chart.valueAxis.valueMin = 0
+    chart.valueAxis.valueMax = 100
+    chart.valueAxis.valueStep = 25
+    chart.valueAxis.labels.fontSize = 7
+    chart.bars.strokeColor = None
+    chart.barLabels.fontSize = 7.5
+    chart.barLabels.nudge = 9
+    chart.barLabelFormat = "%0.0f%%"
+    chart.barWidth = 10
+    for i, r in enumerate(rows):
+        chart.bars[(0, i)].fillColor = _score_color(r[score_key])
+    d.add(chart)
+    return d
+
+
+def _trend_line_chart(points: list[tuple], width=CONTENT_W, height=170) -> Drawing:
+    """points: [(label, value), ...] in chronological order."""
+    n = len(points)
+    d = Drawing(width, height)
+    lp = LinePlot()
+    lp.x = 45
+    lp.y = 36
+    lp.width = width - 65
+    lp.height = height - 56
+    lp.data = [[(i, v) for i, (_, v) in enumerate(points)]]
+    lp.lines[0].strokeColor = R1_BLUE
+    lp.lines[0].strokeWidth = 2.2
+    lp.lines[0].symbol = makeMarker("FilledCircle")
+    lp.lines[0].symbol.size = 4.5
+    lp.lines[0].symbol.fillColor = R1_BLUE
+    lp.xValueAxis.valueMin = -0.4
+    lp.xValueAxis.valueMax = max(n - 1, 1) + 0.4
+    lp.xValueAxis.visible = 0
+    lp.yValueAxis.valueMin = 0
+    lp.yValueAxis.valueMax = 100
+    lp.yValueAxis.valueSteps = [0, 25, 50, 75, 100]
+    lp.yValueAxis.labels.fontSize = 7.5
+    d.add(lp)
+    label_style = ParagraphStyle("trendLabel", parent=NORMAL, fontSize=6.8, alignment=1, textColor=GRAY)
+    for i, (label, _) in enumerate(points):
+        px = lp.x + (lp.width * (i / max(n - 1, 1))) if n > 1 else lp.x + lp.width / 2
+        d.add(String(px, 10, label[:10], fontSize=6.8, fillColor=GRAY, textAnchor="middle"))
+    return d
 
 
 def _section_heading(elements, text):
@@ -242,7 +330,7 @@ def _batch_verdict(bs: dict):
     return ("CRITICAL", f"{pr}% pass rate{trend} indicates the majority of charts failed — immediate intervention recommended.", RED, RED_BG, RED_BORDER)
 
 
-def generate_coder_report_pdf(coder_name: str, summary: dict) -> bytes:
+def generate_coder_report_pdf(coder_name: str, summary: dict, team_avg_score: Optional[float] = None) -> bytes:
     buf = io.BytesIO()
     doc = _doc(buf)
     elements = []
@@ -262,7 +350,25 @@ def generate_coder_report_pdf(coder_name: str, summary: dict) -> bytes:
     dpo = summary.get("cumulative_dpo")
     if dpo and dpo.get("overall_accuracy") is not None:
         stats.append((f"{dpo['overall_accuracy']}%", "Overall DPO"))
+    if team_avg_score is not None:
+        stats.append((f"{team_avg_score}%", "Team Avg (Benchmark)"))
     elements.append(_stat_row(stats))
+
+    if team_avg_score is not None and summary.get("weighted_accuracy") is not None:
+        diff = round(summary["weighted_accuracy"] - team_avg_score, 1)
+        diff_hex = "#1A7A4C" if diff > 0 else "#B23A33" if diff < 0 else "#6B6457"
+        elements.append(Spacer(1, 8))
+        elements.append(Paragraph(
+            f"vs team average ({team_avg_score}%, formal batches): "
+            f"<font color='{diff_hex}'><b>{'+' if diff > 0 else ''}{diff} points</b></font>",
+            ParagraphStyle("benchline", parent=NORMAL, textColor=colors.HexColor("#33312b"))
+        ))
+
+    batches = summary.get("batches") or []
+    trend_points = [(b["created_at"][:10] if b.get("created_at") else b["batch_name"], b["avg_score"]) for b in batches if b.get("avg_score") is not None]
+    if len(trend_points) >= 2:
+        _section_heading(elements, "Score Trend")
+        elements.append(_trend_line_chart(trend_points))
 
     if dpo and any(dpo.get(k) is not None for k in ("dx_accuracy", "poa_accuracy", "proc_accuracy")):
         _section_heading(elements, "DPO Breakdown")
@@ -287,6 +393,8 @@ def generate_coder_report_pdf(coder_name: str, summary: dict) -> bytes:
     cats = summary.get("by_category") or []
     if cats:
         _section_heading(elements, "Category Performance")
+        elements.append(_category_bar_chart(sorted(cats, key=lambda c: c["avg_score"]), label_key="category"))
+        elements.append(Spacer(1, 6))
         cat_rows = [[Paragraph(c["category"], NORMAL), Paragraph(str(c["charts"]), NORMAL), _score_cell(c["avg_score"])] for c in cats]
         elements.append(_data_table(["Category", "Charts", "Avg Score"], cat_rows, [3, 1, 1]))
 
@@ -302,7 +410,6 @@ def generate_coder_report_pdf(coder_name: str, summary: dict) -> bytes:
                              lambda i, c: Paragraph(f"{c['category']} — {c['charts']} charts — <b>{c['avg_score']}%</b>", NORMAL))
         elements.append(_two_col(left, right))
 
-    batches = summary.get("batches") or []
     if batches:
         _section_heading(elements, "Batch History")
         b_rows = []
@@ -380,6 +487,17 @@ def generate_batch_report_pdf(insights: dict) -> bytes:
     sd = insights.get("score_distribution") or []
     if sd:
         _section_heading(elements, "Score Distribution (cumulative chart-weighted score)")
+        donut = _donut_chart(sd)
+        legend_rows = []
+        for b in sd:
+            style = ParagraphStyle("sdLegend", parent=NORMAL, textColor=colors.HexColor(b["color"]), fontName="Helvetica-Bold")
+            legend_rows.append([Paragraph(f"● {b['count']} coder{'s' if b['count'] != 1 else ''} scored {b['label']}", style)])
+        legend = Table(legend_rows, colWidths=[CONTENT_W - 170])
+        legend.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("TOPPADDING", (0, 0), (-1, -1), 4), ("LEFTPADDING", (0, 0), (-1, -1), 10)]))
+        combo = Table([[donut, legend]], colWidths=[160, CONTENT_W - 160])
+        combo.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "MIDDLE")]))
+        elements.append(combo)
+        elements.append(Spacer(1, 8))
         sd_rows = []
         for b in sd:
             style = ParagraphStyle("sd", parent=NORMAL, textColor=colors.HexColor(b["color"]), fontName="Helvetica-Bold")
@@ -418,7 +536,11 @@ def generate_batch_report_pdf(insights: dict) -> bytes:
 
     top_c = insights.get("top_categories") or []
     bottom_c = insights.get("bottom_categories") or []
+    cat_perf = insights.get("category_performance") or []
     _section_heading(elements, "Category Performance")
+    if cat_perf:
+        elements.append(_category_bar_chart(cat_perf, label_key="category"))
+        elements.append(Spacer(1, 8))
     left = _ranked_box("Top Categories", top_c, GREEN, GREEN_BG, GREEN_BORDER, "No data",
                         lambda i, c: Paragraph(f"#{i+1} {c['category']} ({c['attempt_count']}) — <b>{c['avg_score']}%</b>", NORMAL))
     right = _ranked_box("Bottom Categories", bottom_c, RED if bottom_c else GREEN, RED_BG if bottom_c else GREEN_BG, RED_BORDER if bottom_c else GREEN_BORDER,
