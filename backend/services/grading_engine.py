@@ -124,8 +124,19 @@ def norm_cpt(code) -> str:
     return _clean(code).replace(" ", "").upper()
 
 
+_MOD_SPLIT_RE = re.compile(r"[,;/\s]+")
+
+
 def norm_mod(mod) -> str:
-    return _clean(mod).replace("-", "").replace(" ", "").upper()
+    """Normalize a modifier field. Supports multiple modifiers in one cell
+    (e.g. '25,59', '59, 25', '25;59') by splitting on common separators,
+    cleaning each token, and sorting — so the comparison is independent of
+    entry order or which separator was used."""
+    s = _clean(mod).upper()
+    if not s:
+        return ""
+    tokens = [t.replace("-", "").strip() for t in _MOD_SPLIT_RE.split(s) if t.strip()]
+    return ",".join(sorted(tokens))
 
 
 _CPT_EMBEDDED_MOD_RE = re.compile(r"^([A-Z0-9]{5})-?([A-Z0-9]{2})$")
