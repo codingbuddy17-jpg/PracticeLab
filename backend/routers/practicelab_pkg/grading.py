@@ -126,6 +126,15 @@ def grade_submissions(
                     errors.append(f"{filename}: chart {chart_num} not found")
                     continue
 
+                assignment = (db.query(BatchChart)
+                              .filter(BatchChart.batch_id == batch_id,
+                                      BatchChart.coder_name == coder_name,
+                                      BatchChart.chart_id == chart.id)
+                              .first())
+                if not assignment:
+                    errors.append(f"{filename}: chart {chart_num} was not assigned to {coder_name} in this batch — skipped")
+                    continue
+
                 ak_rec = db.query(AnswerKey).filter(AnswerKey.chart_id == chart.id).first()
                 if not ak_rec:
                     errors.append(f"{filename}: no answer key for {chart_num}")

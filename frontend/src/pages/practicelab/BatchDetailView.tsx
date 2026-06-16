@@ -130,7 +130,7 @@ function AllocationPanel({ batch, onDone }: { batch: any; onDone: () => void }) 
           </div>
           {selectedChartIds.size > 0 && (
             <div style={{ fontSize: 12, color: '#4f46e5', fontWeight: 700, marginBottom: 6 }}>
-              {selectedChartIds.size} chart{selectedChartIds.size !== 1 ? 's' : ''} selected
+              {selectedChartIds.size} chart{selectedChartIds.size !== 1 ? 's' : ''} selected — assigned to every included coder below (up to Max Charts per Coder, skipping any already assigned to them)
               <button style={{ ...styles.clearSmallBtn, marginLeft: 10 }} onClick={() => setSelectedChartIds(new Set())}>Clear</button>
             </div>
           )}
@@ -592,7 +592,7 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
                 try {
                   const res = await addCodersToBatch(batchId, valid)
                   if (res.added.length) toast.success(`Added: ${res.added.join(', ')}`)
-                  if (res.skipped_duplicates.length) toast(`Already in batch (skipped): ${res.skipped_duplicates.join(', ')}`, { icon: 'ℹ️' })
+                  if (res.skipped_duplicates.length) toast(`Skipped (name or emp ID already in this batch): ${res.skipped_duplicates.join(', ')}`, { icon: 'ℹ️' })
                   setShowAddCoder(false)
                   setNewCoders([{ name: '', emp_id: '' }])
                   loadBatch()

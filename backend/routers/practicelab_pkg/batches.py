@@ -79,15 +79,19 @@ def create_batch(payload: BatchCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="At least one coder is required")
 
     seen_names: set[str] = set()
+    seen_emp_ids: set[str] = set()
     unique_coders, skipped_duplicates = [], []
     for coder in payload.coders:
         name = coder.name.strip()
-        if not name or name in seen_names:
+        emp_id = (coder.emp_id or "").strip()
+        if not name or name in seen_names or (emp_id and emp_id in seen_emp_ids):
             if name:
                 skipped_duplicates.append(name)
             continue
-        unique_coders.append((name, coder.emp_id))
+        unique_coders.append((name, emp_id))
         seen_names.add(name)
+        if emp_id:
+            seen_emp_ids.add(emp_id)
 
     if not unique_coders:
         raise HTTPException(status_code=400, detail="At least one coder with a valid name is required")
@@ -139,17 +143,21 @@ def add_coders_to_batch(batch_id: int, payload: AddCoders, db: Session = Depends
         raise HTTPException(status_code=400, detail="Cannot add coders to a closed batch")
 
     existing_names = {c.coder_name for c in batch.coders}
+    existing_emp_ids = {c.emp_id for c in batch.coders if c.emp_id}
     added, skipped = [], []
     for coder in payload.coders:
         name = coder.name.strip()
+        emp_id = (coder.emp_id or "").strip()
         if not name:
             continue
-        if name in existing_names:
+        if name in existing_names or (emp_id and emp_id in existing_emp_ids):
             skipped.append(name)
         else:
-            db.add(BatchCoder(batch_id=batch_id, coder_name=name, emp_id=coder.emp_id or ""))
+            db.add(BatchCoder(batch_id=batch_id, coder_name=name, emp_id=emp_id))
             added.append(name)
             existing_names.add(name)  # prevent duplicates within same request
+            if emp_id:
+                existing_emp_ids.add(emp_id)
 
     db.commit()
     return {"added": added, "skipped_duplicates": skipped}
