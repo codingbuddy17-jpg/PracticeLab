@@ -12,7 +12,7 @@ from services.pdf_report_service import generate_coder_report_pdf
 router = APIRouter()
 
 
-def _gr_base(db: Session, from_date: Optional[str], to_date: Optional[str], specialty: Optional[str]):
+def _gr_base(db: Session, from_date: Optional[str], to_date: Optional[str], specialty: Optional[str], exclude_direct: bool = False):
     q = db.query(GradingResult).filter(GradingResult.total_score.isnot(None))
     if from_date:
         q = q.filter(GradingResult.graded_at >= from_date)
@@ -22,11 +22,16 @@ def _gr_base(db: Session, from_date: Optional[str], to_date: Optional[str], spec
         spec = next((s for s in Specialty if s.value == specialty), None)
         if spec:
             q = q.filter(GradingResult.specialty == spec)
+    if exclude_direct:
+        q = q.join(Batch, GradingResult.batch_id == Batch.id).filter(Batch.is_direct_assignment == False)
     return q
 
 
 def _batch_base(db: Session, from_date: Optional[str], to_date: Optional[str], specialty: Optional[str]):
-    q = db.query(Batch)
+    """Team/batch-level aggregates always exclude direct assignments — those are
+    tracked separately (see Direct Assignments list) and shouldn't dilute formal
+    batch counts or trends. Coder-level views intentionally do NOT use this filter."""
+    q = db.query(Batch).filter(Batch.is_direct_assignment == False)
     if from_date:
         q = q.filter(Batch.created_at >= from_date)
     if to_date:
@@ -43,7 +48,7 @@ def analytics_overview(
     from_date: Optional[str] = None, to_date: Optional[str] = None, specialty: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
-    base = _gr_base(db, from_date, to_date, specialty)
+    base = _gr_base(db, from_date, to_date, specialty, exclude_direct=True)
     total_results = base.count()
     passed = base.filter(GradingResult.pass_fail == PassFail.PASS).count()
 
@@ -63,7 +68,7 @@ def analytics_by_specialty(
     from_date: Optional[str] = None, to_date: Optional[str] = None, specialty: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
-    base = _gr_base(db, from_date, to_date, specialty)
+    base = _gr_base(db, from_date, to_date, specialty, exclude_direct=True)
     rows = (base.with_entities(
                 GradingResult.specialty,
                 func.count(GradingResult.id).label("total"),
@@ -88,7 +93,7 @@ def analytics_by_chart(
     from_date: Optional[str] = None, to_date: Optional[str] = None, specialty: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
-    results = _gr_base(db, from_date, to_date, specialty).join(Chart).all()
+    results = _gr_base(db, from_date, to_date, specialty, exclude_direct=True).join(Chart).all()
 
     chart_map: dict[int, dict] = {}
     for r in results:
@@ -338,8 +343,12 @@ def analytics_by_category(
     if not results:
         return {"team": [], "coder_category": []}
 
+    # Team-level aggregate excludes direct assignments; coder-level (below) includes
+    # everything, since a coder's record should reflect all their work regardless of source.
+    team_results = [r for r in results if not r.batch.is_direct_assignment]
+
     cat_map: dict = {}
-    for r in results:
+    for r in team_results:
         cat = r.chart.category
         if cat not in cat_map:
             cat_map[cat] = {"scores": [], "passed": 0, "total": 0, "coders": set(), "specialties": set()}
@@ -391,7 +400,7 @@ def analytics_chart_teaching_value(
     from_date: Optional[str] = None, to_date: Optional[str] = None, specialty: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
-    results = _gr_base(db, from_date, to_date, specialty).join(Chart).all()
+    results = _gr_base(db, from_date, to_date, specialty, exclude_direct=True).join(Chart).all()
 
     if not results:
         return []
@@ -456,7 +465,7 @@ def analytics_coder_matrix(
     from_date: Optional[str] = None, to_date: Optional[str] = None, specialty: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
-    b_q = db.query(Batch).filter(Batch.status == BatchStatus.CLOSED)
+    b_q = db.query(Batch).filter(Batch.status == BatchStatus.CLOSED, Batch.is_direct_assignment == False)
     if from_date:
         b_q = b_q.filter(Batch.closed_at >= from_date)
     if to_date:
@@ -513,8 +522,10 @@ def analytics_coder_matrix(
 def chart_detail(chart_number: str, db: Session = Depends(get_db)):
     results = (db.query(GradingResult)
                .join(Chart, GradingResult.chart_id == Chart.id)
+               .join(Batch, GradingResult.batch_id == Batch.id)
                .filter(Chart.chart_number == chart_number,
-                       GradingResult.total_score.isnot(None))
+                       GradingResult.total_score.isnot(None),
+                       Batch.is_direct_assignment == False)
                .all())
     coders = []
     for r in results:
