@@ -46,7 +46,11 @@ export function CreateBatchView({ onCreated, scoringCfg, directMode: directModeP
     try {
       const parsed = await parseCoderList(file)
       setCoders(parsed)
-      toast.success(`${parsed.length} coder(s) loaded`)
+      if (parsed.length === 0) {
+        toast.error('No usable coder rows found — check that Name and Emp ID are both filled in below the header row')
+      } else {
+        toast.success(`${parsed.length} coder(s) loaded`)
+      }
     } catch (err: any) {
       toast.error(err?.response?.data?.detail || 'Failed to parse coder list')
     } finally {
