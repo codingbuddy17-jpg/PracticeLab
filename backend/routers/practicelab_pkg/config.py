@@ -11,7 +11,7 @@ from services.excel_service import (
     generate_answer_key_template, generate_coder_list_template,
     parse_answer_key_upload, parse_coder_list, export_all_answer_keys,
 )
-from .shared import MASTER_PASSPHRASE
+from .shared import MASTER_PASSPHRASE, _is_ip
 
 router = APIRouter()
 
@@ -172,13 +172,18 @@ def upload_answer_keys(
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Could not parse file: {e}")
 
-    stored, replaced, skipped, not_found = [], [], [], []
+    is_ip_upload = specialty.upper() == "IP"
+    stored, replaced, skipped, not_found, wrong_specialty = [], [], [], [], []
 
     for row in rows:
         chart_num = row["chart_number"]
         chart = db.query(Chart).filter(Chart.chart_number == chart_num).first()
         if not chart:
             not_found.append(chart_num)
+            continue
+
+        if _is_ip(chart.specialty) != is_ip_upload:
+            wrong_specialty.append(chart_num)
             continue
 
         existing = db.query(AnswerKey).filter(AnswerKey.chart_id == chart.id).first()
@@ -209,7 +214,10 @@ def upload_answer_keys(
         stored.append(chart_num)
 
     db.commit()
-    return {"stored": stored, "replaced": replaced, "skipped_duplicates": skipped, "not_found": not_found}
+    return {
+        "stored": stored, "replaced": replaced, "skipped_duplicates": skipped,
+        "not_found": not_found, "wrong_specialty": wrong_specialty,
+    }
 
 
 @router.get("/answer-key/export")

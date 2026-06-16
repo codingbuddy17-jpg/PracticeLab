@@ -62,7 +62,10 @@ export function AnswerKeysView() {
       if (res.replaced?.length) toast.success(`Replaced ${res.replaced.length} existing key${res.replaced.length !== 1 ? 's' : ''}`)
       if (res.skipped_duplicates.length) toast(`Already exist, skipped ${res.skipped_duplicates.length} (use Replace mode to overwrite)`, { icon: 'ℹ️' })
       if (res.not_found.length) setPendingCharts(res.not_found)
-      if (!res.stored.length && !res.replaced?.length && !res.skipped_duplicates.length && !res.not_found.length) {
+      if (res.wrong_specialty?.length) {
+        toast.error(`Rejected ${res.wrong_specialty.length} chart(s) — wrong specialty for ${isIP ? 'IP' : 'OP'} upload: ${res.wrong_specialty.join(', ')}`, { duration: 8000 })
+      }
+      if (!res.stored.length && !res.replaced?.length && !res.skipped_duplicates.length && !res.not_found.length && !res.wrong_specialty?.length) {
         toast.error('No usable rows found in this file — check that it has data below the header row')
       }
       setReplaceMode(false)

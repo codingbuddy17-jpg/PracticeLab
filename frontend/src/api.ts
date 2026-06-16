@@ -135,7 +135,7 @@ export async function uploadAnswerKeys(file: File, specialty: string, enteredBy:
   const { data } = await api.post('/practicelab/answer-key/upload', form, {
     headers: { 'Content-Type': 'multipart/form-data' },
   })
-  return data as { stored: string[]; replaced: string[]; skipped_duplicates: string[]; not_found: string[] }
+  return data as { stored: string[]; replaced: string[]; skipped_duplicates: string[]; not_found: string[]; wrong_specialty: string[] }
 }
 
 export function downloadAnswerKeyExport(passphrase: string, specialty?: string) {
