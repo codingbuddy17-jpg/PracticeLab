@@ -1,5 +1,6 @@
 """Analytics endpoints for PracticeLab."""
 import io
+from collections import Counter
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -252,6 +253,19 @@ def coder_summary(
         "overall_accuracy": _acc(dx_correct + poa_correct + proc_correct, dx_total + poa_total + proc_total),
     } if has_dpo else None
 
+    # ── Error pattern across all of this coder's work ───────────────────────
+    all_feedback = [f for r in results for f in r.feedback]
+    total_fb = len(all_feedback)
+    issue_counts = Counter(f.issue_type.value for f in all_feedback)
+    missed_counts = Counter(f.ak_code for f in all_feedback if f.issue_type.value == "Missed" and f.ak_code)
+    error_pattern = {
+        "by_issue_type": [
+            {"type": t, "count": c, "pct": round(c / total_fb * 100, 1) if total_fb else 0}
+            for t, c in sorted(issue_counts.items(), key=lambda x: -x[1])
+        ],
+        "top_missed_codes": [{"code": c, "count": n} for c, n in missed_counts.most_common(5)],
+    }
+
     # ── Per-category breakdown ───────────────────────────────────────────────
     cat_map: dict[str, dict] = {}
     for r in scored:
@@ -312,6 +326,7 @@ def coder_summary(
         "cumulative_dpo": cumulative_dpo,
         "by_category": by_category,
         "batches": batches,
+        "error_pattern": error_pattern,
     }
 
 

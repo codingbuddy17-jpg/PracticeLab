@@ -1,4 +1,9 @@
-"""PDF report generation for PracticeLab — coder performance and batch performance reports."""
+"""PDF report generation for PracticeLab — coder performance and batch performance reports.
+
+Theme: R1 Blue (#003DA5) on a warm cream page background, consistent grid
+widths throughout, and an auto-generated executive-summary verdict line at
+the top of each report so a leadership reader gets the headline in one glance.
+"""
 import io
 from datetime import datetime
 
@@ -10,32 +15,45 @@ from reportlab.platypus import (
     SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, HRFlowable,
 )
 
-INDIGO = colors.HexColor("#4f46e5")
-INDIGO_DARK = colors.HexColor("#312e81")
-GREEN = colors.HexColor("#16a34a")
-GREEN_BG = colors.HexColor("#f0fdf4")
-GREEN_BORDER = colors.HexColor("#bbf7d0")
-AMBER = colors.HexColor("#d97706")
-AMBER_BG = colors.HexColor("#fff7ed")
-AMBER_BORDER = colors.HexColor("#fed7aa")
-RED = colors.HexColor("#dc2626")
-RED_BG = colors.HexColor("#fff5f5")
-RED_BORDER = colors.HexColor("#fecaca")
-GRAY = colors.HexColor("#6b7280")
-GRAY_LIGHT = colors.HexColor("#f9fafb")
-BORDER = colors.HexColor("#e5e7eb")
+# ── Theme ──────────────────────────────────────────────────────────────────
+R1_BLUE = colors.HexColor("#003DA5")
+R1_BLUE_DARK = colors.HexColor("#002B75")
+R1_BLUE_LIGHT = colors.HexColor("#E6ECF9")
+CREAM = colors.HexColor("#FBF7EE")
+CREAM_PANEL = colors.HexColor("#FFFFFF")
+
+GREEN = colors.HexColor("#1A7A4C")
+GREEN_BG = colors.HexColor("#EAF6EE")
+GREEN_BORDER = colors.HexColor("#BFE3CC")
+AMBER = colors.HexColor("#B5760A")
+AMBER_BG = colors.HexColor("#FCF1DC")
+AMBER_BORDER = colors.HexColor("#F0D9A8")
+RED = colors.HexColor("#B23A33")
+RED_BG = colors.HexColor("#FBEAE8")
+RED_BORDER = colors.HexColor("#EBC2BD")
+GRAY = colors.HexColor("#6B6457")
+GRAY_LIGHT = colors.HexColor("#F4F0E6")
+BORDER = colors.HexColor("#DDD6C5")
+
+PAGE_W, PAGE_H = letter
+MARGIN = 0.6 * inch
+CONTENT_W = PAGE_W - 2 * MARGIN
+COL_GAP = 0.22 * inch
+HALF_W = (CONTENT_W - COL_GAP) / 2
 
 styles = getSampleStyleSheet()
-TITLE = ParagraphStyle("Title", parent=styles["Title"], textColor=INDIGO_DARK, fontSize=20, spaceAfter=2)
-SUBTITLE = ParagraphStyle("Subtitle", parent=styles["Normal"], textColor=GRAY, fontSize=11, spaceAfter=14)
-H2 = ParagraphStyle("H2", parent=styles["Heading2"], textColor=colors.HexColor("#111111"), fontSize=13, spaceBefore=14, spaceAfter=6)
-NORMAL = ParagraphStyle("NormalSm", parent=styles["Normal"], fontSize=10)
+TITLE = ParagraphStyle("Title", parent=styles["Title"], textColor=R1_BLUE_DARK, fontName="Helvetica-Bold", fontSize=21, spaceAfter=2, leading=24)
+SUBTITLE = ParagraphStyle("Subtitle", parent=styles["Normal"], textColor=GRAY, fontSize=10.5, spaceAfter=12)
+EYEBROW = ParagraphStyle("Eyebrow", parent=styles["Normal"], textColor=R1_BLUE, fontName="Helvetica-Bold", fontSize=9.5, leading=12, spaceAfter=4)
+H2 = ParagraphStyle("H2", parent=styles["Heading2"], textColor=R1_BLUE_DARK, fontName="Helvetica-Bold", fontSize=12.5, spaceBefore=16, spaceAfter=2, leading=15)
+NORMAL = ParagraphStyle("NormalSm", parent=styles["Normal"], fontSize=9.5, leading=13)
 SMALL_GRAY = ParagraphStyle("SmallGray", parent=styles["Normal"], fontSize=8, textColor=GRAY)
+VERDICT_TEXT = ParagraphStyle("Verdict", parent=styles["Normal"], fontSize=11, leading=15, fontName="Helvetica-Bold")
 
 
 def _score_color(score):
     if score is None:
-        return colors.HexColor("#111111")
+        return colors.HexColor("#1a1a1a")
     if score >= 90:
         return GREEN
     if score >= 80:
@@ -50,63 +68,118 @@ def _score_cell(score, suffix="%"):
     return Paragraph(f"{score}{suffix}", style)
 
 
+def _section_heading(elements, text):
+    elements.append(Paragraph(text, H2))
+    elements.append(HRFlowable(width="100%", thickness=1, color=R1_BLUE_LIGHT, spaceBefore=2, spaceAfter=8))
+
+
+def _draw_background(c, _doc):
+    c.saveState()
+    c.setFillColor(CREAM)
+    c.rect(0, 0, PAGE_W, PAGE_H, fill=1, stroke=0)
+    c.restoreState()
+
+
 def _stat_row(stats: list[tuple[str, str]]) -> Table:
-    """stats: list of (value, label) tuples rendered as boxed stat cards."""
-    value_style = ParagraphStyle("statValue", parent=styles["Normal"], fontSize=18, fontName="Helvetica-Bold", alignment=1, textColor=colors.HexColor("#111111"))
-    label_style = ParagraphStyle("statLabel", parent=styles["Normal"], fontSize=8, alignment=1, textColor=GRAY)
-    col_width = 7.0 * inch / len(stats)
-    inner = []
-    for v, l in stats:
-        cell_table = Table([[Paragraph(v, value_style)], [Paragraph(l, label_style)]], colWidths=[col_width])
+    """stats: list of (value, label) tuples rendered as evenly-sized boxed stat cards spanning the full CONTENT_W,
+    with real spacer columns between cards so the gap is visible rather than just unused trailing margin."""
+    value_style = ParagraphStyle("statValue", parent=styles["Normal"], fontSize=19, fontName="Helvetica-Bold", alignment=1, textColor=R1_BLUE_DARK)
+    label_style = ParagraphStyle("statLabel", parent=styles["Normal"], fontSize=8, alignment=1, textColor=GRAY, fontName="Helvetica-Bold")
+    n = len(stats)
+    gap = 0.12 * inch
+    card_width = (CONTENT_W - gap * (n - 1)) / n
+
+    row_cells, col_widths = [], []
+    for i, (v, l) in enumerate(stats):
+        cell_table = Table([[Paragraph(v, value_style)], [Paragraph(l.upper(), label_style)]], colWidths=[card_width])
         cell_table.setStyle(TableStyle([
             ("BOX", (0, 0), (-1, -1), 0.75, BORDER),
-            ("BACKGROUND", (0, 0), (-1, -1), colors.white),
-            ("TOPPADDING", (0, 0), (-1, -1), 8),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+            ("BACKGROUND", (0, 0), (-1, -1), CREAM_PANEL),
+            ("TOPPADDING", (0, 0), (-1, -1), 9),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 9),
         ]))
-        inner.append(cell_table)
-    wrapper = Table([inner], colWidths=[col_width] * len(stats))
-    wrapper.setStyle(TableStyle([("LEFTPADDING", (0, 0), (-1, -1), 3), ("RIGHTPADDING", (0, 0), (-1, -1), 3)]))
+        row_cells.append(cell_table)
+        col_widths.append(card_width)
+        if i < n - 1:
+            row_cells.append("")
+            col_widths.append(gap)
+
+    wrapper = Table([row_cells], colWidths=col_widths)
+    wrapper.setStyle(TableStyle([
+        ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
     return wrapper
 
 
-def _ranked_box(title: str, items: list, color, bg, border, empty_msg: str, row_fn) -> Table:
-    title_style = ParagraphStyle("boxTitle", parent=styles["Normal"], fontSize=9, fontName="Helvetica-Bold", textColor=color)
+def _verdict_box(headline: str, detail: str, color, bg, border) -> Table:
+    eyebrow_style = ParagraphStyle("verdictEyebrow", parent=EYEBROW, textColor=color)
+    detail_style = ParagraphStyle("verdictDetail", parent=NORMAL, textColor=colors.HexColor("#33312b"))
+    headline_style = ParagraphStyle("verdictHeadline", parent=VERDICT_TEXT, textColor=color)
+    rows = [
+        [Paragraph("EXECUTIVE SUMMARY", eyebrow_style)],
+        [Paragraph(headline, headline_style)],
+        [Paragraph(detail, detail_style)],
+    ]
+    t = Table(rows, colWidths=[CONTENT_W])
+    t.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), bg),
+        ("BOX", (0, 0), (-1, -1), 1, border),
+        ("TOPPADDING", (0, 0), (-1, 0), 10), ("BOTTOMPADDING", (0, 0), (-1, 0), 2),
+        ("TOPPADDING", (0, 1), (-1, 1), 2), ("BOTTOMPADDING", (0, 1), (-1, 1), 4),
+        ("TOPPADDING", (0, 2), (-1, 2), 0), ("BOTTOMPADDING", (0, 2), (-1, 2), 10),
+        ("LEFTPADDING", (0, 0), (-1, -1), 14), ("RIGHTPADDING", (0, 0), (-1, -1), 14),
+    ]))
+    return t
+
+
+def _ranked_box(title: str, items: list, color, bg, border, empty_msg: str, row_fn, width=HALF_W) -> Table:
+    title_style = ParagraphStyle("boxTitle", parent=EYEBROW, textColor=color)
     rows = [[Paragraph(title.upper(), title_style)]]
     if not items:
         rows.append([Paragraph(empty_msg, ParagraphStyle("empty", parent=NORMAL, textColor=GREEN, fontName="Helvetica-Bold"))])
     else:
         for i, item in enumerate(items):
             rows.append([row_fn(i, item)])
-    t = Table(rows, colWidths=[3.4 * inch])
+    t = Table(rows, colWidths=[width])
     t.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, -1), bg),
         ("BOX", (0, 0), (-1, -1), 0.75, border),
         ("TOPPADDING", (0, 0), (-1, -1), 5),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-        ("LEFTPADDING", (0, 0), (-1, -1), 10),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+        ("LEFTPADDING", (0, 0), (-1, -1), 12),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 12),
     ]))
     return t
 
 
 def _two_col(left: Table, right: Table) -> Table:
-    t = Table([[left, right]], colWidths=[3.5 * inch, 3.5 * inch])
-    t.setStyle(TableStyle([("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 6), ("VALIGN", (0, 0), (-1, -1), "TOP")]))
+    t = Table([[left, right]], colWidths=[HALF_W, HALF_W])
+    t.setStyle(TableStyle([
+        ("LEFTPADDING", (0, 0), (0, 0), 0), ("RIGHTPADDING", (0, 0), (0, 0), COL_GAP),
+        ("LEFTPADDING", (1, 0), (1, 0), 0), ("RIGHTPADDING", (1, 0), (1, 0), 0),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+    ]))
     return t
 
 
-def _data_table(header: list, rows: list, col_widths: list) -> Table:
+def _data_table(header: list, rows: list, col_fracs: list, width=CONTENT_W) -> Table:
+    """col_fracs: relative widths (e.g. [2, 1, 1]) summing proportionally to `width`.
+    Pass width=HALF_W when this table will sit inside a _two_col() half — otherwise
+    it sizes itself for the full page width and overflows/corrupts when squeezed."""
+    total = sum(col_fracs)
+    col_widths = [width * f / total for f in col_fracs]
     header_style = ParagraphStyle("th", parent=NORMAL, fontName="Helvetica-Bold", fontSize=9, textColor=colors.white)
     data = [[Paragraph(h, header_style) for h in header]] + rows
     t = Table(data, colWidths=col_widths, repeatRows=1)
     style = [
-        ("BACKGROUND", (0, 0), (-1, 0), INDIGO),
+        ("BACKGROUND", (0, 0), (-1, 0), R1_BLUE),
         ("BOX", (0, 0), (-1, -1), 0.5, BORDER),
         ("INNERGRID", (0, 0), (-1, -1), 0.5, BORDER),
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 5.5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5.5),
+        ("LEFTPADDING", (0, 0), (-1, -1), 7),
+        ("BACKGROUND", (0, 1), (-1, -1), CREAM_PANEL),
     ]
     for i in range(1, len(data)):
         if i % 2 == 0:
@@ -119,7 +192,7 @@ def _header(elements, title, subtitle_lines):
     elements.append(Paragraph(title, TITLE))
     for line in subtitle_lines:
         elements.append(Paragraph(line, SUBTITLE))
-    elements.append(HRFlowable(width="100%", thickness=1.5, color=INDIGO, spaceAfter=10))
+    elements.append(HRFlowable(width="100%", thickness=2, color=R1_BLUE, spaceAfter=12))
 
 
 def _footer_note(elements):
@@ -128,13 +201,57 @@ def _footer_note(elements):
     elements.append(Paragraph(f"Generated by PracticeLab on {datetime.now().strftime('%B %d, %Y at %I:%M %p')}", SMALL_GRAY))
 
 
+def _doc(buf):
+    return SimpleDocTemplate(buf, pagesize=letter, topMargin=MARGIN, bottomMargin=MARGIN,
+                              leftMargin=MARGIN, rightMargin=MARGIN)
+
+
+def _coder_verdict(summary: dict):
+    score = summary.get("weighted_accuracy")
+    source = "weighted accuracy"
+    if score is None and summary.get("cumulative_dpo"):
+        score = summary["cumulative_dpo"].get("overall_accuracy")
+        source = "DPO overall accuracy"
+    cats = summary.get("by_category") or []
+    weakest = min(cats, key=lambda c: c["avg_score"]) if cats else None
+    weak_note = f" Weakest area: {weakest['category']} at {weakest['avg_score']}%." if weakest and weakest["avg_score"] < 90 else ""
+
+    if score is None:
+        return ("NO SCORED CHARTS YET", "This coder has not completed any graded charts in the selected period.", GRAY, GRAY_LIGHT, BORDER)
+    if score >= 95:
+        return ("READY", f"Performing at {score}% {source} — at or above the production-ready standard.{weak_note}", GREEN, GREEN_BG, GREEN_BORDER)
+    if score >= 90:
+        return ("ON TRACK", f"{score}% {source} — approaching the production-ready threshold.{weak_note}", AMBER, AMBER_BG, AMBER_BORDER)
+    if score >= 80:
+        return ("NEEDS COACHING", f"{score}% {source} is below target — recommend a focused review session.{weak_note}", AMBER, AMBER_BG, AMBER_BORDER)
+    return ("AT RISK", f"{score}% {source} reflects significant gaps — recommend structured retraining before further assignments.{weak_note}", RED, RED_BG, RED_BORDER)
+
+
+def _batch_verdict(bs: dict):
+    pr = bs["pass_rate"]
+    delta = bs.get("pass_rate_delta")
+    trend = ""
+    if delta is not None:
+        trend = f" ({'+' if delta > 0 else ''}{delta}% vs prior batch)"
+    if pr >= 90:
+        return ("STRONG", f"{pr}% pass rate{trend} exceeds target.", GREEN, GREEN_BG, GREEN_BORDER)
+    if pr >= 70:
+        return ("ACCEPTABLE", f"{pr}% pass rate{trend} is within range, with room to improve.", AMBER, AMBER_BG, AMBER_BORDER)
+    if pr >= 50:
+        return ("BELOW TARGET", f"{pr}% pass rate{trend} is under the 70% threshold — recommend a retraining session before the next cycle.", RED, RED_BG, RED_BORDER)
+    return ("CRITICAL", f"{pr}% pass rate{trend} indicates the majority of charts failed — immediate intervention recommended.", RED, RED_BG, RED_BORDER)
+
+
 def generate_coder_report_pdf(coder_name: str, summary: dict) -> bytes:
     buf = io.BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=letter, topMargin=0.6 * inch, bottomMargin=0.6 * inch,
-                             leftMargin=0.6 * inch, rightMargin=0.6 * inch)
+    doc = _doc(buf)
     elements = []
 
     _header(elements, "Coder Performance Report", [f"Coder: {coder_name}"])
+
+    headline, detail, color, bg, border = _coder_verdict(summary)
+    elements.append(_verdict_box(headline, detail, color, bg, border))
+    elements.append(Spacer(1, 12))
 
     stats = [
         (str(summary.get("total_charts", 0)), "Charts Completed"),
@@ -148,18 +265,30 @@ def generate_coder_report_pdf(coder_name: str, summary: dict) -> bytes:
     elements.append(_stat_row(stats))
 
     if dpo and any(dpo.get(k) is not None for k in ("dx_accuracy", "poa_accuracy", "proc_accuracy")):
-        elements.append(Paragraph("DPO Breakdown", H2))
+        _section_heading(elements, "DPO Breakdown")
         dpo_rows = []
         for label, key in [("Diagnosis (Dx)", "dx_accuracy"), ("POA", "poa_accuracy"), ("Procedure (PCS/CPT)", "proc_accuracy")]:
             if dpo.get(key) is not None:
                 dpo_rows.append([Paragraph(label, NORMAL), _score_cell(dpo[key])])
-        elements.append(_data_table(["Section", "Accuracy"], dpo_rows, [4 * inch, 2 * inch]))
+        elements.append(_data_table(["Section", "Accuracy"], dpo_rows, [3, 1]))
+
+    ep = summary.get("error_pattern") or {}
+    if ep.get("by_issue_type"):
+        _section_heading(elements, "Error Pattern")
+        issue_rows = [[Paragraph(e["type"].replace("_", " "), NORMAL), Paragraph(str(e["count"]), NORMAL), Paragraph(f"{e['pct']}%", NORMAL)] for e in ep["by_issue_type"]]
+        if ep.get("top_missed_codes"):
+            left = _data_table(["Issue Type", "Count", "Share"], issue_rows, [2, 1, 1], width=HALF_W)
+            mc_rows = [[Paragraph(m["code"], NORMAL), Paragraph(f"{m['count']}×", NORMAL)] for m in ep["top_missed_codes"]]
+            right = _data_table(["Top Missed Codes", "Frequency"], mc_rows, [2, 1], width=HALF_W)
+            elements.append(_two_col(left, right))
+        else:
+            elements.append(_data_table(["Issue Type", "Count", "Share"], issue_rows, [2, 1, 1]))
 
     cats = summary.get("by_category") or []
     if cats:
-        elements.append(Paragraph("Category Performance", H2))
+        _section_heading(elements, "Category Performance")
         cat_rows = [[Paragraph(c["category"], NORMAL), Paragraph(str(c["charts"]), NORMAL), _score_cell(c["avg_score"])] for c in cats]
-        elements.append(_data_table(["Category", "Charts", "Avg Score"], cat_rows, [3.5 * inch, 1.5 * inch, 1.5 * inch]))
+        elements.append(_data_table(["Category", "Charts", "Avg Score"], cat_rows, [3, 1, 1]))
 
         weak = [c for c in cats if c["avg_score"] < 90]
         strong = [c for c in cats if c["avg_score"] >= 90]
@@ -175,7 +304,7 @@ def generate_coder_report_pdf(coder_name: str, summary: dict) -> bytes:
 
     batches = summary.get("batches") or []
     if batches:
-        elements.append(Paragraph("Batch History", H2))
+        _section_heading(elements, "Batch History")
         b_rows = []
         for b in batches:
             date_str = b["created_at"][:10] if b.get("created_at") else "—"
@@ -187,24 +316,27 @@ def generate_coder_report_pdf(coder_name: str, summary: dict) -> bytes:
             ])
         elements.append(_data_table(
             ["Batch", "Specialty", "Date", "Charts", "Avg Score", "Passed"],
-            b_rows, [1.8 * inch, 1.1 * inch, 0.9 * inch, 0.7 * inch, 0.9 * inch, 0.8 * inch],
+            b_rows, [2.2, 1.3, 1.1, 0.8, 1.1, 0.9],
         ))
 
     _footer_note(elements)
-    doc.build(elements)
+    doc.build(elements, onFirstPage=_draw_background, onLaterPages=_draw_background)
     return buf.getvalue()
 
 
 def generate_batch_report_pdf(insights: dict) -> bytes:
     buf = io.BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=letter, topMargin=0.6 * inch, bottomMargin=0.6 * inch,
-                             leftMargin=0.6 * inch, rightMargin=0.6 * inch)
+    doc = _doc(buf)
     elements = []
     bs = insights["batch_summary"]
 
     _header(elements, "Batch Performance Report", [
         f"Batch: {insights['batch_name']}  |  Specialty: {insights['specialty']}",
     ])
+
+    headline, detail, color, bg, border = _batch_verdict(bs)
+    elements.append(_verdict_box(headline, detail, color, bg, border))
+    elements.append(Spacer(1, 12))
 
     stats = [
         (str(bs["n_coders"]), "Coders"),
@@ -222,29 +354,61 @@ def generate_batch_report_pdf(insights: dict) -> bytes:
         lo_names = ", ".join(bs["lowest_score_coders"])
         callout_style = ParagraphStyle("callout", parent=NORMAL, fontSize=10)
         rows = [[
-            Paragraph(f"<b>Highest score:</b> <font color='#16a34a'><b>{bs['highest_score']}%</b></font> — {hi_names}", callout_style),
+            Paragraph(f"<b>Highest score:</b> <font color='#1A7A4C'><b>{bs['highest_score']}%</b></font> — {hi_names}", callout_style),
         ], [
-            Paragraph(f"<b>Lowest score:</b> <font color='#dc2626'><b>{bs['lowest_score']}%</b></font> — {lo_names}", callout_style),
+            Paragraph(f"<b>Lowest score:</b> <font color='#B23A33'><b>{bs['lowest_score']}%</b></font> — {lo_names}", callout_style),
         ]]
-        t = Table(rows, colWidths=[7 * inch])
+        t = Table(rows, colWidths=[CONTENT_W])
         t.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), CREAM_PANEL),
             ("BOX", (0, 0), (-1, -1), 0.75, BORDER), ("INNERGRID", (0, 0), (-1, -1), 0.5, BORDER),
-            ("TOPPADDING", (0, 0), (-1, -1), 6), ("BOTTOMPADDING", (0, 0), (-1, -1), 6), ("LEFTPADDING", (0, 0), (-1, -1), 10),
+            ("TOPPADDING", (0, 0), (-1, -1), 7), ("BOTTOMPADDING", (0, 0), (-1, -1), 7), ("LEFTPADDING", (0, 0), (-1, -1), 12),
         ]))
         elements.append(t)
 
+    if bs.get("prior_batch_name"):
+        elements.append(Spacer(1, 6))
+        delta = bs.get("pass_rate_delta") or 0
+        delta_hex = "#1A7A4C" if delta > 0 else "#B23A33" if delta < 0 else "#6B6457"
+        trend_label = "↑ improving" if delta > 0 else "↓ declining" if delta < 0 else "→ flat"
+        elements.append(Paragraph(
+            f"vs prior batch ({bs['prior_batch_name']}, {bs['prior_batch_pass_rate']}% pass rate): "
+            f"<font color='{delta_hex}'><b>{'+' if delta > 0 else ''}{delta}% — {trend_label}</b></font>",
+            ParagraphStyle("trendline", parent=NORMAL, textColor=colors.HexColor("#33312b"))
+        ))
+
     sd = insights.get("score_distribution") or []
     if sd:
-        elements.append(Paragraph("Score Distribution (cumulative chart-weighted score)", H2))
+        _section_heading(elements, "Score Distribution (cumulative chart-weighted score)")
         sd_rows = []
         for b in sd:
             style = ParagraphStyle("sd", parent=NORMAL, textColor=colors.HexColor(b["color"]), fontName="Helvetica-Bold")
             sd_rows.append([Paragraph(b["label"], style), Paragraph(str(b["count"]), NORMAL), Paragraph(", ".join(b["coders"]), NORMAL)])
-        elements.append(_data_table(["Score Range", "Coders", "Names"], sd_rows, [1.2 * inch, 1 * inch, 4.8 * inch]))
+        elements.append(_data_table(["Score Range", "Coders", "Names"], sd_rows, [1, 1, 4]))
+
+    te = insights.get("team_errors") or {}
+    if te.get("by_issue_type") or te.get("by_section"):
+        _section_heading(elements, "Team Error Patterns")
+        both = bool(te.get("by_issue_type")) and bool(te.get("by_section"))
+        tbl_width = HALF_W if both else CONTENT_W
+        left = None
+        if te.get("by_issue_type"):
+            issue_rows = [[Paragraph(e["type"].replace("_", " "), NORMAL), Paragraph(str(e["count"]), NORMAL), Paragraph(f"{e['pct']}%", NORMAL)] for e in te["by_issue_type"]]
+            left = _data_table(["Issue Type", "Count", "Share"], issue_rows, [2, 1, 1], width=tbl_width)
+        right = None
+        if te.get("by_section"):
+            sec_rows = [[Paragraph(s["section"], NORMAL), Paragraph(str(s["count"]), NORMAL), Paragraph(f"{s['pct']}%", NORMAL)] for s in te["by_section"]]
+            right = _data_table(["Section", "Count", "Share"], sec_rows, [2, 1, 1], width=tbl_width)
+        if left and right:
+            elements.append(_two_col(left, right))
+        elif left:
+            elements.append(left)
+        elif right:
+            elements.append(right)
 
     top_p = insights.get("top_performers") or []
     bottom_p = insights.get("bottom_performers") or []
-    elements.append(Paragraph("Coder Performance", H2))
+    _section_heading(elements, "Coder Performance")
     left = _ranked_box("Top Performers", top_p, GREEN, GREEN_BG, GREEN_BORDER, "No data",
                         lambda i, c: Paragraph(f"#{i+1} {c['coder_name']} — <b>{c['avg_score']}%</b>", NORMAL))
     right = _ranked_box("Needs Attention", bottom_p, AMBER if bottom_p else GREEN, AMBER_BG if bottom_p else GREEN_BG, AMBER_BORDER if bottom_p else GREEN_BORDER,
@@ -254,7 +418,7 @@ def generate_batch_report_pdf(insights: dict) -> bytes:
 
     top_c = insights.get("top_categories") or []
     bottom_c = insights.get("bottom_categories") or []
-    elements.append(Paragraph("Category Performance", H2))
+    _section_heading(elements, "Category Performance")
     left = _ranked_box("Top Categories", top_c, GREEN, GREEN_BG, GREEN_BORDER, "No data",
                         lambda i, c: Paragraph(f"#{i+1} {c['category']} ({c['attempt_count']}) — <b>{c['avg_score']}%</b>", NORMAL))
     right = _ranked_box("Bottom Categories", bottom_c, RED if bottom_c else GREEN, RED_BG if bottom_c else GREEN_BG, RED_BORDER if bottom_c else GREEN_BORDER,
@@ -264,7 +428,7 @@ def generate_batch_report_pdf(insights: dict) -> bytes:
 
     top_ch = insights.get("top_charts") or []
     bottom_ch = insights.get("bottom_charts") or []
-    elements.append(Paragraph("Chart Performance", H2))
+    _section_heading(elements, "Chart Performance")
     left = _ranked_box("Top Charts", top_ch, GREEN, GREEN_BG, GREEN_BORDER, "No data",
                         lambda i, c: Paragraph(f"#{i+1} {c['chart_number']} ({c['category']}) — <b>{c['avg_score']}%</b>", NORMAL))
     right = _ranked_box("Bottom Charts", bottom_ch, RED if bottom_ch else GREEN, RED_BG if bottom_ch else GREEN_BG, RED_BORDER if bottom_ch else GREEN_BORDER,
@@ -272,12 +436,11 @@ def generate_batch_report_pdf(insights: dict) -> bytes:
                          lambda i, c: Paragraph(f"#{i+1} {c['chart_number']} ({c['category']}) — <b>{c['avg_score']}%</b>", NORMAL))
     elements.append(_two_col(left, right))
 
-    te = insights.get("team_errors") or {}
     if te.get("top_missed_codes"):
-        elements.append(Paragraph("Top Missed Codes (team-wide)", H2))
+        _section_heading(elements, "Top Missed Codes (team-wide)")
         mc_rows = [[Paragraph(m["code"], NORMAL), Paragraph(f"missed {m['count']}×", NORMAL)] for m in te["top_missed_codes"]]
-        elements.append(_data_table(["Code", "Frequency"], mc_rows, [3 * inch, 3 * inch]))
+        elements.append(_data_table(["Code", "Frequency"], mc_rows, [1, 1]))
 
     _footer_note(elements)
-    doc.build(elements)
+    doc.build(elements, onFirstPage=_draw_background, onLaterPages=_draw_background)
     return buf.getvalue()
