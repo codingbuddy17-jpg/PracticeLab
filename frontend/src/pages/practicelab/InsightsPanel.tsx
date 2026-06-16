@@ -20,7 +20,7 @@ export function InsightsPanel({ insights, onClose }: { insights: any; onClose: (
       `Specialty: ${insights.specialty}`,
       '',
       'SUMMARY',
-      `Coders: ${bs.n_coders}  |  Charts Coded: ${bs.n_distinct_charts}  |  Total Graded: ${bs.total_graded}`,
+      `Coders: ${bs.n_coders}  |  Total Charts Coded: ${bs.total_graded}`,
       `Pass Rate: ${bs.pass_rate}% (${bs.passed}/${bs.total_graded} passed)${bs.pass_rate_delta != null ? `  vs prior batch: ${bs.pass_rate_delta > 0 ? '+' : ''}${bs.pass_rate_delta}%` : ''}`,
       `Avg Score: ${bs.avg_score}%`,
       '',
@@ -117,8 +117,7 @@ export function InsightsPanel({ insights, onClose }: { insights: any; onClose: (
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10 }}>
         {[
           { label: 'Coders', value: bs.n_coders, color: '#111' },
-          { label: 'Distinct Charts', value: bs.n_distinct_charts, color: '#111' },
-          { label: 'Total Attempts', value: bs.total_graded, color: '#111' },
+          { label: 'Total Charts Coded', value: bs.total_graded, color: '#111' },
           { label: 'Chart Pass Rate', value: `${bs.pass_rate}%`, color: bs.pass_rate >= 80 ? '#16a34a' : bs.pass_rate >= 60 ? '#d97706' : '#dc2626' },
           { label: 'Avg Score', value: `${bs.avg_score}%`, color: '#111' },
           { label: 'Passed', value: bs.passed, color: '#16a34a' },
@@ -137,11 +136,6 @@ export function InsightsPanel({ insights, onClose }: { insights: any; onClose: (
           </div>
         )}
       </div>
-      {bs.total_graded > bs.n_distinct_charts && (
-        <div style={{ fontSize: 11, color: '#9ca3af', marginTop: -8 }}>
-          {bs.n_distinct_charts} distinct chart{bs.n_distinct_charts !== 1 ? 's' : ''} were coded by {bs.n_coders} coder{bs.n_coders !== 1 ? 's' : ''}, producing {bs.total_graded} graded attempts ({bs.passed} passed, {bs.failed} failed).
-        </div>
-      )}
 
       {scoreDist?.length > 0 && (() => {
         const active = scoreDist.find((b: any) => b.label === selectedBucket)
