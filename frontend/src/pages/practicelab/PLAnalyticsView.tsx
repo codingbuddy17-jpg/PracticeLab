@@ -40,7 +40,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
   const [coderSummary, setCoderSummary] = useState<any>(null)
   const [categoryData, setCategoryData] = useState<{ team: any[]; coder_category: any[] } | null>(null)
   const [teachingData, setTeachingData] = useState<any[]>([])
-  const [matrixData, setMatrixData] = useState<{ batches: any[]; coders: string[]; cells: any[] } | null>(null)
+  const [matrixData, setMatrixData] = useState<{ batches: any[]; coders: string[]; coder_emp_ids?: Record<string, string>; cells: any[] } | null>(null)
   const [teachingFilter, setTeachingFilter] = useState<string>('All')
   const [loading, setLoading] = useState(false)
   const [expandedCategory, setExpandedCategory] = useState<string | null>(null)
@@ -447,6 +447,9 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
               {/* Summary stat cards */}
               {coderSummary && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {coderSummary.emp_id && (
+                    <div style={{ fontSize: 12, color: '#6b7280', fontWeight: 600 }}>Emp ID: {coderSummary.emp_id}</div>
+                  )}
                   <div style={styles.statsRow}>
                     <div style={styles.statCard}>
                       <div style={styles.statValue}>{coderSummary.total_charts ?? 0}</div>
@@ -942,7 +945,10 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                             coderCells.forEach((c: any) => { cellMap[c.batch_id] = c })
                             return (
                               <tr key={coder} style={{ background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
-                                <td style={{ padding: '7px 12px', fontWeight: 600, borderBottom: '1px solid #f3f4f6', whiteSpace: 'nowrap' as const }}>{coderLink(coder)}</td>
+                                <td style={{ padding: '7px 12px', fontWeight: 600, borderBottom: '1px solid #f3f4f6', whiteSpace: 'nowrap' as const }}>
+                                  {coderLink(coder)}
+                                  {matrixData.coder_emp_ids?.[coder] && <div style={{ fontSize: 10, fontWeight: 400, color: '#9ca3af' }}>{matrixData.coder_emp_ids[coder]}</div>}
+                                </td>
                                 {matrixData.batches.map((b: any) => {
                                   const cell = cellMap[b.id]
                                   const score = cell?.avg_score

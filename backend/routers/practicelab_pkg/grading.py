@@ -670,6 +670,8 @@ def get_batch_insights(batch_id: int, db: Session = Depends(get_db)):
     n_coders = len(coder_results)
     n_distinct_charts = len(set(r.chart_id for r in results))
 
+    coder_emp_ids = {c.coder_name: c.emp_id for c in batch.coders if c.emp_id}
+
     coder_insights = []
     for cname, d in sorted(coder_results.items()):
         coder_avg = round(sum(d["scores"]) / len(d["scores"]), 1)
@@ -688,6 +690,7 @@ def get_batch_insights(batch_id: int, db: Session = Depends(get_db)):
 
         coder_insights.append({
             "coder_name": cname,
+            "emp_id": coder_emp_ids.get(cname),
             "total_graded": d["total"],
             "passed": d["passed"],
             "failed": d["total"] - d["passed"],
@@ -720,12 +723,13 @@ def get_batch_insights(batch_id: int, db: Session = Depends(get_db)):
     ]
     for c in coder_insights:
         s = c["avg_score"]
+        label = f"{c['coder_name']} ({c['emp_id']})" if c.get("emp_id") else c["coder_name"]
         if s > 95:
-            score_buckets[0]["coders"].append(c["coder_name"])
+            score_buckets[0]["coders"].append(label)
         elif s >= 90:
-            score_buckets[1]["coders"].append(c["coder_name"])
+            score_buckets[1]["coders"].append(label)
         else:
-            score_buckets[2]["coders"].append(c["coder_name"])
+            score_buckets[2]["coders"].append(label)
     score_distribution = [
         {"label": b["label"], "color": b["color"], "count": len(b["coders"]), "coders": b["coders"]}
         for b in score_buckets if len(b["coders"]) > 0

@@ -67,6 +67,11 @@ def _score_color(score):
     return RED
 
 
+def _coder_label(c: dict) -> str:
+    """coder_name, suffixed with (Emp ID) when available."""
+    return f"{c['coder_name']} ({c['emp_id']})" if c.get("emp_id") else c["coder_name"]
+
+
 def _score_cell(score, suffix="%"):
     if score is None:
         return Paragraph("—", NORMAL)
@@ -346,7 +351,9 @@ def generate_coder_report_pdf(coder_name: str, summary: dict, team_avg_score: Op
     doc = _doc(buf)
     elements = []
 
-    _header(elements, "Coder Performance Report", [f"Coder: {coder_name}"])
+    emp_id = summary.get("emp_id")
+    coder_subtitle = f"Coder: {coder_name}  |  Emp ID: {emp_id}" if emp_id else f"Coder: {coder_name}"
+    _header(elements, "Coder Performance Report", [coder_subtitle])
 
     headline, detail, color, bg, border = _coder_verdict(summary)
     elements.append(_verdict_box(headline, detail, color, bg, border))
@@ -539,10 +546,10 @@ def generate_batch_report_pdf(insights: dict) -> bytes:
     bottom_p = insights.get("bottom_performers") or []
     _section_heading(elements, "Coder Performance")
     left = _ranked_box("Top Performers", top_p, GREEN, GREEN_BG, GREEN_BORDER, "No data",
-                        lambda i, c: Paragraph(f"#{i+1} {c['coder_name']} — <b>{c['avg_score']}%</b>", NORMAL))
+                        lambda i, c: Paragraph(f"#{i+1} {_coder_label(c)} — <b>{c['avg_score']}%</b>", NORMAL))
     right = _ranked_box("Needs Attention", bottom_p, AMBER if bottom_p else GREEN, AMBER_BG if bottom_p else GREEN_BG, AMBER_BORDER if bottom_p else GREEN_BORDER,
                          "None — every coder is at or above 90%",
-                         lambda i, c: Paragraph(f"#{i+1} {c['coder_name']} — <b>{c['avg_score']}%</b>", NORMAL))
+                         lambda i, c: Paragraph(f"#{i+1} {_coder_label(c)} — <b>{c['avg_score']}%</b>", NORMAL))
     elements.append(_two_col(left, right))
 
     top_c = insights.get("top_categories") or []

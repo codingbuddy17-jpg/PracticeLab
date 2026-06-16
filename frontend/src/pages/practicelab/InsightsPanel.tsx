@@ -14,6 +14,7 @@ export function InsightsPanel({ insights, batchId, onClose }: { insights: any; b
     score_distribution: scoreDist } = insights
   const [expandedCoder, setExpandedCoder] = useState<string | null>(null)
   const [selectedBucket, setSelectedBucket] = useState<string | null>(null)
+  const coderLabel = (c: any) => c.emp_id ? `${c.coder_name} (${c.emp_id})` : c.coder_name
 
   function buildCopyText() {
     const lines: string[] = [
@@ -33,12 +34,12 @@ export function InsightsPanel({ insights, batchId, onClose }: { insights: any; b
     }
     if (topPerf?.length) {
       lines.push('TOP PERFORMERS')
-      topPerf.forEach((c: any) => lines.push(`  ${c.coder_name}: ${c.avg_score}%`))
+      topPerf.forEach((c: any) => lines.push(`  ${coderLabel(c)}: ${c.avg_score}%`))
       lines.push('')
     }
     if (bottomPerf?.length) {
       lines.push('NEEDS ATTENTION (LOWEST SCORES)')
-      bottomPerf.forEach((c: any) => lines.push(`  ${c.coder_name}: ${c.avg_score}%`))
+      bottomPerf.forEach((c: any) => lines.push(`  ${coderLabel(c)}: ${c.avg_score}%`))
       lines.push('')
     }
     if (topCats?.length) {
@@ -68,7 +69,7 @@ export function InsightsPanel({ insights, batchId, onClose }: { insights: any; b
     }
     lines.push('PER-CODER SUMMARY')
     ci.forEach((c: any) => {
-      lines.push(`  ${c.coder_name}: ${c.avg_score}% avg${c.score_delta != null ? ` (${c.score_delta > 0 ? '+' : ''}${c.score_delta} vs prior)` : ''} — ${c.dominant_weakness ? `weakness: ${c.dominant_weakness}` : 'no dominant weakness'}`)
+      lines.push(`  ${coderLabel(c)}: ${c.avg_score}% avg${c.score_delta != null ? ` (${c.score_delta > 0 ? '+' : ''}${c.score_delta} vs prior)` : ''} — ${c.dominant_weakness ? `weakness: ${c.dominant_weakness}` : 'no dominant weakness'}`)
       if (c.top_missed_codes.length) lines.push(`    Top missed: ${c.top_missed_codes.join(', ')}`)
     })
     return lines.join('\n')
@@ -208,7 +209,7 @@ export function InsightsPanel({ insights, batchId, onClose }: { insights: any; b
             {topPerf.map((c: any, i: number) => (
               <div key={c.coder_name} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', borderBottom: i < topPerf.length - 1 ? '1px solid #dcfce7' : 'none' }}>
                 <span style={{ fontSize: 11, fontWeight: 800, color: '#16a34a', width: 18 }}>#{i + 1}</span>
-                <span style={{ fontWeight: 600, fontSize: 13, flex: 1 }}>{c.coder_name}</span>
+                <span style={{ fontWeight: 600, fontSize: 13, flex: 1 }}>{coderLabel(c)}</span>
                 <span style={{ fontWeight: 800, fontSize: 14, color: '#16a34a' }}>{c.avg_score}%</span>
               </div>
             ))}
@@ -220,7 +221,7 @@ export function InsightsPanel({ insights, batchId, onClose }: { insights: any; b
             ) : bottomPerf.map((c: any, i: number) => (
               <div key={c.coder_name} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', borderBottom: i < bottomPerf.length - 1 ? '1px solid #fde68a' : 'none' }}>
                 <span style={{ fontSize: 11, fontWeight: 800, color: '#dc2626', width: 18 }}>#{i + 1}</span>
-                <span style={{ fontWeight: 600, fontSize: 13, flex: 1 }}>{c.coder_name}</span>
+                <span style={{ fontWeight: 600, fontSize: 13, flex: 1 }}>{coderLabel(c)}</span>
                 <span style={{ fontWeight: 800, fontSize: 14, color: c.avg_score >= 60 ? '#d97706' : '#dc2626' }}>{c.avg_score}%</span>
               </div>
             ))}
@@ -355,7 +356,7 @@ export function InsightsPanel({ insights, batchId, onClose }: { insights: any; b
             <div key={c.coder_name} style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', cursor: 'pointer' }}
                 onClick={() => setExpandedCoder(expandedCoder === c.coder_name ? null : c.coder_name)}>
-                <span style={{ fontWeight: 700, fontSize: 14, flex: 1 }}>{c.coder_name}</span>
+                <span style={{ fontWeight: 700, fontSize: 14, flex: 1 }}>{coderLabel(c)}</span>
                 <span style={{ fontSize: 18, fontWeight: 800, color: c.avg_score >= 80 ? '#16a34a' : '#dc2626' }}>{c.avg_score}%</span>
                 {c.score_delta != null && <span style={{ fontSize: 12, fontWeight: 700, color: deltaColor(c.score_delta) }}>{deltaLabel(c.score_delta)}</span>}
                 <span style={{ fontSize: 11, color: '#6b7280' }}>{c.vs_team_avg > 0 ? '+' : ''}{c.vs_team_avg}% vs team</span>

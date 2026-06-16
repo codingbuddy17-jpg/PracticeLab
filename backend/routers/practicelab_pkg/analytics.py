@@ -7,7 +7,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, Integer
 from database import get_db
-from models import Batch, BatchStatus, GradingResult, GradingFeedback, Chart, PassFail, Specialty
+from models import Batch, BatchCoder, BatchStatus, GradingResult, GradingFeedback, Chart, PassFail, Specialty
 from services.pdf_report_service import generate_coder_report_pdf
 
 router = APIRouter()
@@ -223,6 +223,12 @@ def coder_summary(
     if not results:
         return None
 
+    emp_id_row = (db.query(BatchCoder.emp_id)
+                  .filter(BatchCoder.coder_name == coder_name, BatchCoder.emp_id.isnot(None), BatchCoder.emp_id != "")
+                  .order_by(BatchCoder.id.desc())
+                  .first())
+    emp_id = emp_id_row[0] if emp_id_row else None
+
     # ── Cumulative weighted ──────────────────────────────────────────────────
     scored = [r for r in results if r.total_score is not None]
     total_charts = len(scored)
@@ -319,6 +325,7 @@ def coder_summary(
 
     return {
         "coder_name": coder_name,
+        "emp_id": emp_id,
         "total_charts": total_charts,
         "charts_scored": len(scored),
         "charts_passed": charts_passed,
@@ -517,6 +524,14 @@ def analytics_coder_matrix(
 
     all_coders = sorted(set(r.coder_name for r in results))
 
+    coder_emp_ids: dict[str, str] = {}
+    for name, emp_id in (db.query(BatchCoder.coder_name, BatchCoder.emp_id)
+                          .filter(BatchCoder.coder_name.in_(all_coders))
+                          .order_by(BatchCoder.id.desc())
+                          .all()):
+        if name not in coder_emp_ids and emp_id:
+            coder_emp_ids[name] = emp_id
+
     cells = []
     for coder in all_coders:
         for b in batches:
@@ -534,6 +549,7 @@ def analytics_coder_matrix(
     return {
         "batches": [{"id": b.id, "name": b.name, "specialty": b.specialty.value, "closed_at": b.closed_at.isoformat() if b.closed_at else None} for b in batches],
         "coders": all_coders,
+        "coder_emp_ids": coder_emp_ids,
         "cells": cells,
     }
 
