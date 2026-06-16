@@ -200,7 +200,18 @@ def _stat_row(stats: list[tuple[str, str]]) -> Table:
     return wrapper
 
 
+def _truncate(text: str, max_len: int = 108) -> str:
+    """Cap verdict detail text to a length that reliably fits one line at
+    CONTENT_W with the NORMAL style — keeps every executive-summary box the
+    same height instead of growing whenever a verdict appends extra context
+    (weakest-area note, trend delta, etc)."""
+    if len(text) <= max_len:
+        return text
+    return text[:max_len].rsplit(" ", 1)[0].rstrip(".,;: ") + "…"
+
+
 def _verdict_box(headline: str, detail: str, color, bg, border) -> Table:
+    detail = _truncate(detail)
     eyebrow_style = ParagraphStyle("verdictEyebrow", parent=EYEBROW, textColor=color)
     detail_style = ParagraphStyle("verdictDetail", parent=NORMAL, textColor=colors.HexColor("#33312b"))
     headline_style = ParagraphStyle("verdictHeadline", parent=VERDICT_TEXT, textColor=color)
