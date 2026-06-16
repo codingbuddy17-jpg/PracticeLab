@@ -137,7 +137,7 @@ def retire_chart(
     chart = _get_or_404(chart_id, db)
     if chart.uploaded_by != actor:
         if passphrase != settings.MASTER_ADMIN_PASSPHRASE:
-            raise HTTPException(status_code=403, detail="Invalid master admin passphrase")
+            raise HTTPException(status_code=403, detail="Invalid passphrase")
     chart.status = ChartStatus.RETIRED
     log_audit(db, chart_id, "RETIRE", actor)
     db.commit()
@@ -156,7 +156,7 @@ def restore_chart(
         raise HTTPException(status_code=404, detail="Chart not found")
     if chart.uploaded_by != actor:
         if passphrase != settings.MASTER_ADMIN_PASSPHRASE:
-            raise HTTPException(status_code=403, detail="Invalid master admin passphrase")
+            raise HTTPException(status_code=403, detail="Invalid passphrase")
     chart.status = ChartStatus.ACTIVE
     log_audit(db, chart_id, "RESTORE", actor)
     db.commit()

@@ -164,7 +164,7 @@ def upload_answer_keys(
     db: Session = Depends(get_db),
 ):
     if replace and passphrase != MASTER_PASSPHRASE:
-        raise HTTPException(status_code=403, detail="Invalid passphrase for replace mode")
+        raise HTTPException(status_code=403, detail="Invalid passphrase")
 
     file_bytes = file.file.read()
     try:

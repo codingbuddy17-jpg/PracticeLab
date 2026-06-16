@@ -89,8 +89,8 @@ export function TrainerCharts() {
       }
       setActionModal(null)
       load(page)
-    } catch {
-      toast.error('Failed — check passphrase')
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail || 'Action failed — check passphrase')
       setActionModal(m => m ? { ...m, loading: false } : null)
     }
   }
