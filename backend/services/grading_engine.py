@@ -6,6 +6,7 @@ Weights and thresholds are passed in via ScoringCfg dataclass so the
 admin can change them without touching code. Defaults match the original
 VBA constants exactly.
 """
+import re
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -127,6 +128,24 @@ def norm_mod(mod) -> str:
     return _clean(mod).replace("-", "").replace(" ", "").upper()
 
 
+_CPT_EMBEDDED_MOD_RE = re.compile(r"^([A-Z0-9]{5})-?([A-Z0-9]{2})$")
+
+
+def resolve_cpt_modifier(code, modifier) -> tuple[str, str]:
+    """Normalize a CPT code/modifier pair, recovering a modifier that was
+    typed directly into the code cell (e.g. '99213-25' with modifier left
+    blank) instead of its own column — otherwise the combined string never
+    matches the answer key's code and gets misclassified as Missed."""
+    code_s = norm_cpt(code)
+    mod_s = norm_mod(modifier)
+    if mod_s or not code_s:
+        return code_s, mod_s
+    m = _CPT_EMBEDDED_MOD_RE.match(code_s)
+    if m:
+        return m.group(1), m.group(2)
+    return code_s, mod_s
+
+
 # ── Order-independent matching ────────────────────────────────────────────────
 
 def _match_sdx_ip(ak_sdx: list[dict], cdr_sdx: list[dict], penalty: bool):
@@ -240,48 +259,46 @@ def _match_sdx_op(ak_sdx: list[dict], cdr_sdx: list[dict], penalty: bool):
 
 
 def _match_cpt(ak_cpt: list[dict], cdr_cpt: list[dict], penalty: bool):
+    ak_norm = [resolve_cpt_modifier(a.get("code", ""), a.get("modifier", "")) for a in ak_cpt]
+    cdr_norm = [resolve_cpt_modifier(c.get("code", ""), c.get("modifier", "")) for c in cdr_cpt]
+
     ak_used = [False] * len(ak_cpt)
     cdr_used = [False] * len(cdr_cpt)
     matched = 0
     feedback = []
 
-    for ci, cs in enumerate(cdr_cpt):
-        c_code = norm_cpt(cs.get("code", ""))
-        c_mod = norm_mod(cs.get("modifier", ""))
+    for ci, (c_code, c_mod) in enumerate(cdr_norm):
         if not c_code:
             continue
-        for ai, ak in enumerate(ak_cpt):
+        for ai, (a_code, a_mod) in enumerate(ak_norm):
             if ak_used[ai]:
                 continue
-            if norm_cpt(ak.get("code", "")) == c_code and norm_mod(ak.get("modifier", "")) == c_mod:
+            if a_code == c_code and a_mod == c_mod:
                 matched += 1
                 ak_used[ai] = True
                 cdr_used[ci] = True
                 break
 
-    for ci, cs in enumerate(cdr_cpt):
-        if cdr_used[ci]:
+    for ci, (c_code, c_mod) in enumerate(cdr_norm):
+        if cdr_used[ci] or not c_code:
             continue
-        c_code = norm_cpt(cs.get("code", ""))
-        if not c_code:
-            continue
-        for ai, ak in enumerate(ak_cpt):
+        for ai, (a_code, a_mod) in enumerate(ak_norm):
             if ak_used[ai]:
                 continue
-            if norm_cpt(ak.get("code", "")) == c_code:
+            if a_code == c_code:
                 feedback.append(FeedbackRow("CPT", "Wrong_Modifier",
-                    ak.get("code", ""), cs.get("code", ""),
-                    f"Modifier: {ak.get('modifier','')} vs {cs.get('modifier','')}"))
+                    ak_cpt[ai].get("code", ""), cdr_cpt[ci].get("code", ""),
+                    f"Modifier: {a_mod or '(none)'} vs {c_mod or '(none)'}"))
                 ak_used[ai] = True
                 cdr_used[ci] = True
                 break
 
-    for ai, ak in enumerate(ak_cpt):
-        if not ak_used[ai]:
-            feedback.append(FeedbackRow("CPT", "Missed", ak.get("code", ""), ""))
+    for ai, (a_code, _a_mod) in enumerate(ak_norm):
+        if not ak_used[ai] and a_code:
+            feedback.append(FeedbackRow("CPT", "Missed", ak_cpt[ai].get("code", ""), ""))
 
-    ak_cnt = len([a for a in ak_cpt if norm_cpt(a.get("code", ""))])
-    cdr_cnt = len([c for c in cdr_cpt if norm_cpt(c.get("code", ""))])
+    ak_cnt = len([c for c, _ in ak_norm if c])
+    cdr_cnt = len([c for c, _ in cdr_norm if c])
     extra = max(0, cdr_cnt - ak_cnt) if penalty else 0
     if extra > 0:
         feedback.append(FeedbackRow("CPT", "Over_coded", detail=f"{extra} extra code(s) submitted"))
@@ -563,18 +580,19 @@ def compute_dpo_op(ak: OPAnswerKey, sub: OPSubmission, overcoding_penalty: bool)
         dx_opp += sdx_extra
 
     # ── CPT+Modifier section ──────────────────────────────────────────────────
-    ak_cpt = [c for c in ak.cpt if norm_cpt(c.get("code", ""))]
-    cdr_cpt = [c for c in sub.cpt if norm_cpt(c.get("code", ""))]
+    ak_cpt = [resolve_cpt_modifier(c.get("code", ""), c.get("modifier", "")) for c in ak.cpt]
+    ak_cpt = [c for c in ak_cpt if c[0]]
+    cdr_cpt = [resolve_cpt_modifier(c.get("code", ""), c.get("modifier", "")) for c in sub.cpt]
+    cdr_cpt = [c for c in cdr_cpt if c[0]]
 
     if len(ak_cpt) == 0 and len(cdr_cpt) == 0:
         proc = DPOSection("CPT Accuracy", 0, 0)
     else:
         ak_cpt_used = [False] * len(ak_cpt)
         cpt_matched = 0
-        for cc in cdr_cpt:
-            c, m = norm_cpt(cc.get("code", "")), norm_mod(cc.get("modifier", ""))
-            for ai, a in enumerate(ak_cpt):
-                if not ak_cpt_used[ai] and norm_cpt(a.get("code", "")) == c and norm_mod(a.get("modifier", "")) == m:
+        for c, m in cdr_cpt:
+            for ai, (a_c, a_m) in enumerate(ak_cpt):
+                if not ak_cpt_used[ai] and a_c == c and a_m == m:
                     cpt_matched += 1
                     ak_cpt_used[ai] = True
                     break
