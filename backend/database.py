@@ -88,6 +88,7 @@ def _run_migrations():
     _add_col("batches", "force_close_reason", "TEXT")
     _add_col("batches", "notes", "JSONB DEFAULT '[]'", "TEXT DEFAULT '[]'")
     _add_col("batches", "tags",  "JSONB DEFAULT '[]'", "TEXT DEFAULT '[]'")
+    _add_col("batches", "is_direct_assignment", "BOOLEAN NOT NULL DEFAULT FALSE")
 
     # ── batches — status normalisation ────────────────────────────────────────
     # PostgreSQL only: convert any lingering native-enum column to plain VARCHAR.

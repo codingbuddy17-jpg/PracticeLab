@@ -2,7 +2,7 @@ import { FileCheck } from 'lucide-react'
 import { SPECIALTY_COLORS } from '../../theme'
 import styles from './styles'
 
-export function HomeView({ batches, overview, loading, onOpen, statusColor, onCreateBatch }: any) {
+export function HomeView({ batches, directAssignments, overview, loading, onOpen, statusColor, onCreateBatch, onCreateDirect }: any) {
   if (loading) return (
     <div style={styles.center}>
       <div style={{ width: 24, height: 24, border: '3px solid #e5e7eb', borderTop: '3px solid #0f766e', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
@@ -52,6 +52,28 @@ export function HomeView({ batches, overview, loading, onOpen, statusColor, onCr
           )}
           {closedBatches.length > 0 && closedBatches.map((b: any) => <BatchRow key={b.id} b={b} onOpen={onOpen} statusColor={statusColor} />)}
         </div>
+      )}
+
+      {(directAssignments?.length > 0 || onCreateDirect) && (
+        <>
+          <div style={{ ...styles.sectionHeader, marginTop: 28 }}>
+            <span style={styles.sectionTitle}>Direct Assignments</span>
+            {onCreateDirect && (
+              <button style={{ ...styles.outlineBtn, fontSize: 12, color: '#4f46e5', borderColor: '#c7d2fe' }} onClick={onCreateDirect}>
+                + New Assignment
+              </button>
+            )}
+          </div>
+          {!directAssignments?.length ? (
+            <div style={{ fontSize: 12, color: '#9ca3af', padding: '8px 4px 4px' }}>
+              No direct assignments yet — use this for one-off chart assignments to specific coder(s) without a full batch workflow.
+            </div>
+          ) : (
+            <div style={styles.batchList}>
+              {directAssignments.map((b: any) => <BatchRow key={b.id} b={b} onOpen={onOpen} statusColor={statusColor} />)}
+            </div>
+          )}
+        </>
       )}
     </div>
   )

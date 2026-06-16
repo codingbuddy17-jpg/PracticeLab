@@ -190,6 +190,7 @@ class Batch(Base):
     status = Column(SAEnum(BatchStatus, native_enum=False), default=BatchStatus.OPEN, nullable=False, index=True)
     use_weighted = Column(Boolean, nullable=False, default=True)
     use_dpo = Column(Boolean, nullable=False, default=False)
+    is_direct_assignment = Column(Boolean, nullable=False, default=False)
     closed_at = Column(DateTime(timezone=True), nullable=True)
     closed_by = Column(String(100), nullable=True)
     force_closed = Column(Boolean, default=False, nullable=False)

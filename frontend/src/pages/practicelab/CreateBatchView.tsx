@@ -5,10 +5,11 @@ import { getPoolPreview, parseCoderList, createBatch, downloadCoderListTemplate 
 import { trainerName, SPECIALTIES, DIFFICULTIES } from './shared'
 import styles from './styles'
 
-export function CreateBatchView({ onCreated, scoringCfg }: { onCreated: (id: number) => void; scoringCfg?: any }) {
+export function CreateBatchView({ onCreated, scoringCfg, directMode: directModeProp }: { onCreated: (id: number) => void; scoringCfg?: any; directMode?: boolean }) {
+  const [directMode, setDirectMode] = useState(directModeProp ?? false)
   const [form, setForm] = useState({
     name: '', specialty: 'IP-DRG', categories: '', difficulties: [] as string[],
-    charts_per_coder: 5, use_weighted: true, use_dpo: false,
+    charts_per_coder: directModeProp ? 1 : 5, use_weighted: true, use_dpo: false,
   })
   const [coders, setCoders] = useState<{ name: string; emp_id: string }[]>([])
   const [coderMode, setCoderMode] = useState<'quick' | 'upload'>('quick')
@@ -64,7 +65,7 @@ export function CreateBatchView({ onCreated, scoringCfg }: { onCreated: (id: num
   }
 
   async function handleCreate() {
-    if (!form.name.trim()) return toast.error('Batch name is required')
+    if (!form.name.trim()) return toast.error(directMode ? 'Assignment name is required' : 'Batch name is required')
     if (coders.length === 0) return toast.error('Add at least one coder')
     setCreating(true)
     try {
@@ -78,9 +79,10 @@ export function CreateBatchView({ onCreated, scoringCfg }: { onCreated: (id: num
         created_by: trainerName(),
         use_weighted: form.use_weighted,
         use_dpo: form.use_dpo,
+        is_direct_assignment: directMode,
       })
       if (res.warning) toast(res.warning, { icon: '⚠️', duration: 5000 })
-      toast.success('Batch created — run an allocation cycle to assign charts')
+      toast.success(directMode ? 'Assignment created — pick charts next' : 'Batch created — run an allocation cycle to assign charts')
       onCreated(res.batch_id)
     } catch (err: any) {
       toast.error(err?.response?.data?.detail || 'Failed to create batch')
@@ -92,15 +94,25 @@ export function CreateBatchView({ onCreated, scoringCfg }: { onCreated: (id: num
 
   return (
     <div style={styles.section}>
-      <div style={styles.sectionTitle}>Create New Batch</div>
+      <div style={styles.sectionTitle}>{directMode ? 'New Direct Assignment' : 'Create New Batch'}</div>
+
+      {directModeProp === undefined && (
+        <div style={styles.modeToggle}>
+          <button style={!directMode ? styles.modeTabActive : styles.modeTab} onClick={() => setDirectMode(false)}>Formal Batch</button>
+          <button style={directMode ? styles.modeTabActive : styles.modeTab} onClick={() => { setDirectMode(true); setForm(f => ({ ...f, charts_per_coder: 1 })) }}>Direct Assignment</button>
+        </div>
+      )}
+
       <div style={styles.infoBox}>
-        Batch stays <strong>Open</strong> until you close it. Charts are assigned through allocation cycles — run one now, or more later as the practice phase progresses.
+        {directMode
+          ? 'Assign specific chart(s) to one or more coders without the multi-day batch/cycle workflow — useful for one-off practice or targeted reinforcement. Results are graded and tracked in analytics exactly like a regular batch.'
+          : <>Batch stays <strong>Open</strong> until you close it. Charts are assigned through allocation cycles — run one now, or more later as the practice phase progresses.</>}
       </div>
 
       <div style={styles.formGrid}>
         <div style={styles.formGroup}>
-          <label style={styles.label}>Batch Name *</label>
-          <input style={styles.input} value={form.name} placeholder="e.g. June IP Assessment"
+          <label style={styles.label}>{directMode ? 'Assignment Name *' : 'Batch Name *'}</label>
+          <input style={styles.input} value={form.name} placeholder={directMode ? 'e.g. Sepsis Refresher — Harish' : 'e.g. June IP Assessment'}
             onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
         </div>
         <div style={styles.formGroup}>
@@ -110,12 +122,12 @@ export function CreateBatchView({ onCreated, scoringCfg }: { onCreated: (id: num
           </select>
         </div>
         <div style={styles.formGroup}>
-          <label style={styles.label}>Default Pool — Category Filter <span style={styles.hint}>(comma-separated)</span></label>
+          <label style={styles.label}>{directMode ? 'Chart Pool — Category Filter' : 'Default Pool — Category Filter'} <span style={styles.hint}>(comma-separated)</span></label>
           <input style={styles.input} value={form.categories} placeholder="e.g. Sepsis, Cardiac, Trauma"
             onChange={e => setForm(f => ({ ...f, categories: e.target.value }))} />
         </div>
         <div style={styles.formGroup}>
-          <label style={styles.label}>Default Pool — Difficulty Filter</label>
+          <label style={styles.label}>{directMode ? 'Chart Pool — Difficulty Filter' : 'Default Pool — Difficulty Filter'}</label>
           <div style={styles.chipRow}>
             {DIFFICULTIES.map(d => (
               <button key={d} style={form.difficulties.includes(d) ? styles.chipActive : styles.chip}
@@ -125,12 +137,17 @@ export function CreateBatchView({ onCreated, scoringCfg }: { onCreated: (id: num
           </div>
         </div>
         <div style={styles.formGroup}>
-          <label style={styles.label}>Default Charts per Coder <span style={styles.hint}>(overridable per cycle)</span></label>
+          <label style={styles.label}>{directMode ? 'Charts per Coder' : 'Default Charts per Coder'} <span style={styles.hint}>(overridable per cycle)</span></label>
           <input type="number" min={1} max={20} style={{ ...styles.input, width: 80 }}
             value={form.charts_per_coder}
             onChange={e => setForm(f => ({ ...f, charts_per_coder: parseInt(e.target.value) || 1 }))} />
         </div>
       </div>
+      {directMode && (
+        <div style={styles.infoBox}>
+          After creating this assignment, use <strong>Allocation</strong> on the next screen to pick charts — choose <strong>Random</strong> to pull from the pool above, or <strong>Manual</strong> to search and select specific chart number(s) for each coder.
+        </div>
+      )}
 
       {pool && (
         <div style={styles.infoBox}>
@@ -216,7 +233,7 @@ export function CreateBatchView({ onCreated, scoringCfg }: { onCreated: (id: num
       </div>
 
       <button style={creating ? { ...styles.primaryBtn, opacity: 0.6 } : styles.primaryBtn} disabled={creating} onClick={handleCreate}>
-        {creating ? <><Loader size={14} /> Creating...</> : 'Open Batch'}
+        {creating ? <><Loader size={14} /> Creating...</> : directMode ? 'Create Assignment' : 'Open Batch'}
       </button>
     </div>
   )

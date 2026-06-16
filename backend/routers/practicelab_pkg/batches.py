@@ -38,6 +38,7 @@ class BatchCreate(BaseModel):
     created_by: str
     use_weighted: bool = True
     use_dpo: bool = False
+    is_direct_assignment: bool = False
 
 
 class AllocationRun(BaseModel):
@@ -77,12 +78,14 @@ def create_batch(payload: BatchCreate, db: Session = Depends(get_db)):
     if not payload.coders:
         raise HTTPException(status_code=400, detail="At least one coder is required")
 
-    open_count = (db.query(Batch)
-                  .filter(Batch.created_by == payload.created_by, Batch.status == BatchStatus.OPEN)
-                  .count())
     warning = None
-    if open_count >= OPEN_BATCH_SOFT_LIMIT:
-        warning = f"You already have {open_count} open batch(es). Consider closing completed ones."
+    if not payload.is_direct_assignment:
+        open_count = (db.query(Batch)
+                      .filter(Batch.created_by == payload.created_by, Batch.status == BatchStatus.OPEN,
+                              Batch.is_direct_assignment == False)
+                      .count())
+        if open_count >= OPEN_BATCH_SOFT_LIMIT:
+            warning = f"You already have {open_count} open batch(es). Consider closing completed ones."
 
     batch = Batch(
         name=payload.name,
@@ -94,6 +97,7 @@ def create_batch(payload: BatchCreate, db: Session = Depends(get_db)):
         status=BatchStatus.OPEN,
         use_weighted=payload.use_weighted,
         use_dpo=payload.use_dpo,
+        is_direct_assignment=payload.is_direct_assignment,
         notes=[],
         tags=[],
     )
@@ -420,9 +424,10 @@ def pool_preview(
 def list_batches(
     status: Optional[str] = None,
     specialty: Optional[str] = None,
+    direct_only: bool = False,
     db: Session = Depends(get_db),
 ):
-    q = db.query(Batch)
+    q = db.query(Batch).filter(Batch.is_direct_assignment == direct_only)
     if status:
         q = q.filter(Batch.status == status)
     if specialty:
@@ -444,6 +449,7 @@ def list_batches(
             "closed_at": b.closed_at.isoformat() if b.closed_at else None,
             "force_closed": b.force_closed,
             "tags": b.tags or [],
+            "is_direct_assignment": b.is_direct_assignment,
         }
         for b in batches
     ]

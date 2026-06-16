@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ChevronLeft, Plus, BarChart2, Key, Settings, FileCheck } from 'lucide-react'
+import { ChevronLeft, Plus, BarChart2, Key, Settings, FileCheck, Zap } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { listBatches, getPLAnalyticsOverview, getScoringConfigs } from '../api'
 import { HomeView } from './practicelab/HomeView'
@@ -14,12 +14,13 @@ import { SelfPracticeView } from './practicelab/SelfPracticeView'
 import { PLAnalyticsView } from './practicelab/PLAnalyticsView'
 import styles from './practicelab/styles'
 
-type View = 'home' | 'answer-keys' | 'create-batch' | 'batch-detail' | 'drg-review' | 'results' | 'analytics' | 'scoring-config' | 'self-practice'
+type View = 'home' | 'answer-keys' | 'create-batch' | 'create-direct' | 'batch-detail' | 'drg-review' | 'results' | 'analytics' | 'scoring-config' | 'self-practice'
 
 export function TrainerPracticeLab() {
   const navigate = useNavigate()
   const [view, setView] = useState<View>('home')
   const [batches, setBatches] = useState<any[]>([])
+  const [directAssignments, setDirectAssignments] = useState<any[]>([])
   const [selectedBatchId, setSelectedBatchId] = useState<number | null>(null)
   const [lastBatch, setLastBatch] = useState<{ id: number; name: string } | null>(null)
   const [overview, setOverview] = useState<any>(null)
@@ -34,8 +35,9 @@ export function TrainerPracticeLab() {
   async function loadHome() {
     setLoading(true)
     try {
-      const [b, ov] = await Promise.all([listBatches(), getPLAnalyticsOverview()])
+      const [b, da, ov] = await Promise.all([listBatches(), listBatches(undefined, undefined, true), getPLAnalyticsOverview()])
       setBatches(b)
+      setDirectAssignments(da)
       setOverview(ov)
     } catch { toast.error('Failed to load batches') } finally {
       setLoading(false)
@@ -43,7 +45,7 @@ export function TrainerPracticeLab() {
   }
 
   function openBatch(id: number) {
-    const b = batches.find((x: any) => x.id === id)
+    const b = batches.find((x: any) => x.id === id) || directAssignments.find((x: any) => x.id === id)
     setSelectedBatchId(id)
     if (b) setLastBatch({ id, name: b.name })
     setView('batch-detail')
@@ -78,6 +80,8 @@ export function TrainerPracticeLab() {
               <button style={styles.navBtn} onClick={() => setView('scoring-config')}><Settings size={15} /> Scoring Config</button>
               <button style={styles.navBtn} onClick={() => setView('answer-keys')}><Key size={15} /> Answer Keys</button>
               <button style={styles.navBtn} onClick={() => setView('self-practice')}><FileCheck size={15} /> Self Practice</button>
+              <button style={{ ...styles.navBtn, color: '#4f46e5', borderColor: '#c7d2fe' }}
+                onClick={() => setView('create-direct')}><Zap size={15} /> Direct Assignment</button>
               <button style={{ ...styles.navBtn, background: '#0f766e', color: '#fff', border: 'none' }}
                 onClick={() => setView('create-batch')}><Plus size={15} /> New Batch</button>
             </>
@@ -87,12 +91,15 @@ export function TrainerPracticeLab() {
 
       <div style={styles.content}>
         {view === 'home' && (
-          <HomeView batches={batches} overview={overview} loading={loading}
-            onOpen={openBatch} statusColor={statusColor} onCreateBatch={() => setView('create-batch')} />
+          <HomeView batches={batches} directAssignments={directAssignments} overview={overview} loading={loading}
+            onOpen={openBatch} statusColor={statusColor} onCreateBatch={() => setView('create-batch')} onCreateDirect={() => setView('create-direct')} />
         )}
         {view === 'answer-keys' && <AnswerKeysView />}
         {view === 'create-batch' && (
           <CreateBatchView onCreated={(id: number) => { setSelectedBatchId(id); setView('batch-detail'); loadHome() }} scoringCfg={scoringCfg} />
+        )}
+        {view === 'create-direct' && (
+          <CreateBatchView directMode onCreated={(id: number) => { setSelectedBatchId(id); setView('batch-detail'); loadHome() }} scoringCfg={scoringCfg} />
         )}
         {view === 'batch-detail' && selectedBatchId && (
           <BatchDetailView batchId={selectedBatchId} onDRGReview={() => setView('drg-review')} onResults={() => setView('results')} />

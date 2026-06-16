@@ -215,7 +215,7 @@ export async function searchChartsForBatch(specialty: string, q?: string, catego
 export async function createBatch(payload: {
   name: string; specialty: string; categories: string[]; difficulties: string[];
   charts_per_coder: number; coders: { name: string; emp_id: string }[]; created_by: string;
-  use_weighted?: boolean; use_dpo?: boolean;
+  use_weighted?: boolean; use_dpo?: boolean; is_direct_assignment?: boolean;
 }) {
   const { data } = await api.post('/practicelab/batches', payload)
   return data as { batch_id: number; name: string; warning?: string }
@@ -260,11 +260,12 @@ export async function getAdminOpenBatches(passphrase: string) {
   }>
 }
 
-export async function listBatches(status?: string, specialty?: string) {
-  const { data } = await api.get('/practicelab/batches', { params: { status, specialty } })
+export async function listBatches(status?: string, specialty?: string, directOnly?: boolean) {
+  const { data } = await api.get('/practicelab/batches', { params: { status, specialty, direct_only: directOnly } })
   return data as Array<{
     id: number; name: string; specialty: string; charts_per_coder: number;
     status: string; created_by: string; created_at: string; coder_count: number;
+    is_direct_assignment?: boolean;
   }>
 }
 
