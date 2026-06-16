@@ -690,6 +690,24 @@ def get_batch_insights(batch_id: int, db: Session = Depends(get_db)):
     top_performers = ranked_coders[:coder_split]
     bottom_performers = list(reversed(ranked_coders[-coder_split:])) if coder_split > 0 else []
 
+    score_buckets = [
+        {"label": ">95%", "color": "#16a34a", "coders": []},
+        {"label": "90-95%", "color": "#d97706", "coders": []},
+        {"label": "<90%", "color": "#dc2626", "coders": []},
+    ]
+    for c in coder_insights:
+        s = c["avg_score"]
+        if s > 95:
+            score_buckets[0]["coders"].append(c["coder_name"])
+        elif s >= 90:
+            score_buckets[1]["coders"].append(c["coder_name"])
+        else:
+            score_buckets[2]["coders"].append(c["coder_name"])
+    score_distribution = [
+        {"label": b["label"], "color": b["color"], "count": len(b["coders"]), "coders": b["coders"]}
+        for b in score_buckets if len(b["coders"]) > 0
+    ]
+
     return {
         "has_data": True,
         "batch_name": batch.name,
@@ -723,4 +741,5 @@ def get_batch_insights(batch_id: int, db: Session = Depends(get_db)):
         "coder_insights": coder_insights,
         "top_performers": top_performers,
         "bottom_performers": bottom_performers,
+        "score_distribution": score_distribution,
     }

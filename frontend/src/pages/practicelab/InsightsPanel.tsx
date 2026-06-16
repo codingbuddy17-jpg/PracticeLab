@@ -1,15 +1,16 @@
 import { useState } from 'react'
 import toast from 'react-hot-toast'
 import {
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Cell,
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Cell, PieChart, Pie,
 } from 'recharts'
 import { ISSUE_COLORS } from './shared'
 import styles from './styles'
 
 export function InsightsPanel({ insights, onClose }: { insights: any; onClose: () => void }) {
   const { batch_summary: bs, team_errors: te, category_performance: cp, chart_signals: cs, coder_insights: ci, is_ip,
-    top_categories: topCats, bottom_categories: bottomCats, top_performers: topPerf, bottom_performers: bottomPerf } = insights
+    top_categories: topCats, bottom_categories: bottomCats, top_performers: topPerf, bottom_performers: bottomPerf,
+    score_distribution: scoreDist } = insights
   const [expandedCoder, setExpandedCoder] = useState<string | null>(null)
 
   function buildCopyText() {
@@ -23,6 +24,11 @@ export function InsightsPanel({ insights, onClose }: { insights: any; onClose: (
       `Avg Score: ${bs.avg_score}%`,
       '',
     ]
+    if (scoreDist?.length) {
+      lines.push('SCORE DISTRIBUTION (cumulative chart-weighted score)')
+      scoreDist.forEach((b: any) => lines.push(`  ${b.label}: ${b.count} coder${b.count !== 1 ? 's' : ''} (${b.coders.join(', ')})`))
+      lines.push('')
+    }
     if (topPerf?.length) {
       lines.push('TOP PERFORMERS')
       topPerf.forEach((c: any) => lines.push(`  ${c.coder_name}: ${c.avg_score}%`))
@@ -129,6 +135,30 @@ export function InsightsPanel({ insights, onClose }: { insights: any; onClose: (
           </div>
         )}
       </div>
+
+      {scoreDist?.length > 0 && (
+        <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 24, flexWrap: 'wrap' as const }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 4 }}>Score Distribution</div>
+            <div style={{ fontSize: 11, color: '#9ca3af' }}>Cumulative chart-weighted score per coder</div>
+          </div>
+          <PieChart width={160} height={160}>
+            <Pie data={scoreDist} dataKey="count" nameKey="label" cx={80} cy={80} innerRadius={40} outerRadius={70} paddingAngle={3}>
+              {scoreDist.map((b: any) => <Cell key={b.label} fill={b.color} />)}
+            </Pie>
+            <Tooltip formatter={(v: any, _n: any, p: any) => [`${v} coder${v !== 1 ? 's' : ''}`, p.payload.label]} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+          </PieChart>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {scoreDist.map((b: any) => (
+              <div key={b.label} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+                <span style={{ width: 10, height: 10, borderRadius: '50%', background: b.color, flexShrink: 0 }} />
+                <span style={{ fontWeight: 700, color: '#111' }}>{b.count}</span>
+                <span style={{ color: '#6b7280' }}>coder{b.count !== 1 ? 's' : ''} scored <b style={{ color: b.color }}>{b.label}</b></span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {recommendations.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
