@@ -314,6 +314,47 @@ export function downloadBatchResultsExcel(batchId: number) {
   window.open(`${import.meta.env.VITE_API_URL || '/api'}/practicelab/batches/${batchId}/results/export`, '_blank')
 }
 
+export interface EDRubricPayload {
+  coder_name: string
+  chart_id: number
+  review_pass: boolean
+  research_coding_pass: boolean
+  research_payer_pass: boolean
+  research_nuances_pass: boolean
+  resolution_pass: boolean
+  rationale_tier: 'acceptable' | 'needs_improvement' | 'not_acceptable'
+  trainer_note?: string
+  graded_by: string
+  regrade?: boolean
+}
+
+export async function gradeEDChart(batchId: number, payload: EDRubricPayload) {
+  const { data } = await api.post(`/practicelab/batches/${batchId}/grade-ed`, payload)
+  return data
+}
+
+export async function getEDGrades(batchId: number) {
+  const { data } = await api.get(`/practicelab/batches/${batchId}/ed-grades`)
+  return data as Array<{
+    result_id: number
+    coder_name: string
+    chart_id: number
+    total_score: number
+    pass_fail: string | null
+    graded_at: string | null
+    rubric: {
+      review_pass: boolean
+      research_coding_pass: boolean
+      research_payer_pass: boolean
+      research_nuances_pass: boolean
+      resolution_pass: boolean
+      rationale_tier: string
+      trainer_note: string | null
+      graded_by: string
+    } | null
+  }>
+}
+
 export interface PLFilters {
   from_date?: string
   to_date?: string

@@ -185,6 +185,21 @@ def _run_migrations():
         feedback_items TEXT DEFAULT '[]'
     )""")
 
+    # ── ed_rubric_details — manual grading for Edits/Denials ─────────────────
+    _run("""CREATE TABLE IF NOT EXISTS ed_rubric_details (
+        id INTEGER PRIMARY KEY,
+        result_id INTEGER REFERENCES grading_results(id) NOT NULL UNIQUE,
+        review_pass BOOLEAN NOT NULL DEFAULT FALSE,
+        research_coding_pass BOOLEAN NOT NULL DEFAULT FALSE,
+        research_payer_pass BOOLEAN NOT NULL DEFAULT FALSE,
+        research_nuances_pass BOOLEAN NOT NULL DEFAULT FALSE,
+        resolution_pass BOOLEAN NOT NULL DEFAULT FALSE,
+        rationale_tier VARCHAR(20) NOT NULL DEFAULT 'not_acceptable',
+        trainer_note TEXT,
+        graded_by VARCHAR(100) NOT NULL,
+        graded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )""")
+
     # ── charts — alias field ──────────────────────────────────────────────────
     _add_col("charts", "alias", "VARCHAR(100)")
 

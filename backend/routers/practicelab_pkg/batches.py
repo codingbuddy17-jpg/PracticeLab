@@ -16,7 +16,7 @@ from models import (
 )
 from services.excel_service import generate_coder_sheet, generate_batch_zip
 from config import settings
-from .shared import MASTER_PASSPHRASE, _is_ip
+from .shared import MASTER_PASSPHRASE, _is_ip, _is_ed
 
 router = APIRouter()
 
@@ -416,13 +416,11 @@ def pool_preview(
         raise HTTPException(status_code=400, detail="Invalid specialty")
 
     q = db.query(Chart).filter(Chart.status == ChartStatus.ACTIVE, Chart.specialty == spec)
-    q_keyed = q.join(AnswerKey, AnswerKey.chart_id == Chart.id)
 
     if categories:
         cats = [c.strip() for c in categories.split(",") if c.strip()]
         if cats:
             q = q.filter(or_(*[Chart.category.ilike(f"%{c}%") for c in cats]))
-            q_keyed = q_keyed.filter(or_(*[Chart.category.ilike(f"%{c}%") for c in cats]))
 
     if difficulties:
         diffs_raw = [d.strip() for d in difficulties.split(",") if d.strip()]
@@ -434,10 +432,16 @@ def pool_preview(
                 pass
         if diffs:
             q = q.filter(Chart.difficulty.in_(diffs))
-            q_keyed = q_keyed.filter(Chart.difficulty.in_(diffs))
 
+    total = q.count()
+
+    # E&D specialties don't use answer keys — skip that count entirely
+    if _is_ed(spec):
+        return {"total_matching": total, "with_answer_key": None}
+
+    q_keyed = q.join(AnswerKey, AnswerKey.chart_id == Chart.id)
     return {
-        "total_matching": q.count(),
+        "total_matching": total,
         "with_answer_key": q_keyed.count(),
     }
 

@@ -303,6 +303,7 @@ class GradingResult(Base):
     submission = relationship("Submission", back_populates="result")
     chart = relationship("Chart")
     feedback = relationship("GradingFeedback", back_populates="result", cascade="all, delete-orphan")
+    ed_rubric = relationship("EDRubricDetail", back_populates="result", uselist=False, cascade="all, delete-orphan")
 
 
 class GradingFeedback(Base):
@@ -317,6 +318,26 @@ class GradingFeedback(Base):
     detail = Column(String(200), nullable=True)
 
     result = relationship("GradingResult", back_populates="feedback")
+
+
+class EDRubricDetail(Base):
+    """Per-chart manual rubric grading record for Edits/Denials specialties."""
+    __tablename__ = "ed_rubric_details"
+
+    id = Column(Integer, primary_key=True, index=True)
+    result_id = Column(Integer, ForeignKey("grading_results.id"), nullable=False, unique=True)
+    review_pass = Column(Boolean, nullable=False, default=False)
+    research_coding_pass = Column(Boolean, nullable=False, default=False)
+    research_payer_pass = Column(Boolean, nullable=False, default=False)
+    research_nuances_pass = Column(Boolean, nullable=False, default=False)
+    resolution_pass = Column(Boolean, nullable=False, default=False)
+    # "acceptable" | "needs_improvement" | "not_acceptable"
+    rationale_tier = Column(String(20), nullable=False, default="not_acceptable")
+    trainer_note = Column(Text, nullable=True)
+    graded_by = Column(String(100), nullable=False)
+    graded_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    result = relationship("GradingResult", back_populates="ed_rubric")
 
 
 class SelfPracticeSubmission(Base):

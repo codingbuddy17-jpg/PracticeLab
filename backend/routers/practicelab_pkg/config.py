@@ -11,7 +11,7 @@ from services.excel_service import (
     generate_answer_key_template, generate_coder_list_template,
     parse_answer_key_upload, parse_coder_list, export_all_answer_keys,
 )
-from .shared import MASTER_PASSPHRASE, _is_ip
+from .shared import MASTER_PASSPHRASE, _is_ip, _is_ed, ED_SPECIALTIES
 
 router = APIRouter()
 
@@ -163,6 +163,13 @@ def upload_answer_keys(
     passphrase: str = Form(""),
     db: Session = Depends(get_db),
 ):
+    try:
+        spec_enum = Specialty(specialty)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid specialty")
+    if _is_ed(spec_enum):
+        raise HTTPException(status_code=400, detail="Answer keys are not used for Edits or Denials — grading is performed manually via the rubric.")
+
     if replace and passphrase != MASTER_PASSPHRASE:
         raise HTTPException(status_code=403, detail="Invalid passphrase")
 

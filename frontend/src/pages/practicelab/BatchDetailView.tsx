@@ -1,16 +1,204 @@
 import { useState, useEffect, useRef } from 'react'
-import { Loader, Download, Upload, BarChart2, Search, CheckSquare, Square, CheckCircle, Circle, AlertCircle } from 'lucide-react'
+import { Loader, Download, Upload, BarChart2, Search, CheckSquare, Square, CheckCircle, Circle, AlertCircle, ChevronDown, ChevronRight } from 'lucide-react'
 import toast from 'react-hot-toast'
 import {
   getBatch, gradeSubmissions, closeBatch, addBatchNote,
   downloadBatchExcel, downloadCycleExcel, downloadBatchResultsExcel,
   getBatchInsights, runAllocation, searchChartsForBatch, getCategories,
-  addCodersToBatch,
+  addCodersToBatch, gradeEDChart, getEDGrades, EDRubricPayload,
 } from '../../api'
 import { SPECIALTY_COLORS } from '../../theme'
 import { trainerName } from './shared'
 import { InsightsPanel } from './InsightsPanel'
 import styles from './styles'
+
+const IS_ED = (specialty: string) => specialty === 'Edits' || specialty === 'Denials'
+
+const RATIONALE_LABELS: Record<string, string> = {
+  acceptable: 'Acceptable (5%)',
+  needs_improvement: 'Needs Improvement (2.5%)',
+  not_acceptable: 'Not Acceptable (0%)',
+}
+
+function EDGradingPanel({ batch, onGraded }: { batch: any; onGraded: () => void }) {
+  const assignments: Array<{ coder_name: string; chart_id: number; chart_number: string }> =
+    (batch.allocation_cycles || []).flatMap((c: any) =>
+      (c.assignments || []).map((a: any) => ({
+        coder_name: a.coder_name,
+        chart_id: a.chart_id,
+        chart_number: a.chart_number,
+      }))
+    )
+
+  const coders: string[] = Array.from(new Set(assignments.map(a => a.coder_name)))
+  const [selectedCoder, setSelectedCoder] = useState(coders[0] || '')
+  const [existingGrades, setExistingGrades] = useState<Record<string, any>>({})
+  const [forms, setForms] = useState<Record<string, any>>({})
+  const [submitting, setSubmitting] = useState<string | null>(null)
+  const [expandedNote, setExpandedNote] = useState<string | null>(null)
+
+  const coderAssignments = assignments.filter(a => a.coder_name === selectedCoder)
+
+  useEffect(() => {
+    getEDGrades(batch.id).then(grades => {
+      const map: Record<string, any> = {}
+      grades.forEach(g => { map[`${g.coder_name}__${g.chart_id}`] = g })
+      setExistingGrades(map)
+    }).catch(() => {})
+  }, [batch.id])
+
+  function getForm(chartId: number) {
+    const key = `${selectedCoder}__${chartId}`
+    if (forms[key]) return forms[key]
+    const existing = existingGrades[key]?.rubric
+    return {
+      review_pass: existing?.review_pass ?? false,
+      research_coding_pass: existing?.research_coding_pass ?? false,
+      research_payer_pass: existing?.research_payer_pass ?? false,
+      research_nuances_pass: existing?.research_nuances_pass ?? false,
+      resolution_pass: existing?.resolution_pass ?? false,
+      rationale_tier: existing?.rationale_tier ?? 'not_acceptable',
+      trainer_note: existing?.trainer_note ?? '',
+    }
+  }
+
+  function setForm(chartId: number, patch: any) {
+    const key = `${selectedCoder}__${chartId}`
+    setForms(prev => ({ ...prev, [key]: { ...getForm(chartId), ...patch } }))
+  }
+
+  async function handleSubmit(chartId: number, regrade = false) {
+    const key = `${selectedCoder}__${chartId}`
+    const form = getForm(chartId)
+    setSubmitting(key)
+    try {
+      const payload: EDRubricPayload = {
+        coder_name: selectedCoder,
+        chart_id: chartId,
+        ...form,
+        graded_by: trainerName(),
+        regrade,
+      }
+      const res = await gradeEDChart(batch.id, payload)
+      if (res.needs_confirmation) {
+        if (window.confirm(`This chart already has a score of ${res.existing_score}. Re-grade and overwrite?`)) {
+          await handleSubmit(chartId, true)
+        }
+        return
+      }
+      toast.success(`Graded: ${res.total_score}% — ${res.pass_fail}`)
+      const updated = await getEDGrades(batch.id)
+      const map: Record<string, any> = {}
+      updated.forEach(g => { map[`${g.coder_name}__${g.chart_id}`] = g })
+      setExistingGrades(map)
+      setForms(prev => { const n = { ...prev }; delete n[key]; return n })
+      onGraded()
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail || 'Failed to save grade')
+    } finally {
+      setSubmitting(null)
+    }
+  }
+
+  if (assignments.length === 0) {
+    return (
+      <div style={{ fontSize: 13, color: '#6b7280', padding: '14px 16px', background: '#f8fafc', borderRadius: 8, border: '1px dashed #e5e7eb' }}>
+        No charts assigned yet — run an allocation cycle first.
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' as const, marginBottom: 14 }}>
+        {coders.map(c => (
+          <button key={c} onClick={() => setSelectedCoder(c)}
+            style={{ padding: '5px 14px', borderRadius: 20, fontSize: 13, fontWeight: 600, cursor: 'pointer', border: '1.5px solid',
+              background: selectedCoder === c ? '#eff6ff' : '#f9fafb',
+              color: selectedCoder === c ? '#1d4ed8' : '#374151',
+              borderColor: selectedCoder === c ? '#93c5fd' : '#e5e7eb' }}>
+            {c}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 12 }}>
+        {coderAssignments.map(({ chart_id, chart_number }) => {
+          const key = `${selectedCoder}__${chart_id}`
+          const form = getForm(chart_id)
+          const existing = existingGrades[key]
+          const isGraded = !!existing
+          const isBusy = submitting === key
+          const noteKey = `${key}__note`
+
+          return (
+            <div key={chart_id} style={{ border: `1.5px solid ${isGraded ? '#bbf7d0' : '#e5e7eb'}`, borderRadius: 10, padding: 14, background: isGraded ? '#f0fdf4' : '#fff' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                <span style={{ fontWeight: 700, fontSize: 14 }}>Chart {chart_number}</span>
+                {isGraded && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: existing.pass_fail === 'PASS' ? '#16a34a' : '#dc2626' }}>
+                      {existing.total_score}% — {existing.pass_fail}
+                    </span>
+                    {existing.rubric?.trainer_note && (
+                      <button onClick={() => setExpandedNote(expandedNote === noteKey ? null : noteKey)}
+                        style={{ fontSize: 11, padding: '2px 8px', borderRadius: 12, border: '1px solid #93c5fd', background: '#eff6ff', color: '#1d4ed8', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}>
+                        {expandedNote === noteKey ? <ChevronDown size={11} /> : <ChevronRight size={11} />} Trainer Note
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {isGraded && expandedNote === noteKey && existing.rubric?.trainer_note && (
+                <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 6, padding: '8px 12px', fontSize: 12, color: '#1e40af', marginBottom: 10 }}>
+                  {existing.rubric.trainer_note}
+                </div>
+              )}
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 20px', marginBottom: 10 }}>
+                {[
+                  ['review_pass', 'Review (30%) — EOB, letters, records reviewed'],
+                  ['research_coding_pass', 'Research: Coding Accuracy (10%)'],
+                  ['research_payer_pass', 'Research: Payer Policies (10%)'],
+                  ['research_nuances_pass', 'Research: Client/Claim Nuances (10%)'],
+                  ['resolution_pass', 'Resolution (35%)'],
+                ].map(([field, label]) => (
+                  <label key={field} style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, cursor: 'pointer', userSelect: 'none' as const }}>
+                    <input type="checkbox" checked={!!(form as any)[field]}
+                      onChange={e => setForm(chart_id, { [field]: e.target.checked })} />
+                    {label}
+                  </label>
+                ))}
+                <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 4 }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>Rationale Writing (5%)</span>
+                  <select value={form.rationale_tier} onChange={e => setForm(chart_id, { rationale_tier: e.target.value })}
+                    style={{ ...styles.select, fontSize: 12, padding: '4px 8px' }}>
+                    {Object.entries(RATIONALE_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ marginBottom: 10 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>
+                  Trainer Note <span style={{ fontWeight: 400, color: '#9ca3af' }}>(optional — visible to coder)</span>
+                </label>
+                <textarea value={form.trainer_note} onChange={e => setForm(chart_id, { trainer_note: e.target.value })}
+                  rows={2} placeholder="Feedback for the coder on this case..."
+                  style={{ ...styles.input, width: '100%', resize: 'vertical' as const, fontSize: 12, margin: 0 }} />
+              </div>
+
+              <button disabled={isBusy} onClick={() => handleSubmit(chart_id)}
+                style={{ ...(isBusy ? { ...styles.primaryBtn, opacity: 0.6 } : styles.primaryBtn), fontSize: 12, padding: '6px 14px' }}>
+                {isBusy ? <><Loader size={12} /> Saving…</> : isGraded ? 'Update Grade' : 'Save Grade'}
+              </button>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
 
 function AllocationPanel({ batch, onDone }: { batch: any; onDone: () => void }) {
   const allCoderNames: string[] = (batch.coders || []).map((c: any) => c.coder_name)
@@ -311,6 +499,7 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
   const sc = SPECIALTY_COLORS[batch.specialty as keyof typeof SPECIALTY_COLORS]
   const isOpen = batch.status === 'Open'
   const isIP = batch.specialty === 'IP-DRG'
+  const isED = IS_ED(batch.specialty)
   const totalCoders = batch.coders?.length || 0
   const totalAssigned = batch.coders?.reduce((sum: number, c: any) => sum + c.charts.length, 0) || 0
   const totalSubmitted = batch.coders?.reduce((sum: number, c: any) => sum + c.charts.filter((ch: any) => ch.submission_status === 'Submitted').length, 0) || 0
@@ -326,9 +515,14 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
   // Progression steps
   const steps = [
     { label: 'Run Cycle', done: hasCycles, active: !hasCycles },
-    { label: 'Download Sheets', done: hasCycles, active: hasCycles && totalSubmitted === 0 },
-    { label: 'Upload Returns', done: totalSubmitted > 0, active: hasCycles && totalSubmitted === 0 },
-    ...(isIP ? [{ label: 'DRG Review', done: !pendingDRG && hasResults, active: pendingDRG }] : []),
+    ...(isED
+      ? [{ label: 'Grade Cases', done: totalSubmitted > 0, active: hasCycles && totalSubmitted === 0 }]
+      : [
+          { label: 'Download Sheets', done: hasCycles, active: hasCycles && totalSubmitted === 0 },
+          { label: 'Upload Returns', done: totalSubmitted > 0, active: hasCycles && totalSubmitted === 0 },
+          ...(isIP ? [{ label: 'DRG Review', done: !pendingDRG && hasResults, active: pendingDRG }] : []),
+        ]
+    ),
     { label: 'View Results', done: false, active: hasResults && !pendingDRG },
     { label: 'Close Batch', done: !isOpen, active: canClose },
   ]
@@ -447,7 +641,7 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
         {showAllocationPanel && isOpen && <AllocationPanel batch={batch} onDone={() => { setShowAllocationPanel(false); loadBatch() }} />}
         {(batch.allocation_cycles || []).length === 0 && !showAllocationPanel && (
           <div style={{ fontSize: 13, color: '#6b7280', padding: '14px 16px', background: '#f8fafc', borderRadius: 8, border: '1px dashed #e5e7eb' }}>
-            No cycles yet. Click <strong>Run New Cycle</strong> above to assign charts to coders and generate their answer sheets.
+            No cycles yet. Click <strong>Run New Cycle</strong> above to assign charts to coders{isED ? ' — then grade each case using the rubric below.' : ' and generate their answer sheets.'}
           </div>
         )}
         {(batch.allocation_cycles || []).map((c: any) => (
@@ -457,13 +651,13 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
               <div style={{ fontSize: 13, fontWeight: 600 }}>{c.assigned_count} assignment{c.assigned_count !== 1 ? 's' : ''}{c.assigned_count > 0 ? ` · ${c.charts_per_coder} charts/coder` : ' — pool exhausted'}</div>
               <div style={{ fontSize: 11, color: '#9ca3af' }}>by {c.run_by} on {new Date(c.run_at).toLocaleDateString()}{c.notes && <span style={{ marginLeft: 8, color: '#6b7280' }}>— {c.notes}</span>}</div>
             </div>
-            {c.assigned_count > 0 && (
+            {c.assigned_count > 0 && !isED && (
               <button style={styles.outlineBtn} title={`Download a ZIP of all coder Excel answer sheets for Cycle ${c.cycle_number}`}
                 onClick={() => downloadCycleExcel(batchId, c.id)}><Download size={13} /> {c.cycle_number === 0 ? 'Legacy Sheets' : `Cycle ${c.cycle_number} Sheets`}</button>
             )}
           </div>
         ))}
-        {(batch.allocation_cycles || []).some((c: any) => c.assigned_count > 0) && (
+        {!isED && (batch.allocation_cycles || []).some((c: any) => c.assigned_count > 0) && (
           <div style={{ marginTop: 6 }}>
             <button style={{ ...styles.outlineBtn, fontSize: 12 }} title="Download answer sheets for ALL cycles bundled into one ZIP"
               onClick={() => downloadBatchExcel(batchId)}><Download size={13} /> All Cycles (ZIP)</button>
@@ -471,8 +665,15 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
         )}
       </div>
 
+      {isED && hasCycles && (
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontWeight: 700, fontSize: 14, color: '#374151', marginBottom: 10 }}>Manual Grading — Rubric</div>
+          <EDGradingPanel batch={batch} onGraded={loadBatch} />
+        </div>
+      )}
+
       <div style={styles.actionRow}>
-        {isOpen && (
+        {isOpen && !isED && (
           <label style={grading ? { ...styles.primaryBtn, opacity: 0.6 } : styles.primaryBtn}>
             {grading ? <><Loader size={14} /> Grading...</> : <><Upload size={15} /> Upload Returned Sheets</>}
             <input ref={fileRef} type="file" accept=".xlsx" multiple style={{ display: 'none' }} onChange={handleGradeUpload} disabled={grading} />
@@ -491,8 +692,10 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
               }}>
               ✦ {showInsights ? 'Hide Insights' : 'View Insights'}
             </button>
-            <button style={styles.outlineBtn} title="Download per-coder scores, pass/fail, and feedback detail as Excel (.xlsx)"
-              onClick={() => downloadBatchResultsExcel(batchId)}><Download size={15} /> Export Results (.xlsx)</button>
+            {!isED && (
+              <button style={styles.outlineBtn} title="Download per-coder scores, pass/fail, and feedback detail as Excel (.xlsx)"
+                onClick={() => downloadBatchResultsExcel(batchId)}><Download size={15} /> Export Results (.xlsx)</button>
+            )}
           </>
         )}
         {isOpen && closeBlockers.length === 0 && !confirmingClose && (

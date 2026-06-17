@@ -3,8 +3,13 @@ from models import Specialty
 from config import settings
 
 IP_SPECIALTIES = {Specialty.IP_DRG}
+ED_SPECIALTIES = {Specialty.EDITS, Specialty.DENIALS}
 MASTER_PASSPHRASE = settings.MASTER_ADMIN_PASSPHRASE
 
 
 def _is_ip(specialty: Specialty) -> bool:
     return specialty in IP_SPECIALTIES
+
+
+def _is_ed(specialty: Specialty) -> bool:
+    return specialty in ED_SPECIALTIES

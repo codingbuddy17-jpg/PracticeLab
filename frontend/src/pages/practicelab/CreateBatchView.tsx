@@ -156,7 +156,8 @@ export function CreateBatchView({ onCreated, scoringCfg, directMode: directModeP
 
       {pool && (
         <div style={styles.infoBox}>
-          <strong>Pool preview:</strong> {pool.total_matching} matching charts · {pool.with_answer_key} have answer keys
+          <strong>Pool preview:</strong> {pool.total_matching} matching charts
+          {pool.with_answer_key != null && <> · {pool.with_answer_key} have answer keys</>}
           {pool.with_answer_key === 0 && <span style={{ color: '#dc2626', marginLeft: 8 }}>⚠ Upload answer keys before running allocation.</span>}
         </div>
       )}

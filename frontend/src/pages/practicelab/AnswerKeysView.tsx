@@ -112,6 +112,7 @@ export function AnswerKeysView() {
   }
 
   const isIP = specialty === 'IP-DRG'
+  const isED = specialty === 'Edits' || specialty === 'Denials'
 
   return (
     <div style={styles.section}>
@@ -131,20 +132,29 @@ export function AnswerKeysView() {
             {SPECIALTIES.map(s => <option key={s}>{s}</option>)}
           </select>
         </div>
-        <button style={styles.outlineBtn} onClick={() => downloadAnswerKeyTemplate(isIP ? 'IP' : 'OP')}>
-          <Download size={15} /> Blank Template
-        </button>
-        <button style={{ ...styles.outlineBtn, color: '#16a34a', borderColor: '#86efac' }} onClick={() => setShowExportPrompt(s => !s)}>
-          <Download size={15} /> Export All Keys
-        </button>
-        <label style={uploading ? { ...styles.primaryBtn, opacity: 0.6 } : replaceMode ? { ...styles.primaryBtn, background: '#dc2626', borderColor: '#dc2626' } : styles.primaryBtn}>
-          {uploading ? <><Loader size={14} /> Uploading...</> : replaceMode ? <><RefreshCw size={15} /> Upload & Replace</> : <><Upload size={15} /> Upload Filled Key</>}
-          <input ref={fileRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={e => handleUpload(e, replaceRef.current?.value || '')} disabled={uploading} />
-        </label>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#6b7280', cursor: 'pointer', userSelect: 'none' as const }}>
-          <input type="checkbox" checked={replaceMode} onChange={e => setReplaceMode(e.target.checked)} />
-          Replace existing
-        </label>
+        {!isED && <>
+          <button style={styles.outlineBtn} onClick={() => downloadAnswerKeyTemplate(isIP ? 'IP' : 'OP')}>
+            <Download size={15} /> Blank Template
+          </button>
+          <button style={{ ...styles.outlineBtn, color: '#16a34a', borderColor: '#86efac' }} onClick={() => setShowExportPrompt(s => !s)}>
+            <Download size={15} /> Export All Keys
+          </button>
+          <label style={uploading ? { ...styles.primaryBtn, opacity: 0.6 } : replaceMode ? { ...styles.primaryBtn, background: '#dc2626', borderColor: '#dc2626' } : styles.primaryBtn}>
+            {uploading ? <><Loader size={14} /> Uploading...</> : replaceMode ? <><RefreshCw size={15} /> Upload & Replace</> : <><Upload size={15} /> Upload Filled Key</>}
+            <input ref={fileRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={e => handleUpload(e, replaceRef.current?.value || '')} disabled={uploading} />
+          </label>
+        </>}
+        {isED && (
+          <div style={{ ...styles.infoBox, margin: 0, color: '#6b7280' }}>
+            Answer keys are not used for <strong>{specialty}</strong> — grading is performed manually via the rubric in each batch.
+          </div>
+        )}
+        {!isED && (
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#6b7280', cursor: 'pointer', userSelect: 'none' as const }}>
+            <input type="checkbox" checked={replaceMode} onChange={e => setReplaceMode(e.target.checked)} />
+            Replace existing
+          </label>
+        )}
       </div>
 
       {/* Replace mode passphrase prompt */}
