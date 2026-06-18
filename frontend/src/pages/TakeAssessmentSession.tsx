@@ -119,6 +119,7 @@ export function TakeAssessmentSession() {
   }, [questions, token])
 
   // ── Flush all pending debounced saves before submit ─────────────────────────
+  // Throws if any save fails so the caller can block submission.
   async function flushPendingSaves(currentAnswers: Record<number, string | null>) {
     const pending = saveQueueRef.current
     const flushPromises: Promise<void>[] = []
@@ -129,7 +130,7 @@ export function TakeAssessmentSession() {
       const q = questions[idx]
       if (q) {
         flushPromises.push(
-          saveAnswer(token!, idx, q.question_id, currentAnswers[idx] ?? null).catch(() => {})
+          saveAnswer(token!, idx, q.question_id, currentAnswers[idx] ?? null).then(() => {})
         )
       }
     }
@@ -151,6 +152,12 @@ export function TakeAssessmentSession() {
     setSubmitting(true)
     try {
       await flushPendingSaves(answers)
+    } catch {
+      setSubmitting(false)
+      toast.error('Could not save your latest answer — check your connection and try submitting again.')
+      return
+    }
+    try {
       await submitSession(token!, false)
       setScreen('done')
     } catch (e: unknown) {

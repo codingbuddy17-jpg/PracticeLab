@@ -457,7 +457,7 @@ def upload_questions(
         existing = db.query(AssessmentQuestion).filter(AssessmentQuestion.question_id == qid).first()
         if existing:
             if existing.specialty != specialty:
-                errors.append(f"Row {row_idx}: Question_ID '{qid}' belongs to specialty '{existing.specialty}', not '{specialty}'. Upload aborted for this row.")
+                errors.append(f"Row {row_idx}: Question_ID '{qid}' belongs to specialty '{existing.specialty}', not '{specialty}' — skipped.")
                 continue
             existing.question_text = q_text
             existing.option_a = cell_val("Option_A")
