@@ -120,6 +120,6 @@ const s: Record<string, React.CSSProperties> = {
   totalChip: { fontSize: 12, fontWeight: 700, background: '#ede9fe', color: '#4f46e5', padding: '4px 12px', borderRadius: 20 },
   emptyState: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '60px 0', color: '#9ca3af' },
   grid: { display: 'grid', gridTemplateColumns: '1fr 1.4fr', gap: 16 },
-  card: { background: 'rgba(255,255,255,0.6)', backdropFilter: 'blur(14px)', border: '1px solid rgba(255,255,255,0.7)', borderRadius: 14, padding: '20px 22px', boxShadow: '0 4px 16px rgba(99,102,241,0.07)' },
-  cardTitle: { fontSize: 13, fontWeight: 800, color: '#111', textTransform: 'uppercase', letterSpacing: 0.4 },
+  card: { background: 'rgba(255,255,255,0.72)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)', border: '1px solid rgba(255,255,255,0.7)', borderRadius: 16, padding: '20px 22px', boxShadow: '0 4px 24px rgba(124,58,237,0.06), 0 1px 4px rgba(0,0,0,0.04)' },
+  cardTitle: { fontSize: 13, fontWeight: 800, color: '#374151', textTransform: 'uppercase', letterSpacing: 0.4, paddingLeft: 10, borderLeft: '3px solid #7c3aed' },
 }

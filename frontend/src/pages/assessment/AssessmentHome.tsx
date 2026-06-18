@@ -78,8 +78,8 @@ const styles: Record<string, React.CSSProperties> = {
   divider: { width: 1, height: 20, background: '#e5e7eb' },
   pageTitle: { fontSize: 16, fontWeight: 800, color: '#111', letterSpacing: -0.3 },
   portalBadge: { fontSize: 11, fontWeight: 700, background: 'linear-gradient(135deg, #7c3aed, #4f46e5)', color: '#fff', padding: '4px 12px', borderRadius: 20, textTransform: 'uppercase' as const, letterSpacing: 0.5 },
-  tabBar: { display: 'flex', gap: 4, padding: '12px 28px', background: 'rgba(255,255,255,0.5)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', borderBottom: '1px solid rgba(255,255,255,0.4)' },
-  tabBtn: { display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 10, border: '1px solid transparent', background: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#6b7280', transition: 'all 0.15s' },
-  tabBtnActive: { background: 'rgba(124,58,237,0.1)', border: '1px solid rgba(124,58,237,0.2)', color: '#7c3aed' },
+  tabBar: { display: 'flex', gap: 4, padding: '10px 28px', background: 'rgba(255,255,255,0.55)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', borderBottom: '1px solid rgba(124,58,237,0.12)' },
+  tabBtn: { display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 10, border: '1px solid transparent', background: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#9ca3af', transition: 'all 0.15s' },
+  tabBtnActive: { background: '#fff', border: '1px solid rgba(124,58,237,0.18)', color: '#7c3aed', boxShadow: '0 2px 8px rgba(124,58,237,0.12), 0 1px 2px rgba(0,0,0,0.06)' },
   content: { maxWidth: 1100, margin: '0 auto', padding: '28px 24px' },
 }

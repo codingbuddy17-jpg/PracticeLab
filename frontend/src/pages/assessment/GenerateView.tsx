@@ -339,7 +339,7 @@ export function GenerateView() {
       {/* Difficulty */}
       <div style={styles.panel}>
         <div style={styles.panelTitle}>Difficulty Distribution</div>
-        <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
+        <div style={{ display: 'inline-flex', background: '#f3f4f6', borderRadius: 10, padding: 3, gap: 2, marginBottom: 12 }}>
           {(['auto', 'manual'] as const).map(m => (
             <button key={m} style={{ ...styles.modeBtn, ...(diffMode === m ? styles.modeBtnActive : {}) }} onClick={() => setDiffMode(m)}>
               {m === 'auto' ? 'Auto-balance from pool' : 'Manual split'}
@@ -377,20 +377,20 @@ export function GenerateView() {
               ))}</tr>
             </thead>
             <tbody>
-              {poolData.map(row => {
+              {poolData.map((row, rowIdx) => {
                 const mixRow = specialtyMix.find(r => r.specialty === row.specialty)
                 const need = mixRow ? Math.round(totalQuestions * mixRow.pct / 100) : 0
                 const ok = row.active_count >= need
                 return (
-                  <tr key={row.specialty} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                    <td style={styles.td}>{row.specialty}</td>
+                  <tr key={row.specialty} style={{ borderBottom: '1px solid #f3f4f6', background: rowIdx % 2 === 0 ? 'rgba(249,250,251,0.6)' : 'transparent' }}>
+                    <td style={{ ...styles.td, fontWeight: 600 }}>{row.specialty}</td>
                     <td style={{ ...styles.td, fontWeight: 700 }}>{row.active_count}</td>
                     <td style={styles.td}>{need}</td>
-                    <td style={styles.td}>{row.easy}</td>
-                    <td style={styles.td}>{row.medium}</td>
-                    <td style={styles.td}>{row.hard}</td>
+                    <td style={{ ...styles.td, color: '#16a34a' }}>{row.easy}</td>
+                    <td style={{ ...styles.td, color: '#d97706' }}>{row.medium}</td>
+                    <td style={{ ...styles.td, color: '#dc2626' }}>{row.hard}</td>
                     <td style={styles.td}>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: ok ? '#16a34a' : '#dc2626' }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: ok ? '#dcfce7' : '#fee2e2', color: ok ? '#16a34a' : '#dc2626', display: 'inline-block' }}>
                         {ok ? '✓ OK' : '⚠ Short'}
                       </span>
                     </td>
@@ -429,17 +429,17 @@ export function GenerateView() {
 }
 
 const styles: Record<string, React.CSSProperties> = {
-  panel: { background: 'rgba(255,255,255,0.6)', backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)', border: '1px solid rgba(255,255,255,0.65)', borderRadius: 14, padding: '18px 20px' },
-  panelTitle: { fontSize: 13, fontWeight: 800, color: '#374151', marginBottom: 14 },
+  panel: { background: 'rgba(255,255,255,0.72)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)', border: '1px solid rgba(255,255,255,0.7)', borderRadius: 16, padding: '20px 22px', boxShadow: '0 4px 24px rgba(124,58,237,0.06), 0 1px 4px rgba(0,0,0,0.04)' },
+  panelTitle: { fontSize: 13, fontWeight: 800, color: '#374151', marginBottom: 14, paddingLeft: 10, borderLeft: '3px solid #7c3aed' },
   formGroup: { display: 'flex', flexDirection: 'column' as const, gap: 5 },
   label: { fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' as const, letterSpacing: 0.4 },
   input: { padding: '8px 12px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13, background: '#fff', color: '#374151', outline: 'none' },
   btnOutline: { display: 'flex', alignItems: 'center', gap: 5, padding: '7px 12px', border: '1px solid #e5e7eb', borderRadius: 8, background: 'rgba(255,255,255,0.7)', cursor: 'pointer', fontSize: 12, fontWeight: 600, color: '#374151' },
   btnPrimary: { display: 'flex', alignItems: 'center', gap: 6, padding: '9px 20px', background: 'linear-gradient(135deg, #7c3aed, #4f46e5)', color: '#fff', border: 'none', borderRadius: 9, cursor: 'pointer', fontSize: 13, fontWeight: 700 },
-  modeBtn: { padding: '8px 16px', border: '1px solid #e5e7eb', borderRadius: 8, background: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#6b7280' },
-  modeBtnActive: { background: 'rgba(124,58,237,0.1)', border: '1px solid rgba(124,58,237,0.3)', color: '#7c3aed' },
+  modeBtn: { padding: '7px 16px', border: '1px solid transparent', borderRadius: 8, background: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#6b7280', transition: 'all 0.15s' },
+  modeBtnActive: { background: '#fff', border: '1px solid rgba(124,58,237,0.18)', color: '#7c3aed', boxShadow: '0 1px 4px rgba(124,58,237,0.15)' },
   actionBtn: { display: 'flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, borderRadius: 7, border: '1px solid #e5e7eb', background: 'none', cursor: 'pointer', color: '#4b5563' },
-  th: { padding: '8px 12px', textAlign: 'left' as const, fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' as const, letterSpacing: 0.4, borderBottom: '1px solid #f3f4f6' },
+  th: { padding: '9px 12px', textAlign: 'left' as const, fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' as const, letterSpacing: 0.4, borderBottom: '2px solid #ede9fe', background: 'rgba(237,233,254,0.45)' },
   td: { padding: '9px 12px', color: '#374151' },
   tableWrap: { background: 'rgba(255,255,255,0.5)', border: '1px solid rgba(255,255,255,0.6)', borderRadius: 10, overflow: 'auto' },
   table: { width: '100%', borderCollapse: 'collapse' as const, fontSize: 13 },

@@ -240,9 +240,9 @@ export function UploadView() {
 
 const s: Record<string, React.CSSProperties> = {
   infoBox: { display: 'flex', gap: 10, background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: 10, padding: '12px 16px' },
-  card: { background: 'rgba(255,255,255,0.6)', backdropFilter: 'blur(14px)', border: '1px solid rgba(255,255,255,0.7)', borderRadius: 14, padding: '20px 22px', display: 'flex', flexDirection: 'column' as const, gap: 14 },
-  resultCard: { background: 'rgba(255,255,255,0.7)', backdropFilter: 'blur(14px)', border: '1px solid rgba(255,255,255,0.7)', borderRadius: 14, padding: '20px 22px', display: 'flex', flexDirection: 'column' as const, gap: 14 },
-  cardTitle: { fontSize: 13, fontWeight: 800, color: '#374151' },
+  card: { background: 'rgba(255,255,255,0.72)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)', border: '1px solid rgba(255,255,255,0.7)', borderRadius: 16, padding: '20px 22px', display: 'flex', flexDirection: 'column' as const, gap: 14, boxShadow: '0 4px 24px rgba(124,58,237,0.06), 0 1px 4px rgba(0,0,0,0.04)' },
+  resultCard: { background: 'rgba(255,255,255,0.72)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)', border: '1px solid rgba(255,255,255,0.7)', borderRadius: 16, padding: '20px 22px', display: 'flex', flexDirection: 'column' as const, gap: 14, boxShadow: '0 4px 24px rgba(124,58,237,0.06), 0 1px 4px rgba(0,0,0,0.04)' },
+  cardTitle: { fontSize: 13, fontWeight: 800, color: '#374151', paddingLeft: 10, borderLeft: '3px solid #7c3aed' },
   formGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 },
   field: { display: 'flex', flexDirection: 'column' as const, gap: 5 },
   label: { fontSize: 12, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' as const, letterSpacing: 0.4 },
