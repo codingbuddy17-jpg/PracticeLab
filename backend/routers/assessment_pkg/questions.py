@@ -253,7 +253,12 @@ def pool_preview(
         AssessmentQuestion.status == "Active",
     )
     if topic_filter:
-        q = q.filter(AssessmentQuestion.topic.ilike(f"%{topic_filter}%"))
+        topics = [t.strip() for t in topic_filter.split(",") if t.strip()]
+        if len(topics) == 1:
+            q = q.filter(AssessmentQuestion.topic.ilike(f"%{topics[0]}%"))
+        elif topics:
+            from sqlalchemy import or_
+            q = q.filter(or_(*[AssessmentQuestion.topic.ilike(f"%{t}%") for t in topics]))
     rows = q.group_by(AssessmentQuestion.difficulty).all()
 
     counts = {"Easy": 0, "Medium": 0, "Hard": 0}

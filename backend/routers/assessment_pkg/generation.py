@@ -194,7 +194,12 @@ def generate_assessment(req: GenerateRequest, db: Session = Depends(get_db)):
             AssessmentQuestion.status == "Active",
         )
         if item.topic_filter:
-            q = q.filter(AssessmentQuestion.topic.ilike(f"%{item.topic_filter}%"))
+            topics = [t.strip() for t in item.topic_filter.split(",") if t.strip()]
+            if len(topics) == 1:
+                q = q.filter(AssessmentQuestion.topic.ilike(f"%{topics[0]}%"))
+            elif topics:
+                from sqlalchemy import or_
+                q = q.filter(or_(*[AssessmentQuestion.topic.ilike(f"%{t}%") for t in topics]))
 
         pool: List[AssessmentQuestion] = q.all()
 

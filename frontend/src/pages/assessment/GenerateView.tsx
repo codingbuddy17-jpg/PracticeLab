@@ -239,7 +239,7 @@ export function GenerateView() {
                     </div>
                     <input
                       style={{ ...styles.input, flex: 1, minWidth: 140 }}
-                      placeholder="Topic filter (optional)"
+                      placeholder="Topics, comma-separated (optional)"
                       value={row.topicFilter}
                       onChange={e => updateRow(idx, 'topicFilter', e.target.value)}
                     />
