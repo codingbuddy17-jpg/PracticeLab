@@ -18,7 +18,8 @@ def get_chart_stats(db: Session = Depends(get_db)):
     """Quick stats for the TrainerHome dashboard."""
     total_charts = db.query(Chart).filter(Chart.status == ChartStatus.ACTIVE).count()
     open_feedback = db.query(ChartFeedback).filter(ChartFeedback.status == FeedbackStatus.OPEN).count()
-    return {"total_charts": total_charts, "open_feedback": open_feedback}
+    total_specialties = db.query(func.count(func.distinct(Chart.specialty))).filter(Chart.status == ChartStatus.ACTIVE).scalar() or 0
+    return {"total_charts": total_charts, "open_feedback": open_feedback, "total_specialties": total_specialties}
 
 
 @router.get("/search")

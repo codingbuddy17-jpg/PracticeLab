@@ -1,25 +1,15 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { Upload, BarChart2, FileText, Settings, BookOpen, Flag, GraduationCap, ChevronRight, ChevronDown, Plus, Trash2, ExternalLink, ClipboardList } from 'lucide-react'
-import toast from 'react-hot-toast'
-import { getUnresolvedCount, getPLAnalyticsOverview, getResources, createResource, deleteResource, getChartStats, getAssessmentStats } from '../api'
+import { FileText, BookOpen, GraduationCap, ChevronRight, ClipboardList } from 'lucide-react'
+import { getPLAnalyticsOverview, getChartStats, getAssessmentStats } from '../api'
 
 export function TrainerHome() {
-  const [unresolvedCount, setUnresolvedCount] = useState(0)
   const [plStats, setPlStats] = useState<{ total_batches: number; complete_batches: number; total_graded: number; overall_pass_rate: number } | null>(null)
-  const [resources, setResources] = useState<{ id: number; title: string; description: string | null; url: string }[]>([])
-  const [showAddResource, setShowAddResource] = useState(false)
-  const [newTitle, setNewTitle] = useState('')
-  const [newDesc, setNewDesc] = useState('')
-  const [newUrl, setNewUrl] = useState('')
-  const [chartStats, setChartStats] = useState<{ total_charts: number; open_feedback: number } | null>(null)
+  const [chartStats, setChartStats] = useState<{ total_charts: number; open_feedback: number; total_specialties: number } | null>(null)
   const [assessmentStats, setAssessmentStats] = useState<{ totalActive: number } | null>(null)
-  const trainerName = localStorage.getItem('trainer_name') || 'Trainer'
 
   useEffect(() => {
-    getUnresolvedCount().then(setUnresolvedCount).catch(() => {})
     getPLAnalyticsOverview().then(setPlStats).catch(() => {})
-    getResources().then(setResources).catch(() => {})
     getChartStats().then(setChartStats).catch(() => {})
     getAssessmentStats()
       .then(rows => {
@@ -28,27 +18,6 @@ export function TrainerHome() {
       })
       .catch(() => {})
   }, [])
-
-  async function handleAddResource() {
-    if (!newTitle.trim() || !newUrl.trim()) { toast.error('Title and URL are required'); return }
-    try {
-      await createResource({ title: newTitle.trim(), description: newDesc.trim() || undefined, url: newUrl.trim(), created_by: trainerName })
-      toast.success('Resource added')
-      setNewTitle(''); setNewDesc(''); setNewUrl(''); setShowAddResource(false)
-      getResources().then(setResources).catch(() => {})
-    } catch { toast.error('Failed to add resource') }
-  }
-
-  async function handleDeleteResource(id: number) {
-    try {
-      await deleteResource(id)
-      setResources(r => r.filter(x => x.id !== id))
-      toast.success('Resource removed')
-    } catch { toast.error('Failed to remove resource') }
-  }
-
-  const [chartBasketOpen, setChartBasketOpen] = useState(true)
-  const [showResourcesCard, setShowResourcesCard] = useState(false)
 
   return (
     <div style={styles.container}>
@@ -75,9 +44,9 @@ export function TrainerHome() {
           <span style={styles.plDividerLine} />
         </div>
 
-        {/* Chart Management bento — collapsible header */}
-        <div style={{ ...styles.bentoGrid, cursor: 'pointer' }} onClick={() => setChartBasketOpen(o => !o)}>
-          <div style={{ ...styles.bentoCell, ...styles.bentoCellMain, background: 'linear-gradient(145deg, #4f46e5 0%, #0891b2 100%)' }}>
+        {/* Chart Management bento */}
+        <div style={styles.bentoGrid}>
+          <Link to="/trainer/chart-management" style={{ ...styles.bentoCell, ...styles.bentoCellMain, background: 'linear-gradient(145deg, #4f46e5 0%, #0891b2 100%)' }}>
             <div style={styles.bentoTag}>Chart Library Engine</div>
             <div style={styles.bentoTitle}>
               <FileText size={20} style={{ flexShrink: 0 }} />
@@ -86,105 +55,35 @@ export function TrainerHome() {
             <div style={styles.bentoSubtitle}>
               Upload · Manage · Answer Keys · Reports · Analytics · Feedback
             </div>
-            <div style={{ ...styles.bentoCta, marginTop: 'auto' }}>
-              {chartBasketOpen ? <><ChevronDown size={14} strokeWidth={2.5} /> Collapse</> : <><ChevronRight size={14} strokeWidth={2.5} /> Expand</>}
+            <div style={styles.bentoCta}>
+              Open <ChevronRight size={14} strokeWidth={2.5} />
             </div>
-          </div>
+          </Link>
 
-          <div style={{ ...styles.bentoCell, ...styles.bentoCellStat, background: 'rgba(238,242,255,0.6)' }}>
+          <Link to="/trainer/chart-management" style={{ ...styles.bentoCell, ...styles.bentoCellStat, background: 'rgba(238,242,255,0.6)' }}>
             <div style={styles.bentoStatNum}>{chartStats?.total_charts ?? '—'}</div>
             <div style={styles.bentoStatLabel}>Active Charts</div>
             <div style={styles.bentoStatSub}>in the library</div>
-          </div>
+          </Link>
 
-          <div style={{ ...styles.bentoCell, ...styles.bentoCellStat, background: chartStats && chartStats.open_feedback > 0 ? 'rgba(254,226,226,0.5)' : 'rgba(240,253,244,0.5)' }}>
+          <Link to="/trainer/feedback" style={{ ...styles.bentoCell, ...styles.bentoCellStat, background: chartStats && chartStats.open_feedback > 0 ? 'rgba(254,226,226,0.5)' : 'rgba(240,253,244,0.5)' }}>
             <div style={{ ...styles.bentoStatNum, color: chartStats && chartStats.open_feedback > 0 ? '#dc2626' : '#15803d' }}>{chartStats?.open_feedback ?? '—'}</div>
             <div style={styles.bentoStatLabel}>Open Feedback</div>
             <div style={styles.bentoStatSub}>{chartStats?.open_feedback ? 'needs review' : 'all clear'}</div>
-          </div>
+          </Link>
 
-          <div style={{ ...styles.bentoCell, ...styles.bentoCellPassRate, background: 'rgba(238,242,255,0.3)' }}>
-            <div style={{ fontSize: 13, color: '#6b7280', lineHeight: 1.6 }}>
-              Click to {chartBasketOpen ? 'hide' : 'show'} the chart management tools — upload new charts, manage the library, configure answer keys, view reports and analytics, or review coder feedback.
+          <Link to="/trainer/chart-management" style={{ ...styles.bentoCell, ...styles.bentoCellPassRate, background: 'rgba(238,242,255,0.45)' }}>
+            <div style={styles.bentoPassRateRow}>
+              <div>
+                <div style={styles.bentoPassRateNum}>{chartStats?.total_specialties ?? '—'}</div>
+                <div style={styles.bentoStatLabel}>Specialties Covered</div>
+              </div>
+              <div style={{ fontSize: 12, color: '#4f46e5', fontWeight: 600 }}>
+                ICD-10 · Surgery · ED · IP-DRG · more
+              </div>
             </div>
-          </div>
+          </Link>
         </div>
-
-        {/* 6 utility cards — shown when basket is open */}
-        {chartBasketOpen && (
-          <>
-            <div style={{ ...styles.cmGrid, marginTop: 10 }}>
-              {[
-                { to: '/trainer/upload', icon: <Upload size={24} />, title: 'Upload Charts', desc: 'Bulk upload new charts with metadata', color: '#4f46e5', light: '#ede9fe', badge: null },
-                { to: '/trainer/charts', icon: <Settings size={24} />, title: 'Manage Charts', desc: 'Edit, retire, restore and add files to charts', color: '#0891b2', light: '#cffafe', badge: null },
-                { to: '/trainer/reports', icon: <FileText size={24} />, title: 'Reports', desc: 'Filter, view and export the chart library', color: '#16a34a', light: '#dcfce7', badge: null },
-                { to: '/trainer/analytics', icon: <BarChart2 size={24} />, title: 'Analytics', desc: 'Most viewed, least viewed, specialty breakdown', color: '#d97706', light: '#fef3c7', badge: null },
-                { to: '/trainer/feedback', icon: <Flag size={24} />, title: 'Feedback', desc: 'Review issues flagged by coders on charts', color: '#dc2626', light: '#fee2e2', badge: unresolvedCount > 0 ? unresolvedCount : null },
-              ].map(c => (
-                <Link key={c.to} to={c.to} style={styles.cmCard} onClick={e => e.stopPropagation()}>
-                  <div style={styles.cmCardTop}>
-                    <div style={{ ...styles.cmIconWrap, background: c.light, color: c.color }}>{c.icon}</div>
-                    {c.badge !== null && <span style={styles.cmCardBadge}>{c.badge}</span>}
-                  </div>
-                  <div style={styles.cmCardTitle}>{c.title}</div>
-                  <div style={styles.cmCardDesc}>{c.desc}</div>
-                </Link>
-              ))}
-
-              {/* Coding Resources card */}
-              <div style={{ ...styles.cmCard, cursor: 'pointer' }} onClick={e => { e.stopPropagation(); setShowResourcesCard(s => !s) }}>
-                <div style={styles.cmCardTop}>
-                  <div style={{ ...styles.cmIconWrap, background: '#f0fdf4', color: '#059669' }}><BookOpen size={24} /></div>
-                  {resources.length > 0 && <span style={{ ...styles.cmCardBadge, background: '#dcfce7', color: '#166534' }}>{resources.length}</span>}
-                </div>
-                <div style={styles.cmCardTitle}>Coding Resources</div>
-                <div style={styles.cmCardDesc}>Links visible to all coders — guides, PDFs, tools</div>
-              </div>
-            </div>
-
-            {/* Resources panel */}
-            {showResourcesCard && (
-              <div style={{ background: 'rgba(255,255,255,0.6)', backdropFilter: 'blur(14px)', border: '1px solid rgba(255,255,255,0.65)', borderRadius: 14, padding: 20, marginTop: 12 }} onClick={e => e.stopPropagation()}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: '#374151' }}>Coding Resources</div>
-                  <button style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: '#4f46e5', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 700 }} onClick={() => setShowAddResource(s => !s)}>
-                    <Plus size={14} /> Add Resource
-                  </button>
-                </div>
-                {showAddResource && (
-                  <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 10, padding: 16, marginBottom: 16, display: 'flex', flexDirection: 'column' as const, gap: 10 }}>
-                    <input style={{ padding: '9px 12px', border: '1px solid #e5e7eb', borderRadius: 7, fontSize: 13 }} placeholder="Title *" value={newTitle} onChange={e => setNewTitle(e.target.value)} />
-                    <input style={{ padding: '9px 12px', border: '1px solid #e5e7eb', borderRadius: 7, fontSize: 13 }} placeholder="Short description (optional)" value={newDesc} onChange={e => setNewDesc(e.target.value)} />
-                    <input style={{ padding: '9px 12px', border: '1px solid #e5e7eb', borderRadius: 7, fontSize: 13 }} placeholder="URL * (e.g. https://cms.gov/...)" value={newUrl} onChange={e => setNewUrl(e.target.value)} />
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <button style={{ padding: '8px 18px', background: '#4f46e5', color: '#fff', border: 'none', borderRadius: 7, cursor: 'pointer', fontSize: 13, fontWeight: 700 }} onClick={handleAddResource}>Save</button>
-                      <button style={{ padding: '8px 14px', background: 'none', border: '1px solid #e5e7eb', borderRadius: 7, cursor: 'pointer', fontSize: 13, color: '#6b7280' }} onClick={() => setShowAddResource(false)}>Cancel</button>
-                    </div>
-                  </div>
-                )}
-                {resources.length === 0 && !showAddResource && (
-                  <div style={{ fontSize: 13, color: '#9ca3af', textAlign: 'center' as const, padding: '20px 0' }}>No resources yet. Add links to coding guides, CMS PDFs, or tool URLs.</div>
-                )}
-                <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 8 }}>
-                  {resources.map(r => (
-                    <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: '#fff', border: '1px solid #f3f4f6', borderRadius: 8 }}>
-                      <ExternalLink size={13} style={{ color: '#4f46e5', flexShrink: 0 }} />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13, fontWeight: 700 }}>{r.title}</div>
-                        {r.description && <div style={{ fontSize: 11, color: '#6b7280' }}>{r.description}</div>}
-                        <div style={{ fontSize: 11, color: '#9ca3af', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{r.url}</div>
-                      </div>
-                      <a href={r.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: '#4f46e5', textDecoration: 'none', fontWeight: 600, flexShrink: 0 }}>Open</a>
-                      <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', padding: 4, display: 'flex' }} onClick={() => handleDeleteResource(r.id)} title="Remove resource">
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </>
-        )}
 
         {/* ── Assessment Modules divider ───────────────────────────────── */}
         <div style={styles.plDivider}>
@@ -296,14 +195,6 @@ const styles: Record<string, React.CSSProperties> = {
   content: { maxWidth: 860, margin: '0 auto', padding: '40px 24px' },
   welcomeText: { fontSize: 22, fontWeight: 800, color: '#111', marginBottom: 24, letterSpacing: -0.5 },
 
-  // Chart Management utility cards
-  cmGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 16 },
-  cmCard: { background: 'rgba(255,255,255,0.45)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.65)', borderRadius: 16, padding: '22px 18px', display: 'flex', flexDirection: 'column' as const, gap: 10, textDecoration: 'none', color: 'inherit', boxShadow: '0 8px 32px rgba(99,102,241,0.1), 0 1px 0 rgba(255,255,255,0.8) inset', transition: 'box-shadow 0.2s, transform 0.2s' },
-  cmCardTop: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' },
-  cmIconWrap: { width: 46, height: 46, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' },
-  cmCardBadge: { background: '#fee2e2', color: '#dc2626', fontSize: 12, fontWeight: 800, padding: '3px 9px', borderRadius: 20, minWidth: 24, textAlign: 'center' as const },
-  cmCardTitle: { fontWeight: 800, fontSize: 15, color: '#111' },
-  cmCardDesc: { fontSize: 13, color: '#6b7280', lineHeight: 1.5 },
 
   // Divider
   plDivider: { display: 'flex', alignItems: 'center', gap: 12, margin: '28px 0 20px' },

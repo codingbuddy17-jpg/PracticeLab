@@ -492,7 +492,7 @@ export function buildExportUrl(params: Record<string, string | undefined>) {
 
 // ── Charts stats ──────────────────────────────────────────────────────────────
 
-export async function getChartStats(): Promise<{ total_charts: number; open_feedback: number }> {
+export async function getChartStats(): Promise<{ total_charts: number; open_feedback: number; total_specialties: number }> {
   const { data } = await api.get('/charts/stats')
   return data
 }

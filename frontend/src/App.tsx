@@ -10,6 +10,7 @@ import { TrainerFeedback } from './pages/TrainerFeedback'
 import { TrainerPracticeLab } from './pages/TrainerPracticeLab'
 import { CoderSelfPractice } from './pages/CoderSelfPractice'
 import { AssessmentHome } from './pages/assessment/AssessmentHome'
+import { ChartManagementHome } from './pages/ChartManagementHome'
 
 export default function App() {
   return (
@@ -26,6 +27,7 @@ export default function App() {
         <Route path="/trainer/feedback" element={<TrainerFeedback />} />
         <Route path="/trainer/practicelab" element={<TrainerPracticeLab />} />
         <Route path="/trainer/assessment" element={<AssessmentHome />} />
+        <Route path="/trainer/chart-management" element={<ChartManagementHome />} />
       </Routes>
     </BrowserRouter>
   )
