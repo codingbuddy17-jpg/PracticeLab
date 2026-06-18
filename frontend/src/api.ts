@@ -526,6 +526,40 @@ export async function listAssessmentQuestions(params?: ListQuestionsParams) {
   return data as { total: number; page: number; page_size: number; results: unknown[] }
 }
 
+export async function verifyAssessmentPassphrase(trainerName: string, passphrase: string): Promise<boolean> {
+  try {
+    await api.post('/assessment/audit/verify-passphrase', null, {
+      params: { trainer_name: trainerName, passphrase },
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
+export async function logAssessmentAction(entry: {
+  trainer_name: string
+  action: string
+  specialty?: string
+  details?: string
+}) {
+  await api.post('/assessment/audit/log', entry).catch(() => {})
+}
+
+export async function getAssessmentAuditLogs(passphrase: string, specialty?: string) {
+  const { data } = await api.get('/assessment/audit/logs', {
+    params: { passphrase, specialty: specialty || undefined },
+  })
+  return data as Array<{
+    id: number
+    trainer_name: string
+    action: string
+    specialty: string | null
+    details: string | null
+    created_at: string
+  }>
+}
+
 export async function getAssessmentPoolSummary(specialty: string) {
   const { data } = await api.get('/assessment/questions/pool-summary', { params: { specialty } })
   return data as {
@@ -536,9 +570,9 @@ export async function getAssessmentPoolSummary(specialty: string) {
   }
 }
 
-export function exportAssessmentQuestions(specialty: string, passphrase: string): void {
+export function exportAssessmentQuestions(specialty: string, passphrase: string, trainerName: string): void {
   const base = import.meta.env.VITE_API_URL || '/api'
-  window.open(`${base}/assessment/questions/export?specialty=${encodeURIComponent(specialty)}&passphrase=${encodeURIComponent(passphrase)}`, '_blank')
+  window.open(`${base}/assessment/questions/export?specialty=${encodeURIComponent(specialty)}&passphrase=${encodeURIComponent(passphrase)}&trainer_name=${encodeURIComponent(trainerName)}`, '_blank')
 }
 
 export async function uploadAssessmentQuestions(specialty: string, uploadedBy: string, file: File) {

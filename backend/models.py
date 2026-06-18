@@ -515,3 +515,14 @@ class GeneratedAssessmentStudent(Base):
     questions_json = Column(JSON, nullable=False)
 
     assessment = relationship("GeneratedAssessment", back_populates="students")
+
+
+class AssessmentAuditLog(Base):
+    __tablename__ = "assessment_audit_log"
+
+    id = Column(Integer, primary_key=True)
+    trainer_name = Column(String(100), nullable=False)
+    action = Column(String(50), nullable=False)   # upload, download, edit, retire, reactivate, view_bank, generate
+    specialty = Column(String(50), nullable=True)
+    details = Column(Text, nullable=True)          # free-text or JSON string
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

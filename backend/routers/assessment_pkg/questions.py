@@ -15,8 +15,13 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment
 
 from database import get_db
-from models import AssessmentQuestion
+from models import AssessmentQuestion, AssessmentAuditLog
 from config import settings
+
+
+def _audit(db: Session, trainer: str, action: str, specialty: Optional[str] = None, details: Optional[str] = None):
+    db.add(AssessmentAuditLog(trainer_name=trainer, action=action, specialty=specialty, details=details))
+    db.commit()
 
 router = APIRouter()
 
@@ -183,6 +188,7 @@ def pool_summary(specialty: str = Query(...), db: Session = Depends(get_db)):
 def export_questions(
     specialty: str = Query(...),
     passphrase: str = Query(...),
+    trainer_name: str = Query(default="Trainer"),
     db: Session = Depends(get_db),
 ):
     """Passphrase-protected XLSX export of full question bank for a specialty."""
@@ -223,6 +229,7 @@ def export_questions(
     wb.save(buf)
     buf.seek(0)
     filename = f"questions_{specialty.replace(' ', '_').replace('&', 'and')}.xlsx"
+    _audit(db, trainer_name, "download", specialty, f"Downloaded {len(qs)} questions")
     return StreamingResponse(
         buf,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -402,6 +409,8 @@ def upload_questions(
             stored.append(qid)
 
     db.commit()
+    _audit(db, uploaded_by, "upload", specialty,
+           f"Stored/updated {len(stored)} questions, {len(errors)} errors")
     return {"stored": len(stored), "stored_ids": stored, "skipped": len(skipped), "errors": errors}
 
 
@@ -419,6 +428,8 @@ def update_question_status(
         raise HTTPException(status_code=400, detail="status must be Active or Inactive")
     q.status = status
     db.commit()
+    action = "retire" if status == "Inactive" else "reactivate"
+    _audit(db, updated_by, action, q.specialty, f"{question_id} → {status}")
     return {"question_id": question_id, "status": status}
 
 
@@ -434,11 +445,13 @@ def update_question(
 
     allowed = {"question_text", "option_a", "option_b", "option_c", "option_d",
                "correct_answer", "difficulty", "topic", "question_type"}
+    updated_by = payload.get("updated_by", "Trainer")
     for key, val in payload.items():
         if key in allowed:
             setattr(q, key, val)
 
     db.commit()
+    _audit(db, str(updated_by), "edit", q.specialty, f"Edited {question_id}")
     return _q_out(q)
 
 

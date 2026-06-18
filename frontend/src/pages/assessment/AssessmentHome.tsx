@@ -1,12 +1,13 @@
 import { useState } from 'react'
-import { ArrowLeft, BarChart2, Lock, PlusSquare, Clock } from 'lucide-react'
+import { ArrowLeft, BarChart2, Lock, PlusSquare, Clock, Upload } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { PoolSummaryView } from './PoolSummaryView'
+import { UploadView } from './UploadView'
 import { QuestionBankView } from './QuestionBankView'
 import { GenerateView } from './GenerateView'
 import { AssessmentHistoryView } from './AssessmentHistoryView'
 
-type Tab = 'summary' | 'bank' | 'generate' | 'history'
+type Tab = 'summary' | 'upload' | 'bank' | 'generate' | 'history'
 
 export function AssessmentHome() {
   const navigate = useNavigate()
@@ -14,6 +15,7 @@ export function AssessmentHome() {
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: 'summary', label: 'Pool Summary', icon: <BarChart2 size={15} /> },
+    { id: 'upload', label: 'Upload Questions', icon: <Upload size={15} /> },
     { id: 'bank', label: 'Question Bank', icon: <Lock size={15} /> },
     { id: 'generate', label: 'Generate', icon: <PlusSquare size={15} /> },
     { id: 'history', label: 'History', icon: <Clock size={15} /> },
@@ -51,6 +53,7 @@ export function AssessmentHome() {
 
       <div style={styles.content}>
         {activeTab === 'summary' && <PoolSummaryView />}
+        {activeTab === 'upload' && <UploadView />}
         {activeTab === 'bank' && <QuestionBankView />}
         {activeTab === 'generate' && <GenerateView />}
         {activeTab === 'history' && <AssessmentHistoryView />}

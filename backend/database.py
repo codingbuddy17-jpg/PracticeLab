@@ -269,6 +269,16 @@ def _run_migrations():
         questions_json TEXT NOT NULL DEFAULT '[]'
     )""")
 
+    # ── assessment_audit_log table ────────────────────────────────────────────
+    _run("""CREATE TABLE IF NOT EXISTS assessment_audit_log (
+        id INTEGER PRIMARY KEY,
+        trainer_name VARCHAR(100) NOT NULL,
+        action VARCHAR(50) NOT NULL,
+        specialty VARCHAR(50),
+        details TEXT,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    )""")
+
     # ── Seed assessment sample questions if table is empty ────────────────────
     from services.assessment_seed import seed_sample_questions
     from sqlalchemy import text as _text
