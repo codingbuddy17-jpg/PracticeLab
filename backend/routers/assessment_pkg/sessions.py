@@ -84,6 +84,12 @@ def create_sessions(req: CreateSessionsRequest, db: Session = Depends(get_db)):
         if not token:
             raise HTTPException(status_code=500, detail="Failed to generate unique session token. Please retry.")
 
+        # Try to find this coder's dedicated student slot by name match
+        slot = db.query(GeneratedAssessmentStudent).filter(
+            GeneratedAssessmentStudent.assessment_id == req.assessment_id,
+            GeneratedAssessmentStudent.student_label == name,
+        ).first()
+
         session = AssessmentSession(
             session_token=token,
             assessment_id=req.assessment_id,
@@ -92,6 +98,7 @@ def create_sessions(req: CreateSessionsRequest, db: Session = Depends(get_db)):
             duration_minutes=req.duration_minutes,
             expires_at=expires_at,
             status="pending",
+            student_slot_id=slot.id if slot else None,
         )
         db.add(session)
         created.append({

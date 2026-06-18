@@ -118,10 +118,29 @@ export function TakeAssessmentSession() {
     }, 400)
   }, [questions, token])
 
+  // ── Flush all pending debounced saves before submit ─────────────────────────
+  async function flushPendingSaves(currentAnswers: Record<number, string | null>) {
+    const pending = saveQueueRef.current
+    const flushPromises: Promise<void>[] = []
+    for (const idxStr of Object.keys(pending)) {
+      const idx = Number(idxStr)
+      clearTimeout(pending[idx])
+      delete pending[idx]
+      const q = questions[idx]
+      if (q) {
+        flushPromises.push(
+          saveAnswer(token!, idx, q.question_id, currentAnswers[idx] ?? null).catch(() => {})
+        )
+      }
+    }
+    if (flushPromises.length > 0) await Promise.all(flushPromises)
+  }
+
   // ── Auto-submit on timer expiry ──────────────────────────────────────────────
   async function handleAutoSubmit() {
     toast('Time is up! Submitting your assessment…', { icon: '⏱️', duration: 4000 })
     try {
+      await flushPendingSaves(answers)
       await submitSession(token!, true)
       setScreen('done')
     } catch { /* already submitted or network error */ }
@@ -131,6 +150,7 @@ export function TakeAssessmentSession() {
   async function handleSubmit() {
     setSubmitting(true)
     try {
+      await flushPendingSaves(answers)
       await submitSession(token!, false)
       setScreen('done')
     } catch (e: unknown) {

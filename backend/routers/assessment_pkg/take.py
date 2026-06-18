@@ -67,7 +67,18 @@ def get_session_info(token: str, db: Session = Depends(get_db)):
     now = datetime.now(timezone.utc)
 
     if s.status == "submitted":
-        raise HTTPException(status_code=410, detail="This assessment has already been submitted.")
+        return {
+            "session_token": s.session_token,
+            "coder_name": s.coder_name,
+            "employee_id": s.employee_id,
+            "status": "submitted",
+            "duration_minutes": s.duration_minutes,
+            "expires_at": s.expires_at.isoformat(),
+            "started_at": s.started_at.isoformat() if s.started_at else None,
+            "time_limit_ends_at": s.time_limit_ends_at.isoformat() if s.time_limit_ends_at else None,
+            "time_remaining_seconds": None,
+            "total_questions": 0,
+        }
 
     if s.status == "pending" and now > s.expires_at:
         raise HTTPException(
