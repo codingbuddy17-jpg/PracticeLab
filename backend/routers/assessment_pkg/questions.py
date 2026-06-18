@@ -201,8 +201,23 @@ def export_questions(
 
     wb = openpyxl.Workbook()
     ws = wb.active
-    ws.title = "Questions"
+    ws.title = specialty[:31]
+    _write_specialty_sheet(ws, qs)
 
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    filename = f"questions_{specialty.replace(' ', '_').replace('&', 'and')}.xlsx"
+    _audit(db, trainer_name, "download", specialty, f"Downloaded {len(qs)} questions")
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def _write_specialty_sheet(ws: openpyxl.worksheet.worksheet.Worksheet, qs: list) -> None:
+    """Write header + question rows into a worksheet (reused for single and multi-tab exports)."""
     header_fill = PatternFill("solid", fgColor="4F46E5")
     header_font = Font(bold=True, color="FFFFFF")
     for col_idx, h in enumerate(TEMPLATE_HEADERS, start=1):
@@ -226,11 +241,56 @@ def export_questions(
     for col_idx, w in enumerate(widths, start=1):
         ws.column_dimensions[openpyxl.utils.get_column_letter(col_idx)].width = w
 
+
+@router.get("/questions/export-all")
+def export_all_questions(
+    passphrase: str = Query(...),
+    trainer_name: str = Query(default="Trainer"),
+    specialty: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    """Export full question bank as a multi-tab XLSX (one tab per specialty).
+    If specialty is provided, exports only that specialty as a single tab.
+    Passphrase-protected. Audit-logged.
+    """
+    if passphrase != settings.MASTER_ADMIN_PASSPHRASE:
+        raise HTTPException(status_code=403, detail="Invalid passphrase")
+
+    specialties_to_export: List[str] = [specialty] if specialty else sorted(SPECIALTY_PREFIX.keys())
+
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)  # remove default empty sheet
+
+    total_questions = 0
+    for sp in specialties_to_export:
+        qs = (
+            db.query(AssessmentQuestion)
+            .filter(AssessmentQuestion.specialty == sp)
+            .order_by(AssessmentQuestion.question_id)
+            .all()
+        )
+        # Tab name: max 31 chars (Excel limit), strip special chars
+        tab_name = sp[:31]
+        ws = wb.create_sheet(title=tab_name)
+        _write_specialty_sheet(ws, qs)
+        total_questions += len(qs)
+
+    if not wb.worksheets:
+        raise HTTPException(status_code=404, detail="No questions found to export.")
+
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
-    filename = f"questions_{specialty.replace(' ', '_').replace('&', 'and')}.xlsx"
-    _audit(db, trainer_name, "download", specialty, f"Downloaded {len(qs)} questions")
+
+    if specialty:
+        filename = f"questions_{specialty.replace(' ', '_').replace('&', 'and')}.xlsx"
+        audit_detail = f"Downloaded {total_questions} questions for {specialty}"
+        _audit(db, trainer_name, "download", specialty, audit_detail)
+    else:
+        filename = "question_bank_all_specialties.xlsx"
+        audit_detail = f"Downloaded full inventory — {total_questions} questions across {len(specialties_to_export)} specialties"
+        _audit(db, trainer_name, "download", None, audit_detail)
+
     return StreamingResponse(
         buf,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

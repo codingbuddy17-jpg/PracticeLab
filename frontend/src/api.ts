@@ -575,6 +575,13 @@ export function exportAssessmentQuestions(specialty: string, passphrase: string,
   window.open(`${base}/assessment/questions/export?specialty=${encodeURIComponent(specialty)}&passphrase=${encodeURIComponent(passphrase)}&trainer_name=${encodeURIComponent(trainerName)}`, '_blank')
 }
 
+export function exportAllAssessmentQuestions(passphrase: string, trainerName: string, specialty?: string): void {
+  const base = import.meta.env.VITE_API_URL || '/api'
+  const params = new URLSearchParams({ passphrase, trainer_name: trainerName })
+  if (specialty) params.set('specialty', specialty)
+  window.open(`${base}/assessment/questions/export-all?${params}`, '_blank')
+}
+
 export async function uploadAssessmentQuestions(specialty: string, uploadedBy: string, file: File) {
   const form = new FormData()
   form.append('specialty', specialty)

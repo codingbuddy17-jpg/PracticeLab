@@ -1,9 +1,10 @@
 import { useState, useRef } from 'react'
-import { Lock, CheckCircle, XCircle, RefreshCw, Edit2, X, Check, Eye, Search, ClipboardList, BookOpen } from 'lucide-react'
+import { Lock, CheckCircle, XCircle, RefreshCw, Edit2, X, Check, Eye, Search, ClipboardList, BookOpen, Download, Layers } from 'lucide-react'
 import toast from 'react-hot-toast'
 import {
   listAssessmentQuestions,
   exportAssessmentQuestions,
+  exportAllAssessmentQuestions,
   updateQuestionStatus,
   updateQuestion,
   verifyAssessmentPassphrase,
@@ -231,6 +232,38 @@ export function QuestionBankView() {
 
       {bankTab === 'browse' && (
         <>
+          {/* Download Inventory panel */}
+          <div style={s.panel}>
+            <div style={s.panelTitle}>Download Question Inventory</div>
+            <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>
+              All downloads are passphrase-protected and logged in the audit trail.
+            </div>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' as const, alignItems: 'center' }}>
+              <button
+                style={{ ...s.btnPrimary, gap: 7 }}
+                onClick={() => exportAllAssessmentQuestions(passphrase, trainerName)}
+              >
+                <Layers size={13} /> Download Full Inventory (All Specialties)
+              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 12, color: '#6b7280', fontWeight: 600 }}>or single specialty:</span>
+                <select
+                  style={{ ...s.select, minWidth: 160 }}
+                  defaultValue=""
+                  onChange={(e) => {
+                    if (e.target.value) {
+                      exportAllAssessmentQuestions(passphrase, trainerName, e.target.value)
+                      e.target.value = ''
+                    }
+                  }}
+                >
+                  <option value="" disabled>Select specialty…</option>
+                  {SPECIALTIES.map(sp => <option key={sp} value={sp}>{sp}</option>)}
+                </select>
+              </div>
+            </div>
+          </div>
+
           {/* Filter + show panel */}
           <div style={s.panel}>
             <div style={s.panelTitle}>Browse Questions</div>
@@ -254,12 +287,6 @@ export function QuestionBankView() {
               <button style={s.btnPrimary} onClick={() => { setPage(1); loadQuestions(1) }}>
                 <Eye size={13} /> Show Questions
               </button>
-              {filterSpecialty && (
-                <button style={{ ...s.btnOutline, borderColor: '#7c3aed', color: '#7c3aed' }}
-                  onClick={() => exportAssessmentQuestions(filterSpecialty, passphrase, trainerName)}>
-                  Download {filterSpecialty}
-                </button>
-              )}
             </div>
           </div>
 
