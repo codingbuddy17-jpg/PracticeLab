@@ -10,9 +10,11 @@ body {
 button { font-family: inherit; }
 input, select, textarea { font-family: inherit; }
 
-button:hover { opacity: 0.88; }
-button:active { transform: scale(0.98); }
 button:disabled { cursor: not-allowed; }
+
+/* Intentional hover/press only on primary action buttons — not icon-only, close, or utility controls */
+button.pl-btn:hover { opacity: 0.88; }
+button.pl-btn:active { transform: scale(0.98); }
 
 a:hover > div { box-shadow: 0 4px 16px rgba(0,0,0,0.1); transform: translateY(-1px); }
 
@@ -54,6 +56,13 @@ input:focus, select:focus { border-color: #a5b4fc !important; outline: none; box
 .pl-tr:hover { background: #f5f3ff !important; }
 .pl-tr-alt { background: #fafafa; }
 .pl-tr-alt:hover { background: #ede9fe !important; }
+
+/* PracticeLab primary/outline button hover — applied via className="pl-btn" */
+button.pl-btn-primary { background: #4f46e5; color: #fff; transition: background 0.15s; }
+button.pl-btn-primary:hover { background: #4338ca; }
+button.pl-btn-primary:active { background: #3730a3; transform: scale(0.98); }
+button.pl-btn-outline { transition: border-color 0.15s, color 0.15s; }
+button.pl-btn-outline:hover { border-color: #a5b4fc; color: #4f46e5; }
 
 /* PracticeLab batch row hover */
 .pl-batch-row { transition: box-shadow 0.15s, background 0.1s; }

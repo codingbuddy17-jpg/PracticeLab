@@ -175,7 +175,7 @@ export function ResultsView({ batchId }: any) {
                         ].map((s, si) => (
                           <div key={si} style={{ textAlign: 'center' as const, padding: '16px 24px', borderRight: '1px solid #e0e7ff' }}>
                             <div style={{ fontSize: 26, fontWeight: 800, color: s.color, lineHeight: 1 }}>{s.value}</div>
-                            <div style={{ fontSize: 10, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.5, marginTop: 5 }}>{s.label}</div>
+                            <div style={{ fontSize: 11, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.5, marginTop: 6 }}>{s.label}</div>
                           </div>
                         ))}
                       </div>
@@ -190,7 +190,7 @@ export function ResultsView({ batchId }: any) {
                           ].filter(Boolean).map((s: any, si, arr) => (
                             <div key={si} style={{ textAlign: 'center' as const, padding: '16px 20px', flex: 1, borderRight: si < arr.length - 1 ? '1px solid #e0e7ff' : 'none', background: s.bold ? '#f5f3ff' : undefined }}>
                               <div style={{ fontSize: 26, fontWeight: 800, color: s.color, lineHeight: 1 }}>{s.value}</div>
-                              <div style={{ fontSize: 10, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.5, marginTop: 5 }}>{s.label}</div>
+                              <div style={{ fontSize: 11, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.5, marginTop: 6 }}>{s.label}</div>
                             </div>
                           ))}
                         </div>
@@ -199,7 +199,7 @@ export function ResultsView({ batchId }: any) {
                   </div>
 
                   {/* Per-chart header */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '100px 1fr 100px 70px', gap: 8, padding: '6px 12px', fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid #f0f0f0' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '100px 1fr 100px 70px', gap: 8, padding: '8px 12px', fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid #f0f0f0' }}>
                     <span>Chart</span>
                     <span>Category</span>
                     <span style={{ textAlign: 'center' }}>Accuracy</span>
@@ -213,14 +213,14 @@ export function ResultsView({ batchId }: any) {
                       <div key={ch.chart_number}>
                         <div
                           className={ci % 2 === 1 ? 'pl-tr-alt' : 'pl-tr'}
-                          style={{ display: 'grid', gridTemplateColumns: '100px 1fr 100px 70px', gap: 8, padding: '8px 12px', alignItems: 'center', cursor: ch.feedback?.length ? 'pointer' : 'default' }}
+                          style={{ display: 'grid', gridTemplateColumns: '100px 1fr 100px 70px', gap: 8, padding: '10px 12px', alignItems: 'center', cursor: ch.feedback?.length ? 'pointer' : 'default' }}
                           onClick={() => ch.feedback?.length && setExpandedChart(chartOpen ? null : chartKey)}
                         >
                           <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontWeight: 600, fontSize: 13 }}>
                             {ch.feedback?.length > 0 && (chartOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />)}
                             {ch.chart_number}
                           </span>
-                          <span style={{ fontSize: 12, color: '#374151' }}>
+                          <span style={{ fontSize: 13, color: '#374151' }}>
                             {ch.category || '—'}
                             {ch.specialty && <span style={{ ...styles.badge, marginLeft: 6, fontSize: 10, padding: '1px 6px' }}>{ch.specialty}</span>}
                           </span>

@@ -125,35 +125,43 @@ export function AnswerKeysView() {
         Deleting a key requires the master passphrase and allows re-uploading a corrected version.
       </p>
 
-      <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 20 }}>
-        <div>
-          <label style={styles.label}>Specialty type</label>
-          <select style={styles.select} value={specialty} onChange={e => setSpecialty(e.target.value)}>
-            {SPECIALTIES.map(s => <option key={s}>{s}</option>)}
-          </select>
-        </div>
-        {!isED && <>
-          <button style={styles.outlineBtn} onClick={() => downloadAnswerKeyTemplate(isIP ? 'IP' : 'OP')}>
-            <Download size={15} /> Blank Template
-          </button>
-          <button style={{ ...styles.outlineBtn, color: '#16a34a', borderColor: '#86efac' }} onClick={() => setShowExportPrompt(s => !s)}>
-            <Download size={15} /> Export All Keys
-          </button>
-          <label style={uploading ? { ...styles.primaryBtn, opacity: 0.6 } : replaceMode ? { ...styles.primaryBtn, background: '#dc2626', borderColor: '#dc2626' } : styles.primaryBtn}>
-            {uploading ? <><Loader size={14} /> Uploading...</> : replaceMode ? <><RefreshCw size={15} /> Upload & Replace</> : <><Upload size={15} /> Upload Filled Key</>}
-            <input ref={fileRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={e => handleUpload(e, replaceRef.current?.value || '')} disabled={uploading} />
-          </label>
-        </>}
-        {isED && (
-          <div style={{ ...styles.infoBox, margin: 0, color: '#6b7280' }}>
-            Answer keys are not used for <strong>{specialty}</strong> — grading is performed manually via the rubric in each batch.
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 20 }}>
+        {/* Row 1: filter + primary action */}
+        <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+          <div>
+            <label style={styles.label}>Specialty type</label>
+            <select style={styles.select} value={specialty} onChange={e => setSpecialty(e.target.value)}>
+              {SPECIALTIES.map(s => <option key={s}>{s}</option>)}
+            </select>
           </div>
-        )}
+          {!isED && (
+            <label style={uploading ? { ...styles.primaryBtn, opacity: 0.6 } : replaceMode ? { ...styles.primaryBtn, background: '#dc2626' } : styles.primaryBtn}>
+              {uploading ? <><Loader size={14} /> Uploading...</> : replaceMode ? <><RefreshCw size={15} /> Upload & Replace</> : <><Upload size={15} /> Upload Filled Key</>}
+              <input ref={fileRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={e => handleUpload(e, replaceRef.current?.value || '')} disabled={uploading} />
+            </label>
+          )}
+          {isED && (
+            <div style={{ ...styles.infoBox, margin: 0 }}>
+              Answer keys are not used for <strong>{specialty}</strong> — grading is performed manually via the rubric in each batch.
+            </div>
+          )}
+        </div>
+
+        {/* Row 2: secondary actions + destructive toggle */}
         {!isED && (
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#6b7280', cursor: 'pointer', userSelect: 'none' as const }}>
-            <input type="checkbox" checked={replaceMode} onChange={e => setReplaceMode(e.target.checked)} />
-            Replace existing
-          </label>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <button style={styles.outlineBtn} onClick={() => downloadAnswerKeyTemplate(isIP ? 'IP' : 'OP')}>
+              <Download size={15} /> Blank Template
+            </button>
+            <button style={{ ...styles.outlineBtn, color: '#16a34a', borderColor: '#86efac' }} onClick={() => setShowExportPrompt(s => !s)}>
+              <Download size={15} /> Export All Keys
+            </button>
+            <span style={{ width: 1, height: 20, background: '#e5e7eb', display: 'inline-block', margin: '0 4px' }} />
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: replaceMode ? '#dc2626' : '#6b7280', cursor: 'pointer', userSelect: 'none' as const, fontWeight: replaceMode ? 600 : 400 }}>
+              <input type="checkbox" checked={replaceMode} onChange={e => setReplaceMode(e.target.checked)} />
+              Replace existing (destructive)
+            </label>
+          </div>
         )}
       </div>
 
