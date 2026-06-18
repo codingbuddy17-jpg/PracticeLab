@@ -130,7 +130,7 @@ export function CoderHome() {
       {/* Decorative background — education theme, pointer-events none */}
       <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 0 }}>
         {/* Top-right floating graduation cap */}
-        <svg width="180" height="160" viewBox="0 0 180 160" style={{ position: 'absolute', top: 60, right: 40, opacity: 0.07 }}>
+        <svg width="180" height="160" viewBox="0 0 180 160" style={{ position: 'absolute', top: 60, right: 40, opacity: 0.18 }}>
           <polygon points="90,20 170,60 90,100 10,60" fill="#4f46e5" />
           <polygon points="90,100 10,60 10,95 90,135" fill="#6366f1" />
           <polygon points="90,100 170,60 170,95 90,135" fill="#4f46e5" />
@@ -138,7 +138,7 @@ export function CoderHome() {
           <circle cx="170" cy="110" r="8" fill="#818cf8" />
         </svg>
         {/* Bottom-left open book */}
-        <svg width="200" height="160" viewBox="0 0 200 160" style={{ position: 'absolute', bottom: 60, left: -20, opacity: 0.07 }}>
+        <svg width="200" height="160" viewBox="0 0 200 160" style={{ position: 'absolute', bottom: 60, left: -20, opacity: 0.15 }}>
           <path d="M100,30 Q60,20 20,30 L20,130 Q60,120 100,130 Z" fill="#4f46e5" />
           <path d="M100,30 Q140,20 180,30 L180,130 Q140,120 100,130 Z" fill="#6366f1" />
           <line x1="100" y1="30" x2="100" y2="130" stroke="#312e81" strokeWidth="4" />
@@ -150,7 +150,7 @@ export function CoderHome() {
           <line x1="110" y1="85" x2="165" y2="80" stroke="#fff" strokeWidth="3" strokeLinecap="round" opacity="0.6" />
         </svg>
         {/* Center-right clipboard */}
-        <svg width="90" height="110" viewBox="0 0 90 110" style={{ position: 'absolute', top: '38%', right: 80, opacity: 0.06 }}>
+        <svg width="90" height="110" viewBox="0 0 90 110" style={{ position: 'absolute', top: '38%', right: 80, opacity: 0.14 }}>
           <rect x="10" y="15" width="70" height="90" rx="6" fill="#4f46e5" />
           <rect x="30" y="5" width="30" height="20" rx="4" fill="#6366f1" />
           <line x1="22" y1="40" x2="68" y2="40" stroke="#fff" strokeWidth="4" strokeLinecap="round" />
@@ -158,7 +158,7 @@ export function CoderHome() {
           <line x1="22" y1="72" x2="50" y2="72" stroke="#fff" strokeWidth="4" strokeLinecap="round" />
         </svg>
         {/* Top-left bar chart */}
-        <svg width="100" height="90" viewBox="0 0 100 90" style={{ position: 'absolute', top: 120, left: 60, opacity: 0.06 }}>
+        <svg width="100" height="90" viewBox="0 0 100 90" style={{ position: 'absolute', top: 120, left: 60, opacity: 0.14 }}>
           <rect x="8" y="50" width="18" height="32" rx="3" fill="#4f46e5" />
           <rect x="34" y="30" width="18" height="52" rx="3" fill="#6366f1" />
           <rect x="60" y="15" width="18" height="67" rx="3" fill="#818cf8" />
@@ -169,7 +169,7 @@ export function CoderHome() {
           { x: '20%', y: '30%', r: 5 }, { x: '75%', y: '20%', r: 4 }, { x: '85%', y: '70%', r: 6 },
           { x: '10%', y: '65%', r: 4 }, { x: '50%', y: '85%', r: 5 }, { x: '65%', y: '45%', r: 3 },
         ].map((d, i) => (
-          <div key={i} style={{ position: 'absolute', left: d.x, top: d.y, width: d.r * 2, height: d.r * 2, borderRadius: '50%', background: '#4f46e5', opacity: 0.08 }} />
+          <div key={i} style={{ position: 'absolute', left: d.x, top: d.y, width: d.r * 2, height: d.r * 2, borderRadius: '50%', background: '#4f46e5', opacity: 0.18 }} />
         ))}
       </div>
 
@@ -283,17 +283,17 @@ export function CoderHome() {
               <div style={{ position: 'relative', width: 220, height: 140, marginBottom: 8 }}>
                 {/* Main open book */}
                 <svg width="140" height="110" viewBox="0 0 140 110" style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', bottom: 0 }}>
-                  <path d="M70,12 Q42,4 12,14 L12,96 Q42,86 70,94 Z" fill="#c7d2fe" />
-                  <path d="M70,12 Q98,4 128,14 L128,96 Q98,86 70,94 Z" fill="#ddd6fe" />
-                  <line x1="70" y1="12" x2="70" y2="94" stroke="#a5b4fc" strokeWidth="3" />
-                  <line x1="24" y1="32" x2="62" y2="28" stroke="#818cf8" strokeWidth="2.5" strokeLinecap="round" opacity="0.7" />
-                  <line x1="24" y1="46" x2="62" y2="42" stroke="#818cf8" strokeWidth="2.5" strokeLinecap="round" opacity="0.7" />
-                  <line x1="24" y1="60" x2="62" y2="56" stroke="#818cf8" strokeWidth="2.5" strokeLinecap="round" opacity="0.7" />
-                  <line x1="78" y1="32" x2="116" y2="28" stroke="#7c3aed" strokeWidth="2.5" strokeLinecap="round" opacity="0.7" />
-                  <line x1="78" y1="46" x2="116" y2="42" stroke="#7c3aed" strokeWidth="2.5" strokeLinecap="round" opacity="0.7" />
-                  <line x1="78" y1="60" x2="116" y2="56" stroke="#7c3aed" strokeWidth="2.5" strokeLinecap="round" opacity="0.7" />
+                  <path d="M70,12 Q42,4 12,14 L12,96 Q42,86 70,94 Z" fill="#6366f1" />
+                  <path d="M70,12 Q98,4 128,14 L128,96 Q98,86 70,94 Z" fill="#818cf8" />
+                  <line x1="70" y1="12" x2="70" y2="94" stroke="#312e81" strokeWidth="3" />
+                  <line x1="24" y1="32" x2="62" y2="28" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" opacity="0.85" />
+                  <line x1="24" y1="46" x2="62" y2="42" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" opacity="0.85" />
+                  <line x1="24" y1="60" x2="62" y2="56" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" opacity="0.85" />
+                  <line x1="78" y1="32" x2="116" y2="28" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" opacity="0.85" />
+                  <line x1="78" y1="46" x2="116" y2="42" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" opacity="0.85" />
+                  <line x1="78" y1="60" x2="116" y2="56" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" opacity="0.85" />
                   {/* Shadow */}
-                  <ellipse cx="70" cy="100" rx="50" ry="6" fill="#e0e7ff" opacity="0.6" />
+                  <ellipse cx="70" cy="100" rx="50" ry="6" fill="#c7d2fe" opacity="0.5" />
                 </svg>
                 {/* Graduation cap floating above */}
                 <svg width="60" height="52" viewBox="0 0 60 52" style={{ position: 'absolute', right: 12, top: 0, filter: 'drop-shadow(0 2px 4px rgba(79,70,229,0.2))' }}>
