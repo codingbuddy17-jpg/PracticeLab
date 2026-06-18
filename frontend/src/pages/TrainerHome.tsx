@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { Upload, BarChart2, FileText, Settings, BookOpen, Flag, GraduationCap, ChevronRight, ChevronDown, Plus, Trash2, ExternalLink, ClipboardList } from 'lucide-react'
+import { Upload, BarChart2, FileText, Settings, BookOpen, Flag, GraduationCap, ChevronRight, Plus, Trash2, ExternalLink, ClipboardList } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { getUnresolvedCount, getPLAnalyticsOverview, getResources, createResource, deleteResource, getChartStats, getAssessmentStats } from '../api'
 
@@ -14,8 +14,6 @@ export function TrainerHome() {
   const [newUrl, setNewUrl] = useState('')
   const [chartStats, setChartStats] = useState<{ total_charts: number; open_feedback: number } | null>(null)
   const [assessmentStats, setAssessmentStats] = useState<{ totalActive: number } | null>(null)
-  const [chartBasketOpen, setChartBasketOpen] = useState(true)
-
   const trainerName = localStorage.getItem('trainer_name') || 'Trainer'
 
   useEffect(() => {
@@ -51,14 +49,6 @@ export function TrainerHome() {
 
   const [showResourcesCard, setShowResourcesCard] = useState(false)
 
-  const cards = [
-    { to: '/trainer/upload', icon: <Upload size={24} />, title: 'Upload Charts', desc: 'Bulk upload new charts with metadata', color: '#4f46e5', light: '#ede9fe', badge: null },
-    { to: '/trainer/charts', icon: <Settings size={24} />, title: 'Manage Charts', desc: 'Edit, retire, restore and add files to charts', color: '#0891b2', light: '#cffafe', badge: null },
-    { to: '/trainer/reports', icon: <FileText size={24} />, title: 'Reports', desc: 'Filter, view and export the chart library', color: '#16a34a', light: '#dcfce7', badge: null },
-    { to: '/trainer/analytics', icon: <BarChart2 size={24} />, title: 'Analytics', desc: 'Most viewed, least viewed, specialty breakdown', color: '#d97706', light: '#fef3c7', badge: null },
-    { to: '/trainer/feedback', icon: <Flag size={24} />, title: 'Feedback', desc: 'Review issues flagged by coders on charts', color: '#dc2626', light: '#fee2e2', badge: unresolvedCount > 0 ? unresolvedCount : null },
-  ]
-
   return (
     <div style={styles.container}>
       {/* Decorative blobs */}
@@ -77,122 +67,111 @@ export function TrainerHome() {
       <div style={styles.content}>
         <div style={styles.welcomeText}>What would you like to do?</div>
 
-        {/* ── Chart Management basket ─────────────────────────────────── */}
-        <div style={styles.basketHeader} onClick={() => setChartBasketOpen(o => !o)}>
-          <div style={styles.basketHeaderLeft}>
-            <div style={{ ...styles.iconWrap, background: '#ede9fe', color: '#4f46e5', width: 38, height: 38 }}>
-              <FileText size={18} />
+        {/* ── Chart Management divider ────────────────────────────────── */}
+        <div style={styles.plDivider}>
+          <span style={styles.plDividerLine} />
+          <span style={styles.plDividerLabel}>Chart Management</span>
+          <span style={styles.plDividerLine} />
+        </div>
+
+        {/* Chart Management bento */}
+        <div style={styles.bentoGrid}>
+          <Link to="/trainer/charts" style={{ ...styles.bentoCell, ...styles.bentoCellMain, background: 'linear-gradient(145deg, #4f46e5 0%, #0891b2 100%)' }}>
+            <div style={styles.bentoTag}>Chart Library Engine</div>
+            <div style={styles.bentoTitle}>
+              <FileText size={20} style={{ flexShrink: 0 }} />
+              Chart Management
             </div>
-            <div>
-              <div style={styles.basketTitle}>Chart Management</div>
-              <div style={styles.basketSubtitle}>Charts · Keys · Reports · Feedback</div>
+            <div style={styles.bentoSubtitle}>
+              Upload · Manage · Answer Keys · Reports · Analytics · Feedback
             </div>
-          </div>
-          <div style={styles.basketHeaderRight}>
-            {chartStats && (
-              <>
-                <div style={styles.basketStat}>
-                  <span style={styles.basketStatNum}>{chartStats.total_charts}</span>
-                  <span style={styles.basketStatLabel}>Charts</span>
-                </div>
-                {chartStats.open_feedback > 0 && (
-                  <div style={styles.basketStat}>
-                    <span style={{ ...styles.basketStatNum, color: '#dc2626' }}>{chartStats.open_feedback}</span>
-                    <span style={styles.basketStatLabel}>Open Feedback</span>
-                  </div>
-                )}
-              </>
-            )}
-            <Link
-              to="/trainer/charts"
-              style={styles.basketCta}
-              onClick={e => e.stopPropagation()}
-            >
-              Manage <ChevronRight size={12} strokeWidth={2.5} />
-            </Link>
-            <div style={styles.chevronBtn}>
-              {chartBasketOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+            <div style={styles.bentoCta}>
+              Open <ChevronRight size={14} strokeWidth={2.5} />
+            </div>
+          </Link>
+
+          <Link to="/trainer/charts" style={{ ...styles.bentoCell, ...styles.bentoCellStat, background: 'rgba(238,242,255,0.6)' }}>
+            <div style={styles.bentoStatNum}>{chartStats?.total_charts ?? '—'}</div>
+            <div style={styles.bentoStatLabel}>Active Charts</div>
+            <div style={styles.bentoStatSub}>in the library</div>
+          </Link>
+
+          <Link to="/trainer/feedback" style={{ ...styles.bentoCell, ...styles.bentoCellStat, background: chartStats && chartStats.open_feedback > 0 ? 'rgba(254,226,226,0.5)' : 'rgba(240,253,244,0.5)' }}>
+            <div style={{ ...styles.bentoStatNum, color: chartStats && chartStats.open_feedback > 0 ? '#dc2626' : '#15803d' }}>{chartStats?.open_feedback ?? '—'}</div>
+            <div style={styles.bentoStatLabel}>Open Feedback</div>
+            <div style={styles.bentoStatSub}>{chartStats?.open_feedback ? 'needs review' : 'all clear'}</div>
+          </Link>
+
+          {/* Quick links row */}
+          <div style={{ ...styles.bentoCell, ...styles.bentoCellPassRate, background: 'rgba(238,242,255,0.45)', flexDirection: 'column', gap: 10 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.5 }}>Quick Access</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 8 }}>
+              {[
+                { to: '/trainer/upload', label: 'Upload Charts', icon: <Upload size={12} /> },
+                { to: '/trainer/charts', label: 'Manage Charts', icon: <Settings size={12} /> },
+                { to: '/trainer/reports', label: 'Reports', icon: <FileText size={12} /> },
+                { to: '/trainer/analytics', label: 'Analytics', icon: <BarChart2 size={12} /> },
+                { to: '/trainer/feedback', label: 'Feedback', icon: <Flag size={12} />, badge: unresolvedCount > 0 ? unresolvedCount : null },
+              ].map(q => (
+                <Link key={q.to} to={q.to} style={styles.quickChip}>
+                  {q.icon} {q.label}
+                  {q.badge != null && <span style={{ background: '#dc2626', color: '#fff', borderRadius: 10, fontSize: 10, fontWeight: 800, padding: '0 5px', marginLeft: 2 }}>{q.badge}</span>}
+                </Link>
+              ))}
+              <div style={{ ...styles.quickChip, cursor: 'pointer', background: showResourcesCard ? '#dcfce7' : undefined, color: showResourcesCard ? '#166534' : undefined, borderColor: showResourcesCard ? '#86efac' : undefined }}
+                onClick={() => setShowResourcesCard(s => !s)}>
+                <BookOpen size={12} /> Resources {resources.length > 0 && <span style={{ background: '#059669', color: '#fff', borderRadius: 10, fontSize: 10, fontWeight: 800, padding: '0 5px', marginLeft: 2 }}>{resources.length}</span>}
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Collapsible utility cards */}
-        {chartBasketOpen && (
-          <>
-            <div style={{ ...styles.grid, marginTop: 10 }}>
-              {cards.map(c => (
-                <Link key={c.to} to={c.to} style={styles.card}>
-                  <div style={styles.cardTop}>
-                    <div style={{ ...styles.iconWrap, background: c.light, color: c.color }}>{c.icon}</div>
-                    {c.badge !== null && <span style={styles.cardBadge}>{c.badge}</span>}
-                  </div>
-                  <div style={styles.cardTitle}>{c.title}</div>
-                  <div style={styles.cardDesc}>{c.desc}</div>
-                </Link>
-              ))}
-
-              {/* 6th card — Coding Resources */}
-              <div style={{ ...styles.card, cursor: 'pointer', flexDirection: 'column' }} onClick={() => setShowResourcesCard(s => !s)}>
-                <div style={styles.cardTop}>
-                  <div style={{ ...styles.iconWrap, background: '#f0fdf4', color: '#059669' }}><BookOpen size={24} /></div>
-                  {resources.length > 0 && <span style={{ ...styles.cardBadge, background: '#dcfce7', color: '#166534' }}>{resources.length}</span>}
-                </div>
-                <div style={styles.cardTitle}>Coding Resources</div>
-                <div style={styles.cardDesc}>Links visible to all coders — guides, PDFs, tools</div>
-              </div>
+        {/* Resources panel */}
+        {showResourcesCard && (
+          <div style={{ background: 'rgba(255,255,255,0.6)', backdropFilter: 'blur(14px)', border: '1px solid rgba(255,255,255,0.65)', borderRadius: 14, padding: 20, marginTop: 10 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: '#374151' }}>Coding Resources</div>
+              <button
+                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: '#4f46e5', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 700 }}
+                onClick={() => setShowAddResource(s => !s)}
+              >
+                <Plus size={14} /> Add Resource
+              </button>
             </div>
-
-            {/* Resources panel — expands below grid when card is clicked */}
-            {showResourcesCard && (
-              <div style={{ background: 'rgba(255,255,255,0.6)', backdropFilter: 'blur(14px)', border: '1px solid rgba(255,255,255,0.65)', borderRadius: 14, padding: 20, marginTop: 12 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: '#374151' }}>Coding Resources</div>
-                  <button
-                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: '#4f46e5', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 700 }}
-                    onClick={e => { e.stopPropagation(); setShowAddResource(s => !s) }}
-                  >
-                    <Plus size={14} /> Add Resource
-                  </button>
-                </div>
-
-                {showAddResource && (
-                  <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 10, padding: 16, marginBottom: 16, display: 'flex', flexDirection: 'column' as const, gap: 10 }}>
-                    <input style={{ padding: '9px 12px', border: '1px solid #e5e7eb', borderRadius: 7, fontSize: 13 }} placeholder="Title *" value={newTitle} onChange={e => setNewTitle(e.target.value)} />
-                    <input style={{ padding: '9px 12px', border: '1px solid #e5e7eb', borderRadius: 7, fontSize: 13 }} placeholder="Short description (optional)" value={newDesc} onChange={e => setNewDesc(e.target.value)} />
-                    <input style={{ padding: '9px 12px', border: '1px solid #e5e7eb', borderRadius: 7, fontSize: 13 }} placeholder="URL * (e.g. https://cms.gov/...)" value={newUrl} onChange={e => setNewUrl(e.target.value)} />
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <button style={{ padding: '8px 18px', background: '#4f46e5', color: '#fff', border: 'none', borderRadius: 7, cursor: 'pointer', fontSize: 13, fontWeight: 700 }} onClick={handleAddResource}>Save</button>
-                      <button style={{ padding: '8px 14px', background: 'none', border: '1px solid #e5e7eb', borderRadius: 7, cursor: 'pointer', fontSize: 13, color: '#6b7280' }} onClick={() => setShowAddResource(false)}>Cancel</button>
-                    </div>
-                  </div>
-                )}
-
-                {resources.length === 0 && !showAddResource && (
-                  <div style={{ fontSize: 13, color: '#9ca3af', textAlign: 'center' as const, padding: '20px 0' }}>No resources yet. Add links to coding guides, CMS PDFs, or tool URLs.</div>
-                )}
-
-                <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 8 }}>
-                  {resources.map(r => (
-                    <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: '#fff', border: '1px solid #f3f4f6', borderRadius: 8 }}>
-                      <ExternalLink size={13} style={{ color: '#4f46e5', flexShrink: 0 }} />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13, fontWeight: 700 }}>{r.title}</div>
-                        {r.description && <div style={{ fontSize: 11, color: '#6b7280' }}>{r.description}</div>}
-                        <div style={{ fontSize: 11, color: '#9ca3af', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{r.url}</div>
-                      </div>
-                      <a href={r.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: '#4f46e5', textDecoration: 'none', fontWeight: 600, flexShrink: 0 }}>Open</a>
-                      <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', padding: 4, display: 'flex' }} onClick={() => handleDeleteResource(r.id)} title="Remove resource">
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  ))}
+            {showAddResource && (
+              <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 10, padding: 16, marginBottom: 16, display: 'flex', flexDirection: 'column' as const, gap: 10 }}>
+                <input style={{ padding: '9px 12px', border: '1px solid #e5e7eb', borderRadius: 7, fontSize: 13 }} placeholder="Title *" value={newTitle} onChange={e => setNewTitle(e.target.value)} />
+                <input style={{ padding: '9px 12px', border: '1px solid #e5e7eb', borderRadius: 7, fontSize: 13 }} placeholder="Short description (optional)" value={newDesc} onChange={e => setNewDesc(e.target.value)} />
+                <input style={{ padding: '9px 12px', border: '1px solid #e5e7eb', borderRadius: 7, fontSize: 13 }} placeholder="URL * (e.g. https://cms.gov/...)" value={newUrl} onChange={e => setNewUrl(e.target.value)} />
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button style={{ padding: '8px 18px', background: '#4f46e5', color: '#fff', border: 'none', borderRadius: 7, cursor: 'pointer', fontSize: 13, fontWeight: 700 }} onClick={handleAddResource}>Save</button>
+                  <button style={{ padding: '8px 14px', background: 'none', border: '1px solid #e5e7eb', borderRadius: 7, cursor: 'pointer', fontSize: 13, color: '#6b7280' }} onClick={() => setShowAddResource(false)}>Cancel</button>
                 </div>
               </div>
             )}
-          </>
+            {resources.length === 0 && !showAddResource && (
+              <div style={{ fontSize: 13, color: '#9ca3af', textAlign: 'center' as const, padding: '20px 0' }}>No resources yet. Add links to coding guides, CMS PDFs, or tool URLs.</div>
+            )}
+            <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 8 }}>
+              {resources.map(r => (
+                <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: '#fff', border: '1px solid #f3f4f6', borderRadius: 8 }}>
+                  <ExternalLink size={13} style={{ color: '#4f46e5', flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700 }}>{r.title}</div>
+                    {r.description && <div style={{ fontSize: 11, color: '#6b7280' }}>{r.description}</div>}
+                    <div style={{ fontSize: 11, color: '#9ca3af', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{r.url}</div>
+                  </div>
+                  <a href={r.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: '#4f46e5', textDecoration: 'none', fontWeight: 600, flexShrink: 0 }}>Open</a>
+                  <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', padding: 4, display: 'flex' }} onClick={() => handleDeleteResource(r.id)} title="Remove resource">
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
         )}
 
-        {/* ── PracticeLab section ─────────────────────────────────────── */}
+        {/* ── Assessment Modules divider ───────────────────────────────── */}
         <div style={styles.plDivider}>
           <span style={styles.plDividerLine} />
           <span style={styles.plDividerLabel}>Assessment Modules</span>
@@ -302,40 +281,14 @@ const styles: Record<string, React.CSSProperties> = {
   content: { maxWidth: 860, margin: '0 auto', padding: '40px 24px' },
   welcomeText: { fontSize: 22, fontWeight: 800, color: '#111', marginBottom: 24, letterSpacing: -0.5 },
 
-  // Basket header
-  basketHeader: {
-    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-    background: 'rgba(255,255,255,0.55)',
-    backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)',
-    border: '1px solid rgba(255,255,255,0.65)',
-    borderRadius: 14, padding: '14px 20px',
+  // Quick access chips (Chart Management wide cell)
+  quickChip: {
+    display: 'inline-flex', alignItems: 'center', gap: 5,
+    fontSize: 12, fontWeight: 600, color: '#374151',
+    background: 'rgba(255,255,255,0.7)', border: '1px solid #e5e7eb',
+    padding: '5px 11px', borderRadius: 20, textDecoration: 'none',
     cursor: 'pointer',
-    boxShadow: '0 4px 16px rgba(99,102,241,0.08)',
-    marginBottom: 2,
   },
-  basketHeaderLeft: { display: 'flex', alignItems: 'center', gap: 12 },
-  basketHeaderRight: { display: 'flex', alignItems: 'center', gap: 14 },
-  basketTitle: { fontSize: 14, fontWeight: 800, color: '#111' },
-  basketSubtitle: { fontSize: 12, color: '#6b7280', marginTop: 2 },
-  basketStat: { display: 'flex', flexDirection: 'column' as const, alignItems: 'center' },
-  basketStatNum: { fontSize: 20, fontWeight: 800, color: '#111', lineHeight: 1 },
-  basketStatLabel: { fontSize: 10, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.4 },
-  basketCta: {
-    display: 'inline-flex', alignItems: 'center', gap: 4,
-    fontSize: 12, fontWeight: 700, color: '#4f46e5',
-    background: '#ede9fe', padding: '5px 12px',
-    borderRadius: 8, textDecoration: 'none',
-  },
-  chevronBtn: { color: '#9ca3af' },
-
-  // Utility cards
-  grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 16 },
-  card: { background: 'rgba(255,255,255,0.45)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.65)', borderRadius: 16, padding: '22px 18px', display: 'flex', flexDirection: 'column', gap: 10, textDecoration: 'none', color: 'inherit', cursor: 'pointer', boxShadow: '0 8px 32px rgba(99,102,241,0.1), 0 1px 0 rgba(255,255,255,0.8) inset', transition: 'box-shadow 0.2s, transform 0.2s' },
-  cardTop: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' },
-  iconWrap: { width: 46, height: 46, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' },
-  cardBadge: { background: '#fee2e2', color: '#dc2626', fontSize: 12, fontWeight: 800, padding: '3px 9px', borderRadius: 20, minWidth: 24, textAlign: 'center' as const },
-  cardTitle: { fontWeight: 800, fontSize: 15, color: '#111' },
-  cardDesc: { fontSize: 13, color: '#6b7280', lineHeight: 1.5 },
 
   // Divider
   plDivider: { display: 'flex', alignItems: 'center', gap: 12, margin: '28px 0 20px' },
