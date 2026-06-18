@@ -107,7 +107,7 @@ export function TakeAssessmentSession() {
   const selectAnswer = useCallback((idx: number, letter: string | null) => {
     setAnswers(prev => ({ ...prev, [idx]: letter }))
 
-    // Debounce server save by 400ms
+    // Debounce server save by 1200ms — reduces server load without any UX impact
     if (saveQueueRef.current[idx]) clearTimeout(saveQueueRef.current[idx])
     saveQueueRef.current[idx] = setTimeout(() => {
       const q = questions[idx]
@@ -115,7 +115,7 @@ export function TakeAssessmentSession() {
       saveAnswer(token!, idx, q.question_id, letter).catch(() => {
         toast.error('Auto-save failed — check your connection', { id: 'save-err' })
       })
-    }, 400)
+    }, 1200)
   }, [questions, token])
 
   // ── Flush all pending debounced saves before submit ─────────────────────────
