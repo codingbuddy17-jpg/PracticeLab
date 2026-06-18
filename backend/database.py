@@ -1,6 +1,10 @@
+import logging
+
 from sqlalchemy import create_engine, inspect as sa_inspect, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker, Session
 from config import settings
+
+logger = logging.getLogger(__name__)
 
 
 def _sync_url(url: str) -> str:
@@ -49,7 +53,8 @@ def _run_migrations():
             try:
                 conn.execute(text(sql))
                 conn.commit()
-            except Exception:
+            except Exception as exc:
+                logger.warning("Migration DDL failed (non-fatal): %s | sql=%s", exc, sql[:200])
                 conn.rollback()
 
     def _add_col(table: str, col: str, pg_def: str, sqlite_def: str | None = None) -> None:
@@ -357,7 +362,8 @@ def _backfill_legacy_cycles() -> None:
             rows = conn.execute(text(
                 "SELECT DISTINCT batch_id FROM batch_charts WHERE cycle_id IS NULL"
             )).fetchall()
-        except Exception:
+        except Exception as exc:
+            logger.warning("_backfill_legacy_cycles skipped: %s", exc)
             return  # table may not exist on a truly fresh install
 
         for (bid,) in rows:
@@ -413,7 +419,8 @@ def _clean_none_in_answer_keys() -> None:
     with engine.connect() as conn:
         try:
             rows = conn.execute(text("SELECT id, sdx, pcs, cpt FROM answer_keys")).fetchall()
-        except Exception:
+        except Exception as exc:
+            logger.warning("_clean_none_in_answer_keys skipped: %s", exc)
             return
 
         for (ak_id, sdx_raw, pcs_raw, cpt_raw) in rows:
@@ -436,5 +443,6 @@ def _clean_none_in_answer_keys() -> None:
                         "id": ak_id,
                     })
                     conn.commit()
-            except Exception:
+            except Exception as exc:
+                logger.warning("_clean_none_in_answer_keys row update failed: %s", exc)
                 conn.rollback()

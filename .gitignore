@@ -12,3 +12,9 @@ dist/
 
 # Render
 *.log
+
+# Local databases and build artifacts
+*.db
+backend/local.db
+tmp_build/
+loadtest/
