@@ -17,6 +17,7 @@ import {
   listAssessmentHistory,
   downloadAssessmentCoderReport,
   downloadAssessmentBatchReport,
+  downloadAssessmentBatchCoderReportsZip,
 } from '../../api'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -1162,6 +1163,19 @@ function BatchAnalysisTab() {
                   }}
                 >
                   <FileDown size={12} /> PDF Report
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); downloadAssessmentBatchCoderReportsZip(batch.batch_name) }}
+                  title={`Download individual PDF reports for all ${batch.total_coders} coders as a ZIP`}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 5,
+                    padding: '7px 13px', borderRadius: 9,
+                    background: 'linear-gradient(135deg, #059669, #047857)',
+                    color: '#fff', border: 'none', cursor: 'pointer',
+                    fontSize: 11, fontWeight: 700,
+                  }}
+                >
+                  <FileDown size={12} /> All Coder Reports (.zip)
                 </button>
               </div>
             </div>

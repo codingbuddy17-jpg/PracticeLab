@@ -860,6 +860,58 @@ def assessment_batch_report_pdf(batch_name: str, db: Session = Depends(get_db)):
     )
 
 
+@router.get("/analytics/batch-coder-reports.zip")
+def assessment_batch_coder_reports_zip(batch_name: str, db: Session = Depends(get_db)):
+    """Download a ZIP of individual coder PDF reports for every coder in a batch."""
+    import io
+    import zipfile
+    from fastapi.responses import StreamingResponse
+    from services.pdf_report_service import generate_assessment_coder_report_pdf
+
+    # Resolve batch to assessment IDs (mirrors analytics_batch_drill logic)
+    actual_batch = None if batch_name == "Ungrouped" else batch_name
+    if actual_batch:
+        assessments = db.query(GeneratedAssessment).filter(
+            GeneratedAssessment.batch_name == actual_batch
+        ).all()
+    else:
+        assessments = db.query(GeneratedAssessment).filter(
+            GeneratedAssessment.batch_name.is_(None)
+        ).all()
+
+    if not assessments:
+        raise HTTPException(status_code=404, detail="Batch not found")
+
+    assessment_ids = [a.id for a in assessments]
+    sessions = db.query(AssessmentSession).filter(
+        AssessmentSession.assessment_id.in_(assessment_ids),
+        AssessmentSession.status == "submitted",
+    ).all()
+
+    # Unique coder names in this batch
+    coder_names = sorted(set(s.coder_name for s in sessions))
+    if not coder_names:
+        raise HTTPException(status_code=404, detail="No submitted sessions found in this batch.")
+
+    zip_buf = io.BytesIO()
+    with zipfile.ZipFile(zip_buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for coder_name in coder_names:
+            data = analytics_coder(coder_name=coder_name, db=db)
+            if not data:
+                continue
+            pdf_bytes = generate_assessment_coder_report_pdf(coder_name, data)
+            safe_name = coder_name.replace(" ", "_")
+            zf.writestr(f"{safe_name}_Assessment_Report.pdf", pdf_bytes)
+
+    zip_buf.seek(0)
+    safe_batch = batch_name.replace(" ", "_").replace("/", "-")
+    return StreamingResponse(
+        zip_buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename={safe_batch}_Coder_Reports.zip"},
+    )
+
+
 @router.get("/analytics/coder-matrix")
 def analytics_coder_matrix(db: Session = Depends(get_db)):
     qid_specialty, _qid_topic, submitted_session_ids = _build_response_meta(db)

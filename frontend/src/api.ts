@@ -808,3 +808,9 @@ export function downloadAssessmentBatchReport(batchName: string) {
   const params = new URLSearchParams({ batch_name: batchName })
   window.open(`${base}/assessment/analytics/batch-report.pdf?${params}`)
 }
+
+export function downloadAssessmentBatchCoderReportsZip(batchName: string) {
+  const base = import.meta.env.VITE_API_URL || '/api'
+  const params = new URLSearchParams({ batch_name: batchName })
+  window.open(`${base}/assessment/analytics/batch-coder-reports.zip?${params}`)
+}
