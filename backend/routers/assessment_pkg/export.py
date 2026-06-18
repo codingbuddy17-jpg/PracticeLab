@@ -74,6 +74,15 @@ def _build_student_pdf(assessment_name: str, student_label: str, questions: List
         spaceAfter=2,
         textColor=colors.HexColor("#374151"),
     )
+    ans_style = ParagraphStyle(
+        "answer",
+        parent=styles["Normal"],
+        fontSize=10,
+        leading=13,
+        leftIndent=20,
+        spaceAfter=2,
+        textColor=colors.HexColor("#16a34a"),
+    )
 
     story = [
         Paragraph(assessment_name, title_style),
@@ -86,6 +95,7 @@ def _build_student_pdf(assessment_name: str, student_label: str, questions: List
         story.append(Paragraph(f"B. {q['option_b']}", opt_style))
         story.append(Paragraph(f"C. {q['option_c']}", opt_style))
         story.append(Paragraph(f"D. {q['option_d']}", opt_style))
+        story.append(Paragraph(f"ANS: {q['correct_answer']}", ans_style))
         story.append(Spacer(1, 8))
 
     doc.build(story)
