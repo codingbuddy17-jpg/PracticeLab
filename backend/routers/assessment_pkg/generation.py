@@ -89,17 +89,18 @@ def _stratified_pick(pool: List[AssessmentQuestion], target: int, difficulty_rat
     hard_n = target - easy_n - medium_n  # absorb rounding
 
     picks: List[AssessmentQuestion] = []
-    deficit = 0
+    accumulated_deficit = 0
 
-    for diff, need, bucket in [
+    for diff, base_need, bucket in [
         ("Easy", easy_n, by_diff["Easy"]),
-        ("Medium", medium_n + deficit, by_diff["Medium"]),
+        ("Medium", medium_n, by_diff["Medium"]),
         ("Hard", hard_n, by_diff["Hard"]),
     ]:
-        available = bucket[:need + deficit] if diff != "Easy" else bucket[:need]
-        shortfall = (need if diff == "Easy" else need + deficit) - len(available)
+        need = base_need + accumulated_deficit
+        available = bucket[:need]
+        shortfall = need - len(available)
         picks.extend(available)
-        deficit = max(0, shortfall)
+        accumulated_deficit = max(0, shortfall)
 
     # If still short (total pool is smaller), just pad with whatever is left
     if len(picks) < target:
@@ -230,7 +231,8 @@ def generate_assessment(req: GenerateRequest, db: Session = Depends(get_db)):
         pool: List[AssessmentQuestion] = q.all()
 
         # LRU sort: oldest last_used_at first, nulls first
-        pool.sort(key=lambda x: (x.last_used_at is not None, x.last_used_at or datetime.min))
+        _epoch = datetime.min.replace(tzinfo=timezone.utc)
+        pool.sort(key=lambda x: (x.last_used_at is not None, x.last_used_at or _epoch))
 
         # Compute difficulty ratios
         if req.difficulty_mode == "auto":

@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from typing import List
 
 from database import get_db
-from models import GeneratedAssessment, GeneratedAssessmentStudent
+from models import GeneratedAssessment, GeneratedAssessmentStudent, AssessmentSession, AssessmentResponse, AssessmentResult
 from config import settings
 
 router = APIRouter()
@@ -68,6 +68,21 @@ def delete_assessment(
     if not a:
         raise HTTPException(status_code=404, detail="Assessment not found")
 
+    # Delete in FK dependency order: responses → results → sessions → students → assessment
+    session_ids = [
+        s.id for s in db.query(AssessmentSession.id)
+        .filter(AssessmentSession.assessment_id == assessment_id).all()
+    ]
+    if session_ids:
+        db.query(AssessmentResponse).filter(
+            AssessmentResponse.session_id.in_(session_ids)
+        ).delete(synchronize_session=False)
+        db.query(AssessmentResult).filter(
+            AssessmentResult.session_id.in_(session_ids)
+        ).delete(synchronize_session=False)
+        db.query(AssessmentSession).filter(
+            AssessmentSession.assessment_id == assessment_id
+        ).delete(synchronize_session=False)
     db.query(GeneratedAssessmentStudent).filter(
         GeneratedAssessmentStudent.assessment_id == assessment_id
     ).delete(synchronize_session=False)

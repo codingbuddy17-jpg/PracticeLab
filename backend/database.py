@@ -239,7 +239,6 @@ def _run_migrations():
     )""")
 
     _add_col("assessment_questions", "shuffle_options", "BOOLEAN NOT NULL DEFAULT TRUE", "INTEGER NOT NULL DEFAULT 1")
-    _add_col("assessment_sessions", "student_slot_id", "INTEGER REFERENCES generated_assessment_students(id)")
 
     # ── assessment_configs table ──────────────────────────────────────────────
     _run("""CREATE TABLE IF NOT EXISTS assessment_configs (
@@ -298,8 +297,11 @@ def _run_migrations():
         auto_submitted BOOLEAN NOT NULL DEFAULT FALSE,
         status VARCHAR(20) NOT NULL DEFAULT 'pending',
         last_saved_at TIMESTAMP WITH TIME ZONE,
+        student_slot_id INTEGER REFERENCES generated_assessment_students(id),
         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
     )""")
+    # Idempotent migration for DBs created before student_slot_id was added
+    _add_col("assessment_sessions", "student_slot_id", "INTEGER REFERENCES generated_assessment_students(id)")
 
     # ── assessment_responses table ────────────────────────────────────────────
     _run("""CREATE TABLE IF NOT EXISTS assessment_responses (

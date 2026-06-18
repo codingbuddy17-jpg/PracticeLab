@@ -649,6 +649,7 @@ def analytics_by_batch(db: Session = Depends(get_db)):
             "assessments": d["assessments"],
         })
 
+    batches.sort(key=lambda b: b["batch_name"] == "Ungrouped")  # Ungrouped last
     return {"batches": batches}
 
 

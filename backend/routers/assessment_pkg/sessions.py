@@ -75,10 +75,14 @@ def create_sessions(req: CreateSessionsRequest, db: Session = Depends(get_db)):
         if not name:
             continue
         # Ensure token uniqueness
+        token = None
         for _ in range(10):
-            token = _make_token()
-            if not db.query(AssessmentSession).filter(AssessmentSession.session_token == token).first():
+            candidate = _make_token()
+            if not db.query(AssessmentSession).filter(AssessmentSession.session_token == candidate).first():
+                token = candidate
                 break
+        if not token:
+            raise HTTPException(status_code=500, detail="Failed to generate unique session token. Please retry.")
 
         session = AssessmentSession(
             session_token=token,
