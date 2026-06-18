@@ -127,6 +127,52 @@ export function CoderHome() {
 
   return (
     <div style={styles.container}>
+      {/* Decorative background — education theme, pointer-events none */}
+      <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 0 }}>
+        {/* Top-right floating graduation cap */}
+        <svg width="180" height="160" viewBox="0 0 180 160" style={{ position: 'absolute', top: 60, right: 40, opacity: 0.07 }}>
+          <polygon points="90,20 170,60 90,100 10,60" fill="#4f46e5" />
+          <polygon points="90,100 10,60 10,95 90,135" fill="#6366f1" />
+          <polygon points="90,100 170,60 170,95 90,135" fill="#4f46e5" />
+          <line x1="170" y1="60" x2="170" y2="105" stroke="#4f46e5" strokeWidth="6" strokeLinecap="round" />
+          <circle cx="170" cy="110" r="8" fill="#818cf8" />
+        </svg>
+        {/* Bottom-left open book */}
+        <svg width="200" height="160" viewBox="0 0 200 160" style={{ position: 'absolute', bottom: 60, left: -20, opacity: 0.07 }}>
+          <path d="M100,30 Q60,20 20,30 L20,130 Q60,120 100,130 Z" fill="#4f46e5" />
+          <path d="M100,30 Q140,20 180,30 L180,130 Q140,120 100,130 Z" fill="#6366f1" />
+          <line x1="100" y1="30" x2="100" y2="130" stroke="#312e81" strokeWidth="4" />
+          <line x1="35" y1="55" x2="90" y2="50" stroke="#fff" strokeWidth="3" strokeLinecap="round" opacity="0.6" />
+          <line x1="35" y1="70" x2="90" y2="65" stroke="#fff" strokeWidth="3" strokeLinecap="round" opacity="0.6" />
+          <line x1="35" y1="85" x2="90" y2="80" stroke="#fff" strokeWidth="3" strokeLinecap="round" opacity="0.6" />
+          <line x1="110" y1="55" x2="165" y2="50" stroke="#fff" strokeWidth="3" strokeLinecap="round" opacity="0.6" />
+          <line x1="110" y1="70" x2="165" y2="65" stroke="#fff" strokeWidth="3" strokeLinecap="round" opacity="0.6" />
+          <line x1="110" y1="85" x2="165" y2="80" stroke="#fff" strokeWidth="3" strokeLinecap="round" opacity="0.6" />
+        </svg>
+        {/* Center-right clipboard */}
+        <svg width="90" height="110" viewBox="0 0 90 110" style={{ position: 'absolute', top: '38%', right: 80, opacity: 0.06 }}>
+          <rect x="10" y="15" width="70" height="90" rx="6" fill="#4f46e5" />
+          <rect x="30" y="5" width="30" height="20" rx="4" fill="#6366f1" />
+          <line x1="22" y1="40" x2="68" y2="40" stroke="#fff" strokeWidth="4" strokeLinecap="round" />
+          <line x1="22" y1="56" x2="68" y2="56" stroke="#fff" strokeWidth="4" strokeLinecap="round" />
+          <line x1="22" y1="72" x2="50" y2="72" stroke="#fff" strokeWidth="4" strokeLinecap="round" />
+        </svg>
+        {/* Top-left bar chart */}
+        <svg width="100" height="90" viewBox="0 0 100 90" style={{ position: 'absolute', top: 120, left: 60, opacity: 0.06 }}>
+          <rect x="8" y="50" width="18" height="32" rx="3" fill="#4f46e5" />
+          <rect x="34" y="30" width="18" height="52" rx="3" fill="#6366f1" />
+          <rect x="60" y="15" width="18" height="67" rx="3" fill="#818cf8" />
+          <line x1="4" y1="82" x2="96" y2="82" stroke="#4f46e5" strokeWidth="3" strokeLinecap="round" />
+        </svg>
+        {/* Small floating dots */}
+        {[
+          { x: '20%', y: '30%', r: 5 }, { x: '75%', y: '20%', r: 4 }, { x: '85%', y: '70%', r: 6 },
+          { x: '10%', y: '65%', r: 4 }, { x: '50%', y: '85%', r: 5 }, { x: '65%', y: '45%', r: 3 },
+        ].map((d, i) => (
+          <div key={i} style={{ position: 'absolute', left: d.x, top: d.y, width: d.r * 2, height: d.r * 2, borderRadius: '50%', background: '#4f46e5', opacity: 0.08 }} />
+        ))}
+      </div>
+
       {/* Top bar */}
       <div style={styles.topBar}>
         <div style={styles.logo}>
@@ -233,7 +279,37 @@ export function CoderHome() {
         <div style={styles.resultsSection}>
           {!hasSearched ? (
             <div style={styles.emptyState}>
-              <BookOpen size={44} color="#e5e7eb" />
+              {/* Education illustration */}
+              <div style={{ position: 'relative', width: 220, height: 140, marginBottom: 8 }}>
+                {/* Main open book */}
+                <svg width="140" height="110" viewBox="0 0 140 110" style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', bottom: 0 }}>
+                  <path d="M70,12 Q42,4 12,14 L12,96 Q42,86 70,94 Z" fill="#c7d2fe" />
+                  <path d="M70,12 Q98,4 128,14 L128,96 Q98,86 70,94 Z" fill="#ddd6fe" />
+                  <line x1="70" y1="12" x2="70" y2="94" stroke="#a5b4fc" strokeWidth="3" />
+                  <line x1="24" y1="32" x2="62" y2="28" stroke="#818cf8" strokeWidth="2.5" strokeLinecap="round" opacity="0.7" />
+                  <line x1="24" y1="46" x2="62" y2="42" stroke="#818cf8" strokeWidth="2.5" strokeLinecap="round" opacity="0.7" />
+                  <line x1="24" y1="60" x2="62" y2="56" stroke="#818cf8" strokeWidth="2.5" strokeLinecap="round" opacity="0.7" />
+                  <line x1="78" y1="32" x2="116" y2="28" stroke="#7c3aed" strokeWidth="2.5" strokeLinecap="round" opacity="0.7" />
+                  <line x1="78" y1="46" x2="116" y2="42" stroke="#7c3aed" strokeWidth="2.5" strokeLinecap="round" opacity="0.7" />
+                  <line x1="78" y1="60" x2="116" y2="56" stroke="#7c3aed" strokeWidth="2.5" strokeLinecap="round" opacity="0.7" />
+                  {/* Shadow */}
+                  <ellipse cx="70" cy="100" rx="50" ry="6" fill="#e0e7ff" opacity="0.6" />
+                </svg>
+                {/* Graduation cap floating above */}
+                <svg width="60" height="52" viewBox="0 0 60 52" style={{ position: 'absolute', right: 12, top: 0, filter: 'drop-shadow(0 2px 4px rgba(79,70,229,0.2))' }}>
+                  <polygon points="30,6 56,18 30,30 4,18" fill="#4f46e5" />
+                  <polygon points="30,30 4,18 4,32 30,44" fill="#6366f1" />
+                  <polygon points="30,30 56,18 56,32 30,44" fill="#4f46e5" />
+                  <line x1="56" y1="18" x2="56" y2="36" stroke="#4f46e5" strokeWidth="3" strokeLinecap="round" />
+                  <circle cx="56" cy="39" r="4" fill="#818cf8" />
+                </svg>
+                {/* Pencil bottom-left */}
+                <svg width="44" height="44" viewBox="0 0 44 44" style={{ position: 'absolute', left: 6, bottom: 18, filter: 'drop-shadow(0 1px 3px rgba(0,0,0,0.1))' }}>
+                  <rect x="8" y="4" width="28" height="32" rx="3" fill="#fde68a" transform="rotate(30 22 22)" />
+                  <polygon points="22,38 15,44 29,44" fill="#fcd34d" transform="rotate(30 22 22) translate(0,-6)" />
+                  <rect x="8" y="4" width="28" height="8" rx="3" fill="#f59e0b" transform="rotate(30 22 22)" />
+                </svg>
+              </div>
               <div style={styles.emptyTitle}>Search for a chart to get started</div>
               <div style={styles.emptySub}>Enter a chart number, or use the filters above to browse by specialty, category or difficulty.</div>
             </div>
@@ -354,14 +430,14 @@ export function CoderHome() {
 }
 
 const styles: Record<string, React.CSSProperties> = {
-  container: { minHeight: '100vh', background: 'linear-gradient(135deg, #eff6ff 0%, #f0fdf4 50%, #fdf4ff 100%)', fontFamily: 'system-ui, sans-serif' },
-  topBar: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 28px', background: 'rgba(255,255,255,0.75)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', borderBottom: '1px solid rgba(255,255,255,0.5)', position: 'sticky', top: 0, zIndex: 10, boxShadow: '0 1px 3px rgba(0,0,0,0.05)' },
+  container: { minHeight: '100vh', background: 'linear-gradient(135deg, #eff6ff 0%, #f0fdf4 50%, #fdf4ff 100%)', fontFamily: 'system-ui, sans-serif', position: 'relative' },
+  topBar: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 28px', background: 'rgba(255,255,255,0.75)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', borderBottom: '1px solid rgba(255,255,255,0.5)', position: 'sticky', top: 0, zIndex: 10, boxShadow: '0 1px 3px rgba(0,0,0,0.05)', isolation: 'isolate' },
   logo: { display: 'flex', alignItems: 'center', gap: 8 },
   logoText: { fontWeight: 800, fontSize: 18, color: '#111', letterSpacing: -0.5 },
   coderChip: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#374151', background: '#f3f4f6', padding: '5px 12px', borderRadius: 20, fontWeight: 500 },
   coderDot: { width: 7, height: 7, borderRadius: '50%', background: '#22c55e' },
   selfPracticeBtn: { display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: '#4f46e5', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 700 },
-  main: { maxWidth: 960, margin: '0 auto', padding: '24px 24px 60px' },
+  main: { maxWidth: 960, margin: '0 auto', padding: '24px 24px 60px', position: 'relative', zIndex: 1 },
   searchSection: { background: 'rgba(255,255,255,0.62)', backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)', border: '1px solid rgba(255,255,255,0.5)', borderRadius: 14, padding: 20, marginBottom: 20, boxShadow: '0 4px 24px rgba(0,0,0,0.07)' },
   searchRow: { display: 'flex', gap: 10, marginBottom: 14 },
   searchWrap: { flex: 1, position: 'relative', display: 'flex', alignItems: 'center' },
