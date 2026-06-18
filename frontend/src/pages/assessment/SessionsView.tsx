@@ -163,7 +163,7 @@ export function SessionsView() {
                           {ast.label}
                         </span>
                       </td>
-                      <td style={{ ...s.td, fontWeight: 700, color: row.score_pct !== null ? (row.score_pct >= 70 ? '#15803d' : '#dc2626') : '#9ca3af' }}>
+                      <td style={{ ...s.td, fontWeight: 700, color: row.score_pct !== null ? (row.score_pct >= 90 ? '#15803d' : row.score_pct >= 80 ? '#d97706' : '#dc2626') : '#9ca3af' }}>
                         {row.score_pct !== null ? `${row.score_pct}%` : '—'}
                         {row.correct_count !== null && row.total_questions !== null && (
                           <span style={{ fontSize: 11, fontWeight: 400, color: '#9ca3af', marginLeft: 4 }}>

@@ -19,7 +19,7 @@ const PASS = 90
 function scoreColor(v: number | null | undefined): string {
   if (v == null) return '#9ca3af'
   if (v >= PASS) return '#16a34a'
-  if (v >= 70) return '#d97706'
+  if (v >= 80) return '#d97706'
   return '#dc2626'
 }
 
@@ -165,7 +165,7 @@ function OverviewTab() {
               <Tooltip formatter={(v: any) => [`${v}%`, 'Pass Rate']} />
               <Bar dataKey="pass_rate" radius={[4, 4, 0, 0]}>
                 {(data.per_assessment_pass_rates as any[]).map((entry: any, i: number) => (
-                  <Cell key={i} fill={entry.pass_rate >= PASS ? '#16a34a' : entry.pass_rate >= 70 ? '#d97706' : '#dc2626'} />
+                  <Cell key={i} fill={entry.pass_rate >= PASS ? '#16a34a' : entry.pass_rate >= 80 ? '#d97706' : '#dc2626'} />
                 ))}
               </Bar>
             </BarChart>
