@@ -489,3 +489,104 @@ export function buildExportUrl(params: Record<string, string | undefined>) {
   const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined) as [string, string][])
   return `${import.meta.env.VITE_API_URL || '/api'}/reports/export?${q.toString()}`
 }
+
+// ── Charts stats ──────────────────────────────────────────────────────────────
+
+export async function getChartStats(): Promise<{ total_charts: number; open_feedback: number }> {
+  const { data } = await api.get('/charts/stats')
+  return data
+}
+
+// ── Assessment ────────────────────────────────────────────────────────────────
+
+export interface AssessmentQuestionStat {
+  specialty: string
+  total: number
+  active: number
+  inactive: number
+}
+
+export async function getAssessmentStats(): Promise<AssessmentQuestionStat[]> {
+  const { data } = await api.get('/assessment/questions/stats')
+  return data
+}
+
+export interface ListQuestionsParams {
+  specialty?: string
+  difficulty?: string
+  status?: string
+  topic?: string
+  search?: string
+  page?: number
+  page_size?: number
+}
+
+export async function listAssessmentQuestions(params?: ListQuestionsParams) {
+  const { data } = await api.get('/assessment/questions', { params })
+  return data as { total: number; page: number; page_size: number; results: unknown[] }
+}
+
+export async function uploadAssessmentQuestions(specialty: string, uploadedBy: string, file: File) {
+  const form = new FormData()
+  form.append('specialty', specialty)
+  form.append('uploaded_by', uploadedBy)
+  form.append('file', file)
+  const { data } = await api.post('/assessment/questions/upload', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  return data as { stored: number; stored_ids: string[]; skipped: number; errors: string[] }
+}
+
+export function downloadAssessmentTemplate(specialty: string): void {
+  window.open(`${import.meta.env.VITE_API_URL || '/api'}/assessment/questions/template?specialty=${encodeURIComponent(specialty)}`, '_blank')
+}
+
+export async function updateQuestionStatus(questionId: string, status: string, updatedBy: string) {
+  const { data } = await api.put(
+    `/assessment/questions/${encodeURIComponent(questionId)}/status`,
+    null,
+    { params: { status, updated_by: updatedBy } },
+  )
+  return data
+}
+
+export async function updateQuestion(questionId: string, payload: Record<string, unknown>) {
+  const { data } = await api.put(`/assessment/questions/${encodeURIComponent(questionId)}`, payload)
+  return data
+}
+
+export async function getAssessmentPoolPreview(specialties: string[], topicFilters?: string): Promise<unknown[]> {
+  const { data } = await api.get('/assessment/pool-preview', {
+    params: {
+      specialty: specialties.join(','),
+      topic_filter: topicFilters || undefined,
+    },
+  })
+  return data
+}
+
+export async function generateAssessment(payload: Record<string, unknown>) {
+  const { data } = await api.post('/assessment/generate', payload)
+  return data
+}
+
+export async function listAssessmentHistory() {
+  const { data } = await api.get('/assessment/history')
+  return data as Array<{
+    id: number
+    assessment_name: string
+    config_name: string | null
+    student_count: number
+    questions_per_student: number
+    generated_by: string
+    generated_at: string | null
+  }>
+}
+
+export function exportAssessmentPDF(assessmentId: number): void {
+  window.open(`${import.meta.env.VITE_API_URL || '/api'}/assessment/${assessmentId}/export-pdf`, '_blank')
+}
+
+export function exportAnswerKey(assessmentId: number): void {
+  window.open(`${import.meta.env.VITE_API_URL || '/api'}/assessment/${assessmentId}/export-answer-key`, '_blank')
+}

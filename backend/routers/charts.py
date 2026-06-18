@@ -4,13 +4,21 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_, func
 from typing import Optional
 from database import get_db
-from models import Chart, ChartFile, ChartStatus, Specialty, Difficulty, AnswerKey, GradingResult
+from models import Chart, ChartFile, ChartStatus, Specialty, Difficulty, AnswerKey, GradingResult, ChartFeedback, FeedbackStatus
 from schemas import ChartOut, ChartWithRationale, ChartUpdate
 from services.chart_service import get_chart_pages, increment_view, log_audit
 from services.storage import get_s3_client
 from config import settings
 
 router = APIRouter(prefix="/charts", tags=["charts"])
+
+
+@router.get("/stats")
+def get_chart_stats(db: Session = Depends(get_db)):
+    """Quick stats for the TrainerHome dashboard."""
+    total_charts = db.query(Chart).filter(Chart.status == ChartStatus.ACTIVE).count()
+    open_feedback = db.query(ChartFeedback).filter(ChartFeedback.status == FeedbackStatus.OPEN).count()
+    return {"total_charts": total_charts, "open_feedback": open_feedback}
 
 
 @router.get("/search")

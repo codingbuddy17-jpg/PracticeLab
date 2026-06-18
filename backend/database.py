@@ -218,6 +218,69 @@ def _run_migrations():
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )""")
 
+    # ── assessment_questions table ────────────────────────────────────────────
+    _run("""CREATE TABLE IF NOT EXISTS assessment_questions (
+        id INTEGER PRIMARY KEY,
+        question_id VARCHAR(20) NOT NULL UNIQUE,
+        specialty VARCHAR(50) NOT NULL,
+        question_text TEXT NOT NULL,
+        option_a TEXT NOT NULL,
+        option_b TEXT NOT NULL,
+        option_c TEXT NOT NULL,
+        option_d TEXT NOT NULL,
+        correct_answer VARCHAR(1) NOT NULL,
+        difficulty VARCHAR(10) NOT NULL,
+        topic VARCHAR(100),
+        question_type VARCHAR(20) NOT NULL DEFAULT 'Conceptual',
+        status VARCHAR(10) NOT NULL DEFAULT 'Active',
+        last_used_at TIMESTAMP,
+        uploaded_by VARCHAR(100),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )""")
+
+    # ── assessment_configs table ──────────────────────────────────────────────
+    _run("""CREATE TABLE IF NOT EXISTS assessment_configs (
+        id INTEGER PRIMARY KEY,
+        name VARCHAR(200) NOT NULL,
+        total_questions INTEGER NOT NULL,
+        student_count INTEGER NOT NULL DEFAULT 1,
+        specialty_mix TEXT NOT NULL DEFAULT '[]',
+        difficulty_mode VARCHAR(10) NOT NULL DEFAULT 'auto',
+        difficulty_mix TEXT,
+        created_by VARCHAR(100) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )""")
+
+    # ── generated_assessments table ───────────────────────────────────────────
+    _run("""CREATE TABLE IF NOT EXISTS generated_assessments (
+        id INTEGER PRIMARY KEY,
+        config_id INTEGER REFERENCES assessment_configs(id),
+        assessment_name VARCHAR(200) NOT NULL,
+        student_count INTEGER NOT NULL,
+        generated_by VARCHAR(100) NOT NULL,
+        generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )""")
+
+    # ── generated_assessment_students table ───────────────────────────────────
+    _run("""CREATE TABLE IF NOT EXISTS generated_assessment_students (
+        id INTEGER PRIMARY KEY,
+        assessment_id INTEGER REFERENCES generated_assessments(id) NOT NULL,
+        student_label VARCHAR(50) NOT NULL,
+        questions_json TEXT NOT NULL DEFAULT '[]'
+    )""")
+
+    # ── Seed assessment sample questions if table is empty ────────────────────
+    from services.assessment_seed import seed_sample_questions
+    from sqlalchemy import text as _text
+    with engine.connect() as _conn:
+        _count = _conn.execute(_text("SELECT COUNT(*) FROM assessment_questions")).fetchone()[0]
+    if _count == 0:
+        _seed_db = SessionLocal()
+        try:
+            seed_sample_questions(_seed_db)
+        finally:
+            _seed_db.close()
+
     # ── P2: backfill orphan batch_charts into synthetic legacy cycles ─────────
     _backfill_legacy_cycles()
 

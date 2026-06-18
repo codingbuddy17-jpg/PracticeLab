@@ -421,3 +421,97 @@ class CodingResource(Base):
     created_by = Column(String(100), nullable=False)
     sort_order = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+# ── Assessment Management Module ──────────────────────────────────────────────
+
+class AssessmentSpecialty(str, enum.Enum):
+    ICD10CM = "ICD10CM"
+    SURGERY = "Surgery"
+    ED_FACILITY = "ED Facility"
+    ED_PROFEE = "ED Profee"
+    ANCILLARY = "Ancillary"
+    IP_DRG = "IP-DRG"
+    EM = "E&M"
+    EM_MULTI = "E&M - Multispecialty"
+    IVR = "IVR"
+    ANESTHESIA = "Anesthesia"
+
+
+class QuestionDifficulty(str, enum.Enum):
+    EASY = "Easy"
+    MEDIUM = "Medium"
+    HARD = "Hard"
+
+
+class QuestionType(str, enum.Enum):
+    CONCEPTUAL = "Conceptual"
+    SCENARIO = "Scenario"
+    RULE_BASED = "Rule-based"
+
+
+class QuestionStatus(str, enum.Enum):
+    ACTIVE = "Active"
+    INACTIVE = "Inactive"
+
+
+class AssessmentQuestion(Base):
+    __tablename__ = "assessment_questions"
+
+    id = Column(Integer, primary_key=True)
+    question_id = Column(String(20), unique=True, nullable=False, index=True)
+    specialty = Column(String(50), nullable=False, index=True)
+    question_text = Column(Text, nullable=False)
+    option_a = Column(Text, nullable=False)
+    option_b = Column(Text, nullable=False)
+    option_c = Column(Text, nullable=False)
+    option_d = Column(Text, nullable=False)
+    correct_answer = Column(String(1), nullable=False)
+    difficulty = Column(String(10), nullable=False)
+    topic = Column(String(100), nullable=True)
+    question_type = Column(String(20), nullable=False, default="Conceptual")
+    status = Column(String(10), nullable=False, default="Active")
+    last_used_at = Column(DateTime(timezone=True), nullable=True)
+    uploaded_by = Column(String(100), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class AssessmentConfig(Base):
+    __tablename__ = "assessment_configs"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(200), nullable=False)
+    total_questions = Column(Integer, nullable=False)
+    student_count = Column(Integer, nullable=False, default=1)
+    specialty_mix = Column(JSON, nullable=False)
+    difficulty_mode = Column(String(10), nullable=False, default="auto")
+    difficulty_mix = Column(JSON, nullable=True)
+    created_by = Column(String(100), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    assessments = relationship("GeneratedAssessment", back_populates="config")
+
+
+class GeneratedAssessment(Base):
+    __tablename__ = "generated_assessments"
+
+    id = Column(Integer, primary_key=True)
+    config_id = Column(Integer, ForeignKey("assessment_configs.id"), nullable=True)
+    assessment_name = Column(String(200), nullable=False)
+    student_count = Column(Integer, nullable=False)
+    generated_by = Column(String(100), nullable=False)
+    generated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    config = relationship("AssessmentConfig", back_populates="assessments")
+    students = relationship("GeneratedAssessmentStudent", back_populates="assessment", cascade="all, delete-orphan")
+
+
+class GeneratedAssessmentStudent(Base):
+    __tablename__ = "generated_assessment_students"
+
+    id = Column(Integer, primary_key=True)
+    assessment_id = Column(Integer, ForeignKey("generated_assessments.id"), nullable=False)
+    student_label = Column(String(50), nullable=False)
+    questions_json = Column(JSON, nullable=False)
+
+    assessment = relationship("GeneratedAssessment", back_populates="students")

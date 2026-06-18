@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { Upload, BarChart2, FileText, Settings, BookOpen, Flag, GraduationCap, ChevronRight, Plus, Trash2, ExternalLink } from 'lucide-react'
+import { Upload, BarChart2, FileText, Settings, BookOpen, Flag, GraduationCap, ChevronRight, ChevronDown, Plus, Trash2, ExternalLink, ClipboardList } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { getUnresolvedCount, getPLAnalyticsOverview, getResources, createResource, deleteResource } from '../api'
+import { getUnresolvedCount, getPLAnalyticsOverview, getResources, createResource, deleteResource, getChartStats, getAssessmentStats } from '../api'
 
 export function TrainerHome() {
   const [unresolvedCount, setUnresolvedCount] = useState(0)
@@ -12,6 +12,9 @@ export function TrainerHome() {
   const [newTitle, setNewTitle] = useState('')
   const [newDesc, setNewDesc] = useState('')
   const [newUrl, setNewUrl] = useState('')
+  const [chartStats, setChartStats] = useState<{ total_charts: number; open_feedback: number } | null>(null)
+  const [assessmentStats, setAssessmentStats] = useState<{ totalActive: number } | null>(null)
+  const [chartBasketOpen, setChartBasketOpen] = useState(true)
 
   const trainerName = localStorage.getItem('trainer_name') || 'Trainer'
 
@@ -19,6 +22,13 @@ export function TrainerHome() {
     getUnresolvedCount().then(setUnresolvedCount).catch(() => {})
     getPLAnalyticsOverview().then(setPlStats).catch(() => {})
     getResources().then(setResources).catch(() => {})
+    getChartStats().then(setChartStats).catch(() => {})
+    getAssessmentStats()
+      .then(rows => {
+        const totalActive = rows.reduce((s, r) => s + r.active, 0)
+        setAssessmentStats({ totalActive })
+      })
+      .catch(() => {})
   }, [])
 
   async function handleAddResource() {
@@ -51,7 +61,7 @@ export function TrainerHome() {
 
   return (
     <div style={styles.container}>
-      {/* Decorative blobs — give the glass cards something to refract */}
+      {/* Decorative blobs */}
       <div style={styles.blob1} />
       <div style={styles.blob2} />
       <div style={styles.blob3} />
@@ -67,91 +77,132 @@ export function TrainerHome() {
       <div style={styles.content}>
         <div style={styles.welcomeText}>What would you like to do?</div>
 
-        {/* Utility tools grid */}
-        <div style={styles.grid}>
-          {cards.map(c => (
-            <Link key={c.to} to={c.to} style={styles.card}>
-              <div style={styles.cardTop}>
-                <div style={{ ...styles.iconWrap, background: c.light, color: c.color }}>{c.icon}</div>
-                {c.badge !== null && <span style={styles.cardBadge}>{c.badge}</span>}
-              </div>
-              <div style={styles.cardTitle}>{c.title}</div>
-              <div style={styles.cardDesc}>{c.desc}</div>
-            </Link>
-          ))}
-
-          {/* 6th card — Coding Resources */}
-          <div style={{ ...styles.card, cursor: 'pointer', flexDirection: 'column' }} onClick={() => setShowResourcesCard(s => !s)}>
-            <div style={styles.cardTop}>
-              <div style={{ ...styles.iconWrap, background: '#f0fdf4', color: '#059669' }}><BookOpen size={24} /></div>
-              {resources.length > 0 && <span style={{ ...styles.cardBadge, background: '#dcfce7', color: '#166534' }}>{resources.length}</span>}
+        {/* ── Chart Management basket ─────────────────────────────────── */}
+        <div style={styles.basketHeader} onClick={() => setChartBasketOpen(o => !o)}>
+          <div style={styles.basketHeaderLeft}>
+            <div style={{ ...styles.iconWrap, background: '#ede9fe', color: '#4f46e5', width: 38, height: 38 }}>
+              <FileText size={18} />
             </div>
-            <div style={styles.cardTitle}>Coding Resources</div>
-            <div style={styles.cardDesc}>Links visible to all coders — guides, PDFs, tools</div>
+            <div>
+              <div style={styles.basketTitle}>Chart Management</div>
+              <div style={styles.basketSubtitle}>Charts · Keys · Reports · Feedback</div>
+            </div>
+          </div>
+          <div style={styles.basketHeaderRight}>
+            {chartStats && (
+              <>
+                <div style={styles.basketStat}>
+                  <span style={styles.basketStatNum}>{chartStats.total_charts}</span>
+                  <span style={styles.basketStatLabel}>Charts</span>
+                </div>
+                {chartStats.open_feedback > 0 && (
+                  <div style={styles.basketStat}>
+                    <span style={{ ...styles.basketStatNum, color: '#dc2626' }}>{chartStats.open_feedback}</span>
+                    <span style={styles.basketStatLabel}>Open Feedback</span>
+                  </div>
+                )}
+              </>
+            )}
+            <Link
+              to="/trainer/charts"
+              style={styles.basketCta}
+              onClick={e => e.stopPropagation()}
+            >
+              Manage <ChevronRight size={12} strokeWidth={2.5} />
+            </Link>
+            <div style={styles.chevronBtn}>
+              {chartBasketOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+            </div>
           </div>
         </div>
 
-        {/* Resources panel — expands below grid when card is clicked */}
-        {showResourcesCard && (
-          <div style={{ background: 'rgba(255,255,255,0.6)', backdropFilter: 'blur(14px)', border: '1px solid rgba(255,255,255,0.65)', borderRadius: 14, padding: 20, marginTop: 12 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: '#374151' }}>Coding Resources</div>
-              <button
-                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: '#4f46e5', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 700 }}
-                onClick={e => { e.stopPropagation(); setShowAddResource(s => !s) }}
-              >
-                <Plus size={14} /> Add Resource
-              </button>
+        {/* Collapsible utility cards */}
+        {chartBasketOpen && (
+          <>
+            <div style={{ ...styles.grid, marginTop: 10 }}>
+              {cards.map(c => (
+                <Link key={c.to} to={c.to} style={styles.card}>
+                  <div style={styles.cardTop}>
+                    <div style={{ ...styles.iconWrap, background: c.light, color: c.color }}>{c.icon}</div>
+                    {c.badge !== null && <span style={styles.cardBadge}>{c.badge}</span>}
+                  </div>
+                  <div style={styles.cardTitle}>{c.title}</div>
+                  <div style={styles.cardDesc}>{c.desc}</div>
+                </Link>
+              ))}
+
+              {/* 6th card — Coding Resources */}
+              <div style={{ ...styles.card, cursor: 'pointer', flexDirection: 'column' }} onClick={() => setShowResourcesCard(s => !s)}>
+                <div style={styles.cardTop}>
+                  <div style={{ ...styles.iconWrap, background: '#f0fdf4', color: '#059669' }}><BookOpen size={24} /></div>
+                  {resources.length > 0 && <span style={{ ...styles.cardBadge, background: '#dcfce7', color: '#166534' }}>{resources.length}</span>}
+                </div>
+                <div style={styles.cardTitle}>Coding Resources</div>
+                <div style={styles.cardDesc}>Links visible to all coders — guides, PDFs, tools</div>
+              </div>
             </div>
 
-            {showAddResource && (
-              <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 10, padding: 16, marginBottom: 16, display: 'flex', flexDirection: 'column' as const, gap: 10 }}>
-                <input style={{ padding: '9px 12px', border: '1px solid #e5e7eb', borderRadius: 7, fontSize: 13 }} placeholder="Title *" value={newTitle} onChange={e => setNewTitle(e.target.value)} />
-                <input style={{ padding: '9px 12px', border: '1px solid #e5e7eb', borderRadius: 7, fontSize: 13 }} placeholder="Short description (optional)" value={newDesc} onChange={e => setNewDesc(e.target.value)} />
-                <input style={{ padding: '9px 12px', border: '1px solid #e5e7eb', borderRadius: 7, fontSize: 13 }} placeholder="URL * (e.g. https://cms.gov/...)" value={newUrl} onChange={e => setNewUrl(e.target.value)} />
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button style={{ padding: '8px 18px', background: '#4f46e5', color: '#fff', border: 'none', borderRadius: 7, cursor: 'pointer', fontSize: 13, fontWeight: 700 }} onClick={handleAddResource}>Save</button>
-                  <button style={{ padding: '8px 14px', background: 'none', border: '1px solid #e5e7eb', borderRadius: 7, cursor: 'pointer', fontSize: 13, color: '#6b7280' }} onClick={() => setShowAddResource(false)}>Cancel</button>
-                </div>
-              </div>
-            )}
-
-            {resources.length === 0 && !showAddResource && (
-              <div style={{ fontSize: 13, color: '#9ca3af', textAlign: 'center' as const, padding: '20px 0' }}>No resources yet. Add links to coding guides, CMS PDFs, or tool URLs.</div>
-            )}
-
-            <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 8 }}>
-              {resources.map(r => (
-                <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: '#fff', border: '1px solid #f3f4f6', borderRadius: 8 }}>
-                  <ExternalLink size={13} style={{ color: '#4f46e5', flexShrink: 0 }} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 700 }}>{r.title}</div>
-                    {r.description && <div style={{ fontSize: 11, color: '#6b7280' }}>{r.description}</div>}
-                    <div style={{ fontSize: 11, color: '#9ca3af', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{r.url}</div>
-                  </div>
-                  <a href={r.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: '#4f46e5', textDecoration: 'none', fontWeight: 600, flexShrink: 0 }}>Open</a>
-                  <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', padding: 4, display: 'flex' }} onClick={() => handleDeleteResource(r.id)} title="Remove resource">
-                    <Trash2 size={14} />
+            {/* Resources panel — expands below grid when card is clicked */}
+            {showResourcesCard && (
+              <div style={{ background: 'rgba(255,255,255,0.6)', backdropFilter: 'blur(14px)', border: '1px solid rgba(255,255,255,0.65)', borderRadius: 14, padding: 20, marginTop: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: '#374151' }}>Coding Resources</div>
+                  <button
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: '#4f46e5', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 700 }}
+                    onClick={e => { e.stopPropagation(); setShowAddResource(s => !s) }}
+                  >
+                    <Plus size={14} /> Add Resource
                   </button>
                 </div>
-              ))}
-            </div>
-          </div>
+
+                {showAddResource && (
+                  <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 10, padding: 16, marginBottom: 16, display: 'flex', flexDirection: 'column' as const, gap: 10 }}>
+                    <input style={{ padding: '9px 12px', border: '1px solid #e5e7eb', borderRadius: 7, fontSize: 13 }} placeholder="Title *" value={newTitle} onChange={e => setNewTitle(e.target.value)} />
+                    <input style={{ padding: '9px 12px', border: '1px solid #e5e7eb', borderRadius: 7, fontSize: 13 }} placeholder="Short description (optional)" value={newDesc} onChange={e => setNewDesc(e.target.value)} />
+                    <input style={{ padding: '9px 12px', border: '1px solid #e5e7eb', borderRadius: 7, fontSize: 13 }} placeholder="URL * (e.g. https://cms.gov/...)" value={newUrl} onChange={e => setNewUrl(e.target.value)} />
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button style={{ padding: '8px 18px', background: '#4f46e5', color: '#fff', border: 'none', borderRadius: 7, cursor: 'pointer', fontSize: 13, fontWeight: 700 }} onClick={handleAddResource}>Save</button>
+                      <button style={{ padding: '8px 14px', background: 'none', border: '1px solid #e5e7eb', borderRadius: 7, cursor: 'pointer', fontSize: 13, color: '#6b7280' }} onClick={() => setShowAddResource(false)}>Cancel</button>
+                    </div>
+                  </div>
+                )}
+
+                {resources.length === 0 && !showAddResource && (
+                  <div style={{ fontSize: 13, color: '#9ca3af', textAlign: 'center' as const, padding: '20px 0' }}>No resources yet. Add links to coding guides, CMS PDFs, or tool URLs.</div>
+                )}
+
+                <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 8 }}>
+                  {resources.map(r => (
+                    <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: '#fff', border: '1px solid #f3f4f6', borderRadius: 8 }}>
+                      <ExternalLink size={13} style={{ color: '#4f46e5', flexShrink: 0 }} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700 }}>{r.title}</div>
+                        {r.description && <div style={{ fontSize: 11, color: '#6b7280' }}>{r.description}</div>}
+                        <div style={{ fontSize: 11, color: '#9ca3af', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{r.url}</div>
+                      </div>
+                      <a href={r.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: '#4f46e5', textDecoration: 'none', fontWeight: 600, flexShrink: 0 }}>Open</a>
+                      <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', padding: 4, display: 'flex' }} onClick={() => handleDeleteResource(r.id)} title="Remove resource">
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
         )}
 
-        {/* PracticeLab featured banner */}
+        {/* ── PracticeLab section ─────────────────────────────────────── */}
         <div style={styles.plDivider}>
           <span style={styles.plDividerLine} />
-          <span style={styles.plDividerLabel}>Assessment Module</span>
+          <span style={styles.plDividerLabel}>Assessment Modules</span>
           <span style={styles.plDividerLine} />
         </div>
 
-        {/* Bento grid */}
+        {/* PracticeLab bento */}
         <div style={styles.bentoGrid}>
-
-          {/* Cell 1 — main identity cell */}
           <Link to="/trainer/practicelab" style={{ ...styles.bentoCell, ...styles.bentoCellMain, background: 'linear-gradient(145deg, #0d9488 0%, #0891b2 100%)' }}>
-            <div style={styles.bentoTag}>Assessment Engine</div>
+            <div style={styles.bentoTag}>Chart Coding Engine</div>
             <div style={styles.bentoTitle}>
               <GraduationCap size={20} style={{ flexShrink: 0 }} />
               PracticeLab
@@ -164,21 +215,18 @@ export function TrainerHome() {
             </div>
           </Link>
 
-          {/* Cell 2 — Batches */}
           <Link to="/trainer/practicelab" style={{ ...styles.bentoCell, ...styles.bentoCellStat, background: 'rgba(238,242,255,0.6)' }}>
             <div style={styles.bentoStatNum}>{plStats?.total_batches ?? '—'}</div>
             <div style={styles.bentoStatLabel}>Total Batches</div>
             <div style={styles.bentoStatSub}>{plStats?.complete_batches ?? '—'} complete</div>
           </Link>
 
-          {/* Cell 3 — Graded */}
           <Link to="/trainer/practicelab" style={{ ...styles.bentoCell, ...styles.bentoCellStat, background: 'rgba(253,248,255,0.6)' }}>
             <div style={styles.bentoStatNum}>{plStats?.total_graded ?? '—'}</div>
             <div style={styles.bentoStatLabel}>Submissions Graded</div>
             <div style={styles.bentoStatSub}>across all batches</div>
           </Link>
 
-          {/* Cell 4 — Pass rate — spans full width of right column bottom */}
           <Link to="/trainer/practicelab" style={{ ...styles.bentoCell, ...styles.bentoCellPassRate }}>
             <div style={styles.bentoPassRateRow}>
               <div>
@@ -187,7 +235,6 @@ export function TrainerHome() {
                 </div>
                 <div style={styles.bentoStatLabel}>Overall Pass Rate</div>
               </div>
-              {/* Mini bar */}
               {plStats && (
                 <div style={styles.bentoBarWrap}>
                   <div style={{ ...styles.bentoBar, width: `${plStats.overall_pass_rate}%` }} />
@@ -195,9 +242,48 @@ export function TrainerHome() {
               )}
             </div>
           </Link>
-
         </div>
 
+        {/* Assessment Management bento */}
+        <div style={{ ...styles.bentoGrid, marginTop: 10 }}>
+          <Link to="/trainer/assessment" style={{ ...styles.bentoCell, ...styles.bentoCellMain, background: 'linear-gradient(145deg, #7c3aed 0%, #4f46e5 100%)' }}>
+            <div style={styles.bentoTag}>MCQ Assessment Engine</div>
+            <div style={styles.bentoTitle}>
+              <ClipboardList size={20} style={{ flexShrink: 0 }} />
+              Assessment Management
+            </div>
+            <div style={styles.bentoSubtitle}>
+              Question Banks · Generate · Export
+            </div>
+            <div style={styles.bentoCta}>
+              Open <ChevronRight size={14} strokeWidth={2.5} />
+            </div>
+          </Link>
+
+          <Link to="/trainer/assessment" style={{ ...styles.bentoCell, ...styles.bentoCellStat, background: 'rgba(245,243,255,0.6)' }}>
+            <div style={{ ...styles.bentoStatNum, color: '#7c3aed' }}>{assessmentStats?.totalActive ?? '—'}</div>
+            <div style={styles.bentoStatLabel}>Active Questions</div>
+            <div style={styles.bentoStatSub}>across all specialties</div>
+          </Link>
+
+          <Link to="/trainer/assessment" style={{ ...styles.bentoCell, ...styles.bentoCellStat, background: 'rgba(238,242,255,0.6)' }}>
+            <div style={styles.bentoStatNum}>10</div>
+            <div style={styles.bentoStatLabel}>Specialties</div>
+            <div style={styles.bentoStatSub}>ICD-10 · Surgery · ED · more</div>
+          </Link>
+
+          <Link to="/trainer/assessment" style={{ ...styles.bentoCell, ...styles.bentoCellPassRate, background: 'rgba(245,243,255,0.45)' }}>
+            <div style={{ ...styles.bentoPassRateRow }}>
+              <div>
+                <div style={{ ...styles.bentoPassRateNum, color: '#7c3aed' }}>Generate</div>
+                <div style={styles.bentoStatLabel}>Per-student shuffled MCQ tests</div>
+              </div>
+              <div style={{ fontSize: 12, color: '#7c3aed', fontWeight: 600 }}>
+                PDF Export · Answer Keys
+              </div>
+            </div>
+          </Link>
+        </div>
 
       </div>
     </div>
@@ -215,6 +301,32 @@ const styles: Record<string, React.CSSProperties> = {
   portalBadge: { fontSize: 12, fontWeight: 700, background: '#ede9fe', color: '#4f46e5', padding: '4px 12px', borderRadius: 20, textTransform: 'uppercase' as const, letterSpacing: 0.5 },
   content: { maxWidth: 860, margin: '0 auto', padding: '40px 24px' },
   welcomeText: { fontSize: 22, fontWeight: 800, color: '#111', marginBottom: 24, letterSpacing: -0.5 },
+
+  // Basket header
+  basketHeader: {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    background: 'rgba(255,255,255,0.55)',
+    backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)',
+    border: '1px solid rgba(255,255,255,0.65)',
+    borderRadius: 14, padding: '14px 20px',
+    cursor: 'pointer',
+    boxShadow: '0 4px 16px rgba(99,102,241,0.08)',
+    marginBottom: 2,
+  },
+  basketHeaderLeft: { display: 'flex', alignItems: 'center', gap: 12 },
+  basketHeaderRight: { display: 'flex', alignItems: 'center', gap: 14 },
+  basketTitle: { fontSize: 14, fontWeight: 800, color: '#111' },
+  basketSubtitle: { fontSize: 12, color: '#6b7280', marginTop: 2 },
+  basketStat: { display: 'flex', flexDirection: 'column' as const, alignItems: 'center' },
+  basketStatNum: { fontSize: 20, fontWeight: 800, color: '#111', lineHeight: 1 },
+  basketStatLabel: { fontSize: 10, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.4 },
+  basketCta: {
+    display: 'inline-flex', alignItems: 'center', gap: 4,
+    fontSize: 12, fontWeight: 700, color: '#4f46e5',
+    background: '#ede9fe', padding: '5px 12px',
+    borderRadius: 8, textDecoration: 'none',
+  },
+  chevronBtn: { color: '#9ca3af' },
 
   // Utility cards
   grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 16 },
@@ -246,10 +358,8 @@ const styles: Record<string, React.CSSProperties> = {
     boxShadow: '0 8px 32px rgba(99,102,241,0.1), 0 1px 0 rgba(255,255,255,0.8) inset',
     backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
   },
-  // Main cell — spans 2 rows
   bentoCellMain: {
     gridRow: '1 / 3',
-    background: 'linear-gradient(145deg, #0d9488 0%, #0891b2 100%)',
     justifyContent: 'space-between',
     minHeight: 180,
     border: 'none',
@@ -271,7 +381,6 @@ const styles: Record<string, React.CSSProperties> = {
     background: 'rgba(255,255,255,0.18)', padding: '7px 14px',
     borderRadius: 8, border: '1px solid rgba(255,255,255,0.25)',
   },
-  // Stat cells
   bentoCellStat: {
     display: 'flex', flexDirection: 'column', gap: 4,
     padding: '20px 22px',
@@ -279,7 +388,6 @@ const styles: Record<string, React.CSSProperties> = {
   bentoStatNum: { fontSize: 32, fontWeight: 800, color: '#111', letterSpacing: -1.5, lineHeight: 1 },
   bentoStatLabel: { fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' as const, letterSpacing: 0.5 },
   bentoStatSub: { fontSize: 12, color: '#9ca3af', marginTop: 2 },
-  // Pass rate cell — spans 2 cols
   bentoCellPassRate: {
     gridColumn: '2 / 4',
     background: 'rgba(240,253,244,0.45)',
