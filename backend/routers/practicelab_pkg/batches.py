@@ -453,7 +453,10 @@ def list_batches(
     direct_only: bool = False,
     db: Session = Depends(get_db),
 ):
-    q = db.query(Batch).filter(Batch.is_direct_assignment == direct_only)
+    if direct_only:
+        q = db.query(Batch).filter(Batch.is_direct_assignment.is_(True))
+    else:
+        q = db.query(Batch).filter(Batch.is_direct_assignment.isnot(True))
     if status:
         q = q.filter(Batch.status == status)
     if specialty:
@@ -539,7 +542,10 @@ def get_batch(batch_id: int, db: Session = Depends(get_db)):
                 "run_by": c.run_by,
                 "charts_per_coder": c.charts_per_coder,
                 "notes": c.notes,
-                "assigned_count": sum(1 for a in assignments if a.cycle_id == c.id),
+                "assigned_count": sum(
+                    1 for a in assignments
+                    if a.cycle_id == c.id or (a.cycle_id is None and c.cycle_number == 1)
+                ),
             }
             for c in cycles
         ],

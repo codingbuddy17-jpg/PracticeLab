@@ -248,6 +248,27 @@ def export_answer_keys(
     )
 
 
+@router.get("/answer-key/list")
+def list_answer_keys(specialty: Optional[str] = None, db: Session = Depends(get_db)):
+    """Return every chart that has an answer key, with metadata for the admin list view."""
+    q = db.query(AnswerKey, Chart).join(Chart, Chart.id == AnswerKey.chart_id)
+    spec = _parse_chart_specialty(specialty)
+    if spec:
+        q = q.filter(Chart.specialty == spec)
+    rows = q.order_by(Chart.chart_number).all()
+    return [
+        {
+            "chart_id": chart.id,
+            "chart_number": chart.chart_number,
+            "specialty": chart.specialty.value,
+            "category": chart.category,
+            "entered_by": ak.entered_by,
+            "created_at": ak.created_at.isoformat() if ak.created_at else None,
+        }
+        for ak, chart in rows
+    ]
+
+
 @router.delete("/answer-key/{chart_id}")
 def delete_answer_key(
     chart_id: int,
@@ -293,27 +314,6 @@ def reset_all_data(payload: ResetPayload, db: Session = Depends(get_db)):
         "batches_deleted": batch_count,
         "self_practice_submissions_deleted": sp_count,
     }
-
-
-@router.get("/answer-key/list")
-def list_answer_keys(specialty: Optional[str] = None, db: Session = Depends(get_db)):
-    """Return every chart that has an answer key, with metadata for the admin list view."""
-    q = db.query(AnswerKey, Chart).join(Chart, Chart.id == AnswerKey.chart_id)
-    spec = _parse_chart_specialty(specialty)
-    if spec:
-        q = q.filter(Chart.specialty == spec)
-    rows = q.order_by(Chart.chart_number).all()
-    return [
-        {
-            "chart_id": chart.id,
-            "chart_number": chart.chart_number,
-            "specialty": chart.specialty.value,
-            "category": chart.category,
-            "entered_by": ak.entered_by,
-            "created_at": ak.created_at.isoformat() if ak.created_at else None,
-        }
-        for ak, chart in rows
-    ]
 
 
 @router.get("/answer-key/missing")
