@@ -731,9 +731,19 @@ export async function getAssessmentAnalyticsByAssessment(assessmentId: number) {
   return data
 }
 
-export async function getAssessmentAnalyticsCoder(coderName: string, employeeId?: string) {
+export async function getAssessmentAnalyticsCoder(
+  coderName: string,
+  employeeId?: string,
+  dateFrom?: string,
+  dateTo?: string,
+) {
   const { data } = await api.get('/assessment/analytics/coder', {
-    params: { coder_name: coderName, ...(employeeId ? { employee_id: employeeId } : {}) },
+    params: {
+      coder_name: coderName,
+      ...(employeeId ? { employee_id: employeeId } : {}),
+      ...(dateFrom ? { date_from: dateFrom } : {}),
+      ...(dateTo ? { date_to: dateTo } : {}),
+    },
   })
   return data
 }
@@ -763,10 +773,20 @@ export async function getAssessmentAnalyticsCoderMatrix() {
   return data
 }
 
-export function downloadAssessmentCoderReport(coderName: string, employeeId?: string) {
+export function downloadAssessmentCoderReport(
+  coderName: string,
+  employeeId?: string,
+  dateFrom?: string,
+  dateTo?: string,
+  excludeSessionIds?: number[],
+) {
   const base = import.meta.env.VITE_API_URL || '/api'
   const params = new URLSearchParams({ coder_name: coderName })
   if (employeeId) params.set('employee_id', employeeId)
+  if (dateFrom) params.set('date_from', dateFrom)
+  if (dateTo) params.set('date_to', dateTo)
+  if (excludeSessionIds && excludeSessionIds.length > 0)
+    params.set('exclude_session_ids', excludeSessionIds.join(','))
   window.open(`${base}/assessment/analytics/coder-report.pdf?${params}`)
 }
 

@@ -477,6 +477,8 @@ function AssessmentDrillContent({ data }: { data: any }) {
 function CoderHistoryTab() {
   const [coderName, setCoderName] = useState('')
   const [employeeId, setEmployeeId] = useState('')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
   const [data, setData] = useState<any>(null)
   const [loading, setLoading] = useState(false)
   const [searched, setSearched] = useState(false)
@@ -489,7 +491,12 @@ function CoderHistoryTab() {
     setLoading(true)
     setData(null)
     setSearched(true)
-    getAssessmentAnalyticsCoder(coderName.trim(), employeeId.trim() || undefined)
+    getAssessmentAnalyticsCoder(
+      coderName.trim(),
+      employeeId.trim() || undefined,
+      dateFrom || undefined,
+      dateTo || undefined,
+    )
       .then(setData)
       .catch(() => toast.error('Failed to load coder history'))
       .finally(() => setLoading(false))
@@ -514,6 +521,24 @@ function CoderHistoryTab() {
             onChange={(e) => setEmployeeId(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
           />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 12, color: '#6b7280', fontWeight: 600, whiteSpace: 'nowrap' }}>From</span>
+            <input
+              type="date"
+              style={{ ...inputStyle, maxWidth: 150, cursor: 'pointer' }}
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+            />
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 12, color: '#6b7280', fontWeight: 600, whiteSpace: 'nowrap' }}>To</span>
+            <input
+              type="date"
+              style={{ ...inputStyle, maxWidth: 150, cursor: 'pointer' }}
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+            />
+          </div>
           <button style={searchBtnStyle} onClick={handleSearch} disabled={loading}>
             {loading ? <Loader size={14} style={{ animation: 'spin 1s linear infinite' }} /> : null}
             Search
@@ -530,6 +555,31 @@ function CoderHistoryTab() {
 }
 
 function CoderHistoryContent({ data }: { data: any }) {
+  const allSessionIds: number[] = (data.session_history || []).map((sh: any) => sh.session_id)
+  const [excludedIds, setExcludedIds] = useState<Set<number>>(new Set())
+  const [showFilter, setShowFilter] = useState(false)
+
+  function toggleExclude(id: number) {
+    setExcludedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function handleDownloadPdf() {
+    downloadAssessmentCoderReport(
+      data.coder_name,
+      data.employee_id || undefined,
+      undefined,
+      undefined,
+      excludedIds.size > 0 ? Array.from(excludedIds) : undefined,
+    )
+  }
+
+  const includedCount = allSessionIds.length - excludedIds.size
+
   return (
     <div>
       {/* Profile header */}
@@ -564,20 +614,70 @@ function CoderHistoryContent({ data }: { data: any }) {
               <div style={{ fontSize: 28, fontWeight: 900, color: '#111' }}>{data.total_assessments_taken}</div>
               <div style={{ fontSize: 11, color: '#6b7280', fontWeight: 600 }}>Assessments</div>
             </div>
-            <button
-              onClick={() => downloadAssessmentCoderReport(data.coder_name, data.employee_id || undefined)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 6,
-                padding: '8px 16px', borderRadius: 10,
-                background: 'linear-gradient(135deg, #7c3aed, #4f46e5)',
-                color: '#fff', border: 'none', cursor: 'pointer',
-                fontSize: 12, fontWeight: 700,
-              }}
-            >
-              <FileDown size={13} /> Download PDF Report
-            </button>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>
+              <button
+                onClick={handleDownloadPdf}
+                disabled={includedCount === 0}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  padding: '8px 16px', borderRadius: 10,
+                  background: includedCount === 0 ? '#e5e7eb' : 'linear-gradient(135deg, #7c3aed, #4f46e5)',
+                  color: includedCount === 0 ? '#9ca3af' : '#fff',
+                  border: 'none', cursor: includedCount === 0 ? 'not-allowed' : 'pointer',
+                  fontSize: 12, fontWeight: 700,
+                }}
+              >
+                <FileDown size={13} />
+                {excludedIds.size > 0 ? `PDF (${includedCount} assessments)` : 'Download PDF Report'}
+              </button>
+              {allSessionIds.length > 1 && (
+                <button
+                  onClick={() => setShowFilter(v => !v)}
+                  style={{
+                    fontSize: 11, color: '#7c3aed', background: 'none', border: 'none',
+                    cursor: 'pointer', fontWeight: 600, textDecoration: 'underline', padding: 0,
+                  }}
+                >
+                  {showFilter ? 'Hide' : 'Select'} assessments for PDF
+                </button>
+              )}
+            </div>
           </div>
         </div>
+
+        {showFilter && allSessionIds.length > 1 && (
+          <div style={{ marginTop: 14, padding: '12px 16px', background: 'rgba(124,58,237,0.05)', borderRadius: 10, border: '1px solid rgba(124,58,237,0.15)' }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#7c3aed', marginBottom: 10 }}>
+              Include in PDF report — uncheck to exclude:
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {(data.session_history as any[]).map((sh: any) => (
+                <label key={sh.session_id} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13 }}>
+                  <input
+                    type="checkbox"
+                    checked={!excludedIds.has(sh.session_id)}
+                    onChange={() => toggleExclude(sh.session_id)}
+                    style={{ accentColor: '#7c3aed', width: 15, height: 15 }}
+                  />
+                  <span style={{ fontWeight: 600, color: '#111' }}>{sh.assessment_name}</span>
+                  <span style={{ color: '#6b7280', fontSize: 11 }}>
+                    {sh.submitted_at ? new Date(sh.submitted_at).toLocaleDateString() : ''}
+                  </span>
+                  <span style={{ color: scoreColor(sh.score_pct), fontWeight: 700, fontSize: 12 }}>{fmt(sh.score_pct)}</span>
+                  <PassBadge pf={sh.pass_fail} />
+                </label>
+              ))}
+            </div>
+            {excludedIds.size > 0 && (
+              <button
+                onClick={() => setExcludedIds(new Set())}
+                style={{ marginTop: 8, fontSize: 11, color: '#6b7280', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}
+              >
+                Reset (include all)
+              </button>
+            )}
+          </div>
+        )}
 
         <div style={{ display: 'flex', gap: 14, marginTop: 14, flexWrap: 'wrap' }}>
           <div style={{ fontSize: 13, color: '#374151' }}>Best: <strong style={{ color: '#16a34a' }}>{fmt(data.best_score)}</strong></div>

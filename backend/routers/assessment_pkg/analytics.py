@@ -325,16 +325,47 @@ def analytics_by_assessment(assessment_id: int, db: Session = Depends(get_db)):
 def analytics_coder(
     coder_name: str,
     employee_id: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    exclude_session_ids: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
-    """All submitted sessions for a coder across all assessments."""
+    """All submitted sessions for a coder across all assessments.
+
+    date_from / date_to: ISO date strings (YYYY-MM-DD) — filter by submitted_at.
+    exclude_session_ids: comma-separated session IDs to exclude from aggregation.
+    """
+    from datetime import date as date_cls
     q = db.query(AssessmentSession).filter(
         AssessmentSession.coder_name == coder_name,
         AssessmentSession.status == "submitted",
     )
     if employee_id:
         q = q.filter(AssessmentSession.employee_id == employee_id)
+    if date_from:
+        try:
+            dt_from = date_cls.fromisoformat(date_from)
+            from datetime import datetime as dt_cls, timezone
+            q = q.filter(AssessmentSession.submitted_at >= dt_cls(dt_from.year, dt_from.month, dt_from.day, tzinfo=timezone.utc))
+        except ValueError:
+            pass
+    if date_to:
+        try:
+            dt_to = date_cls.fromisoformat(date_to)
+            from datetime import datetime as dt_cls, timezone, timedelta
+            q = q.filter(AssessmentSession.submitted_at < dt_cls(dt_to.year, dt_to.month, dt_to.day, tzinfo=timezone.utc) + timedelta(days=1))
+        except ValueError:
+            pass
     sessions = q.order_by(AssessmentSession.submitted_at.asc()).all()
+
+    # Apply client-side session exclusion after DB fetch
+    if exclude_session_ids:
+        excl = set()
+        for part in exclude_session_ids.split(","):
+            part = part.strip()
+            if part.isdigit():
+                excl.add(int(part))
+        sessions = [s for s in sessions if s.id not in excl]
 
     if not sessions:
         return None
@@ -787,11 +818,21 @@ def analytics_batch_drill(batch_name: str, db: Session = Depends(get_db)):
 def assessment_coder_report_pdf(
     coder_name: str,
     employee_id: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    exclude_session_ids: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
     from fastapi.responses import StreamingResponse
     import io
-    data = analytics_coder(coder_name=coder_name, employee_id=employee_id, db=db)
+    data = analytics_coder(
+        coder_name=coder_name,
+        employee_id=employee_id,
+        date_from=date_from,
+        date_to=date_to,
+        exclude_session_ids=exclude_session_ids,
+        db=db,
+    )
     if not data:
         raise HTTPException(status_code=404, detail="No assessment history found for this coder.")
     from services.pdf_report_service import generate_assessment_coder_report_pdf
