@@ -340,7 +340,9 @@ def upload_questions(
     if missing:
         raise HTTPException(status_code=400, detail=f"Missing required columns: {missing}")
 
-    stored: List[str] = []
+    created: List[str] = []
+    updated: List[str] = []
+    duplicates: List[str] = []  # blank-ID rows whose question_text already exists
     skipped: List[str] = []
     errors: List[str] = []
 
@@ -379,15 +381,23 @@ def upload_questions(
         shuffle_options = shuffle_val not in ("no", "0", "false", "n")
 
         qid = cell_val("Question_ID")
-        if not qid:
-            qid = _next_qid(db, specialty)
-
         topic = cell_val("Topic") or None
+
+        if not qid:
+            # Duplicate text guard: if this exact question text already exists for this specialty, skip it
+            text_match = db.query(AssessmentQuestion).filter(
+                AssessmentQuestion.specialty == specialty,
+                AssessmentQuestion.question_text == q_text,
+            ).first()
+            if text_match:
+                duplicates.append(f"Row {row_idx}: identical question text already exists as {text_match.question_id} — skipped to prevent duplicate")
+                continue
+            qid = _next_qid(db, specialty)
 
         existing = db.query(AssessmentQuestion).filter(AssessmentQuestion.question_id == qid).first()
         if existing:
             if existing.specialty != specialty:
-                errors.append(f"Row {row_num}: Question_ID '{qid}' belongs to specialty '{existing.specialty}', not '{specialty}'. Upload aborted for this row.")
+                errors.append(f"Row {row_idx}: Question_ID '{qid}' belongs to specialty '{existing.specialty}', not '{specialty}'. Upload aborted for this row.")
                 continue
             existing.question_text = q_text
             existing.option_a = cell_val("Option_A")
@@ -401,7 +411,7 @@ def upload_questions(
             existing.status = status
             existing.shuffle_options = shuffle_options
             existing.uploaded_by = uploaded_by
-            stored.append(qid)
+            updated.append(qid)
         else:
             aq = AssessmentQuestion(
                 question_id=qid,
@@ -420,12 +430,24 @@ def upload_questions(
                 uploaded_by=uploaded_by,
             )
             db.add(aq)
-            stored.append(qid)
+            created.append(qid)
 
     db.commit()
+    total_stored = len(created) + len(updated)
     _audit(db, uploaded_by, "upload", specialty,
-           f"Stored/updated {len(stored)} questions, {len(errors)} errors")
-    return {"stored": len(stored), "stored_ids": stored, "skipped": len(skipped), "errors": errors}
+           f"Created {len(created)}, updated {len(updated)}, {len(duplicates)} duplicates skipped, {len(errors)} errors")
+    return {
+        "stored": total_stored,
+        "stored_ids": created + updated,
+        "created": len(created),
+        "created_ids": created,
+        "updated": len(updated),
+        "updated_ids": updated,
+        "duplicates": len(duplicates),
+        "duplicate_warnings": duplicates,
+        "skipped": len(skipped),
+        "errors": errors,
+    }
 
 
 @router.put("/questions/{question_id}/status")

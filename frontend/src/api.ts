@@ -583,7 +583,13 @@ export async function uploadAssessmentQuestions(specialty: string, uploadedBy: s
   const { data } = await api.post('/assessment/questions/upload', form, {
     headers: { 'Content-Type': 'multipart/form-data' },
   })
-  return data as { stored: number; stored_ids: string[]; skipped: number; errors: string[] }
+  return data as {
+    stored: number; stored_ids: string[]
+    created: number; created_ids: string[]
+    updated: number; updated_ids: string[]
+    duplicates: number; duplicate_warnings: string[]
+    skipped: number; errors: string[]
+  }
 }
 
 export function downloadAssessmentTemplate(specialty: string): void {

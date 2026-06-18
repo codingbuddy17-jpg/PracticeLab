@@ -11,6 +11,12 @@ const SPECIALTIES = [
 interface UploadResult {
   stored: number
   stored_ids: string[]
+  created: number
+  created_ids: string[]
+  updated: number
+  updated_ids: string[]
+  duplicates: number
+  duplicate_warnings: string[]
   skipped: number
   errors: string[]
   specialty: string
@@ -32,10 +38,15 @@ export function UploadView() {
     setUploading(true)
     try {
       const data = await uploadAssessmentQuestions(specialty, trainerName.trim(), file)
-      // Detect how many were updates vs new
       setResult({
         stored: data.stored,
         stored_ids: data.stored_ids,
+        created: data.created ?? data.stored,
+        created_ids: data.created_ids ?? data.stored_ids,
+        updated: data.updated ?? 0,
+        updated_ids: data.updated_ids ?? [],
+        duplicates: data.duplicates ?? 0,
+        duplicate_warnings: data.duplicate_warnings ?? [],
         skipped: data.skipped,
         errors: data.errors || [],
         specialty,
@@ -62,12 +73,14 @@ export function UploadView() {
       `Date/Time: ${result.timestamp}`,
       `Specialty: ${result.specialty}`,
       ``,
-      `Questions processed: ${result.stored}`,
-      `Skipped (other):     ${result.skipped}`,
-      `Errors:              ${result.errors.length}`,
-      ``,
-      `Question IDs uploaded:`,
-      ...result.stored_ids.map(id => `  ${id}`),
+      `New questions created: ${result.created}`,
+      `Questions updated:     ${result.updated}`,
+      `Duplicates skipped:    ${result.duplicates}`,
+      `Skipped (other):       ${result.skipped}`,
+      `Errors:                ${result.errors.length}`,
+      ...(result.created_ids.length ? [``, `New IDs:`, ...result.created_ids.map(id => `  ${id}`)] : []),
+      ...(result.updated_ids.length ? [``, `Updated IDs:`, ...result.updated_ids.map(id => `  ${id}`)] : []),
+      ...(result.duplicate_warnings.length ? [``, `Duplicate Warnings:`, ...result.duplicate_warnings.map(e => `  ${e}`)] : []),
       ...(result.errors.length ? [``, `Errors:`, ...result.errors.map(e => `  ${e}`)] : []),
     ]
     const blob = new Blob([lines.join('\n')], { type: 'text/plain' })
@@ -168,18 +181,34 @@ export function UploadView() {
 
           <div style={s.statRow}>
             <div style={{ ...s.statBox, background: '#dcfce7', borderColor: '#86efac' }}>
-              <div style={{ fontSize: 26, fontWeight: 800, color: '#15803d' }}>{result.stored}</div>
-              <div style={{ fontSize: 11, color: '#166534', fontWeight: 600 }}>Questions Processed</div>
+              <div style={{ fontSize: 26, fontWeight: 800, color: '#15803d' }}>{result.created}</div>
+              <div style={{ fontSize: 11, color: '#166534', fontWeight: 600 }}>New Created</div>
             </div>
-            <div style={{ ...s.statBox, background: '#fef9c3', borderColor: '#fde047' }}>
-              <div style={{ fontSize: 26, fontWeight: 800, color: '#854d0e' }}>{result.skipped}</div>
-              <div style={{ fontSize: 11, color: '#92400e', fontWeight: 600 }}>Skipped</div>
+            <div style={{ ...s.statBox, background: '#ede9fe', borderColor: '#c4b5fd' }}>
+              <div style={{ fontSize: 26, fontWeight: 800, color: '#5b21b6' }}>{result.updated}</div>
+              <div style={{ fontSize: 11, color: '#4c1d95', fontWeight: 600 }}>Updated</div>
+            </div>
+            <div style={{ ...s.statBox, background: result.duplicates ? '#fef9c3' : '#f9fafb', borderColor: result.duplicates ? '#fde047' : '#e5e7eb' }}>
+              <div style={{ fontSize: 26, fontWeight: 800, color: result.duplicates ? '#854d0e' : '#9ca3af' }}>{result.duplicates}</div>
+              <div style={{ fontSize: 11, color: result.duplicates ? '#92400e' : '#9ca3af', fontWeight: 600 }}>Duplicates Skipped</div>
             </div>
             <div style={{ ...s.statBox, background: result.errors.length ? '#fee2e2' : '#f0fdf4', borderColor: result.errors.length ? '#fca5a5' : '#86efac' }}>
               <div style={{ fontSize: 26, fontWeight: 800, color: result.errors.length ? '#dc2626' : '#15803d' }}>{result.errors.length}</div>
               <div style={{ fontSize: 11, color: result.errors.length ? '#991b1b' : '#166534', fontWeight: 600 }}>Errors</div>
             </div>
           </div>
+
+          {result.duplicate_warnings.length > 0 && (
+            <div style={{ background: '#fefce8', border: '1px solid #fde047', borderRadius: 8, padding: '10px 14px', marginTop: 4 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                <AlertCircle size={13} color="#854d0e" />
+                <span style={{ fontSize: 12, fontWeight: 700, color: '#854d0e' }}>Duplicate Questions Skipped</span>
+              </div>
+              {result.duplicate_warnings.map((w, i) => (
+                <div key={i} style={{ fontSize: 12, color: '#713f12', fontFamily: 'monospace', marginBottom: 2 }}>{w}</div>
+              ))}
+            </div>
+          )}
 
           {result.errors.length > 0 && (
             <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 8, padding: '10px 14px', marginTop: 4 }}>
@@ -193,9 +222,16 @@ export function UploadView() {
             </div>
           )}
 
-          <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>
-            {result.stored_ids.length} IDs: {result.stored_ids.slice(0, 12).join(', ')}{result.stored_ids.length > 12 ? ` … +${result.stored_ids.length - 12} more` : ''}
-          </div>
+          {result.created_ids.length > 0 && (
+            <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>
+              <strong style={{ color: '#15803d' }}>New:</strong> {result.created_ids.slice(0, 10).join(', ')}{result.created_ids.length > 10 ? ` … +${result.created_ids.length - 10} more` : ''}
+            </div>
+          )}
+          {result.updated_ids.length > 0 && (
+            <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
+              <strong style={{ color: '#5b21b6' }}>Updated:</strong> {result.updated_ids.slice(0, 10).join(', ')}{result.updated_ids.length > 10 ? ` … +${result.updated_ids.length - 10} more` : ''}
+            </div>
+          )}
         </div>
       )}
     </div>

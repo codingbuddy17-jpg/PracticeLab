@@ -70,6 +70,7 @@ export function QuestionBankView() {
   // Edit state
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editDraft, setEditDraft] = useState<Partial<Question>>({})
+  const [confirmEdit, setConfirmEdit] = useState<Question | null>(null)
 
   async function handleVerify() {
     if (!trainerName.trim()) { setPassphraseError('Enter your name'); return }
@@ -183,6 +184,49 @@ export function QuestionBankView() {
         </span>
       </div>
 
+      {/* Edit confirmation modal */}
+      {confirmEdit && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', backdropFilter: 'blur(4px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+        }}>
+          <div style={{
+            background: '#fff', borderRadius: 16, padding: '28px 32px', maxWidth: 480, width: '90%',
+            boxShadow: '0 16px 48px rgba(0,0,0,0.2)', display: 'flex', flexDirection: 'column' as const, gap: 16,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#ede9fe', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Edit2 size={16} color="#7c3aed" />
+              </div>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 800, color: '#111' }}>Modify Question?</div>
+                <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{confirmEdit.question_id} · {confirmEdit.specialty}</div>
+              </div>
+            </div>
+            <div style={{ fontSize: 13, color: '#374151', lineHeight: 1.6, background: '#f9fafb', borderRadius: 8, padding: '10px 14px', fontStyle: 'italic' }}>
+              "{confirmEdit.question_text.length > 160 ? confirmEdit.question_text.slice(0, 160) + '…' : confirmEdit.question_text}"
+            </div>
+            <div style={{ fontSize: 12, color: '#6b7280' }}>
+              This will permanently update the question text, options, and/or answer in the question bank. The change will be logged in the audit trail.
+            </div>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button
+                style={{ padding: '8px 20px', borderRadius: 8, border: '1px solid #e5e7eb', background: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#6b7280' }}
+                onClick={() => setConfirmEdit(null)}
+              >
+                Cancel
+              </button>
+              <button
+                style={{ padding: '8px 20px', borderRadius: 8, border: 'none', background: 'linear-gradient(135deg, #7c3aed, #4f46e5)', color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}
+                onClick={() => { startEdit(confirmEdit); setConfirmEdit(null) }}
+              >
+                Yes, Edit
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {bankTab === 'audit' && <AuditLogView passphrase={passphrase} />}
 
       {bankTab === 'browse' && (
@@ -263,7 +307,7 @@ export function QuestionBankView() {
                           <td style={{ ...s.td, whiteSpace: 'nowrap' as const }}>
                             <div style={{ display: 'flex', gap: 6 }}>
                               <button style={s.actionBtn} title="Edit"
-                                onClick={() => editingId === q.question_id ? setEditingId(null) : startEdit(q)}>
+                                onClick={() => editingId === q.question_id ? setEditingId(null) : setConfirmEdit(q)}>
                                 <Edit2 size={13} />
                               </button>
                               <button style={{ ...s.actionBtn, color: q.status === 'Active' ? '#dc2626' : '#16a34a' }}
