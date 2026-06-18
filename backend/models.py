@@ -541,6 +541,8 @@ class AssessmentSession(Base):
     duration_minutes = Column(Integer, nullable=False)
     # 8-hour start gate — after this timestamp coder cannot open the assessment
     expires_at = Column(DateTime(timezone=True), nullable=False)
+    # Direct link to the coder's shuffled question set
+    student_slot_id = Column(Integer, ForeignKey("generated_assessment_students.id"), nullable=True)
     # Set when coder clicks Start; drives the countdown timer
     started_at = Column(DateTime(timezone=True), nullable=True)
     time_limit_ends_at = Column(DateTime(timezone=True), nullable=True)

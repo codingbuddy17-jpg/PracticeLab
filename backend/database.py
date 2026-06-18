@@ -239,6 +239,7 @@ def _run_migrations():
     )""")
 
     _add_col("assessment_questions", "shuffle_options", "BOOLEAN NOT NULL DEFAULT TRUE", "INTEGER NOT NULL DEFAULT 1")
+    _add_col("assessment_sessions", "student_slot_id", "INTEGER REFERENCES generated_assessment_students(id)")
 
     # ── assessment_configs table ──────────────────────────────────────────────
     _run("""CREATE TABLE IF NOT EXISTS assessment_configs (

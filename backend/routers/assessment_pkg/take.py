@@ -27,24 +27,21 @@ def _get_session(token: str, db: Session) -> AssessmentSession:
 
 
 def _questions_for_session(session: AssessmentSession, db: Session):
-    """
-    Return the question list for this session.
-    We use the first GeneratedAssessmentStudent row for this assessment as the
-    shared question pool — each session gets the same pool since per-student
-    shuffling happens at generation time and is stored there.
-    Each session coder gets the same question set (already shuffled at generation).
-    We use session.id % student_count to assign a student slot, giving variety
-    across coders without storing duplicates.
-    """
-    students = db.query(GeneratedAssessmentStudent).filter(
-        GeneratedAssessmentStudent.assessment_id == session.assessment_id
-    ).all()
-    if not students:
+    """Return this coder's dedicated shuffled question set via direct slot lookup."""
+    if session.student_slot_id:
+        slot = db.query(GeneratedAssessmentStudent).filter(
+            GeneratedAssessmentStudent.id == session.student_slot_id
+        ).first()
+    else:
+        # Fallback for sessions created before the slot FK was introduced
+        slot = db.query(GeneratedAssessmentStudent).filter(
+            GeneratedAssessmentStudent.assessment_id == session.assessment_id
+        ).first()
+
+    if not slot:
         raise HTTPException(status_code=404, detail="No questions found for this assessment.")
 
-    # Assign each coder a student slot deterministically by session id
-    slot = session.id % len(students)
-    qs = students[slot].questions_json
+    qs = slot.questions_json
     if isinstance(qs, str):
         qs = json.loads(qs)
     return qs

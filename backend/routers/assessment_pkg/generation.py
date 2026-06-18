@@ -1,10 +1,11 @@
 """
 Assessment generation router.
-Implements stratified, LRU-ordered, per-student shuffled assessment generation.
+Implements stratified, LRU-ordered, per-coder shuffled assessment generation.
+Coders and session tokens are created in the same transaction as generation.
 """
 import random
-import math
-from datetime import datetime, timezone
+import string
+from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Dict, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -13,9 +14,24 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import AssessmentQuestion, AssessmentConfig, GeneratedAssessment, GeneratedAssessmentStudent
+from models import (
+    AssessmentQuestion, AssessmentConfig,
+    GeneratedAssessment, GeneratedAssessmentStudent,
+    AssessmentSession,
+)
 
 router = APIRouter()
+
+SESSION_EXPIRY_HOURS = 8
+
+
+def _make_token(db: Session) -> str:
+    chars = string.ascii_uppercase + string.digits
+    for _ in range(20):
+        token = "ASM-" + "".join(random.choices(chars, k=8))
+        if not db.query(AssessmentSession).filter(AssessmentSession.session_token == token).first():
+            return token
+    raise RuntimeError("Could not generate unique token")
 
 
 class SpecialtyMixItem(BaseModel):
@@ -30,12 +46,18 @@ class DifficultyMix(BaseModel):
     hard: float
 
 
+class CoderItem(BaseModel):
+    coder_name: str
+    employee_id: Optional[str] = None
+
+
 class GenerateRequest(BaseModel):
     assessment_name: str
-    student_count: int
+    coders: List[CoderItem]          # replaces student_count
+    duration_minutes: int = 60       # per-session time limit
     total_questions: int
     specialty_mix: List[SpecialtyMixItem]
-    difficulty_mode: str = "auto"   # "auto" | "manual"
+    difficulty_mode: str = "auto"    # "auto" | "manual"
     difficulty_mix: Optional[DifficultyMix] = None
     generated_by: str
     save_config: bool = True
@@ -160,7 +182,7 @@ def pool_preview(
 
 @router.post("/generate")
 def generate_assessment(req: GenerateRequest, db: Session = Depends(get_db)):
-    # Validate specialty_mix sums to 1.0 ± 0.01
+    # Validate
     total_pct = sum(item.pct for item in req.specialty_mix)
     if abs(total_pct - 1.0) > 0.01:
         raise HTTPException(status_code=400, detail=f"specialty_mix percentages must sum to 1.0, got {total_pct:.3f}")
@@ -172,10 +194,13 @@ def generate_assessment(req: GenerateRequest, db: Session = Depends(get_db)):
         if abs(dm_sum - 1.0) > 0.01:
             raise HTTPException(status_code=400, detail=f"difficulty_mix must sum to 1.0, got {dm_sum:.3f}")
 
-    if req.student_count < 1:
-        raise HTTPException(status_code=400, detail="student_count must be >= 1")
+    coders = [c for c in req.coders if c.coder_name.strip()]
+    if not coders:
+        raise HTTPException(status_code=400, detail="At least one coder is required")
     if req.total_questions < 1:
         raise HTTPException(status_code=400, detail="total_questions must be >= 1")
+    if req.duration_minutes < 5 or req.duration_minutes > 480:
+        raise HTTPException(status_code=400, detail="duration_minutes must be between 5 and 480")
 
     # Build combined question list for all specialties
     combined: List[AssessmentQuestion] = []
@@ -246,7 +271,7 @@ def generate_assessment(req: GenerateRequest, db: Session = Depends(get_db)):
         cfg = AssessmentConfig(
             name=req.config_name or req.assessment_name,
             total_questions=req.total_questions,
-            student_count=req.student_count,
+            student_count=len(coders),
             specialty_mix=[item.dict() for item in req.specialty_mix],
             difficulty_mode=req.difficulty_mode,
             difficulty_mix=req.difficulty_mix.dict() if req.difficulty_mix else None,
@@ -260,36 +285,57 @@ def generate_assessment(req: GenerateRequest, db: Session = Depends(get_db)):
     assessment = GeneratedAssessment(
         config_id=config_id,
         assessment_name=req.assessment_name,
-        student_count=req.student_count,
+        student_count=len(coders),
         generated_by=req.generated_by,
     )
     db.add(assessment)
     db.flush()
 
-    # Generate per-student shuffled question sets
-    student_summaries = []
-    for i in range(req.student_count):
-        student_label = f"Student_{i + 1:02d}"
+    # Generate one shuffled question set per coder + mint session token
+    expires_at = now + timedelta(hours=SESSION_EXPIRY_HOURS)
+    sessions_created = []
+
+    for coder in coders:
         student_questions = list(combined)
         _shuffle(student_questions)
         shuffled_with_options = [_shuffle_options(q) for q in student_questions]
 
         student_row = GeneratedAssessmentStudent(
             assessment_id=assessment.id,
-            student_label=student_label,
+            student_label=coder.coder_name.strip(),
             questions_json=shuffled_with_options,
         )
         db.add(student_row)
-        student_summaries.append(student_label)
+        db.flush()
+
+        token = _make_token(db)
+        session = AssessmentSession(
+            session_token=token,
+            assessment_id=assessment.id,
+            student_slot_id=student_row.id,
+            coder_name=coder.coder_name.strip(),
+            employee_id=coder.employee_id.strip() if coder.employee_id else None,
+            duration_minutes=req.duration_minutes,
+            expires_at=expires_at,
+            status="pending",
+        )
+        db.add(session)
+        sessions_created.append({
+            "coder_name": coder.coder_name.strip(),
+            "employee_id": coder.employee_id,
+            "session_token": token,
+        })
 
     db.commit()
 
     return {
         "assessment_id": assessment.id,
         "assessment_name": req.assessment_name,
-        "student_count": req.student_count,
+        "coder_count": len(coders),
         "total_questions": len(combined),
-        "students": student_summaries,
+        "duration_minutes": req.duration_minutes,
+        "expires_at": expires_at.isoformat(),
+        "sessions": sessions_created,
         "config_id": config_id,
         "generated_at": now.isoformat(),
     }
