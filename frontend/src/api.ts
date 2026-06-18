@@ -442,7 +442,7 @@ export async function submitSelfPractice(coderName: string, empId: string, files
   const { data } = await api.post('/practicelab/self-practice/submit', form, {
     headers: { 'Content-Type': 'multipart/form-data' },
   })
-  return data as { submission_id: number; graded: string[]; errors: string[] }
+  return data as { submission_id: number | null; graded: string[]; errors: string[] }
 }
 
 export async function getSelfPracticeQueue(status = 'pending_review') {

@@ -12,9 +12,9 @@ input, select, textarea { font-family: inherit; }
 
 button:disabled { cursor: not-allowed; }
 
-/* Intentional hover/press only on primary action buttons — not icon-only, close, or utility controls */
-button.pl-btn:hover { opacity: 0.88; }
-button.pl-btn:active { transform: scale(0.98); }
+/* Default hover/press for all buttons — icon-only and utility controls can override */
+button:not(:disabled):hover { opacity: 0.88; }
+button:not(:disabled):active { transform: scale(0.98); }
 
 a:hover > div { box-shadow: 0 4px 16px rgba(0,0,0,0.1); transform: translateY(-1px); }
 

@@ -73,10 +73,10 @@ def _coder_label(c: dict) -> str:
     return f"{c['coder_name']} ({c['emp_id']})" if c.get("emp_id") else c["coder_name"]
 
 
-def _score_cell(score, suffix="%"):
+def _score_cell(score, suffix="%", pass_threshold: int = 80):
     if score is None:
         return Paragraph("—", NORMAL)
-    style = ParagraphStyle("score", parent=NORMAL, textColor=_score_color(score), fontName="Helvetica-Bold")
+    style = ParagraphStyle("score", parent=NORMAL, textColor=_score_color(score, pass_threshold), fontName="Helvetica-Bold")
     return Paragraph(f"{score}{suffix}", style)
 
 
@@ -399,7 +399,7 @@ def generate_coder_report_pdf(coder_name: str, summary: dict, team_avg_score: Op
         dpo_rows = []
         for label, key in [("Diagnosis (Dx)", "dx_accuracy"), ("POA", "poa_accuracy"), ("Procedure (PCS/CPT)", "proc_accuracy")]:
             if dpo.get(key) is not None:
-                dpo_rows.append([Paragraph(label, NORMAL), _score_cell(dpo[key])])
+                dpo_rows.append([Paragraph(label, NORMAL), _score_cell(dpo[key], pass_threshold=pt)])
         elements.append(_data_table(["Section", "Accuracy"], dpo_rows, [3, 1]))
 
     ep = summary.get("error_pattern") or {}
@@ -419,7 +419,7 @@ def generate_coder_report_pdf(coder_name: str, summary: dict, team_avg_score: Op
         _section_heading(elements, "Category Performance")
         elements.append(_category_bar_chart(sorted(cats, key=lambda c: c["avg_score"]), label_key="category"))
         elements.append(Spacer(1, 6))
-        cat_rows = [[Paragraph(c["category"], NORMAL), Paragraph(str(c["charts"]), NORMAL), _score_cell(c["avg_score"])] for c in cats]
+        cat_rows = [[Paragraph(c["category"], NORMAL), Paragraph(str(c["charts"]), NORMAL), _score_cell(c["avg_score"], pass_threshold=pt)] for c in cats]
         elements.append(_data_table(["Category", "Charts", "Avg Score"], cat_rows, [3, 1, 1]))
 
         weak = [c for c in cats if c["avg_score"] < pt]
@@ -443,7 +443,7 @@ def generate_coder_report_pdf(coder_name: str, summary: dict, team_avg_score: Op
             b_rows.append([
                 Paragraph(b["batch_name"], NORMAL), Paragraph(b.get("specialty") or "—", NORMAL),
                 Paragraph(date_str, NORMAL), Paragraph(str(b.get("chart_count", "—")), NORMAL),
-                _score_cell(b.get("avg_score")), Paragraph(passed_str, NORMAL),
+                _score_cell(b.get("avg_score"), pass_threshold=pt), Paragraph(passed_str, NORMAL),
             ])
         elements.append(_data_table(
             ["Batch", "Specialty", "Date", "Charts", "Avg Score", "Passed"],
