@@ -461,3 +461,125 @@ def analytics_coder(
         "topic_strength": topic_strength,
         "difficulty_breakdown": difficulty_breakdown,
     }
+
+
+def _build_response_meta(db: Session) -> tuple:
+    """
+    Build two dicts across ALL submitted sessions:
+      qid_specialty: Dict[str, str]  — question_id -> specialty
+      qid_topic:     Dict[str, str]  — question_id -> topic
+    Returns (qid_specialty, qid_topic, submitted_session_ids)
+    """
+    submitted_sessions = db.query(AssessmentSession).filter(
+        AssessmentSession.status == "submitted"
+    ).all()
+    submitted_session_ids = [s.id for s in submitted_sessions]
+
+    # Collect unique slot ids to avoid re-parsing the same slot multiple times
+    slot_ids = list(set(
+        s.student_slot_id for s in submitted_sessions if s.student_slot_id
+    ))
+    slots = (
+        db.query(GeneratedAssessmentStudent)
+        .filter(GeneratedAssessmentStudent.id.in_(slot_ids))
+        .all()
+    ) if slot_ids else []
+
+    qid_specialty: Dict[str, str] = {}
+    qid_topic: Dict[str, str] = {}
+    for slot in slots:
+        qs = _parse_questions(slot.questions_json)
+        for q in qs:
+            qid = q.get("question_id", "")
+            if qid:
+                qid_specialty[qid] = q.get("specialty", "Unknown")
+                qid_topic[qid] = q.get("topic", "Unknown")
+
+    return qid_specialty, qid_topic, submitted_session_ids
+
+
+@router.get("/analytics/by-specialty")
+def analytics_by_specialty(db: Session = Depends(get_db)):
+    """Aggregate accuracy and volume metrics grouped by specialty across all assessments."""
+    qid_specialty, _qid_topic, submitted_session_ids = _build_response_meta(db)
+
+    if not submitted_session_ids:
+        return {"specialties": []}
+
+    responses = (
+        db.query(AssessmentResponse)
+        .filter(AssessmentResponse.session_id.in_(submitted_session_ids))
+        .all()
+    )
+
+    # Per-specialty accumulators
+    spec_map: Dict[str, Dict] = {}
+    for resp in responses:
+        if resp.is_correct is None:
+            continue
+        sp = qid_specialty.get(resp.question_id, "Unknown")
+        if sp not in spec_map:
+            spec_map[sp] = {"correct": 0, "total": 0, "coders": set()}
+        spec_map[sp]["total"] += 1
+        if resp.is_correct:
+            spec_map[sp]["correct"] += 1
+        spec_map[sp]["coders"].add(resp.session_id)
+
+    specialties = []
+    for sp, d in spec_map.items():
+        acc = round(d["correct"] / d["total"] * 100, 1) if d["total"] else None
+        specialties.append({
+            "specialty": sp,
+            "accuracy_pct": acc,
+            "correct": d["correct"],
+            "total_responses": d["total"],
+            "coder_count": len(d["coders"]),
+        })
+
+    specialties.sort(key=lambda x: -(x["accuracy_pct"] or 0))
+    return {"specialties": specialties}
+
+
+@router.get("/analytics/by-topic")
+def analytics_by_topic(db: Session = Depends(get_db)):
+    """Aggregate accuracy and volume metrics grouped by topic across all assessments."""
+    qid_specialty, qid_topic, submitted_session_ids = _build_response_meta(db)
+
+    if not submitted_session_ids:
+        return {"topics": []}
+
+    responses = (
+        db.query(AssessmentResponse)
+        .filter(AssessmentResponse.session_id.in_(submitted_session_ids))
+        .all()
+    )
+
+    # Per-topic accumulators (also track specialty for context)
+    topic_map: Dict[str, Dict] = {}
+    for resp in responses:
+        if resp.is_correct is None:
+            continue
+        tp = qid_topic.get(resp.question_id, "Unknown")
+        sp = qid_specialty.get(resp.question_id, "Unknown")
+        if tp not in topic_map:
+            topic_map[tp] = {"correct": 0, "total": 0, "coders": set(), "specialties": set()}
+        topic_map[tp]["total"] += 1
+        if resp.is_correct:
+            topic_map[tp]["correct"] += 1
+        topic_map[tp]["coders"].add(resp.session_id)
+        topic_map[tp]["specialties"].add(sp)
+
+    topics = []
+    for tp, d in topic_map.items():
+        acc = round(d["correct"] / d["total"] * 100, 1) if d["total"] else None
+        topics.append({
+            "topic": tp,
+            "accuracy_pct": acc,
+            "correct": d["correct"],
+            "total_responses": d["total"],
+            "coder_count": len(d["coders"]),
+            "specialties": sorted(d["specialties"]),
+        })
+
+    topics.sort(key=lambda x: -(x["accuracy_pct"] or 0))
+    return {"topics": topics}

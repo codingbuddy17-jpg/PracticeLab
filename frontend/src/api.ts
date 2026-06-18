@@ -737,3 +737,13 @@ export async function getAssessmentAnalyticsCoder(coderName: string, employeeId?
   })
   return data
 }
+
+export async function getAssessmentAnalyticsBySpecialty() {
+  const { data } = await api.get('/assessment/analytics/by-specialty')
+  return data
+}
+
+export async function getAssessmentAnalyticsByTopic() {
+  const { data } = await api.get('/assessment/analytics/by-topic')
+  return data
+}
