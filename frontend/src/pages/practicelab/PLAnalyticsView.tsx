@@ -507,7 +507,8 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                   {/* Top / Bottom categories */}
                   {coderSummary.by_category?.length > 0 && (() => {
                     const cats: any[] = coderSummary.by_category
-                    const weak = cats.filter((c: any) => c.avg_score < 90)
+                    const pt = coderSummary.pass_threshold ?? 90
+                    const weak = cats.filter((c: any) => c.avg_score < pt)
                     const splitAt = Math.min(3, Math.floor(cats.length / 2))
                     const top = cats.slice(0, splitAt)
                     const bottom = weak.length > 0 ? weak.slice(-Math.min(3, weak.length)).reverse() : []
@@ -528,7 +529,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                         <div style={{ background: bottom.length > 0 ? '#fff7ed' : '#f0fdf4', border: `1px solid ${bottom.length > 0 ? '#fed7aa' : '#bbf7d0'}`, borderRadius: 10, padding: '12px 14px' }}>
                           <div style={{ fontSize: 11, fontWeight: 700, color: bottom.length > 0 ? '#92400e' : '#166534', textTransform: 'uppercase' as const, letterSpacing: 0.5, marginBottom: 8 }}>Needs Work</div>
                           {bottom.length === 0 ? (
-                            <div style={{ fontSize: 12, color: '#166534', fontWeight: 600 }}>None — every category is at or above 90%</div>
+                            <div style={{ fontSize: 12, color: '#166534', fontWeight: 600 }}>None — every category is at or above {coderSummary.pass_threshold ?? 90}%</div>
                           ) : bottom.map((c: any) => (
                             <div key={c.category} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #fde68a', fontSize: 12 }}>
                               <span style={{ fontWeight: 600, color: '#111' }}>{c.category}</span>

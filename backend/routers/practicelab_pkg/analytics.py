@@ -7,7 +7,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, Integer
 from database import get_db
-from models import Batch, BatchCoder, BatchStatus, GradingResult, GradingFeedback, Chart, PassFail, Specialty
+from models import Batch, BatchCoder, BatchStatus, GradingResult, GradingFeedback, Chart, PassFail, Specialty, ScoringConfig
 from services.pdf_report_service import generate_coder_report_pdf
 
 router = APIRouter()
@@ -323,6 +323,11 @@ def coder_summary(
         for d in batch_map.values()
     ]
 
+    # Pass threshold from active scoring config (IP if any IP result exists, else OP)
+    has_ip = any(r.specialty and r.specialty.value == "IP-DRG" for r in results)
+    cfg_row = db.query(ScoringConfig).filter(ScoringConfig.specialty_type == ("IP" if has_ip else "OP")).first()
+    pass_threshold = (cfg_row.pass_threshold or 80) if cfg_row else 80
+
     return {
         "coder_name": coder_name,
         "emp_id": emp_id,
@@ -334,6 +339,7 @@ def coder_summary(
         "by_category": by_category,
         "batches": batches,
         "error_pattern": error_pattern,
+        "pass_threshold": pass_threshold,
     }
 
 

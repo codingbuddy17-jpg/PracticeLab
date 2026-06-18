@@ -51,6 +51,12 @@ export function ResultsView({ batchId }: any) {
 
   const scoreColor = (v: number) => v >= 90 ? '#16a34a' : v >= 80 ? '#d97706' : '#dc2626'
 
+  function pfBadge(pf: string | null | undefined) {
+    if (!pf || pf === 'PENDING') return { label: pf || '—', color: '#6b7280', bg: '#f3f4f6' }
+    if (pf === 'PASS') return { label: 'PASS', color: '#16a34a', bg: '#f0fdf4' }
+    return { label: 'FAIL', color: '#dc2626', bg: '#fef2f2' }
+  }
+
   return (
     <div style={styles.section}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, flexWrap: 'wrap', gap: 10 }}>
@@ -144,7 +150,9 @@ export function ResultsView({ batchId }: any) {
                 </span>
                 <span style={{ textAlign: 'center', color: '#374151' }}>{c.chart_count}</span>
                 <span style={{ textAlign: 'center', fontWeight: 700, color: scoreColor(c.avg_total) }}>{c.avg_total}%</span>
-                <span style={{ textAlign: 'center', fontWeight: 700, color: c.pass_fail === 'PASS' ? '#16a34a' : '#dc2626' }}>{c.pass_fail}</span>
+                <span style={{ textAlign: 'center' }}>
+                  {(() => { const b = pfBadge(c.pass_fail); return <span style={{ fontWeight: 700, color: b.color, background: b.bg, padding: '2px 8px', borderRadius: 10, fontSize: 12 }}>{b.label}</span> })()}
+                </span>
               </div>
 
               {/* Expanded: cumulative panel + per-chart rows */}
@@ -163,7 +171,7 @@ export function ResultsView({ batchId }: any) {
                         {[
                           { value: String(c.charts_scored ?? c.chart_count), label: 'Charts Graded', color: '#374151' },
                           { value: `${c.avg_total}%`, label: 'Weighted Accuracy', color: scoreColor(c.avg_total) },
-                          { value: `${c.charts_passed ?? 0}/${c.charts_scored ?? c.chart_count}`, label: 'Charts Passed', color: c.pass_fail === 'PASS' ? '#16a34a' : '#dc2626' },
+                          { value: `${c.charts_passed ?? 0}/${c.charts_scored ?? c.chart_count}`, label: 'Charts Passed', color: pfBadge(c.pass_fail).color },
                         ].map((s, si) => (
                           <div key={si} style={{ textAlign: 'center' as const, padding: '16px 24px', borderRight: '1px solid #e0e7ff' }}>
                             <div style={{ fontSize: 26, fontWeight: 800, color: s.color, lineHeight: 1 }}>{s.value}</div>
@@ -218,9 +226,13 @@ export function ResultsView({ batchId }: any) {
                           </span>
                           <span style={{ textAlign: 'center', fontWeight: 700, fontSize: 13, color: ch.total_score != null ? scoreColor(ch.total_score) : '#9ca3af' }}>
                             {ch.total_score != null ? `${ch.total_score}%` : '—'}
+                            {ch.drg_flag && !ch.drg_reviewed && <span title="DRG review pending" style={{ marginLeft: 4, fontSize: 10, color: '#d97706' }}>⏳</span>}
+                            {ch.drg_reviewed && ch.drg_reviewed_by && (
+                              <span title={`DRG reviewed by ${ch.drg_reviewed_by}${ch.drg_reviewed_at ? ' on ' + new Date(ch.drg_reviewed_at).toLocaleDateString() : ''}`} style={{ marginLeft: 4, fontSize: 10, color: '#6b7280', cursor: 'help' }}>✓DRG</span>
+                            )}
                           </span>
-                          <span style={{ textAlign: 'center', fontWeight: 700, fontSize: 12, color: ch.pass_fail === 'PASS' ? '#16a34a' : '#dc2626' }}>
-                            {ch.pass_fail || '—'}
+                          <span style={{ textAlign: 'center' }}>
+                            {(() => { const b = pfBadge(ch.pass_fail); return <span style={{ fontWeight: 700, fontSize: 12, color: b.color }}>{b.label}</span> })()}
                           </span>
                         </div>
 

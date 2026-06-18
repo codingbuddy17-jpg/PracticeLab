@@ -568,6 +568,12 @@ def get_batch_insights(batch_id: int, db: Session = Depends(get_db)):
         return {"has_data": False, "batch_name": batch.name, "specialty": batch.specialty.value}
 
     is_ip = _is_ip(batch.specialty)
+
+    # Load configured pass threshold for this specialty
+    specialty_type = "IP" if is_ip else "OP"
+    cfg_row = db.query(ScoringConfig).filter(ScoringConfig.specialty_type == specialty_type).first()
+    pass_threshold = (cfg_row.pass_threshold or 80) if cfg_row else 80
+
     scores = [r.total_score for r in results]
     n_passed = sum(1 for r in results if r.pass_fail and r.pass_fail.value == "PASS")
     avg_score = round(sum(scores) / len(scores), 1)
@@ -626,8 +632,8 @@ def get_batch_insights(batch_id: int, db: Session = Depends(get_db)):
         for cat, d in cat_map.items()
     ], key=lambda x: x["avg_score"])
 
-    weak_categories = [c for c in category_performance if c["avg_score"] < 90]
-    strong_categories = [c for c in category_performance if c["avg_score"] >= 90]
+    weak_categories = [c for c in category_performance if c["avg_score"] < pass_threshold]
+    strong_categories = [c for c in category_performance if c["avg_score"] >= pass_threshold]
     bottom_categories = weak_categories[:5]
     top_categories = list(reversed(strong_categories[-5:])) if strong_categories else []
 
@@ -723,8 +729,8 @@ def get_batch_insights(batch_id: int, db: Session = Depends(get_db)):
         })
 
     ranked_coders = sorted(coder_insights, key=lambda x: -x["avg_score"])
-    weak_coders = [c for c in ranked_coders if c["avg_score"] < 90]
-    strong_coders = [c for c in ranked_coders if c["avg_score"] >= 90]
+    weak_coders = [c for c in ranked_coders if c["avg_score"] < pass_threshold]
+    strong_coders = [c for c in ranked_coders if c["avg_score"] >= pass_threshold]
     top_performers = strong_coders[:3]
     bottom_performers = list(reversed(weak_coders[-3:])) if weak_coders else []
 
@@ -733,17 +739,18 @@ def get_batch_insights(batch_id: int, db: Session = Depends(get_db)):
     highest_score_coders = [c["coder_name"] for c in coder_insights if c["avg_score"] == highest_score]
     lowest_score_coders = [c["coder_name"] for c in coder_insights if c["avg_score"] == lowest_score]
 
+    high_threshold = pass_threshold + (100 - pass_threshold) // 2  # midpoint above pass
     score_buckets = [
-        {"label": ">95%", "color": "#16a34a", "coders": []},
-        {"label": "90-95%", "color": "#d97706", "coders": []},
-        {"label": "<90%", "color": "#dc2626", "coders": []},
+        {"label": f">{high_threshold}%", "color": "#16a34a", "coders": []},
+        {"label": f"{pass_threshold}-{high_threshold}%", "color": "#d97706", "coders": []},
+        {"label": f"<{pass_threshold}%", "color": "#dc2626", "coders": []},
     ]
     for c in coder_insights:
         s = c["avg_score"]
         label = f"{c['coder_name']} ({c['emp_id']})" if c.get("emp_id") else c["coder_name"]
-        if s > 95:
+        if s > high_threshold:
             score_buckets[0]["coders"].append(label)
-        elif s >= 90:
+        elif s >= pass_threshold:
             score_buckets[1]["coders"].append(label)
         else:
             score_buckets[2]["coders"].append(label)
@@ -757,6 +764,7 @@ def get_batch_insights(batch_id: int, db: Session = Depends(get_db)):
         "batch_name": batch.name,
         "specialty": batch.specialty.value,
         "is_ip": is_ip,
+        "pass_threshold": pass_threshold,
         "batch_summary": {
             "total_graded": len(results),
             "n_coders": n_coders,

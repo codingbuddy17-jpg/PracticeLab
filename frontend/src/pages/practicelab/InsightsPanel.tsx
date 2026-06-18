@@ -11,7 +11,7 @@ import { downloadBatchReportPdf } from '../../api'
 export function InsightsPanel({ insights, batchId, onClose }: { insights: any; batchId: number; onClose: () => void }) {
   const { batch_summary: bs, team_errors: te, category_performance: cp, chart_signals: cs, coder_insights: ci, is_ip,
     top_categories: topCats, bottom_categories: bottomCats, top_performers: topPerf, bottom_performers: bottomPerf,
-    score_distribution: scoreDist } = insights
+    score_distribution: scoreDist, pass_threshold: passThreshold = 90 } = insights
   const [expandedCoder, setExpandedCoder] = useState<string | null>(null)
   const [selectedBucket, setSelectedBucket] = useState<string | null>(null)
   const coderLabel = (c: any) => c.emp_id ? `${c.coder_name} (${c.emp_id})` : c.coder_name
@@ -217,7 +217,7 @@ export function InsightsPanel({ insights, batchId, onClose }: { insights: any; b
           <div style={{ background: bottomPerf?.length > 0 ? '#fff7ed' : '#f0fdf4', border: `1px solid ${bottomPerf?.length > 0 ? '#fed7aa' : '#bbf7d0'}`, borderRadius: 10, padding: '14px 16px' }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: bottomPerf?.length > 0 ? '#92400e' : '#166534', textTransform: 'uppercase' as const, letterSpacing: 0.5, marginBottom: 10 }}>Needs Attention</div>
             {!bottomPerf?.length ? (
-              <div style={{ fontSize: 12, color: '#166534', fontWeight: 600 }}>None — every coder is at or above 90%</div>
+              <div style={{ fontSize: 12, color: '#166534', fontWeight: 600 }}>None — every coder is at or above {passThreshold}%</div>
             ) : bottomPerf.map((c: any, i: number) => (
               <div key={c.coder_name} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', borderBottom: i < bottomPerf.length - 1 ? '1px solid #fde68a' : 'none' }}>
                 <span style={{ fontSize: 11, fontWeight: 800, color: '#dc2626', width: 18 }}>#{i + 1}</span>
@@ -245,7 +245,7 @@ export function InsightsPanel({ insights, batchId, onClose }: { insights: any; b
           <div style={{ background: bottomCats?.length > 0 ? '#fff5f5' : '#f0fdf4', border: `1px solid ${bottomCats?.length > 0 ? '#fecaca' : '#bbf7d0'}`, borderRadius: 10, padding: '14px 16px' }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: bottomCats?.length > 0 ? '#dc2626' : '#166534', textTransform: 'uppercase' as const, letterSpacing: 0.5, marginBottom: 10 }}>Bottom Categories — Needs Work</div>
             {!bottomCats?.length ? (
-              <div style={{ fontSize: 12, color: '#166534', fontWeight: 600 }}>None — every category is at or above 90%</div>
+              <div style={{ fontSize: 12, color: '#166534', fontWeight: 600 }}>None — every category is at or above {passThreshold}%</div>
             ) : bottomCats.map((c: any, i: number) => (
               <div key={c.category} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', borderBottom: i < bottomCats.length - 1 ? '1px solid #fee2e2' : 'none' }}>
                 <span style={{ fontSize: 11, fontWeight: 800, color: '#dc2626', width: 18 }}>#{i + 1}</span>
