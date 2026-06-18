@@ -283,6 +283,8 @@ class GradingResult(Base):
     drg_flag = Column(Boolean, default=False)
     drg_reviewed = Column(Boolean, default=False)
     drg_override = Column(String(5), nullable=True)  # Y/N trainer decision
+    drg_reviewed_by = Column(String(100), nullable=True)
+    drg_reviewed_at = Column(DateTime(timezone=True), nullable=True)
     total_score = Column(Integer, nullable=True)  # null until finalized
     pass_fail = Column(SAEnum(PassFail), nullable=True)
     graded_at = Column(DateTime(timezone=True), server_default=func.now())

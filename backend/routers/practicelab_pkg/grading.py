@@ -325,12 +325,18 @@ def submit_drg_decision(result_id: int, payload: DRGDecision, db: Session = Depe
     gr = db.query(GradingResult).filter(GradingResult.id == result_id).first()
     if not gr:
         raise HTTPException(status_code=404, detail="Result not found")
+    if not gr.drg_flag:
+        raise HTTPException(status_code=400, detail="This result is not a DRG-flagged case — decision not permitted")
+    if gr.drg_reviewed:
+        raise HTTPException(status_code=409, detail="DRG decision already recorded for this result — cannot overwrite")
     batch = db.query(Batch).filter(Batch.id == gr.batch_id).first()
     if batch and batch.status == BatchStatus.CLOSED:
         raise HTTPException(status_code=409, detail="Cannot modify results — batch is closed")
 
     gr.drg_override = "Y" if payload.drg_error else "N"
     gr.drg_reviewed = True
+    gr.drg_reviewed_by = payload.reviewer
+    gr.drg_reviewed_at = datetime.utcnow()
 
     ip_cfg_row = db.query(ScoringConfig).filter(ScoringConfig.specialty_type == "IP").first()
     drg_weight = (ip_cfg_row.drg_weight or 40) if ip_cfg_row else 40
@@ -415,6 +421,8 @@ def get_batch_results(batch_id: int, db: Session = Depends(get_db)):
             "pass_fail": r.pass_fail,
             "drg_flag": r.drg_flag,
             "drg_reviewed": r.drg_reviewed,
+            "drg_reviewed_by": r.drg_reviewed_by,
+            "drg_reviewed_at": r.drg_reviewed_at.isoformat() if r.drg_reviewed_at else None,
             "dpo_dx_accuracy": r.dpo_dx_accuracy,
             "dpo_poa_accuracy": r.dpo_poa_accuracy,
             "dpo_proc_accuracy": r.dpo_proc_accuracy,

@@ -100,6 +100,10 @@ def _run_migrations():
     _run("UPDATE batches SET status = 'Open'   WHERE status IN ('Active', 'Grading', 'Draft')")
     _run("UPDATE batches SET status = 'Closed' WHERE status = 'Complete'")
 
+    # ── grading_results — DRG audit trail ────────────────────────────────────
+    _add_col("grading_results", "drg_reviewed_by", "VARCHAR(100)")
+    _add_col("grading_results", "drg_reviewed_at", "TIMESTAMPTZ", "TIMESTAMP")
+
     # ── grading_results — DPO columns ────────────────────────────────────────
     _add_col("grading_results", "dpo_dx_accuracy",   "FLOAT")
     _add_col("grading_results", "dpo_poa_accuracy",  "FLOAT")
