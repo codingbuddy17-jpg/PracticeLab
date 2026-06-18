@@ -38,7 +38,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
   const [coderName, setCoderName] = useState('')
   const [coderTrend, setCoderTrend] = useState<any[]>([])
   const [coderSummary, setCoderSummary] = useState<any>(null)
-  const [categoryData, setCategoryData] = useState<{ team: any[]; coder_category: any[] } | null>(null)
+  const [categoryData, setCategoryData] = useState<{ team: any[]; coder_category: any[]; coder_scope_note?: string } | null>(null)
   const [teachingData, setTeachingData] = useState<any[]>([])
   const [matrixData, setMatrixData] = useState<{ batches: any[]; coders: string[]; coder_emp_ids?: Record<string, string>; cells: any[] } | null>(null)
   const [teachingFilter, setTeachingFilter] = useState<string>('All')
@@ -48,6 +48,16 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
   const [chartDetail, setChartDetail] = useState<Record<string, any>>({})
   const [draftFilters, setDraftFilters] = useState<PLFilters>({})
   const [filters, setFilters] = useState<PLFilters>({})
+  const [ipThreshold, setIpThreshold] = useState(80)
+  const [opThreshold, setOpThreshold] = useState(90)
+
+  // Score color derived from the active pass threshold
+  function sc(v: number | null | undefined, specialty?: string): string {
+    if (v == null) return '#9ca3af'
+    const pt = (specialty === 'OP' || specialty === 'ED Facility' || specialty === 'ED Profee' || specialty === 'SDS' || specialty === 'Ancillary' || specialty === 'E/M') ? opThreshold : ipThreshold
+    const low = Math.round(pt * 0.75)
+    return v >= pt ? '#16a34a' : v >= low ? '#d97706' : '#dc2626'
+  }
   const [filterVersion, setFilterVersion] = useState(0)
   const [matrixCoderSearch, setMatrixCoderSearch] = useState('')
   const [matrixShowAll, setMatrixShowAll] = useState(false)
@@ -93,6 +103,8 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
       getPLAnalyticsByBatch(filters),
     ]).then(([ov, sp, bt]) => {
       setOverview(ov); setBySpecialty(sp); setByBatch(bt)
+      if (ov?.ip_pass_threshold) setIpThreshold(ov.ip_pass_threshold)
+      if (ov?.op_pass_threshold) setOpThreshold(ov.op_pass_threshold)
     }).catch(() => toast.error('Failed to load analytics')).finally(() => setLoading(false))
   }, [filters])
 
@@ -212,7 +224,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                   { label: 'Open Batches', value: overview.open_batches ?? 0, color: '#2563eb' },
                   { label: 'Closed Batches', value: overview.complete_batches ?? 0, color: '#16a34a' },
                   { label: 'Total Graded', value: overview.total_graded },
-                  { label: 'Overall Pass Rate', value: `${overview.overall_pass_rate}%`, color: overview.overall_pass_rate >= 80 ? '#16a34a' : overview.overall_pass_rate >= 60 ? '#d97706' : '#dc2626' },
+                  { label: 'Overall Pass Rate', value: `${overview.overall_pass_rate}%`, color: sc(overview.overall_pass_rate) },
                 ].map(s => (
                   <div key={s.label} style={styles.statCard}>
                     <div style={{ ...styles.statValue, color: (s as any).color || '#111' }}>{s.value}</div>
@@ -303,8 +315,8 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                   <div key={r.specialty} className={i % 2 === 1 ? 'pl-tr-alt' : 'pl-tr'} style={{ ...styles.tableRow, gridTemplateColumns: '2fr 1fr 1fr 1fr' }}>
                     <span style={{ fontWeight: 600 }}>{r.specialty}</span>
                     <span>{r.total}</span>
-                    <span style={{ fontWeight: 700, color: r.avg_score >= 80 ? '#16a34a' : r.avg_score >= 60 ? '#d97706' : '#dc2626' }}>{r.avg_score}%</span>
-                    <span style={{ fontWeight: 700, color: r.pass_rate >= 80 ? '#16a34a' : r.pass_rate >= 60 ? '#d97706' : '#dc2626' }}>{r.pass_rate}%</span>
+                    <span style={{ fontWeight: 700, color: sc(r.avg_score, r.specialty) }}>{r.avg_score}%</span>
+                    <span style={{ fontWeight: 700, color: sc(r.pass_rate, r.specialty) }}>{r.pass_rate}%</span>
                   </div>
                 ))}
               </div>
@@ -331,7 +343,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                     <span style={{ fontSize: 12, color: '#374151' }}>{r.category}</span>
                     <span style={{ fontSize: 12, color: '#6b7280' }}>{r.specialty}</span>
                     <span style={{ fontSize: 13, textAlign: 'center' as const }}>{r.attempt_count}</span>
-                    <span style={{ fontWeight: 700, fontSize: 13, textAlign: 'center' as const, color: r.avg_score >= 80 ? '#16a34a' : r.avg_score >= 60 ? '#d97706' : '#dc2626' }}>{r.avg_score}%</span>
+                    <span style={{ fontWeight: 700, fontSize: 13, textAlign: 'center' as const, color: sc(r.avg_score, r.specialty) }}>{r.avg_score}%</span>
                   </div>
                   {/* Top missed badges — only when collapsed */}
                   {r.top_missed?.length > 0 && expandedChart !== r.chart_number && (
@@ -352,7 +364,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                             <div key={`${c.coder_name}-${c.batch_name}`} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '6px 10px', background: '#fff', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 12 }}>
                               <span style={{ minWidth: 140 }}>{coderLink(c.coder_name)}</span>
                               <span style={{ fontSize: 11, color: '#9ca3af', flex: 1 }}>{c.batch_name}</span>
-                              <span style={{ fontWeight: 700, color: (c.total_score ?? 0) >= 80 ? '#16a34a' : (c.total_score ?? 0) >= 60 ? '#d97706' : '#dc2626' }}>{c.total_score}%</span>
+                              <span style={{ fontWeight: 700, color: sc(c.total_score) }}>{c.total_score}%</span>
                               <span style={{ fontWeight: 700, fontSize: 11, color: c.pass_fail === 'PASS' ? '#16a34a' : '#dc2626' }}>{c.pass_fail}</span>
                               {c.missed_codes?.length > 0 && (
                                 <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' as const, alignItems: 'center' }}>
@@ -409,8 +421,8 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                     <span style={{ fontWeight: 600, fontSize: 13 }}>{r.batch_name}</span>
                     <span style={{ fontSize: 12, color: '#6b7280' }}>{r.specialty}</span>
                     <span>{r.coder_count}</span>
-                    <span style={{ fontWeight: 700, color: r.avg_score >= 80 ? '#16a34a' : r.avg_score >= 60 ? '#d97706' : '#dc2626' }}>{r.avg_score}%</span>
-                    <span style={{ fontWeight: 700, color: r.pass_rate >= 80 ? '#16a34a' : r.pass_rate >= 60 ? '#d97706' : '#dc2626' }}>{r.pass_rate}%</span>
+                    <span style={{ fontWeight: 700, color: sc(r.avg_score, r.specialty) }}>{r.avg_score}%</span>
+                    <span style={{ fontWeight: 700, color: sc(r.pass_rate, r.specialty) }}>{r.pass_rate}%</span>
                     {onOpenBatch ? (
                       <button onClick={() => onOpenBatch(r.batch_id)}
                         style={{ fontSize: 11, fontWeight: 700, color: '#4f46e5', background: 'none', border: '1px solid #e0e7ff', borderRadius: 6, padding: '4px 10px', cursor: 'pointer' }}>
@@ -461,7 +473,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                     </div>
                     {coderSummary.weighted_accuracy != null && (
                       <div style={styles.statCard}>
-                        <div style={{ ...styles.statValue, color: coderSummary.weighted_accuracy >= 90 ? '#16a34a' : coderSummary.weighted_accuracy >= 80 ? '#d97706' : '#dc2626' }}>
+                        <div style={{ ...styles.statValue, color: sc(coderSummary.weighted_accuracy) }}>
                           {coderSummary.weighted_accuracy}%
                         </div>
                         <div style={styles.statLabel}>Weighted Accuracy</div>
@@ -469,7 +481,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                     )}
                     {coderSummary.cumulative_dpo?.overall_accuracy != null && (
                       <div style={styles.statCard}>
-                        <div style={{ ...styles.statValue, color: coderSummary.cumulative_dpo.overall_accuracy >= 90 ? '#16a34a' : coderSummary.cumulative_dpo.overall_accuracy >= 80 ? '#d97706' : '#dc2626' }}>
+                        <div style={{ ...styles.statValue, color: sc(coderSummary.cumulative_dpo.overall_accuracy) }}>
                           {coderSummary.cumulative_dpo.overall_accuracy}%
                         </div>
                         <div style={styles.statLabel}>Overall DPO</div>
@@ -484,19 +496,19 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                       <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' as const }}>
                         {coderSummary.cumulative_dpo.dx_accuracy != null && (
                           <div style={{ textAlign: 'center' as const }}>
-                            <div style={{ fontSize: 20, fontWeight: 800, color: coderSummary.cumulative_dpo.dx_accuracy >= 90 ? '#16a34a' : coderSummary.cumulative_dpo.dx_accuracy >= 80 ? '#d97706' : '#dc2626' }}>{coderSummary.cumulative_dpo.dx_accuracy}%</div>
+                            <div style={{ fontSize: 20, fontWeight: 800, color: sc(coderSummary.cumulative_dpo.dx_accuracy) }}>{coderSummary.cumulative_dpo.dx_accuracy}%</div>
                             <div style={{ fontSize: 10, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.4 }}>Dx</div>
                           </div>
                         )}
                         {coderSummary.cumulative_dpo.poa_accuracy != null && (
                           <div style={{ textAlign: 'center' as const }}>
-                            <div style={{ fontSize: 20, fontWeight: 800, color: coderSummary.cumulative_dpo.poa_accuracy >= 90 ? '#16a34a' : coderSummary.cumulative_dpo.poa_accuracy >= 80 ? '#d97706' : '#dc2626' }}>{coderSummary.cumulative_dpo.poa_accuracy}%</div>
+                            <div style={{ fontSize: 20, fontWeight: 800, color: sc(coderSummary.cumulative_dpo.poa_accuracy) }}>{coderSummary.cumulative_dpo.poa_accuracy}%</div>
                             <div style={{ fontSize: 10, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.4 }}>POA</div>
                           </div>
                         )}
                         {coderSummary.cumulative_dpo.proc_accuracy != null && (
                           <div style={{ textAlign: 'center' as const }}>
-                            <div style={{ fontSize: 20, fontWeight: 800, color: coderSummary.cumulative_dpo.proc_accuracy >= 90 ? '#16a34a' : coderSummary.cumulative_dpo.proc_accuracy >= 80 ? '#d97706' : '#dc2626' }}>{coderSummary.cumulative_dpo.proc_accuracy}%</div>
+                            <div style={{ fontSize: 20, fontWeight: 800, color: sc(coderSummary.cumulative_dpo.proc_accuracy) }}>{coderSummary.cumulative_dpo.proc_accuracy}%</div>
                             <div style={{ fontSize: 10, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.4 }}>PCS/CPT</div>
                           </div>
                         )}
@@ -535,7 +547,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                               <span style={{ fontWeight: 600, color: '#111' }}>{c.category}</span>
                               <span style={{ display: 'flex', gap: 8, color: '#6b7280' }}>
                                 <span>{c.charts} charts</span>
-                                <span style={{ fontWeight: 700, color: c.avg_score >= 80 ? '#16a34a' : c.avg_score >= 60 ? '#d97706' : '#dc2626' }}>{c.avg_score}%</span>
+                                <span style={{ fontWeight: 700, color: sc(c.avg_score) }}>{c.avg_score}%</span>
                               </span>
                             </div>
                           ))}
@@ -580,7 +592,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                           <span style={{ fontSize: 12, color: '#6b7280' }}>{r.created_at ? new Date(r.created_at).toLocaleDateString() : '—'}</span>
                           <span>{r.chart_count ?? r.charts ?? '—'}</span>
                           <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                            <span style={{ fontWeight: 700, color: (r.avg_score ?? 0) >= 80 ? '#16a34a' : (r.avg_score ?? 0) >= 60 ? '#d97706' : '#dc2626' }}>{r.avg_score != null ? `${r.avg_score}%` : '—'}</span>
+                            <span style={{ fontWeight: 700, color: sc(r.avg_score) }}>{r.avg_score != null ? `${r.avg_score}%` : '—'}</span>
                             {delta != null && <span style={{ fontSize: 11, fontWeight: 700, color: delta > 0 ? '#16a34a' : delta < 0 ? '#dc2626' : '#9ca3af' }}>{delta > 0 ? '↑' : delta < 0 ? '↓' : '→'}{Math.abs(delta)}%</span>}
                           </span>
                           <span style={{ fontWeight: 700, color: '#16a34a' }}>{r.charts_passed != null ? `${r.charts_passed}/${r.chart_count ?? r.charts ?? '?'}` : '—'}</span>
@@ -612,7 +624,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                     <Tooltip formatter={(v: any) => [`${v}%`]} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
                     <Bar dataKey="avg_score" name="Avg Score" radius={[0, 4, 4, 0]}>
                       {categoryData.team.map((entry: any, i: number) => (
-                        <Cell key={i} fill={entry.avg_score >= 80 ? '#22c55e' : entry.avg_score >= 60 ? '#f59e0b' : '#ef4444'} />
+                        <Cell key={i} fill={sc(entry.avg_score) === '#16a34a' ? '#22c55e' : sc(entry.avg_score) === '#d97706' ? '#f59e0b' : '#ef4444'} />
                       ))}
                     </Bar>
                   </BarChart>
@@ -633,7 +645,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                         onClick={() => setExpandedCategory(isExp ? null : cat.category)}>
                         <span style={{ fontWeight: 600 }}>{cat.category} <span style={{ fontSize: 11, color: '#9ca3af' }}>{isExp ? '▲' : '▼'}</span></span>
                         <span>{cat.attempt_count}</span>
-                        <span style={{ fontWeight: 700, color: cat.avg_score >= 80 ? '#16a34a' : cat.avg_score >= 60 ? '#d97706' : '#dc2626' }}>{cat.avg_score}%</span>
+                        <span style={{ fontWeight: 700, color: sc(cat.avg_score) }}>{cat.avg_score}%</span>
                       </div>
                       {isExp && (
                         <div style={{ padding: '12px 16px', background: '#fafafa', borderBottom: '1px solid #ede9fe', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
@@ -643,7 +655,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                               <div key={c.chart_number} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #f3f4f6', fontSize: 12 }}>
                                 <span style={{ fontWeight: 700, color: '#4f46e5', cursor: 'pointer' }} onClick={e => { e.stopPropagation(); setExpandedChart(c.chart_number); setTab('chart') }}>{c.chart_number}</span>
                                 <span style={{ color: '#6b7280' }}>{c.attempt_count} attempts</span>
-                                <span style={{ fontWeight: 700, color: c.avg_score >= 80 ? '#16a34a' : c.avg_score >= 60 ? '#d97706' : '#dc2626' }}>{c.avg_score}%</span>
+                                <span style={{ fontWeight: 700, color: sc(c.avg_score) }}>{c.avg_score}%</span>
                               </div>
                             ))}
                           </div>
@@ -655,7 +667,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                                   <div key={c.coder_name} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #f3f4f6', fontSize: 12 }}>
                                     {coderLink(c.coder_name)}
                                     <span style={{ color: '#6b7280' }}>{c.attempt_count} charts</span>
-                                    <span style={{ fontWeight: 700, color: c.avg_score >= 80 ? '#16a34a' : c.avg_score >= 60 ? '#d97706' : '#dc2626' }}>{c.avg_score}%</span>
+                                    <span style={{ fontWeight: 700, color: sc(c.avg_score) }}>{c.avg_score}%</span>
                                   </div>
                                 ))}
                                 {catCoders.length > 10 && (
@@ -673,6 +685,11 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                 })}
               </div>
 
+              {categoryData.coder_scope_note && (
+                <div style={{ fontSize: 11, color: '#6b7280', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8, padding: '8px 14px' }}>
+                  ℹ️ {categoryData.coder_scope_note}
+                </div>
+              )}
               {categoryData.coder_category.length > 0 && (() => {
                 const allCoders = Array.from(new Set(categoryData.coder_category.map((r: any) => r.coder_name))) as string[]
                 const cats = categoryData.team.map((r: any) => r.category)
@@ -730,8 +747,9 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                               {cats.map((cat: string) => {
                                 const cell = cellMap[coder]?.[cat]
                                 const score = cell?.avg_score
-                                const bg = score == null ? 'transparent' : score >= 80 ? '#dcfce7' : score >= 60 ? '#fef3c7' : '#fee2e2'
-                                const color = score == null ? '#d1d5db' : score >= 80 ? '#166534' : score >= 60 ? '#92400e' : '#991b1b'
+                                const _sc = sc(score)
+                                const bg = score == null ? 'transparent' : _sc === '#16a34a' ? '#dcfce7' : _sc === '#d97706' ? '#fef3c7' : '#fee2e2'
+                                const color = score == null ? '#d1d5db' : _sc === '#16a34a' ? '#166534' : _sc === '#d97706' ? '#92400e' : '#991b1b'
                                 return (
                                   <td key={cat} style={{ padding: '6px 8px', textAlign: 'center', background: bg, color, fontWeight: 700, borderBottom: '1px solid #f3f4f6', borderLeft: '1px solid #f3f4f6' }}>
                                     {score != null ? `${score}%` : '—'}
@@ -756,7 +774,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                         Collapse to {CODER_PAGE}
                       </button>
                     )}
-                    <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 8 }}>Green ≥80% · Yellow 60–79% · Red &lt;60% · — no data</div>
+                    <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 8 }}>Green ≥{ipThreshold}% · Yellow {Math.round(ipThreshold * 0.75)}–{ipThreshold - 1}% · Red &lt;{Math.round(ipThreshold * 0.75)}% · — no data</div>
                   </div>
                 )
               })()}
@@ -852,8 +870,8 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                             <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 6 }}>{c.specialty} · {c.category}</div>
                             <div style={{ display: 'flex', gap: 12, fontSize: 12 }}>
                               <span><b style={{ color: '#111' }}>{c.attempt_count}</b> attempts</span>
-                              <span><b style={{ color: c.avg_score >= 80 ? '#16a34a' : c.avg_score >= 60 ? '#d97706' : '#dc2626' }}>{c.avg_score}%</b> avg</span>
-                              <span><b style={{ color: c.pass_rate >= 80 ? '#16a34a' : c.pass_rate >= 60 ? '#d97706' : '#dc2626' }}>{c.pass_rate}%</b> pass</span>
+                              <span><b style={{ color: sc(c.avg_score) }}>{c.avg_score}%</b> avg</span>
+                              <span><b style={{ color: sc(c.pass_rate) }}>{c.pass_rate}%</b> pass</span>
                             </div>
                             {c.error_variety > 0 && <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>{c.error_variety} distinct error type{c.error_variety > 1 ? 's' : ''}</div>}
                           </div>

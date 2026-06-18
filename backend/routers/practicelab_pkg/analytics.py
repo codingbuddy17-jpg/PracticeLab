@@ -54,6 +54,10 @@ def analytics_overview(
     passed = base.filter(GradingResult.pass_fail == PassFail.PASS).count()
 
     b_base = _batch_base(db, from_date, to_date, specialty)
+
+    ip_cfg = db.query(ScoringConfig).filter(ScoringConfig.specialty_type == "IP").first()
+    op_cfg = db.query(ScoringConfig).filter(ScoringConfig.specialty_type == "OP").first()
+
     return {
         "total_batches": b_base.count(),
         "open_batches": b_base.filter(Batch.status == BatchStatus.OPEN).count(),
@@ -61,6 +65,8 @@ def analytics_overview(
         "total_graded": total_results,
         "total_passed": passed,
         "overall_pass_rate": round(passed / total_results * 100, 1) if total_results else 0,
+        "ip_pass_threshold": (ip_cfg.pass_threshold or 80) if ip_cfg else 80,
+        "op_pass_threshold": (op_cfg.pass_threshold or 90) if op_cfg else 90,
     }
 
 
@@ -425,7 +431,11 @@ def analytics_by_category(
         for k, d in coder_cat.items()
     ]
 
-    return {"team": team, "coder_category": coder_category}
+    return {
+        "team": team,
+        "coder_category": coder_category,
+        "coder_scope_note": "Coder rows include direct assignments and standalone grades. Team averages reflect formal batches only.",
+    }
 
 
 @router.get("/analytics/chart-teaching-value")
@@ -437,6 +447,12 @@ def analytics_chart_teaching_value(
 
     if not results:
         return []
+
+    # Use specialty-appropriate pass threshold for teaching value labels
+    has_ip = any(r.specialty and r.specialty.value == "IP-DRG" for r in results)
+    spec_type = "IP" if (has_ip and not specialty) or (specialty and specialty == "IP-DRG") else "OP"
+    tv_cfg = db.query(ScoringConfig).filter(ScoringConfig.specialty_type == spec_type).first()
+    tv_threshold = (tv_cfg.pass_threshold or 80) if tv_cfg else 80
 
     chart_map: dict = {}
     for r in results:
@@ -465,15 +481,17 @@ def analytics_chart_teaching_value(
         error_variety = len(d["error_variety"])
         attempts = d["total"]
 
+        high_cutoff = tv_threshold + max(5, (100 - tv_threshold) // 2)
+        low_cutoff = tv_threshold * 60 // 100  # ~60% of threshold = fail zone
         if attempts < 2:
             label = "Underused"
-        elif avg >= 90:
+        elif avg >= high_cutoff:
             label = "Too Easy"
-        elif pass_rate < 50 and error_variety >= 3:
+        elif pass_rate < low_cutoff and error_variety >= 3:
             label = "High Confusion"
-        elif 50 <= pass_rate <= 85 and error_variety >= 2 and attempts >= 3:
+        elif low_cutoff <= pass_rate <= tv_threshold and error_variety >= 2 and attempts >= 3:
             label = "High Yield"
-        elif pass_rate < 50:
+        elif pass_rate < low_cutoff:
             label = "High Fail"
         else:
             label = "Standard"
