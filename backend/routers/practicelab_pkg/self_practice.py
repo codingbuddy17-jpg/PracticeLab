@@ -111,16 +111,8 @@ def coder_self_practice_submit(
     ip_cfg = cfg_from_db(ip_cfg_row) if ip_cfg_row else DEFAULT_IP_CFG
     op_cfg = cfg_from_db(op_cfg_row) if op_cfg_row else DEFAULT_OP_CFG
 
-    submission = SelfPracticeSubmission(
-        coder_name=coder_name.strip(),
-        emp_id=emp_id.strip(),
-        source="coder",
-        status="pending_review",
-    )
-    db.add(submission)
-    db.flush()
-
     graded, errors = [], []
+    pending_results = []
 
     for upload in files:
         try:
@@ -149,16 +141,31 @@ def coder_self_practice_submit(
                 errors.append(f"{chart_num}: grading error — {e}")
                 continue
 
-            sp_result = SelfPracticeResult(
-                submission_id=submission.id,
-                chart_id=chart.id,
-                chart_number=chart_num,
-                specialty=chart.specialty,
-                feedback_items=feedback_items,
-                **result_kwargs,
-            )
-            db.add(sp_result)
+            pending_results.append((chart, chart_num, result_kwargs, feedback_items))
             graded.append(chart_num)
+
+    if not graded:
+        return {"submission_id": None, "graded": [], "errors": errors}
+
+    submission = SelfPracticeSubmission(
+        coder_name=coder_name.strip(),
+        emp_id=emp_id.strip(),
+        source="coder",
+        status="pending_review",
+    )
+    db.add(submission)
+    db.flush()
+
+    for chart, chart_num, result_kwargs, feedback_items in pending_results:
+        sp_result = SelfPracticeResult(
+            submission_id=submission.id,
+            chart_id=chart.id,
+            chart_number=chart_num,
+            specialty=chart.specialty,
+            feedback_items=feedback_items,
+            **result_kwargs,
+        )
+        db.add(sp_result)
 
     db.commit()
     return {"submission_id": submission.id, "graded": graded, "errors": errors}
@@ -215,6 +222,10 @@ def release_self_practice(submission_id: int, payload: SPReviewPayload, db: Sess
     sub = db.query(SelfPracticeSubmission).filter(SelfPracticeSubmission.id == submission_id).first()
     if not sub:
         raise HTTPException(404, "Submission not found")
+    if sub.source != "coder":
+        raise HTTPException(400, "Only coder submissions can be released — trainer standalone grades are not subject to review")
+    if sub.status != "pending_review":
+        raise HTTPException(409, f"Submission is already '{sub.status}' — cannot release again")
     sub.status = "released"
     sub.trainer_feedback = payload.trainer_feedback
     sub.reviewed_by = payload.reviewed_by
