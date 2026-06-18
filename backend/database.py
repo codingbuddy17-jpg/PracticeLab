@@ -263,6 +263,7 @@ def _run_migrations():
         generated_by VARCHAR(100) NOT NULL,
         generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )""")
+    _add_col("generated_assessments", "batch_name", "VARCHAR(100)")
 
     # ── generated_assessment_students table ───────────────────────────────────
     _run("""CREATE TABLE IF NOT EXISTS generated_assessment_students (

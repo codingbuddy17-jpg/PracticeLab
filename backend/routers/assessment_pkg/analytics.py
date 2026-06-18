@@ -10,6 +10,7 @@ from models import (
     GeneratedAssessment, GeneratedAssessmentStudent,
 )
 
+
 router = APIRouter()
 
 PASS_THRESHOLD = 90.0
@@ -492,8 +493,25 @@ def _build_response_meta(db: Session) -> tuple:
         for q in qs:
             qid = q.get("question_id", "")
             if qid:
-                qid_specialty[qid] = q.get("specialty", "Unknown")
-                qid_topic[qid] = q.get("topic", "Unknown")
+                qid_specialty[qid] = q.get("specialty", "") or "Unknown"
+                qid_topic[qid] = q.get("topic", "") or "Unknown"
+
+    # sessions without a direct slot FK — fall back to assessment_id lookup
+    sessions_without_slot = [s for s in submitted_sessions if not s.student_slot_id]
+    fallback_assessment_ids = list(set(s.assessment_id for s in sessions_without_slot))
+    if fallback_assessment_ids:
+        fallback_slots = (
+            db.query(GeneratedAssessmentStudent)
+            .filter(GeneratedAssessmentStudent.assessment_id.in_(fallback_assessment_ids))
+            .all()
+        )
+        for slot in fallback_slots:
+            qs = _parse_questions(slot.questions_json)
+            for q in qs:
+                qid = q.get("question_id", "")
+                if qid and qid not in qid_specialty:
+                    qid_specialty[qid] = q.get("specialty", "") or "Unknown"
+                    qid_topic[qid] = q.get("topic", "") or "Unknown"
 
     return qid_specialty, qid_topic, submitted_session_ids
 
@@ -583,3 +601,239 @@ def analytics_by_topic(db: Session = Depends(get_db)):
 
     topics.sort(key=lambda x: -(x["accuracy_pct"] or 0))
     return {"topics": topics}
+
+
+@router.get("/analytics/by-batch")
+def analytics_by_batch(db: Session = Depends(get_db)):
+    assessments = db.query(GeneratedAssessment).order_by(GeneratedAssessment.generated_at.desc()).all()
+    all_results = db.query(AssessmentResult).all()
+    result_map = {r.session_id: r for r in all_results}
+    all_sessions = db.query(AssessmentSession).all()
+
+    batch_map: Dict[str, Dict] = {}
+    for a in assessments:
+        batch_key = a.batch_name or "Ungrouped"
+        if batch_key not in batch_map:
+            batch_map[batch_key] = {"assessments": [], "all_scores": [], "coders": set()}
+
+        a_sessions = [s for s in all_sessions if s.assessment_id == a.id and s.status == "submitted"]
+        a_scores = []
+        for s in a_sessions:
+            r = result_map.get(s.id)
+            if r:
+                a_scores.append(r.score_pct)
+                batch_map[batch_key]["coders"].add(s.coder_name)
+
+        a_pass_rate = round(sum(1 for sc in a_scores if sc >= PASS_THRESHOLD) / len(a_scores) * 100, 1) if a_scores else None
+        a_avg = round(sum(a_scores) / len(a_scores), 1) if a_scores else None
+        batch_map[batch_key]["all_scores"].extend(a_scores)
+        batch_map[batch_key]["assessments"].append({
+            "assessment_id": a.id,
+            "assessment_name": a.assessment_name,
+            "generated_at": a.generated_at.isoformat() if a.generated_at else None,
+            "submitted_count": len(a_scores),
+            "pass_rate": a_pass_rate,
+            "avg_score": a_avg,
+        })
+
+    batches = []
+    for batch_name, d in batch_map.items():
+        scores = d["all_scores"]
+        batches.append({
+            "batch_name": batch_name,
+            "assessment_count": len(d["assessments"]),
+            "total_coders": len(d["coders"]),
+            "submitted_count": len(scores),
+            "avg_score": round(sum(scores) / len(scores), 1) if scores else None,
+            "pass_rate": round(sum(1 for sc in scores if sc >= PASS_THRESHOLD) / len(scores) * 100, 1) if scores else None,
+            "assessments": d["assessments"],
+        })
+
+    return {"batches": batches}
+
+
+@router.get("/analytics/batch-drill/{batch_name}")
+def analytics_batch_drill(batch_name: str, db: Session = Depends(get_db)):
+    actual_batch = None if batch_name == "Ungrouped" else batch_name
+    if actual_batch:
+        assessments = db.query(GeneratedAssessment).filter(GeneratedAssessment.batch_name == actual_batch).all()
+    else:
+        assessments = db.query(GeneratedAssessment).filter(GeneratedAssessment.batch_name.is_(None)).all()
+
+    if not assessments:
+        raise HTTPException(status_code=404, detail="Batch not found")
+
+    assessment_ids = [a.id for a in assessments]
+    sessions = db.query(AssessmentSession).filter(
+        AssessmentSession.assessment_id.in_(assessment_ids),
+        AssessmentSession.status == "submitted"
+    ).order_by(AssessmentSession.submitted_at.asc()).all()
+
+    session_ids = [s.id for s in sessions]
+    responses = db.query(AssessmentResponse).filter(AssessmentResponse.session_id.in_(session_ids)).all()
+    results = db.query(AssessmentResult).filter(AssessmentResult.session_id.in_(session_ids)).all()
+    result_map = {r.session_id: r for r in results}
+
+    # Build qid→topic/specialty map
+    slot_ids = list(set(s.student_slot_id for s in sessions if s.student_slot_id))
+    slots = db.query(GeneratedAssessmentStudent).filter(GeneratedAssessmentStudent.id.in_(slot_ids)).all() if slot_ids else []
+    fallback_slots = db.query(GeneratedAssessmentStudent).filter(GeneratedAssessmentStudent.assessment_id.in_(assessment_ids)).all()
+
+    qid_topic: Dict[str, str] = {}
+    qid_specialty: Dict[str, str] = {}
+    for slot in list(slots) + list(fallback_slots):
+        for q in _parse_questions(slot.questions_json):
+            qid = q.get("question_id", "")
+            if qid and qid not in qid_topic:
+                qid_topic[qid] = q.get("topic", "") or "Unknown"
+                qid_specialty[qid] = q.get("specialty", "") or "Unknown"
+
+    # coder → topic accuracy
+    coder_topic: Dict[str, Dict[str, Dict]] = {}
+    coder_sessions: Dict[str, List] = {}
+
+    session_map = {s.id: s for s in sessions}
+    for resp in responses:
+        if resp.is_correct is None:
+            continue
+        s = session_map.get(resp.session_id)
+        if not s:
+            continue
+        coder = s.coder_name
+        topic = qid_topic.get(resp.question_id, "Unknown")
+        coder_topic.setdefault(coder, {}).setdefault(topic, {"correct": 0, "total": 0})
+        coder_topic[coder][topic]["total"] += 1
+        if resp.is_correct:
+            coder_topic[coder][topic]["correct"] += 1
+
+    for s in sessions:
+        r = result_map.get(s.id)
+        if r:
+            coder_sessions.setdefault(s.coder_name, []).append({
+                "score_pct": r.score_pct,
+                "submitted_at": r.submitted_at,
+                "assessment_name": next((a.assessment_name for a in assessments if a.id == s.assessment_id), ""),
+            })
+
+    # All topics in this batch
+    all_topics = sorted(set(qid_topic.values()))
+
+    # Coder matrix rows
+    coder_rows = []
+    for coder, topic_data in coder_topic.items():
+        row: Dict[str, Any] = {"coder_name": coder, "topics": {}}
+        for topic in all_topics:
+            d = topic_data.get(topic)
+            row["topics"][topic] = round(d["correct"] / d["total"] * 100, 1) if d and d["total"] else None
+
+        sess_list = coder_sessions.get(coder, [])
+        if sess_list:
+            sess_list_sorted = sorted(sess_list, key=lambda x: x["submitted_at"] or "")
+            row["latest_score"] = round(sess_list_sorted[-1]["score_pct"], 1)
+            row["first_score"] = round(sess_list_sorted[0]["score_pct"], 1)
+            row["delta"] = round(row["latest_score"] - row["first_score"], 1) if len(sess_list_sorted) > 1 else None
+            row["assessment_count"] = len(sess_list_sorted)
+        else:
+            row["latest_score"] = None
+            row["first_score"] = None
+            row["delta"] = None
+            row["assessment_count"] = 0
+        coder_rows.append(row)
+
+    coder_rows.sort(key=lambda x: -(x["latest_score"] or 0))
+
+    # Topic summary
+    topic_summary = []
+    for topic in all_topics:
+        corrects, totals = 0, 0
+        for coder, td in coder_topic.items():
+            d = td.get(topic)
+            if d:
+                corrects += d["correct"]
+                totals += d["total"]
+        acc = round(corrects / totals * 100, 1) if totals else None
+        topic_summary.append({
+            "topic": topic,
+            "accuracy_pct": acc,
+            "correct": corrects,
+            "total": totals,
+        })
+
+    weak_topics = [t for t in topic_summary if t["accuracy_pct"] is not None and t["accuracy_pct"] < 80]
+    strong_topics = [t for t in topic_summary if t["accuracy_pct"] is not None and t["accuracy_pct"] >= 90]
+    weak_topics.sort(key=lambda x: x["accuracy_pct"])
+    strong_topics.sort(key=lambda x: -(x["accuracy_pct"] or 0))
+
+    all_scores = [result_map[s.id].score_pct for s in sessions if s.id in result_map]
+
+    return {
+        "batch_name": batch_name,
+        "assessment_count": len(assessments),
+        "total_coders": len(coder_topic),
+        "submitted_count": len(session_ids),
+        "avg_score": round(sum(all_scores) / len(all_scores), 1) if all_scores else None,
+        "pass_rate": round(sum(1 for sc in all_scores if sc >= PASS_THRESHOLD) / len(all_scores) * 100, 1) if all_scores else None,
+        "all_topics": all_topics,
+        "coder_rows": coder_rows,
+        "topic_summary": topic_summary,
+        "weak_topics": weak_topics,
+        "strong_topics": strong_topics,
+        "assessments": [{"id": a.id, "name": a.assessment_name, "generated_at": a.generated_at.isoformat() if a.generated_at else None} for a in assessments],
+    }
+
+
+@router.get("/analytics/coder-matrix")
+def analytics_coder_matrix(db: Session = Depends(get_db)):
+    qid_specialty, _qid_topic, submitted_session_ids = _build_response_meta(db)
+    if not submitted_session_ids:
+        return {"coders": [], "specialties": []}
+
+    sessions = db.query(AssessmentSession).filter(
+        AssessmentSession.id.in_(submitted_session_ids)
+    ).all()
+    responses = db.query(AssessmentResponse).filter(
+        AssessmentResponse.session_id.in_(submitted_session_ids)
+    ).all()
+    results = db.query(AssessmentResult).filter(
+        AssessmentResult.session_id.in_(submitted_session_ids)
+    ).all()
+
+    session_map = {s.id: s for s in sessions}
+    result_map = {r.session_id: r for r in results}
+
+    # coder → specialty → {correct, total}
+    coder_spec: Dict[str, Dict[str, Dict]] = {}
+    coder_overall: Dict[str, List[float]] = {}
+
+    for resp in responses:
+        if resp.is_correct is None:
+            continue
+        s = session_map.get(resp.session_id)
+        if not s:
+            continue
+        sp = qid_specialty.get(resp.question_id, "Unknown")
+        coder_spec.setdefault(s.coder_name, {}).setdefault(sp, {"correct": 0, "total": 0})
+        coder_spec[s.coder_name][sp]["total"] += 1
+        if resp.is_correct:
+            coder_spec[s.coder_name][sp]["correct"] += 1
+
+    for s in sessions:
+        r = result_map.get(s.id)
+        if r:
+            coder_overall.setdefault(s.coder_name, []).append(r.score_pct)
+
+    all_specialties = sorted(set(sp for c in coder_spec.values() for sp in c.keys()))
+
+    coders = []
+    for coder, spec_data in coder_spec.items():
+        row: Dict[str, Any] = {"coder_name": coder, "specialties": {}}
+        for sp in all_specialties:
+            d = spec_data.get(sp)
+            row["specialties"][sp] = round(d["correct"] / d["total"] * 100, 1) if d and d["total"] else None
+        scores = coder_overall.get(coder, [])
+        row["avg_score"] = round(sum(scores) / len(scores), 1) if scores else None
+        row["assessments_taken"] = len(scores)
+        coders.append(row)
+
+    coders.sort(key=lambda x: -(x["avg_score"] or 0))
+    return {"coders": coders, "specialties": all_specialties}

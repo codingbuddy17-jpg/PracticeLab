@@ -27,6 +27,7 @@ const trainerName = () => localStorage.getItem('trainer_name') || 'Trainer'
 
 export function GenerateView() {
   const [name, setName] = useState('')
+  const [batchName, setBatchName] = useState('')
   const [durationMinutes, setDurationMinutes] = useState(60)
   const [totalQuestions, setTotalQuestions] = useState(20)
   const [specialtyMix, setSpecialtyMix] = useState<SpecialtyMixRow[]>([
@@ -94,6 +95,7 @@ export function GenerateView() {
     try {
       const payload = {
         assessment_name: name.trim(),
+        batch_name: batchName.trim() || undefined,
         coders: validCoders.map(c => ({ coder_name: c.coder_name.trim(), employee_id: c.employee_id.trim() || null })),
         duration_minutes: durationMinutes,
         total_questions: totalQuestions,
@@ -120,7 +122,7 @@ export function GenerateView() {
 
   function copyAllTokens() {
     if (!result) return
-    const text = result.sessions.map(s => `${s.coder_name}\t${s.employee_id || ''}\t${s.session_token}`).join('\n')
+    const text = result.sessions.map((s: SessionResult) => `${s.coder_name}\t${s.employee_id || ''}\t${s.session_token}`).join('\n')
     navigator.clipboard.writeText(text)
     toast.success('All tokens copied')
   }
@@ -191,7 +193,7 @@ export function GenerateView() {
         </div>
 
         <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <button style={styles.btnOutline} onClick={() => { setResult(null); setName(''); setCoders([{ coder_name: '', employee_id: '' }]) }}>
+          <button style={styles.btnOutline} onClick={() => { setResult(null); setName(''); setBatchName(''); setCoders([{ coder_name: '', employee_id: '' }]) }}>
             Generate Another Assessment
           </button>
         </div>
@@ -214,6 +216,15 @@ export function GenerateView() {
               placeholder="e.g. Q3 2026 ICD-10-CM Practice"
               value={name}
               onChange={e => setName(e.target.value)}
+            />
+          </div>
+          <div style={styles.formGroup}>
+            <label style={styles.label}>Batch / Cohort Name</label>
+            <input
+              style={{ ...styles.input, width: 220 }}
+              placeholder="e.g. July 2026 Cohort"
+              value={batchName}
+              onChange={e => setBatchName(e.target.value)}
             />
           </div>
           <div style={styles.formGroup}>

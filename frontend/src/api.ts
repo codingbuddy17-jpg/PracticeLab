@@ -747,3 +747,18 @@ export async function getAssessmentAnalyticsByTopic() {
   const { data } = await api.get('/assessment/analytics/by-topic')
   return data
 }
+
+export async function getAssessmentAnalyticsByBatch() {
+  const { data } = await api.get('/assessment/analytics/by-batch')
+  return data
+}
+
+export async function getAssessmentAnalyticsBatchDrill(batchName: string) {
+  const { data } = await api.get(`/assessment/analytics/batch-drill/${encodeURIComponent(batchName)}`)
+  return data
+}
+
+export async function getAssessmentAnalyticsCoderMatrix() {
+  const { data } = await api.get('/assessment/analytics/coder-matrix')
+  return data
+}

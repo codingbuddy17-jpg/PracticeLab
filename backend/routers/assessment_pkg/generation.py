@@ -53,6 +53,7 @@ class CoderItem(BaseModel):
 
 class GenerateRequest(BaseModel):
     assessment_name: str
+    batch_name: Optional[str] = None
     coders: List[CoderItem]          # replaces student_count
     duration_minutes: int = 60       # per-session time limit
     total_questions: int
@@ -285,6 +286,7 @@ def generate_assessment(req: GenerateRequest, db: Session = Depends(get_db)):
     assessment = GeneratedAssessment(
         config_id=config_id,
         assessment_name=req.assessment_name,
+        batch_name=req.batch_name,
         student_count=len(coders),
         generated_by=req.generated_by,
     )

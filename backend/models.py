@@ -499,6 +499,7 @@ class GeneratedAssessment(Base):
     id = Column(Integer, primary_key=True)
     config_id = Column(Integer, ForeignKey("assessment_configs.id"), nullable=True)
     assessment_name = Column(String(200), nullable=False)
+    batch_name = Column(String(100), nullable=True)
     student_count = Column(Integer, nullable=False)
     generated_by = Column(String(100), nullable=False)
     generated_at = Column(DateTime(timezone=True), server_default=func.now())
