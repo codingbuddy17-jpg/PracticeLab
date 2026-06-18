@@ -138,6 +138,12 @@ export function UploadView() {
               ? <><RefreshCw size={13} style={{ animation: 'spin 1s linear infinite' }} /> Uploading…</>
               : <><Upload size={13} /> Upload</>}
           </button>
+
+          {file && !uploading && (
+            <button style={s.btnCancel} onClick={() => { setFile(null); setResult(null); if (fileRef.current) fileRef.current.value = '' }}>
+              ✕ Cancel
+            </button>
+          )}
         </div>
       </div>
 
@@ -207,6 +213,7 @@ const s: Record<string, React.CSSProperties> = {
   input: { padding: '9px 12px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', background: '#fff' },
   btnOutline: { display: 'flex', alignItems: 'center', gap: 5, padding: '8px 14px', border: '1px solid #e5e7eb', borderRadius: 8, background: 'rgba(255,255,255,0.7)', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#374151' },
   btnPrimary: { display: 'flex', alignItems: 'center', gap: 5, padding: '8px 18px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 700 },
+  btnCancel: { display: 'flex', alignItems: 'center', gap: 5, padding: '8px 14px', border: '1px solid #fca5a5', borderRadius: 8, background: '#fff1f2', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#dc2626' },
   summaryMeta: { display: 'flex', gap: 20, fontSize: 13, color: '#6b7280', flexWrap: 'wrap' as const },
   statRow: { display: 'flex', gap: 12 },
   statBox: { flex: 1, border: '1px solid', borderRadius: 10, padding: '14px 18px', textAlign: 'center' as const },
