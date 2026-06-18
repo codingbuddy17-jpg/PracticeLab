@@ -783,6 +783,42 @@ def analytics_batch_drill(batch_name: str, db: Session = Depends(get_db)):
     }
 
 
+@router.get("/analytics/coder-report.pdf")
+def assessment_coder_report_pdf(
+    coder_name: str,
+    employee_id: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    from fastapi.responses import StreamingResponse
+    import io
+    data = analytics_coder(coder_name=coder_name, employee_id=employee_id, db=db)
+    if not data:
+        raise HTTPException(status_code=404, detail="No assessment history found for this coder.")
+    from services.pdf_report_service import generate_assessment_coder_report_pdf
+    pdf_bytes = generate_assessment_coder_report_pdf(coder_name, data)
+    safe_name = coder_name.replace(" ", "_")
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename={safe_name}_Assessment_Report.pdf"},
+    )
+
+
+@router.get("/analytics/batch-report.pdf")
+def assessment_batch_report_pdf(batch_name: str, db: Session = Depends(get_db)):
+    from fastapi.responses import StreamingResponse
+    import io
+    data = analytics_batch_drill(batch_name=batch_name, db=db)
+    from services.pdf_report_service import generate_assessment_batch_report_pdf
+    pdf_bytes = generate_assessment_batch_report_pdf(data)
+    safe_name = batch_name.replace(" ", "_")
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename={safe_name}_Batch_Report.pdf"},
+    )
+
+
 @router.get("/analytics/coder-matrix")
 def analytics_coder_matrix(db: Session = Depends(get_db)):
     qid_specialty, _qid_topic, submitted_session_ids = _build_response_meta(db)

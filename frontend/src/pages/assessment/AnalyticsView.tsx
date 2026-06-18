@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Loader, TrendingUp, BarChart2, User, Award, Clock, AlertCircle, CheckCircle, XCircle, Layers, Tag, BookOpen, Grid, ChevronDown, ChevronRight } from 'lucide-react'
+import { Loader, TrendingUp, BarChart2, User, Award, Clock, AlertCircle, CheckCircle, XCircle, Layers, Tag, BookOpen, Grid, ChevronDown, ChevronRight, FileDown } from 'lucide-react'
 import toast from 'react-hot-toast'
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -15,6 +15,8 @@ import {
   getAssessmentAnalyticsBatchDrill,
   getAssessmentAnalyticsCoderMatrix,
   listAssessmentHistory,
+  downloadAssessmentCoderReport,
+  downloadAssessmentBatchReport,
 } from '../../api'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -549,7 +551,7 @@ function CoderHistoryContent({ data }: { data: any }) {
               )}
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center' }}>
             <div style={{ textAlign: 'center' }}>
               <div style={{ fontSize: 28, fontWeight: 900, color: scoreColor(data.avg_score) }}>{fmt(data.avg_score)}</div>
               <div style={{ fontSize: 11, color: '#6b7280', fontWeight: 600 }}>Avg Score</div>
@@ -562,6 +564,18 @@ function CoderHistoryContent({ data }: { data: any }) {
               <div style={{ fontSize: 28, fontWeight: 900, color: '#111' }}>{data.total_assessments_taken}</div>
               <div style={{ fontSize: 11, color: '#6b7280', fontWeight: 600 }}>Assessments</div>
             </div>
+            <button
+              onClick={() => downloadAssessmentCoderReport(data.coder_name, data.employee_id || undefined)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                padding: '8px 16px', borderRadius: 10,
+                background: 'linear-gradient(135deg, #7c3aed, #4f46e5)',
+                color: '#fff', border: 'none', cursor: 'pointer',
+                fontSize: 12, fontWeight: 700,
+              }}
+            >
+              <FileDown size={13} /> Download PDF Report
+            </button>
           </div>
         </div>
 
@@ -1008,14 +1022,14 @@ function BatchAnalysisTab() {
             boxShadow: '0 2px 12px rgba(0,0,0,0.06)', overflow: 'hidden',
           }}>
             {/* Batch header — click to expand */}
-            <button
-              onClick={() => toggleBatch(batch.batch_name)}
-              style={{
-                width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                padding: '18px 24px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 24px' }}>
+              <button
+                onClick={() => toggleBatch(batch.batch_name)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 12,
+                  background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0,
+                }}
+              >
                 <span style={{ color: '#7c3aed' }}>{isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}</span>
                 <div>
                   <div style={{ fontSize: 15, fontWeight: 800, color: '#111' }}>{batch.batch_name}</div>
@@ -1023,7 +1037,7 @@ function BatchAnalysisTab() {
                     {batch.assessment_count} assessment{batch.assessment_count !== 1 ? 's' : ''} · {batch.total_coders} coder{batch.total_coders !== 1 ? 's' : ''}
                   </div>
                 </div>
-              </div>
+              </button>
               <div style={{ display: 'flex', gap: 20, alignItems: 'center' }}>
                 <div style={{ textAlign: 'right' }}>
                   <div style={{ fontSize: 20, fontWeight: 800, color: scoreColor(batch.avg_score) }}>{fmt(batch.avg_score)}</div>
@@ -1037,8 +1051,20 @@ function BatchAnalysisTab() {
                   <div style={{ fontSize: 20, fontWeight: 800, color: '#374151' }}>{batch.submitted_count}</div>
                   <div style={{ fontSize: 11, color: '#9ca3af' }}>Submitted</div>
                 </div>
+                <button
+                  onClick={(e) => { e.stopPropagation(); downloadAssessmentBatchReport(batch.batch_name) }}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 5,
+                    padding: '7px 13px', borderRadius: 9,
+                    background: 'linear-gradient(135deg, #7c3aed, #4f46e5)',
+                    color: '#fff', border: 'none', cursor: 'pointer',
+                    fontSize: 11, fontWeight: 700,
+                  }}
+                >
+                  <FileDown size={12} /> PDF Report
+                </button>
               </div>
-            </button>
+            </div>
 
             {/* Drill-down content */}
             {isOpen && (

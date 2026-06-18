@@ -762,3 +762,16 @@ export async function getAssessmentAnalyticsCoderMatrix() {
   const { data } = await api.get('/assessment/analytics/coder-matrix')
   return data
 }
+
+export function downloadAssessmentCoderReport(coderName: string, employeeId?: string) {
+  const base = import.meta.env.VITE_API_URL || '/api'
+  const params = new URLSearchParams({ coder_name: coderName })
+  if (employeeId) params.set('employee_id', employeeId)
+  window.open(`${base}/assessment/analytics/coder-report.pdf?${params}`)
+}
+
+export function downloadAssessmentBatchReport(batchName: string) {
+  const base = import.meta.env.VITE_API_URL || '/api'
+  const params = new URLSearchParams({ batch_name: batchName })
+  window.open(`${base}/assessment/analytics/batch-report.pdf?${params}`)
+}

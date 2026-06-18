@@ -591,3 +591,254 @@ def generate_batch_report_pdf(insights: dict) -> bytes:
     _footer_note(elements)
     doc.build(elements, onFirstPage=_draw_background, onLaterPages=_draw_background)
     return buf.getvalue()
+
+
+# ── Assessment PDF Reports ────────────────────────────────────────────────────
+
+def generate_assessment_coder_report_pdf(coder_name: str, data: dict) -> bytes:
+    """PDF report for a single coder's assessment history."""
+    buf = io.BytesIO()
+    doc = _doc(buf)
+    elements = []
+
+    emp_id = data.get("employee_id")
+    subtitle = f"Coder: {coder_name}  |  Emp ID: {emp_id}" if emp_id else f"Coder: {coder_name}"
+    _header(elements, "Assessment Performance Report", [subtitle])
+
+    avg_score = data.get("avg_score") or 0
+    total = data.get("total_assessments_taken", 0)
+    pass_rate = data.get("pass_rate") or 0
+    PASS_THRESHOLD = 90
+
+    if avg_score >= PASS_THRESHOLD:
+        headline, color, bg, border = "STRONG PERFORMER", GREEN, GREEN_BG, GREEN_BORDER
+    elif avg_score >= 80:
+        headline, color, bg, border = "ON TRACK", AMBER, AMBER_BG, AMBER_BORDER
+    else:
+        headline, color, bg, border = "NEEDS IMPROVEMENT", RED, RED_BG, RED_BORDER
+
+    detail = f"{avg_score}% average across {total} assessments. Pass rate: {pass_rate}%."
+    elements.append(_verdict_box(headline, detail, color, bg, border))
+    elements.append(Spacer(1, 12))
+
+    def _fmt_time(sec):
+        if sec is None:
+            return "—"
+        m = int(sec // 60)
+        s = int(sec % 60)
+        return f"{m}m {s}s"
+
+    stats = [
+        (str(total), "Assessments Taken"),
+        (f"{avg_score}%", "Avg Score"),
+        (f"{pass_rate}%", "Pass Rate"),
+        (f"{data.get('best_score', 0)}%", "Best Score"),
+        (f"{data.get('worst_score', 0)}%", "Worst Score"),
+        (_fmt_time(data.get("avg_time_seconds")), "Avg Time"),
+    ]
+    elements.append(_stat_row(stats))
+    elements.append(Spacer(1, 12))
+
+    score_trend = data.get("score_trend") or []
+    if len(score_trend) >= 2:
+        _section_heading(elements, "Score Trend")
+        trend_points = [
+            (st["submitted_at"][:10] if st.get("submitted_at") else "", st["score_pct"])
+            for st in score_trend
+        ]
+        elements.append(_trend_line_chart(trend_points))
+        elements.append(Spacer(1, 8))
+
+    topic_strength = data.get("topic_strength") or []
+    if topic_strength:
+        _section_heading(elements, "Topic Performance")
+        sorted_topics = sorted(topic_strength, key=lambda t: (t.get("accuracy_pct") or 0))
+        elements.append(_category_bar_chart(sorted_topics, label_key="topic", score_key="accuracy_pct"))
+        elements.append(Spacer(1, 6))
+        topic_rows = [
+            [
+                Paragraph(t["topic"], NORMAL),
+                _score_cell(t.get("accuracy_pct"), pass_threshold=PASS_THRESHOLD),
+                Paragraph(f"{t.get('correct', 0)}/{t.get('total', 0)}", NORMAL),
+            ]
+            for t in topic_strength
+        ]
+        elements.append(_data_table(["Topic", "Accuracy", "Correct/Total"], topic_rows, [3, 1, 1]))
+        elements.append(Spacer(1, 12))
+
+    difficulty_breakdown = data.get("difficulty_breakdown") or []
+    if difficulty_breakdown:
+        _section_heading(elements, "Difficulty Breakdown")
+        diff_rows = [
+            [
+                Paragraph(d["difficulty"], NORMAL),
+                _score_cell(d.get("accuracy_pct"), pass_threshold=PASS_THRESHOLD),
+                Paragraph(f"{d.get('correct', 0)}/{d.get('total', 0)}", NORMAL),
+            ]
+            for d in difficulty_breakdown
+        ]
+        elements.append(_data_table(["Difficulty", "Accuracy", "Correct/Total"], diff_rows, [2, 1, 1]))
+        elements.append(Spacer(1, 12))
+
+    if topic_strength:
+        strong_topics = [t for t in topic_strength if (t.get("accuracy_pct") or 0) >= PASS_THRESHOLD]
+        weak_topics = [t for t in topic_strength if (t.get("accuracy_pct") or 0) < 80]
+        left = _ranked_box(
+            "Strong Topics (>=90%)", strong_topics, GREEN, GREEN_BG, GREEN_BORDER, "None at 90%+ yet",
+            lambda i, t: Paragraph(f"{t['topic']} — {t.get('accuracy_pct', 0)}%", NORMAL),
+        )
+        right = _ranked_box(
+            "Weak Topics (<80%)", weak_topics, RED if weak_topics else GREEN,
+            RED_BG if weak_topics else GREEN_BG, RED_BORDER if weak_topics else GREEN_BORDER,
+            "None — all topics above 80%",
+            lambda i, t: Paragraph(f"{t['topic']} — {t.get('accuracy_pct', 0)}%", NORMAL),
+        )
+        elements.append(_two_col(left, right))
+        elements.append(Spacer(1, 12))
+
+    session_history = data.get("session_history") or []
+    if session_history:
+        _section_heading(elements, "Assessment History")
+        pass_style_green = ParagraphStyle("passg", parent=NORMAL, textColor=GREEN, fontName="Helvetica-Bold")
+        pass_style_red = ParagraphStyle("passr", parent=NORMAL, textColor=RED, fontName="Helvetica-Bold")
+        hist_rows = []
+        for sh in session_history:
+            date_str = sh["submitted_at"][:10] if sh.get("submitted_at") else "—"
+            pf = sh.get("pass_fail", "FAIL")
+            result_p = Paragraph(pf, pass_style_green if pf == "PASS" else pass_style_red)
+            hist_rows.append([
+                Paragraph(sh.get("assessment_name", "—"), NORMAL),
+                Paragraph(date_str, NORMAL),
+                _score_cell(sh.get("score_pct"), pass_threshold=PASS_THRESHOLD),
+                Paragraph(f"{sh.get('correct_count', 0)}/{sh.get('total_questions', 0)}", NORMAL),
+                Paragraph(_fmt_time(sh.get("time_taken_seconds")), NORMAL),
+                result_p,
+            ])
+        elements.append(_data_table(
+            ["Assessment", "Date", "Score", "Correct", "Time", "Result"],
+            hist_rows, [2.5, 1.2, 1, 1, 1, 0.8],
+        ))
+
+    _footer_note(elements)
+    doc.build(elements, onFirstPage=_draw_background, onLaterPages=_draw_background)
+    return buf.getvalue()
+
+
+def generate_assessment_batch_report_pdf(data: dict) -> bytes:
+    """PDF report for a batch of assessments."""
+    buf = io.BytesIO()
+    doc = _doc(buf)
+    elements = []
+
+    batch_name = data.get("batch_name", "Unknown Batch")
+    assessment_count = data.get("assessment_count", 0)
+    total_coders = data.get("total_coders", 0)
+    submitted_count = data.get("submitted_count", 0)
+    avg_score = data.get("avg_score") or 0
+    pass_rate = data.get("pass_rate") or 0
+    PASS_THRESHOLD = 90
+
+    _header(elements, "Batch Performance Report", [
+        f"Batch: {batch_name}  |  {assessment_count} Assessments  |  {total_coders} Coders",
+    ])
+
+    if pass_rate >= PASS_THRESHOLD:
+        headline, color, bg, border = "STRONG BATCH", GREEN, GREEN_BG, GREEN_BORDER
+    elif pass_rate >= 75:
+        headline, color, bg, border = "ACCEPTABLE", AMBER, AMBER_BG, AMBER_BORDER
+    else:
+        headline, color, bg, border = "BELOW TARGET", RED, RED_BG, RED_BORDER
+
+    detail = f"{pass_rate}% pass rate across {submitted_count} submissions. Average score: {avg_score}%."
+    elements.append(_verdict_box(headline, detail, color, bg, border))
+    elements.append(Spacer(1, 12))
+
+    stats = [
+        (str(assessment_count), "Assessments"),
+        (str(total_coders), "Coders"),
+        (str(submitted_count), "Submitted"),
+        (f"{pass_rate}%", "Pass Rate"),
+        (f"{avg_score}%", "Avg Score"),
+    ]
+    elements.append(_stat_row(stats))
+    elements.append(Spacer(1, 12))
+
+    weak_topics = data.get("weak_topics") or []
+    strong_topics = data.get("strong_topics") or []
+    _section_heading(elements, "Training Need Identification")
+    left = _ranked_box(
+        "Weak Topics (Need Training)", weak_topics,
+        AMBER if weak_topics else GREEN,
+        AMBER_BG if weak_topics else GREEN_BG,
+        AMBER_BORDER if weak_topics else GREEN_BORDER,
+        "None — all topics above 80%",
+        lambda i, t: Paragraph(f"{t['topic']} — {t.get('accuracy_pct', 0)}%", NORMAL),
+    )
+    right = _ranked_box(
+        "Strong Topics (Well Performed)", strong_topics, GREEN, GREEN_BG, GREEN_BORDER,
+        "None above 90% yet",
+        lambda i, t: Paragraph(f"{t['topic']} — {t.get('accuracy_pct', 0)}%", NORMAL),
+    )
+    elements.append(_two_col(left, right))
+    elements.append(Spacer(1, 12))
+
+    topic_summary = data.get("topic_summary") or []
+    if topic_summary:
+        _section_heading(elements, "Topic Accuracy")
+        sorted_ts = sorted(topic_summary, key=lambda t: (t.get("accuracy_pct") or 0))
+        elements.append(_category_bar_chart(sorted_ts, label_key="topic", score_key="accuracy_pct"))
+        elements.append(Spacer(1, 6))
+        ts_rows = [
+            [
+                Paragraph(t["topic"], NORMAL),
+                _score_cell(t.get("accuracy_pct"), pass_threshold=PASS_THRESHOLD),
+                Paragraph(f"{t.get('correct', 0)}/{t.get('total', 0)}", NORMAL),
+            ]
+            for t in topic_summary
+        ]
+        elements.append(_data_table(["Topic", "Accuracy", "Correct/Total"], ts_rows, [3, 1, 1]))
+        elements.append(Spacer(1, 12))
+
+    coder_rows = data.get("coder_rows") or []
+    if coder_rows:
+        _section_heading(elements, "Coder Performance")
+        sorted_coders = sorted(coder_rows, key=lambda c: -(c.get("latest_score") or 0))
+        delta_green = ParagraphStyle("dg", parent=NORMAL, textColor=GREEN, fontName="Helvetica-Bold")
+        delta_red = ParagraphStyle("dr", parent=NORMAL, textColor=RED, fontName="Helvetica-Bold")
+        delta_gray = ParagraphStyle("dgr", parent=NORMAL, textColor=GRAY)
+        cr_rows = []
+        for c in sorted_coders:
+            delta = c.get("delta")
+            if delta is None:
+                delta_p = Paragraph("—", delta_gray)
+            elif delta > 0:
+                delta_p = Paragraph(f"+{delta}", delta_green)
+            elif delta < 0:
+                delta_p = Paragraph(str(delta), delta_red)
+            else:
+                delta_p = Paragraph("0", delta_gray)
+            cr_rows.append([
+                Paragraph(c.get("coder_name", "—"), NORMAL),
+                _score_cell(c.get("latest_score"), pass_threshold=PASS_THRESHOLD),
+                delta_p,
+                Paragraph(str(c.get("assessment_count", 0)), NORMAL),
+            ])
+        elements.append(_data_table(["Coder", "Score", "Delta Change", "Assessments"], cr_rows, [3, 1.2, 1, 1]))
+        elements.append(Spacer(1, 12))
+
+    assessments = data.get("assessments") or []
+    if assessments:
+        _section_heading(elements, "Assessments in Batch")
+        a_rows = [
+            [
+                Paragraph(a.get("name", "—"), NORMAL),
+                Paragraph(a["generated_at"][:10] if a.get("generated_at") else "—", NORMAL),
+            ]
+            for a in assessments
+        ]
+        elements.append(_data_table(["Assessment", "Date"], a_rows, [3, 1]))
+
+    _footer_note(elements)
+    doc.build(elements, onFirstPage=_draw_background, onLaterPages=_draw_background)
+    return buf.getvalue()
+
