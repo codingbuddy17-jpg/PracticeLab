@@ -113,12 +113,12 @@ export function SessionsView() {
           {/* Summary stats */}
           <div style={{ display: 'flex', gap: 12 }}>
             {[
-              { label: 'Total', value: sessions.length, bg: '#f9fafb', color: '#374151' },
-              { label: 'Pending', value: pending, bg: '#fef9c3', color: '#854d0e' },
-              { label: 'In Progress', value: inProgress, bg: '#dbeafe', color: '#1d4ed8' },
-              { label: 'Submitted', value: submitted, bg: '#dcfce7', color: '#15803d' },
+              { label: 'Total', value: sessions.length, bg: 'rgba(255,255,255,0.85)', color: '#374151', border: '1px solid #d1d5db' },
+              { label: 'Pending', value: pending, bg: '#fef9c3', color: '#854d0e', border: '1px solid #fde68a' },
+              { label: 'In Progress', value: inProgress, bg: '#bfdbfe', color: '#1e40af', border: '1px solid #93c5fd' },
+              { label: 'Submitted', value: submitted, bg: '#dcfce7', color: '#15803d', border: '1px solid #86efac' },
             ].map(stat => (
-              <div key={stat.label} style={{ ...s.statBox, background: stat.bg, color: stat.color }}>
+              <div key={stat.label} style={{ ...s.statBox, background: stat.bg, color: stat.color, border: stat.border }}>
                 <div style={{ fontSize: 22, fontWeight: 800 }}>{stat.value}</div>
                 <div style={{ fontSize: 11, fontWeight: 600 }}>{stat.label}</div>
               </div>
@@ -211,7 +211,7 @@ const s: Record<string, React.CSSProperties> = {
   field: { display: 'flex', flexDirection: 'column', gap: 4 },
   btnOutline: { display: 'flex', alignItems: 'center', gap: 5, padding: '7px 12px', border: '1px solid #e5e7eb', borderRadius: 8, background: 'rgba(255,255,255,0.7)', cursor: 'pointer', fontSize: 12, fontWeight: 600, color: '#374151' },
   btnDanger: { display: 'flex', alignItems: 'center', gap: 5, padding: '7px 12px', background: '#fee2e2', color: '#dc2626', border: '1px solid #fca5a5', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600 },
-  statBox: { flex: 1, border: '1px solid #e5e7eb', borderRadius: 10, padding: '12px 16px', textAlign: 'center' },
+  statBox: { flex: 1, borderRadius: 10, padding: '12px 16px', textAlign: 'center' as const },
   tableWrap: { background: 'rgba(255,255,255,0.6)', backdropFilter: 'blur(14px)', border: '1px solid rgba(255,255,255,0.65)', borderRadius: 14, overflow: 'auto' },
   table: { width: '100%', borderCollapse: 'collapse', fontSize: 13 },
   thead: { background: 'rgba(249,250,251,0.8)' },
