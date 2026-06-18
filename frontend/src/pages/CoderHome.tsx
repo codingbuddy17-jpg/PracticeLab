@@ -127,15 +127,6 @@ export function CoderHome() {
 
   return (
     <div style={styles.container}>
-      {/* Decorative background illustration — pointer-events none */}
-      <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 0 }}>
-        <img
-          src="/reading.svg"
-          alt=""
-          style={{ position: 'absolute', bottom: -30, right: -60, width: 420, opacity: 0.09, transform: 'scaleX(-1)' }}
-        />
-      </div>
-
       {/* Top bar */}
       <div style={styles.topBar}>
         <div style={styles.logo}>
@@ -242,11 +233,6 @@ export function CoderHome() {
         <div style={styles.resultsSection}>
           {!hasSearched ? (
             <div style={styles.emptyState}>
-              <img
-                src="/sitting-reading.svg"
-                alt="Person reading a medical chart"
-                style={{ width: 300, height: 'auto', marginBottom: 4 }}
-              />
               <div style={styles.emptyTitle}>Search for a chart to get started</div>
               <div style={styles.emptySub}>Enter a chart number, or use the filters above to browse by specialty, category or difficulty.</div>
             </div>
@@ -367,14 +353,14 @@ export function CoderHome() {
 }
 
 const styles: Record<string, React.CSSProperties> = {
-  container: { minHeight: '100vh', background: 'linear-gradient(135deg, #eff6ff 0%, #f0fdf4 50%, #fdf4ff 100%)', fontFamily: 'system-ui, sans-serif', position: 'relative' },
-  topBar: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 28px', background: 'rgba(255,255,255,0.75)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', borderBottom: '1px solid rgba(255,255,255,0.5)', position: 'sticky', top: 0, zIndex: 10, boxShadow: '0 1px 3px rgba(0,0,0,0.05)', isolation: 'isolate' },
+  container: { minHeight: '100vh', background: 'linear-gradient(135deg, #eff6ff 0%, #f0fdf4 50%, #fdf4ff 100%)', fontFamily: 'system-ui, sans-serif' },
+  topBar: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 28px', background: 'rgba(255,255,255,0.75)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', borderBottom: '1px solid rgba(255,255,255,0.5)', position: 'sticky', top: 0, zIndex: 10, boxShadow: '0 1px 3px rgba(0,0,0,0.05)' },
   logo: { display: 'flex', alignItems: 'center', gap: 8 },
   logoText: { fontWeight: 800, fontSize: 18, color: '#111', letterSpacing: -0.5 },
   coderChip: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#374151', background: '#f3f4f6', padding: '5px 12px', borderRadius: 20, fontWeight: 500 },
   coderDot: { width: 7, height: 7, borderRadius: '50%', background: '#22c55e' },
   selfPracticeBtn: { display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: '#4f46e5', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 700 },
-  main: { maxWidth: 960, margin: '0 auto', padding: '24px 24px 60px', position: 'relative', zIndex: 1 },
+  main: { maxWidth: 960, margin: '0 auto', padding: '24px 24px 60px' },
   searchSection: { background: 'rgba(255,255,255,0.62)', backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)', border: '1px solid rgba(255,255,255,0.5)', borderRadius: 14, padding: 20, marginBottom: 20, boxShadow: '0 4px 24px rgba(0,0,0,0.07)' },
   searchRow: { display: 'flex', gap: 10, marginBottom: 14 },
   searchWrap: { flex: 1, position: 'relative', display: 'flex', alignItems: 'center' },
