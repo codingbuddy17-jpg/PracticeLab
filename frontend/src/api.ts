@@ -718,3 +718,22 @@ export async function submitSession(token: string, autoSubmitted = false) {
   const { data } = await api.post(`/assessment/take/${token}/submit`, { auto_submitted: autoSubmitted })
   return data
 }
+
+// ── Assessment Analytics ──────────────────────────────────────────────────────
+
+export async function getAssessmentAnalyticsOverview() {
+  const { data } = await api.get('/assessment/analytics/overview')
+  return data
+}
+
+export async function getAssessmentAnalyticsByAssessment(assessmentId: number) {
+  const { data } = await api.get(`/assessment/analytics/assessment/${assessmentId}`)
+  return data
+}
+
+export async function getAssessmentAnalyticsCoder(coderName: string, employeeId?: string) {
+  const { data } = await api.get('/assessment/analytics/coder', {
+    params: { coder_name: coderName, ...(employeeId ? { employee_id: employeeId } : {}) },
+  })
+  return data
+}

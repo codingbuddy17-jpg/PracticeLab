@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ArrowLeft, BarChart2, Lock, PlusSquare, Clock, Upload, Users } from 'lucide-react'
+import { ArrowLeft, BarChart2, Lock, PlusSquare, Clock, Upload, Users, TrendingUp } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { PoolSummaryView } from './PoolSummaryView'
 import { UploadView } from './UploadView'
@@ -7,8 +7,9 @@ import { QuestionBankView } from './QuestionBankView'
 import { GenerateView } from './GenerateView'
 import { AssessmentHistoryView } from './AssessmentHistoryView'
 import { SessionsView } from './SessionsView'
+import { AnalyticsView } from './AnalyticsView'
 
-type Tab = 'summary' | 'upload' | 'bank' | 'generate' | 'sessions' | 'history'
+type Tab = 'summary' | 'upload' | 'bank' | 'generate' | 'sessions' | 'history' | 'analytics'
 
 export function AssessmentHome() {
   const navigate = useNavigate()
@@ -21,6 +22,7 @@ export function AssessmentHome() {
     { id: 'generate', label: 'Generate', icon: <PlusSquare size={15} /> },
     { id: 'sessions', label: 'Sessions', icon: <Users size={15} /> },
     { id: 'history', label: 'History', icon: <Clock size={15} /> },
+    { id: 'analytics', label: 'Analytics', icon: <TrendingUp size={15} /> },
   ]
 
   return (
@@ -60,6 +62,7 @@ export function AssessmentHome() {
         {activeTab === 'generate' && <GenerateView />}
         {activeTab === 'sessions' && <SessionsView />}
         {activeTab === 'history' && <AssessmentHistoryView />}
+        {activeTab === 'analytics' && <AnalyticsView />}
       </div>
     </div>
   )
