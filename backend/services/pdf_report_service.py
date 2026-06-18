@@ -57,12 +57,13 @@ SMALL_GRAY = ParagraphStyle("SmallGray", parent=styles["Normal"], fontSize=8, te
 VERDICT_TEXT = ParagraphStyle("Verdict", parent=styles["Normal"], fontSize=11, leading=15, fontName="Helvetica-Bold")
 
 
-def _score_color(score):
+def _score_color(score, pass_threshold: int = 80):
     if score is None:
         return colors.HexColor("#1a1a1a")
-    if score >= 90:
+    low = round(pass_threshold * 0.75)
+    if score >= pass_threshold:
         return GREEN
-    if score >= 80:
+    if score >= low:
         return AMBER
     return RED
 
@@ -310,7 +311,7 @@ def _doc(buf):
                               leftMargin=MARGIN, rightMargin=MARGIN)
 
 
-def _coder_verdict(summary: dict):
+def _coder_verdict(summary: dict, pass_threshold: int = 80):
     score = summary.get("weighted_accuracy")
     source = "weighted accuracy"
     if score is None and summary.get("cumulative_dpo"):
@@ -318,31 +319,35 @@ def _coder_verdict(summary: dict):
         source = "DPO overall accuracy"
     cats = summary.get("by_category") or []
     weakest = min(cats, key=lambda c: c["avg_score"]) if cats else None
-    weak_note = f" Weakest area: {weakest['category']} at {weakest['avg_score']}%." if weakest and weakest["avg_score"] < 90 else ""
+    weak_note = f" Weakest area: {weakest['category']} at {weakest['avg_score']}%." if weakest and weakest["avg_score"] < pass_threshold else ""
+
+    ready_threshold = pass_threshold + max(5, (100 - pass_threshold) // 2)
+    low_threshold = round(pass_threshold * 0.75)
 
     if score is None:
         return ("NO SCORED CHARTS YET", "This coder has not completed any graded charts in the selected period.", GRAY, GRAY_LIGHT, BORDER)
-    if score >= 95:
-        return ("READY", f"Performing at {score}% {source} — at or above the production-ready standard.{weak_note}", GREEN, GREEN_BG, GREEN_BORDER)
-    if score >= 90:
-        return ("ON TRACK", f"{score}% {source} — approaching the production-ready threshold.{weak_note}", AMBER, AMBER_BG, AMBER_BORDER)
-    if score >= 80:
-        return ("NEEDS COACHING", f"{score}% {source} is below target — recommend a focused review session.{weak_note}", AMBER, AMBER_BG, AMBER_BORDER)
+    if score >= ready_threshold:
+        return ("READY", f"Performing at {score}% {source} — at or above the {ready_threshold}% production-ready standard.{weak_note}", GREEN, GREEN_BG, GREEN_BORDER)
+    if score >= pass_threshold:
+        return ("ON TRACK", f"{score}% {source} — meets the {pass_threshold}% pass threshold.{weak_note}", AMBER, AMBER_BG, AMBER_BORDER)
+    if score >= low_threshold:
+        return ("NEEDS COACHING", f"{score}% {source} is below the {pass_threshold}% target — recommend a focused review session.{weak_note}", AMBER, AMBER_BG, AMBER_BORDER)
     return ("AT RISK", f"{score}% {source} reflects significant gaps — recommend structured retraining before further assignments.{weak_note}", RED, RED_BG, RED_BORDER)
 
 
-def _batch_verdict(bs: dict):
+def _batch_verdict(bs: dict, pass_threshold: int = 80):
     pr = bs["pass_rate"]
     delta = bs.get("pass_rate_delta")
     trend = ""
     if delta is not None:
         trend = f" ({'+' if delta > 0 else ''}{delta}% vs prior batch)"
-    if pr >= 90:
-        return ("STRONG", f"{pr}% pass rate{trend} exceeds target.", GREEN, GREEN_BG, GREEN_BORDER)
-    if pr >= 70:
+    acceptable_floor = round(pass_threshold * 0.75)
+    if pr >= pass_threshold:
+        return ("STRONG", f"{pr}% pass rate{trend} meets or exceeds the {pass_threshold}% target.", GREEN, GREEN_BG, GREEN_BORDER)
+    if pr >= acceptable_floor:
         return ("ACCEPTABLE", f"{pr}% pass rate{trend} is within range, with room to improve.", AMBER, AMBER_BG, AMBER_BORDER)
     if pr >= 50:
-        return ("BELOW TARGET", f"{pr}% pass rate{trend} is under the 70% threshold — recommend a retraining session before the next cycle.", RED, RED_BG, RED_BORDER)
+        return ("BELOW TARGET", f"{pr}% pass rate{trend} is under the {acceptable_floor}% floor — recommend a retraining session before the next cycle.", RED, RED_BG, RED_BORDER)
     return ("CRITICAL", f"{pr}% pass rate{trend} indicates the majority of charts failed — immediate intervention recommended.", RED, RED_BG, RED_BORDER)
 
 
@@ -355,7 +360,8 @@ def generate_coder_report_pdf(coder_name: str, summary: dict, team_avg_score: Op
     coder_subtitle = f"Coder: {coder_name}  |  Emp ID: {emp_id}" if emp_id else f"Coder: {coder_name}"
     _header(elements, "Coder Performance Report", [coder_subtitle])
 
-    headline, detail, color, bg, border = _coder_verdict(summary)
+    pt = summary.get("pass_threshold", 80)
+    headline, detail, color, bg, border = _coder_verdict(summary, pass_threshold=pt)
     elements.append(_verdict_box(headline, detail, color, bg, border))
     elements.append(Spacer(1, 12))
 
@@ -416,15 +422,15 @@ def generate_coder_report_pdf(coder_name: str, summary: dict, team_avg_score: Op
         cat_rows = [[Paragraph(c["category"], NORMAL), Paragraph(str(c["charts"]), NORMAL), _score_cell(c["avg_score"])] for c in cats]
         elements.append(_data_table(["Category", "Charts", "Avg Score"], cat_rows, [3, 1, 1]))
 
-        weak = [c for c in cats if c["avg_score"] < 90]
-        strong = [c for c in cats if c["avg_score"] >= 90]
+        weak = [c for c in cats if c["avg_score"] < pt]
+        strong = [c for c in cats if c["avg_score"] >= pt]
         top3 = strong[:3]
         bottom3 = list(reversed(weak[-3:])) if weak else []
         elements.append(Spacer(1, 10))
         left = _ranked_box("Top Categories", top3, GREEN, GREEN_BG, GREEN_BORDER, "No data",
                             lambda i, c: Paragraph(f"{c['category']} — {c['charts']} charts — <b>{c['avg_score']}%</b>", NORMAL))
         right = _ranked_box("Needs Work", bottom3, AMBER if bottom3 else GREEN, AMBER_BG if bottom3 else GREEN_BG, AMBER_BORDER if bottom3 else GREEN_BORDER,
-                             "None — every category is at or above 90%",
+                             f"None — every category is at or above {pt}%",
                              lambda i, c: Paragraph(f"{c['category']} — {c['charts']} charts — <b>{c['avg_score']}%</b>", NORMAL))
         elements.append(_two_col(left, right))
 
@@ -459,7 +465,8 @@ def generate_batch_report_pdf(insights: dict) -> bytes:
         f"Batch: {insights['batch_name']}  |  Specialty: {insights['specialty']}",
     ])
 
-    headline, detail, color, bg, border = _batch_verdict(bs)
+    pt = insights.get("pass_threshold", 80)
+    headline, detail, color, bg, border = _batch_verdict(bs, pass_threshold=pt)
     elements.append(_verdict_box(headline, detail, color, bg, border))
     elements.append(Spacer(1, 12))
 
@@ -548,7 +555,7 @@ def generate_batch_report_pdf(insights: dict) -> bytes:
     left = _ranked_box("Top Performers", top_p, GREEN, GREEN_BG, GREEN_BORDER, "No data",
                         lambda i, c: Paragraph(f"#{i+1} {_coder_label(c)} — <b>{c['avg_score']}%</b>", NORMAL))
     right = _ranked_box("Needs Attention", bottom_p, AMBER if bottom_p else GREEN, AMBER_BG if bottom_p else GREEN_BG, AMBER_BORDER if bottom_p else GREEN_BORDER,
-                         "None — every coder is at or above 90%",
+                         f"None — every coder is at or above {pt}%",
                          lambda i, c: Paragraph(f"#{i+1} {_coder_label(c)} — <b>{c['avg_score']}%</b>", NORMAL))
     elements.append(_two_col(left, right))
 
@@ -562,7 +569,7 @@ def generate_batch_report_pdf(insights: dict) -> bytes:
     left = _ranked_box("Top Categories", top_c, GREEN, GREEN_BG, GREEN_BORDER, "No data",
                         lambda i, c: Paragraph(f"#{i+1} {c['category']} ({c['attempt_count']}) — <b>{c['avg_score']}%</b>", NORMAL))
     right = _ranked_box("Bottom Categories", bottom_c, RED if bottom_c else GREEN, RED_BG if bottom_c else GREEN_BG, RED_BORDER if bottom_c else GREEN_BORDER,
-                         "None — every category is at or above 90%",
+                         f"None — every category is at or above {pt}%",
                          lambda i, c: Paragraph(f"#{i+1} {c['category']} ({c['attempt_count']}) — <b>{c['avg_score']}%</b>", NORMAL))
     elements.append(_two_col(left, right))
 
@@ -572,7 +579,7 @@ def generate_batch_report_pdf(insights: dict) -> bytes:
     left = _ranked_box("Top Charts", top_ch, GREEN, GREEN_BG, GREEN_BORDER, "No data",
                         lambda i, c: Paragraph(f"#{i+1} {c['chart_number']} ({c['category']}) — <b>{c['avg_score']}%</b>", NORMAL))
     right = _ranked_box("Bottom Charts", bottom_ch, RED if bottom_ch else GREEN, RED_BG if bottom_ch else GREEN_BG, RED_BORDER if bottom_ch else GREEN_BORDER,
-                         "None — every chart is at or above 90%",
+                         f"None — every chart is at or above {pt}%",
                          lambda i, c: Paragraph(f"#{i+1} {c['chart_number']} ({c['category']}) — <b>{c['avg_score']}%</b>", NORMAL))
     elements.append(_two_col(left, right))
 

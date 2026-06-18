@@ -949,8 +949,8 @@ def export_batch_results(batch_name: str, results: list[dict]) -> bytes:
             cell = rs.cell(row=row_num, column=c, value=val)
             cell.border = THIN_BORDER
             if c == len(row_data):
-                cell.font = Font(bold=True,
-                                 color="00A000" if val == "PASS" else "CC0000")
+                pf_color = "00A000" if val == "PASS" else "6B7280" if val == "PENDING" else "CC0000"
+                cell.font = Font(bold=True, color=pf_color)
     for c in range(1, len(headers) + 1):
         rs.column_dimensions[get_column_letter(c)].width = 14
 
