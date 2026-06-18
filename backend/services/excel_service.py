@@ -884,7 +884,8 @@ def export_batch_results(batch_name: str, results: list[dict]) -> bytes:
                 coders[name]["fail"] += 1
 
     total_coders = len(coders)
-    passed = sum(1 for v in coders.values() if v["pass"] > v["fail"])
+    # Only count coders with at least one finalized score; ties go to FAIL
+    passed = sum(1 for v in coders.values() if (v["pass"] + v["fail"]) > 0 and v["pass"] > v["fail"])
     all_scores = [s for v in coders.values() for s in v["scores"]]
     avg = round(sum(all_scores) / len(all_scores), 1) if all_scores else 0
 
@@ -917,7 +918,7 @@ def export_batch_results(batch_name: str, results: list[dict]) -> bytes:
         name = r["coder_name"]
         if name not in coder_detail:
             coder_detail[name] = {
-                "count": 0, "pdx": 0, "sdx": 0, "pcs": 0, "cpt": 0,
+                "count": 0, "scored": 0, "pdx": 0, "sdx": 0, "pcs": 0, "cpt": 0,
                 "drg": 0, "total": 0, "passed": 0,
             }
         d = coder_detail[name]
@@ -927,13 +928,16 @@ def export_batch_results(batch_name: str, results: list[dict]) -> bytes:
         d["pcs"] += r.get("pcs_score") or 0
         d["cpt"] += r.get("cpt_score") or 0
         d["drg"] += r.get("drg_score") or 0
-        d["total"] += r.get("total_score") or 0
+        if r.get("total_score") is not None:
+            d["total"] += r["total_score"]
+            d["scored"] += 1
         if r.get("pass_fail") == "PASS":
             d["passed"] += 1
 
     for row_num, (name, d) in enumerate(coder_detail.items(), 2):
         cnt = d["count"] or 1
-        pf = "PASS" if d["passed"] > cnt / 2 else "FAIL"
+        scored = d["scored"]
+        pf = "PENDING" if scored == 0 else ("PASS" if d["passed"] > scored / 2 else "FAIL")
         row_data = [name, d["count"],
                     round(d["pdx"] / cnt, 1), round(d["sdx"] / cnt, 1)]
         if is_ip:

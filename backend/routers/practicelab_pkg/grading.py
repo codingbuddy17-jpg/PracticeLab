@@ -451,7 +451,7 @@ def get_batch_results(batch_id: int, db: Session = Depends(get_db)):
             "charts_scored": d["total_cnt"],
             "charts_passed": d["pass_count"],
             "avg_total": total_avg,
-            "pass_fail": "PASS" if d["pass_count"] >= d["total_cnt"] / 2 else "FAIL",
+            "pass_fail": "PENDING" if d["total_cnt"] == 0 else ("PASS" if d["pass_count"] > d["total_cnt"] / 2 else "FAIL"),
             # Cumulative DPO (correct methodology)
             "cumulative_dpo": {
                 "dx_accuracy": dx_acc,
