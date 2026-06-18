@@ -238,6 +238,8 @@ def _run_migrations():
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )""")
 
+    _add_col("assessment_questions", "shuffle_options", "BOOLEAN NOT NULL DEFAULT TRUE", "INTEGER NOT NULL DEFAULT 1")
+
     # ── assessment_configs table ──────────────────────────────────────────────
     _run("""CREATE TABLE IF NOT EXISTS assessment_configs (
         id INTEGER PRIMARY KEY,

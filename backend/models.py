@@ -471,6 +471,7 @@ class AssessmentQuestion(Base):
     topic = Column(String(100), nullable=True)
     question_type = Column(String(20), nullable=False, default="Conceptual")
     status = Column(String(10), nullable=False, default="Active")
+    shuffle_options = Column(Boolean, nullable=False, default=True)
     last_used_at = Column(DateTime(timezone=True), nullable=True)
     uploaded_by = Column(String(100), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

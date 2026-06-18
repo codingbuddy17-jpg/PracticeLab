@@ -45,38 +45,38 @@ VALID_TYPES = {"Conceptual", "Scenario", "Rule-based"}
 
 TEMPLATE_HEADERS = [
     "Question_ID", "Question_Text", "Option_A", "Option_B", "Option_C", "Option_D",
-    "Correct_Answer", "Difficulty", "Topic", "Question_Type", "Active_Status",
+    "Correct_Answer", "Difficulty", "Topic", "Question_Type", "Active_Status", "Shuffle_Options",
 ]
 
 SAMPLE_ROWS: dict = {
     "ICD10CM": [
         ["", "A patient is diagnosed with Type 2 diabetes mellitus with diabetic chronic kidney disease, stage 3. What is the correct ICD-10-CM code?",
-         "E11.22", "E11.65", "E13.22", "E11.29", "A", "Easy", "Diabetes", "Conceptual", "Active"],
+         "E11.22", "E11.65", "E13.22", "E11.29", "A", "Easy", "Diabetes", "Conceptual", "Active", "Yes"],
         ["", "Acute appendicitis without abscess, without peritonitis. Select the correct code.",
-         "K35.80", "K35.2", "K37", "K35.89", "A", "Easy", "Abdominal", "Conceptual", "Active"],
+         "K35.80", "K35.2", "K37", "K35.89", "A", "Easy", "Abdominal", "Conceptual", "Active", "Yes"],
         ["", "A patient has essential hypertension and chronic kidney disease stage 3. How should this be coded?",
-         "I12.9 and N18.3", "I10 and N18.3", "I12.9 alone", "I10 alone", "A", "Medium", "Cardiovascular", "Rule-based", "Active"],
+         "I12.9 and N18.3", "I10 and N18.3", "I12.9 alone", "I10 alone", "A", "Medium", "Cardiovascular", "Rule-based", "Active", "Yes"],
     ],
     "Surgery": [
         ["", "Which CPT code represents a laparoscopic appendectomy?",
-         "44970", "44950", "44960", "44979", "A", "Easy", "Laparoscopic", "Conceptual", "Active"],
+         "44970", "44950", "44960", "44979", "A", "Easy", "Laparoscopic", "Conceptual", "Active", "Yes"],
         ["", "Open repair of initial inguinal hernia, reducible, patient age 5 years or older. Correct CPT?",
-         "49505", "49500", "49507", "49520", "A", "Medium", "Hernia", "Conceptual", "Active"],
+         "49505", "49500", "49507", "49520", "A", "Medium", "Hernia", "Conceptual", "Active", "Yes"],
         ["", "Arthroscopic partial medial meniscectomy, right knee. CPT code?",
-         "29881", "29880", "29882", "29876", "A", "Medium", "Orthopedic", "Conceptual", "Active"],
+         "29881", "29880", "29882", "29876", "A", "Medium", "Orthopedic", "Conceptual", "Active", "Yes"],
     ],
 }
 
 DEFAULT_SAMPLE = [
     ["", "Sample question text — replace with your question.",
      "Option A text", "Option B text", "Option C text", "Option D text",
-     "A", "Medium", "General", "Conceptual", "Active"],
+     "A", "Medium", "General", "Conceptual", "Active", "Yes"],
     ["", "Another sample question demonstrating the format.",
      "First choice", "Second choice", "Third choice", "Fourth choice",
-     "B", "Easy", "General", "Scenario", "Active"],
+     "B", "Easy", "General", "Scenario", "Active", "Yes"],
     ["", "Hard difficulty rule-based sample question.",
      "Answer option A", "Answer option B", "Answer option C", "Answer option D",
-     "C", "Hard", "Guidelines", "Rule-based", "Active"],
+     "C", "Hard", "Guidelines", "Rule-based", "Active", "No"],
 ]
 
 
@@ -138,7 +138,7 @@ def download_template(specialty: str = Query(default="ICD10CM")):
             ws.cell(row=row_idx, column=col_idx, value=val)
 
     # Column widths
-    widths = [15, 60, 30, 30, 30, 30, 14, 12, 20, 15, 14]
+    widths = [15, 60, 30, 30, 30, 30, 14, 12, 20, 15, 14, 16]
     for col_idx, w in enumerate(widths, start=1):
         ws.column_dimensions[openpyxl.utils.get_column_letter(col_idx)].width = w
 
@@ -217,11 +217,12 @@ def export_questions(
             q.option_a, q.option_b, q.option_c, q.option_d,
             q.correct_answer, q.difficulty, q.topic or "",
             q.question_type, q.status,
+            "Yes" if q.shuffle_options else "No",
         ]
         for col_idx, val in enumerate(row_vals, start=1):
             ws.cell(row=row_idx, column=col_idx, value=val)
 
-    widths = [15, 60, 30, 30, 30, 30, 14, 12, 20, 15, 14]
+    widths = [15, 60, 30, 30, 30, 30, 14, 12, 20, 15, 14, 16]
     for col_idx, w in enumerate(widths, start=1):
         ws.column_dimensions[openpyxl.utils.get_column_letter(col_idx)].width = w
 
@@ -369,6 +370,9 @@ def upload_questions(
         active_status = cell_val("Active_Status")
         status = "Active" if active_status.lower() in ("", "active", "1", "yes", "true") else "Inactive"
 
+        shuffle_val = cell_val("Shuffle_Options").lower()
+        shuffle_options = shuffle_val not in ("no", "0", "false", "n")
+
         qid = cell_val("Question_ID")
         if not qid:
             qid = _next_qid(db, specialty)
@@ -387,6 +391,7 @@ def upload_questions(
             existing.topic = topic
             existing.question_type = q_type
             existing.status = status
+            existing.shuffle_options = shuffle_options
             existing.uploaded_by = uploaded_by
             stored.append(qid)
         else:
@@ -403,6 +408,7 @@ def upload_questions(
                 topic=topic,
                 question_type=q_type,
                 status=status,
+                shuffle_options=shuffle_options,
                 uploaded_by=uploaded_by,
             )
             db.add(aq)
@@ -486,6 +492,7 @@ def _q_out(q: AssessmentQuestion) -> dict:
         "topic": q.topic,
         "question_type": q.question_type,
         "status": q.status,
+        "shuffle_options": q.shuffle_options,
         "last_used_at": q.last_used_at.isoformat() if q.last_used_at else None,
         "uploaded_by": q.uploaded_by,
         "created_at": q.created_at.isoformat() if q.created_at else None,

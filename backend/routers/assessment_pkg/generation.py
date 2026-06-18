@@ -89,22 +89,23 @@ def _stratified_pick(pool: List[AssessmentQuestion], target: int, difficulty_rat
 
 def _shuffle_options(q: AssessmentQuestion) -> Dict[str, Any]:
     """
-    Return a dict with shuffled A/B/C/D options and the new correct answer letter.
+    Return a dict with options and the correct answer letter.
+    If q.shuffle_options is False, options are kept in original A/B/C/D order.
     """
-    orig_options = {
-        "A": q.option_a,
-        "B": q.option_b,
-        "C": q.option_c,
-        "D": q.option_d,
-    }
-    correct_text = orig_options[q.correct_answer]
+    if q.shuffle_options:
+        correct_text = {
+            "A": q.option_a, "B": q.option_b, "C": q.option_c, "D": q.option_d,
+        }[q.correct_answer]
 
-    letters = ["A", "B", "C", "D"]
-    texts = [q.option_a, q.option_b, q.option_c, q.option_d]
-    _shuffle(texts)
+        texts = [q.option_a, q.option_b, q.option_c, q.option_d]
+        _shuffle(texts)
 
-    new_options = dict(zip(letters, texts))
-    new_correct = next(letter for letter, text in new_options.items() if text == correct_text)
+        letters = ["A", "B", "C", "D"]
+        new_options = dict(zip(letters, texts))
+        new_correct = next(letter for letter, text in new_options.items() if text == correct_text)
+    else:
+        new_options = {"A": q.option_a, "B": q.option_b, "C": q.option_c, "D": q.option_d}
+        new_correct = q.correct_answer
 
     return {
         "question_id": q.question_id,
