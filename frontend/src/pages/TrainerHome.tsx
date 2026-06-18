@@ -143,7 +143,7 @@ export function TrainerHome() {
             <div style={styles.bentoTag}>MCQ Assessment Engine</div>
             <div style={styles.bentoTitle}>
               <ClipboardList size={20} style={{ flexShrink: 0 }} />
-              Assessment Management
+              Assessments
             </div>
             <div style={styles.bentoSubtitle}>
               Question Banks · Generate · Export

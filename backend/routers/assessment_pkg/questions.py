@@ -149,6 +149,87 @@ def download_template(specialty: str = Query(default="ICD10CM")):
     )
 
 
+@router.get("/questions/pool-summary")
+def pool_summary(specialty: str = Query(...), db: Session = Depends(get_db)):
+    """Public stats — topic and difficulty counts for a specialty, no question content."""
+    filters = [
+        AssessmentQuestion.specialty == specialty,
+        AssessmentQuestion.status == "Active",
+    ]
+    total_active = db.query(func.count(AssessmentQuestion.id)).filter(*filters).scalar() or 0
+
+    by_topic = db.query(
+        AssessmentQuestion.topic,
+        func.count(AssessmentQuestion.id),
+    ).filter(*filters).group_by(AssessmentQuestion.topic).all()
+
+    by_diff = db.query(
+        AssessmentQuestion.difficulty,
+        func.count(AssessmentQuestion.id),
+    ).filter(*filters).group_by(AssessmentQuestion.difficulty).all()
+
+    return {
+        "specialty": specialty,
+        "total_active": total_active,
+        "by_topic": sorted(
+            [{"topic": t or "Uncategorized", "count": c} for t, c in by_topic],
+            key=lambda x: -x["count"],
+        ),
+        "by_difficulty": {d: c for d, c in by_diff},
+    }
+
+
+@router.get("/questions/export")
+def export_questions(
+    specialty: str = Query(...),
+    passphrase: str = Query(...),
+    db: Session = Depends(get_db),
+):
+    """Passphrase-protected XLSX export of full question bank for a specialty."""
+    if passphrase != settings.MASTER_ADMIN_PASSPHRASE:
+        raise HTTPException(status_code=403, detail="Invalid passphrase")
+
+    qs = db.query(AssessmentQuestion).filter(
+        AssessmentQuestion.specialty == specialty,
+    ).order_by(AssessmentQuestion.question_id).all()
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Questions"
+
+    header_fill = PatternFill("solid", fgColor="4F46E5")
+    header_font = Font(bold=True, color="FFFFFF")
+    for col_idx, h in enumerate(TEMPLATE_HEADERS, start=1):
+        cell = ws.cell(row=1, column=col_idx, value=h)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center")
+
+    for row_idx, q in enumerate(qs, start=2):
+        row_vals = [
+            q.question_id, q.question_text,
+            q.option_a, q.option_b, q.option_c, q.option_d,
+            q.correct_answer, q.difficulty, q.topic or "",
+            q.question_type, q.status,
+        ]
+        for col_idx, val in enumerate(row_vals, start=1):
+            ws.cell(row=row_idx, column=col_idx, value=val)
+
+    widths = [15, 60, 30, 30, 30, 30, 14, 12, 20, 15, 14]
+    for col_idx, w in enumerate(widths, start=1):
+        ws.column_dimensions[openpyxl.utils.get_column_letter(col_idx)].width = w
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    filename = f"questions_{specialty.replace(' ', '_').replace('&', 'and')}.xlsx"
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.get("/questions/pool-preview")
 def pool_preview(
     specialty: str = Query(...),

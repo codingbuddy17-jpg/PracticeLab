@@ -526,6 +526,21 @@ export async function listAssessmentQuestions(params?: ListQuestionsParams) {
   return data as { total: number; page: number; page_size: number; results: unknown[] }
 }
 
+export async function getAssessmentPoolSummary(specialty: string) {
+  const { data } = await api.get('/assessment/questions/pool-summary', { params: { specialty } })
+  return data as {
+    specialty: string
+    total_active: number
+    by_topic: { topic: string; count: number }[]
+    by_difficulty: Record<string, number>
+  }
+}
+
+export function exportAssessmentQuestions(specialty: string, passphrase: string): void {
+  const base = import.meta.env.VITE_API_URL || '/api'
+  window.open(`${base}/assessment/questions/export?specialty=${encodeURIComponent(specialty)}&passphrase=${encodeURIComponent(passphrase)}`, '_blank')
+}
+
 export async function uploadAssessmentQuestions(specialty: string, uploadedBy: string, file: File) {
   const form = new FormData()
   form.append('specialty', specialty)
