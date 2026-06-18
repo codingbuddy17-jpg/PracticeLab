@@ -527,3 +527,59 @@ class AssessmentAuditLog(Base):
     specialty = Column(String(50), nullable=True)
     details = Column(Text, nullable=True)          # free-text or JSON string
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class AssessmentSession(Base):
+    """One session = one coder taking one generated assessment."""
+    __tablename__ = "assessment_sessions"
+
+    id = Column(Integer, primary_key=True)
+    session_token = Column(String(20), unique=True, nullable=False, index=True)
+    assessment_id = Column(Integer, ForeignKey("generated_assessments.id"), nullable=False)
+    coder_name = Column(String(100), nullable=False)
+    employee_id = Column(String(50), nullable=True)
+    duration_minutes = Column(Integer, nullable=False)
+    # 8-hour start gate — after this timestamp coder cannot open the assessment
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    # Set when coder clicks Start; drives the countdown timer
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    time_limit_ends_at = Column(DateTime(timezone=True), nullable=True)
+    submitted_at = Column(DateTime(timezone=True), nullable=True)
+    auto_submitted = Column(Boolean, default=False, nullable=False)
+    # pending | in_progress | submitted | expired
+    status = Column(String(20), nullable=False, default="pending")
+    last_saved_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    responses = relationship("AssessmentResponse", back_populates="session", cascade="all, delete-orphan")
+    result = relationship("AssessmentResult", back_populates="session", uselist=False, cascade="all, delete-orphan")
+
+
+class AssessmentResponse(Base):
+    """One row per question answered by a coder — upserted on each answer selection."""
+    __tablename__ = "assessment_responses"
+
+    id = Column(Integer, primary_key=True)
+    session_id = Column(Integer, ForeignKey("assessment_sessions.id"), nullable=False)
+    question_index = Column(Integer, nullable=False)   # 0-based position in this session's question list
+    question_id = Column(String(20), nullable=False)   # e.g. ICDX-001
+    selected_answer = Column(String(1), nullable=True) # A/B/C/D or null if skipped
+    is_correct = Column(Boolean, nullable=True)
+    answered_at = Column(DateTime(timezone=True), nullable=True)
+
+    session = relationship("AssessmentSession", back_populates="responses")
+
+
+class AssessmentResult(Base):
+    """Computed once on final submission."""
+    __tablename__ = "assessment_results"
+
+    id = Column(Integer, primary_key=True)
+    session_id = Column(Integer, ForeignKey("assessment_sessions.id"), unique=True, nullable=False)
+    total_questions = Column(Integer, nullable=False)
+    correct_count = Column(Integer, nullable=False)
+    score_pct = Column(Float, nullable=False)
+    time_taken_seconds = Column(Integer, nullable=True)
+    submitted_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    session = relationship("AssessmentSession", back_populates="result")

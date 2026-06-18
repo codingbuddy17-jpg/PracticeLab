@@ -639,3 +639,82 @@ export function exportAssessmentPDF(assessmentId: number): void {
 export function exportAnswerKey(assessmentId: number): void {
   window.open(`${import.meta.env.VITE_API_URL || '/api'}/assessment/${assessmentId}/export-answer-key`, '_blank')
 }
+
+// ── Assessment Sessions (trainer-side) ────────────────────────────────────────
+
+export interface CoderItem { coder_name: string; employee_id?: string }
+
+export async function createAssessmentSessions(
+  assessmentId: number, durationMinutes: number, coders: CoderItem[]
+) {
+  const { data } = await api.post('/assessment/sessions/create', {
+    assessment_id: assessmentId,
+    duration_minutes: durationMinutes,
+    coders,
+  })
+  return data
+}
+
+export async function listAssessmentSessions(assessmentId: number) {
+  const { data } = await api.get(`/assessment/${assessmentId}/sessions`)
+  return data as { sessions: SessionRow[] }
+}
+
+export async function deleteAssessmentSessions(assessmentId: number) {
+  const { data } = await api.delete(`/assessment/${assessmentId}/sessions`)
+  return data
+}
+
+export async function parseCoderFile(file: File) {
+  const form = new FormData()
+  form.append('file', file)
+  const { data } = await api.post('/assessment/sessions/parse-coders', form)
+  return data as { coders: CoderItem[]; count: number }
+}
+
+export function downloadCoderTemplate(): void {
+  window.open(`${import.meta.env.VITE_API_URL || '/api'}/assessment/sessions/parse-coders`, '_blank')
+}
+
+export interface SessionRow {
+  session_id: number
+  session_token: string
+  coder_name: string
+  employee_id: string | null
+  status: string
+  duration_minutes: number
+  expires_at: string
+  started_at: string | null
+  submitted_at: string | null
+  auto_submitted: boolean
+  score_pct: number | null
+  correct_count: number | null
+  total_questions: number | null
+  time_taken_seconds: number | null
+}
+
+// ── Assessment Take (coder-facing) ────────────────────────────────────────────
+
+export async function getSessionInfo(token: string) {
+  const { data } = await api.get(`/assessment/take/${token}`)
+  return data
+}
+
+export async function startSession(token: string) {
+  const { data } = await api.post(`/assessment/take/${token}/start`)
+  return data
+}
+
+export async function saveAnswer(token: string, questionIndex: number, questionId: string, selectedAnswer: string | null) {
+  const { data } = await api.post(`/assessment/take/${token}/answer`, {
+    question_index: questionIndex,
+    question_id: questionId,
+    selected_answer: selectedAnswer,
+  })
+  return data
+}
+
+export async function submitSession(token: string, autoSubmitted = false) {
+  const { data } = await api.post(`/assessment/take/${token}/submit`, { auto_submitted: autoSubmitted })
+  return data
+}

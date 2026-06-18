@@ -281,6 +281,47 @@ def _run_migrations():
         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
     )""")
 
+    # ── assessment_sessions table ─────────────────────────────────────────────
+    _run("""CREATE TABLE IF NOT EXISTS assessment_sessions (
+        id INTEGER PRIMARY KEY,
+        session_token VARCHAR(20) NOT NULL UNIQUE,
+        assessment_id INTEGER REFERENCES generated_assessments(id) NOT NULL,
+        coder_name VARCHAR(100) NOT NULL,
+        employee_id VARCHAR(50),
+        duration_minutes INTEGER NOT NULL,
+        expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+        started_at TIMESTAMP WITH TIME ZONE,
+        time_limit_ends_at TIMESTAMP WITH TIME ZONE,
+        submitted_at TIMESTAMP WITH TIME ZONE,
+        auto_submitted BOOLEAN NOT NULL DEFAULT FALSE,
+        status VARCHAR(20) NOT NULL DEFAULT 'pending',
+        last_saved_at TIMESTAMP WITH TIME ZONE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    )""")
+
+    # ── assessment_responses table ────────────────────────────────────────────
+    _run("""CREATE TABLE IF NOT EXISTS assessment_responses (
+        id INTEGER PRIMARY KEY,
+        session_id INTEGER REFERENCES assessment_sessions(id) NOT NULL,
+        question_index INTEGER NOT NULL,
+        question_id VARCHAR(20) NOT NULL,
+        selected_answer VARCHAR(1),
+        is_correct BOOLEAN,
+        answered_at TIMESTAMP WITH TIME ZONE,
+        UNIQUE(session_id, question_index)
+    )""")
+
+    # ── assessment_results table ──────────────────────────────────────────────
+    _run("""CREATE TABLE IF NOT EXISTS assessment_results (
+        id INTEGER PRIMARY KEY,
+        session_id INTEGER REFERENCES assessment_sessions(id) UNIQUE NOT NULL,
+        total_questions INTEGER NOT NULL,
+        correct_count INTEGER NOT NULL,
+        score_pct FLOAT NOT NULL,
+        time_taken_seconds INTEGER,
+        submitted_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    )""")
+
     # ── Seed assessment sample questions if table is empty ────────────────────
     from services.assessment_seed import seed_sample_questions
     from sqlalchemy import text as _text
