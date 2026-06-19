@@ -117,7 +117,7 @@ export function CreateBatchView({ onCreated, scoringCfg, directMode: directModeP
       <div style={styles.formGrid}>
         <div style={styles.formGroup}>
           <label style={styles.label}>{directMode ? 'Assignment Name *' : 'Batch Name *'}</label>
-          <input style={styles.input} value={form.name} placeholder={directMode ? 'e.g. Sepsis Refresher — Harish' : 'e.g. June IP Assessment'}
+          <input style={styles.input} value={form.name} placeholder={directMode ? 'e.g. Sepsis Refresher — Coder' : 'e.g. June IP Assessment'}
             onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
         </div>
         <div style={styles.formGroup}>
