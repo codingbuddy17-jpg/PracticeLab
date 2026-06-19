@@ -206,9 +206,9 @@ function AssessmentDrillContent({ data }: { data: any }) {
               <tbody>
                 {(data.question_accuracy as any[]).map((q: any, i: number) => (
                   <tr key={i} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                    <td style={{ padding: '9px 12px', maxWidth: 300 }}>
+                    <td style={{ padding: '9px 12px', minWidth: 320 }}>
                       <div style={{ fontWeight: 600, color: '#111', fontSize: 12 }}>{q.question_id}</div>
-                      <div style={{ color: '#6b7280', fontSize: 11, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 260 }}>{q.question_text}</div>
+                      <div style={{ color: '#6b7280', fontSize: 11, marginTop: 2, lineHeight: 1.4 }}>{q.question_text}</div>
                     </td>
                     <td style={{ padding: '9px 12px', color: '#374151', fontSize: 12 }}>{q.topic}</td>
                     <td style={{ padding: '9px 12px' }}><DiffBadge diff={q.difficulty} /></td>

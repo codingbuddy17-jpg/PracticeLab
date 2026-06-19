@@ -33,17 +33,19 @@ interface Props {
   itemLabel?: string   // 'questions' or 'charts'
 }
 
-function Badge({ pct }: { pct: number }) {
-  const color = pct >= 80 ? '#16a34a' : pct >= 60 ? '#d97706' : '#dc2626'
-  const bg    = pct >= 80 ? '#f0fdf4' : pct >= 60 ? '#fffbeb' : '#fef2f2'
-  const border = pct >= 80 ? '#bbf7d0' : pct >= 60 ? '#fde68a' : '#fecaca'
+function Badge({ pct }: { pct: number | null | undefined }) {
+  const safe = pct ?? 0
+  const color = safe >= 80 ? '#16a34a' : safe >= 60 ? '#d97706' : '#dc2626'
+  const bg    = safe >= 80 ? '#f0fdf4' : safe >= 60 ? '#fffbeb' : '#fef2f2'
+  const border = safe >= 80 ? '#bbf7d0' : safe >= 60 ? '#fde68a' : '#fecaca'
+  if (pct == null) return <span style={{ color: '#9ca3af', fontSize: 13 }}>—</span>
   return (
     <span style={{
       display: 'inline-block', fontWeight: 700, fontSize: 13,
       color, background: bg, border: `1px solid ${border}`,
       borderRadius: 6, padding: '2px 8px',
     }}>
-      {pct.toFixed(1)}%
+      {safe.toFixed(1)}%
     </span>
   )
 }
