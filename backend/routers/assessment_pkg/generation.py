@@ -204,18 +204,18 @@ def generate_assessment(req: GenerateRequest, db: Session = Depends(get_db)):
     if req.duration_minutes < 5 or req.duration_minutes > 480:
         raise HTTPException(status_code=400, detail="duration_minutes must be between 5 and 480")
 
-    # Build combined question list for all specialties
-    combined: List[AssessmentQuestion] = []
+    # Build per-specialty pools and ratios once — reused for every coder's independent sample
+    _epoch = datetime.min.replace(tzinfo=timezone.utc)
+    specialty_pools: List[Dict[str, Any]] = []
     specialty_count = len(req.specialty_mix)
 
     for idx, item in enumerate(req.specialty_mix):
-        # Last specialty absorbs remainder
-        if idx == specialty_count - 1:
-            target_count = req.total_questions - len(combined)
-        else:
-            target_count = round(req.total_questions * item.pct)
+        target_count = (
+            req.total_questions - sum(p["target"] for p in specialty_pools)
+            if idx == specialty_count - 1
+            else round(req.total_questions * item.pct)
+        )
 
-        # Fetch active questions for this specialty
         q = db.query(AssessmentQuestion).filter(
             AssessmentQuestion.specialty == item.specialty,
             AssessmentQuestion.status == "Active",
@@ -229,24 +229,17 @@ def generate_assessment(req: GenerateRequest, db: Session = Depends(get_db)):
                 q = q.filter(or_(*[AssessmentQuestion.topic.ilike(f"%{t}%") for t in topics]))
 
         pool: List[AssessmentQuestion] = q.all()
-
-        # LRU sort: oldest last_used_at first, nulls first
-        _epoch = datetime.min.replace(tzinfo=timezone.utc)
         pool.sort(key=lambda x: (x.last_used_at is not None, x.last_used_at or _epoch))
 
-        # Compute difficulty ratios
         if req.difficulty_mode == "auto":
             total_pool = len(pool)
             if total_pool == 0:
-                ratios = {"easy": 0.33, "medium": 0.34, "hard": 0.33}
+                ratios: Dict[str, float] = {"easy": 0.33, "medium": 0.34, "hard": 0.33}
             else:
-                easy_c = sum(1 for q2 in pool if q2.difficulty == "Easy")
-                medium_c = sum(1 for q2 in pool if q2.difficulty == "Medium")
-                hard_c = sum(1 for q2 in pool if q2.difficulty == "Hard")
                 ratios = {
-                    "easy": easy_c / total_pool,
-                    "medium": medium_c / total_pool,
-                    "hard": hard_c / total_pool,
+                    "easy": sum(1 for q2 in pool if q2.difficulty == "Easy") / total_pool,
+                    "medium": sum(1 for q2 in pool if q2.difficulty == "Medium") / total_pool,
+                    "hard": sum(1 for q2 in pool if q2.difficulty == "Hard") / total_pool,
                 }
         else:
             ratios = {
@@ -255,16 +248,16 @@ def generate_assessment(req: GenerateRequest, db: Session = Depends(get_db)):
                 "hard": req.difficulty_mix.hard,
             }
 
-        picked = _stratified_pick(pool, target_count, ratios)
-        combined.extend(picked)
+        specialty_pools.append({"pool": pool, "target": target_count, "ratios": ratios})
 
-    if not combined:
+    # Verify the pool is non-empty before committing
+    if not any(p["pool"] for p in specialty_pools):
         raise HTTPException(status_code=400, detail="No questions available for the requested specialty/topic mix")
 
-    # Update last_used_at on all selected questions
+    # Update last_used_at across the full union of pools (all questions are candidates)
     now = datetime.now(timezone.utc)
-    used_ids = [q.id for q in combined]
-    db.query(AssessmentQuestion).filter(AssessmentQuestion.id.in_(used_ids)).update(
+    all_pool_ids = [q.id for p in specialty_pools for q in p["pool"]]
+    db.query(AssessmentQuestion).filter(AssessmentQuestion.id.in_(all_pool_ids)).update(
         {"last_used_at": now}, synchronize_session=False
     )
 
@@ -295,14 +288,22 @@ def generate_assessment(req: GenerateRequest, db: Session = Depends(get_db)):
     db.add(assessment)
     db.flush()
 
-    # Generate one shuffled question set per coder + mint session token
+    # Generate an independently sampled + shuffled question set per coder
     expires_at = now + timedelta(hours=SESSION_EXPIRY_HOURS)
     sessions_created = []
 
     for coder in coders:
-        student_questions = list(combined)
-        _shuffle(student_questions)
-        shuffled_with_options = [_shuffle_options(q) for q in student_questions]
+        # Each coder gets their own stratified sample from the pool — different questions
+        coder_combined: List[AssessmentQuestion] = []
+        for p in specialty_pools:
+            picked = _stratified_pick(p["pool"], p["target"], p["ratios"])
+            coder_combined.extend(picked)
+
+        if not coder_combined:
+            raise HTTPException(status_code=400, detail="No questions available for the requested specialty/topic mix")
+
+        _shuffle(coder_combined)
+        shuffled_with_options = [_shuffle_options(q) for q in coder_combined]
 
         student_row = GeneratedAssessmentStudent(
             assessment_id=assessment.id,
@@ -336,7 +337,7 @@ def generate_assessment(req: GenerateRequest, db: Session = Depends(get_db)):
         "assessment_id": assessment.id,
         "assessment_name": req.assessment_name,
         "coder_count": len(coders),
-        "total_questions": len(combined),
+        "total_questions": req.total_questions,
         "duration_minutes": req.duration_minutes,
         "expires_at": expires_at.isoformat(),
         "sessions": sessions_created,
