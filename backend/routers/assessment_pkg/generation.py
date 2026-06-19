@@ -344,19 +344,17 @@ def generate_assessment(req: GenerateRequest, db: Session = Depends(get_db)):
     sessions_created = []
     coder_question_sets: Dict[str, set] = {}
 
-    # Shared set (randomise=False or standalone with randomise=False): build once
-    shared_questions: Optional[List[Dict[str, Any]]] = None
+    # Shared pool (randomise=False): pick questions once, but shuffle order + options per coder
+    shared_pool_base: Optional[List[Any]] = None
     if not req.randomise:
         if is_standalone:
-            shared_questions = list(standalone_pool[:req.total_questions])
-            _shuffle(shared_questions)
+            shared_pool_base = list(standalone_pool[:req.total_questions])
         else:
             shared_combined: List[AssessmentQuestion] = []
             for p in specialty_pools:
                 picked = _stratified_pick(p["pool"], p["target"], p["ratios"])
                 shared_combined.extend(picked)
-            _shuffle(shared_combined)
-            shared_questions = [_shuffle_options(q) for q in shared_combined]
+            shared_pool_base = shared_combined
 
     for coder in coders:
         if req.randomise:
@@ -377,7 +375,13 @@ def generate_assessment(req: GenerateRequest, db: Session = Depends(get_db)):
                 _shuffle(coder_combined)
                 questions_for_coder = [_shuffle_options(q) for q in coder_combined]
         else:
-            questions_for_coder = shared_questions
+            # Same question set — but independently shuffle question order and options per coder
+            coder_copy = list(shared_pool_base)
+            _shuffle(coder_copy)
+            if is_standalone:
+                questions_for_coder = coder_copy
+            else:
+                questions_for_coder = [_shuffle_options(q) for q in coder_copy]
 
         student_row = GeneratedAssessmentStudent(
             assessment_id=assessment.id,
