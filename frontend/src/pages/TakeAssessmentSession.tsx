@@ -178,9 +178,6 @@ export function TakeAssessmentSession() {
   const currentQ = questions[currentIdx]
   const opts: [string, keyof Question][] = [['A', 'option_a'], ['B', 'option_b'], ['C', 'option_c'], ['D', 'option_d']]
 
-  const watermarkLines = sessionInfo
-    ? [`${sessionInfo.coder_name}`, `${new Date().toLocaleDateString()}`, 'CONFIDENTIAL']
-    : []
 
   // ─────────────────────────────────────────────────────────────────────────────
   // SCREENS
@@ -255,10 +252,6 @@ export function TakeAssessmentSession() {
             • Assessment auto-submits at time expiry
           </div>
 
-          <div style={{ fontSize: 12, color: '#7c3aed', background: '#ede9fe', border: '1px solid #c4b5fd', borderRadius: 8, padding: '8px 14px', textAlign: 'center', width: '100%' }}>
-            🔒 This session is watermarked with your name and is monitored. Screenshots are traceable.
-          </div>
-
           <button style={s.btnStart} onClick={() => handleStart()}>
             Start Assessment →
           </button>
@@ -270,7 +263,6 @@ export function TakeAssessmentSession() {
   if (screen === 'review') {
     return (
       <div style={s.page}>
-        <WatermarkOverlay lines={watermarkLines} />
         <div style={s.topBar}>
           <div style={{ fontWeight: 700, fontSize: 15 }}>Review & Submit</div>
           <div style={{ ...s.timer, background: isLowTime ? '#fee2e2' : '#f3f4f6', color: isLowTime ? '#dc2626' : '#374151' }}>
@@ -329,7 +321,6 @@ export function TakeAssessmentSession() {
   // screen === 'taking'
   return (
     <div style={s.page}>
-      <WatermarkOverlay lines={watermarkLines} />
       {/* Top bar */}
       <div style={s.topBar}>
         <div style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>
@@ -453,33 +444,6 @@ export function TakeAssessmentSession() {
   )
 }
 
-function WatermarkOverlay({ lines }: { lines: string[] }) {
-  if (!lines.length) return null
-  const text = lines.join('   ·   ')
-
-  const svgText = encodeURIComponent(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="300">` +
-    `<text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" ` +
-    `font-family="system-ui,sans-serif" font-size="12" font-weight="500" ` +
-    `fill="rgba(100,80,160,0.06)" transform="rotate(-25,300,150)">${text}</text>` +
-    `</svg>`
-  )
-
-  return (
-    <div
-      aria-hidden="true"
-      style={{
-        position: 'fixed',
-        inset: 0,
-        pointerEvents: 'none',
-        zIndex: 1,
-        backgroundImage: `url("data:image/svg+xml,${svgText}")`,
-        backgroundRepeat: 'repeat',
-        backgroundSize: '600px 300px',
-      }}
-    />
-  )
-}
 
 const s: Record<string, React.CSSProperties> = {
   page: { minHeight: '100vh', background: 'linear-gradient(135deg, #ede9fe 0%, #dbeafe 60%, #d1fae5 100%)', fontFamily: 'system-ui, sans-serif', display: 'flex', flexDirection: 'column' },
