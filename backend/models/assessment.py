@@ -82,6 +82,7 @@ class GeneratedAssessment(Base):
     student_count = Column(Integer, nullable=False)
     generated_by = Column(String(100), nullable=False)
     generated_at = Column(DateTime(timezone=True), server_default=func.now())
+    randomisation_stats = Column(JSON, nullable=True)
 
     config = relationship("AssessmentConfig", back_populates="assessments")
     students = relationship("GeneratedAssessmentStudent", back_populates="assessment", cascade="all, delete-orphan")

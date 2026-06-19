@@ -15,6 +15,7 @@ from models import (
     GradingResult, SubmissionStatus,
 )
 from services.excel_service import generate_coder_sheet, generate_batch_zip
+from services.randomisation_stats import compute_randomisation_stats
 from config import settings
 from .shared import MASTER_PASSPHRASE, _is_ip, _is_ed
 
@@ -234,6 +235,7 @@ def run_allocation(batch_id: int, payload: AllocationRun, db: Session = Depends(
 
     assigned_counts = {}
     pool_warnings = []
+    coder_chart_sets: dict[str, set] = {}   # for randomisation stats
 
     for coder in coders:
         already = assigned_per_coder.get(coder.coder_name, set())
@@ -269,6 +271,11 @@ def run_allocation(batch_id: int, payload: AllocationRun, db: Session = Depends(
             ))
 
         assigned_counts[coder.coder_name] = len(assigned)
+        coder_chart_sets[coder.coder_name] = {c.id for c in assigned}
+
+    # Compute and persist randomisation stats for this cycle
+    rand_stats = compute_randomisation_stats(coder_chart_sets, len(pool))
+    cycle.randomisation_stats = rand_stats
 
     db.commit()
     return {
@@ -276,6 +283,7 @@ def run_allocation(batch_id: int, payload: AllocationRun, db: Session = Depends(
         "cycle_number": cycle_number,
         "assigned": assigned_counts,
         "warnings": pool_warnings,
+        "randomisation_stats": rand_stats,
     }
 
 
@@ -547,6 +555,7 @@ def get_batch(batch_id: int, db: Session = Depends(get_db)):
                     1 for a in assignments
                     if a.cycle_id == c.id or (a.cycle_id is None and c.cycle_number == 1)
                 ),
+                "randomisation_stats": c.randomisation_stats,
             }
             for c in cycles
         ],

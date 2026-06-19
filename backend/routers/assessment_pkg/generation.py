@@ -19,6 +19,7 @@ from models import (
     GeneratedAssessment, GeneratedAssessmentStudent,
     AssessmentSession,
 )
+from services.randomisation_stats import compute_randomisation_stats
 
 router = APIRouter()
 
@@ -307,6 +308,7 @@ def generate_assessment(req: GenerateRequest, db: Session = Depends(get_db)):
     # Generate an independently sampled + shuffled question set per coder
     expires_at = now + timedelta(hours=SESSION_EXPIRY_HOURS)
     sessions_created = []
+    coder_question_sets: Dict[str, set] = {}   # for randomisation stats
 
     for coder in coders:
         # Each coder gets an independently shuffled + LRU-sorted view of each
@@ -319,6 +321,8 @@ def generate_assessment(req: GenerateRequest, db: Session = Depends(get_db)):
 
         if not coder_combined:
             raise HTTPException(status_code=400, detail="No questions available for the requested specialty/topic mix")
+
+        coder_question_sets[coder.coder_name.strip()] = {q.id for q in coder_combined}
 
         _shuffle(coder_combined)
         shuffled_with_options = [_shuffle_options(q) for q in coder_combined]
@@ -349,6 +353,11 @@ def generate_assessment(req: GenerateRequest, db: Session = Depends(get_db)):
             "session_token": token,
         })
 
+    # Compute and persist randomisation stats
+    total_pool_size = sum(len(p["pool"]) for p in specialty_pools)
+    rand_stats = compute_randomisation_stats(coder_question_sets, total_pool_size)
+    assessment.randomisation_stats = rand_stats
+
     db.commit()
 
     return {
@@ -361,4 +370,5 @@ def generate_assessment(req: GenerateRequest, db: Session = Depends(get_db)):
         "sessions": sessions_created,
         "config_id": config_id,
         "generated_at": now.isoformat(),
+        "randomisation_stats": rand_stats,
     }

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Loader, Download, Upload, BarChart2, Search, CheckSquare, Square, CheckCircle, Circle, AlertCircle, ChevronDown, ChevronRight } from 'lucide-react'
 import toast from 'react-hot-toast'
+import RandomisationStatsCard from '../../components/RandomisationStatsCard'
 import {
   getBatch, gradeSubmissions, closeBatch, addBatchNote,
   downloadBatchExcel, downloadCycleExcel, downloadBatchResultsExcel,
@@ -645,15 +646,20 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
           </div>
         )}
         {(batch.allocation_cycles || []).map((c: any) => (
-          <div key={c.id} style={styles.cycleRow}>
-            <div style={styles.cycleBadge}>{c.cycle_number === 0 ? 'Legacy' : `Cycle ${c.cycle_number}`}</div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 13, fontWeight: 600 }}>{c.assigned_count} assignment{c.assigned_count !== 1 ? 's' : ''}{c.assigned_count > 0 ? ` · ${c.charts_per_coder} charts/coder` : ' — pool exhausted'}</div>
-              <div style={{ fontSize: 11, color: '#9ca3af' }}>by {c.run_by} on {new Date(c.run_at).toLocaleDateString()}{c.notes && <span style={{ marginLeft: 8, color: '#6b7280' }}>— {c.notes}</span>}</div>
+          <div key={c.id} style={{ ...styles.cycleRow, flexDirection: 'column', alignItems: 'stretch', gap: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={styles.cycleBadge}>{c.cycle_number === 0 ? 'Legacy' : `Cycle ${c.cycle_number}`}</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 600 }}>{c.assigned_count} assignment{c.assigned_count !== 1 ? 's' : ''}{c.assigned_count > 0 ? ` · ${c.charts_per_coder} charts/coder` : ' — pool exhausted'}</div>
+                <div style={{ fontSize: 11, color: '#9ca3af' }}>by {c.run_by} on {new Date(c.run_at).toLocaleDateString()}{c.notes && <span style={{ marginLeft: 8, color: '#6b7280' }}>— {c.notes}</span>}</div>
+              </div>
+              {c.assigned_count > 0 && !isED && (
+                <button style={styles.outlineBtn} title={`Download a ZIP of all coder Excel answer sheets for Cycle ${c.cycle_number}`}
+                  onClick={() => downloadCycleExcel(batchId, c.id)}><Download size={13} /> {c.cycle_number === 0 ? 'Legacy Sheets' : `Cycle ${c.cycle_number} Sheets`}</button>
+              )}
             </div>
-            {c.assigned_count > 0 && !isED && (
-              <button style={styles.outlineBtn} title={`Download a ZIP of all coder Excel answer sheets for Cycle ${c.cycle_number}`}
-                onClick={() => downloadCycleExcel(batchId, c.id)}><Download size={13} /> {c.cycle_number === 0 ? 'Legacy Sheets' : `Cycle ${c.cycle_number} Sheets`}</button>
+            {c.randomisation_stats && (
+              <RandomisationStatsCard stats={c.randomisation_stats} itemLabel="charts" />
             )}
           </div>
         ))}

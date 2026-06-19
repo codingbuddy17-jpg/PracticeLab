@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { Plus, Trash2, AlertCircle, Download, RefreshCw, Users, Upload, Copy, CheckCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { getAssessmentPoolPreview, generateAssessment, parseCoderFile, downloadCoderTemplate } from '../../api'
+import RandomisationStatsCard, { RandomisationStats } from '../../components/RandomisationStatsCard'
 
 const SPECIALTIES = [
   'ICD10CM', 'Surgery', 'ED Facility', 'ED Profee', 'Ancillary',
@@ -21,6 +22,7 @@ interface GenerateResult {
   expires_at: string
   sessions: SessionResult[]
   generated_at: string
+  randomisation_stats?: RandomisationStats | null
 }
 
 const trainerName = () => localStorage.getItem('trainer_name') || 'Trainer'
@@ -142,6 +144,9 @@ export function GenerateView() {
           <div style={{ fontSize: 12, color: '#047857', marginTop: 4 }}>
             Session tokens valid for 8 hours from now. Share tokens with coders to begin.
           </div>
+          {result.randomisation_stats && (
+            <RandomisationStatsCard stats={result.randomisation_stats} itemLabel="questions" />
+          )}
         </div>
 
         <div style={styles.panel}>

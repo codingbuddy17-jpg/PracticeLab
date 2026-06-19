@@ -96,6 +96,7 @@ class BatchAllocationCycle(Base):
     run_by = Column(String(100), nullable=False)
     charts_per_coder = Column(Integer, nullable=False)
     notes = Column(String(300), nullable=True)
+    randomisation_stats = Column(JSON, nullable=True)
 
     batch = relationship("Batch", back_populates="allocation_cycles")
     assignments = relationship("BatchChart", back_populates="cycle")

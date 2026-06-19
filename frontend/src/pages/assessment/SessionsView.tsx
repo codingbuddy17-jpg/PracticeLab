@@ -6,6 +6,7 @@ import {
   listAssessmentSessions, deleteAssessmentSessions,
   SessionRow,
 } from '../../api'
+import RandomisationStatsCard, { RandomisationStats } from '../../components/RandomisationStatsCard'
 
 const STATUS_STYLE: Record<string, { bg: string; text: string; label: string }> = {
   pending:      { bg: '#fef9c3', text: '#854d0e', label: 'Pending' },
@@ -15,7 +16,7 @@ const STATUS_STYLE: Record<string, { bg: string; text: string; label: string }> 
   auto_submitted: { bg: '#ede9fe', text: '#6d28d9', label: 'Auto-submitted' },
 }
 
-interface Assessment { id: number; assessment_name: string; config_name?: string | null; student_count?: number; generated_by?: string; generated_at?: string | null; questions_per_student?: number }
+interface Assessment { id: number; assessment_name: string; config_name?: string | null; student_count?: number; generated_by?: string; generated_at?: string | null; questions_per_student?: number; randomisation_stats?: RandomisationStats | null }
 
 export function SessionsView() {
   const [assessments, setAssessments] = useState<Assessment[]>([])
@@ -70,6 +71,7 @@ export function SessionsView() {
   const pending = sessions.filter(s => s.status === 'pending').length
   const inProgress = sessions.filter(s => s.status === 'in_progress').length
   const submitted = sessions.filter(s => s.status === 'submitted' || s.status === 'auto_submitted').length
+  const selectedAssessment = assessments.find(a => a.id === selectedId) ?? null
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -106,6 +108,14 @@ export function SessionsView() {
           )}
         </div>
       </div>
+
+      {/* Randomisation stats — shown once an assessment is selected */}
+      {selectedAssessment?.randomisation_stats && (
+        <RandomisationStatsCard
+          stats={selectedAssessment.randomisation_stats}
+          itemLabel="questions"
+        />
+      )}
 
       {/* Sessions table */}
       {hasSessions && (
