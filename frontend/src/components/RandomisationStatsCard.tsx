@@ -55,6 +55,9 @@ export default function RandomisationStatsCard({ stats, itemLabel = 'items' }: P
 
   if (!stats) return null
 
+  const perCoder = Array.isArray(stats.per_coder) ? stats.per_coder : []
+  const topOverlaps = Array.isArray(stats.top_overlaps) ? stats.top_overlaps : []
+
   return (
     <div style={{
       background: '#f8fafc', border: '1px solid #e2e8f0',
@@ -110,15 +113,16 @@ export default function RandomisationStatsCard({ stats, itemLabel = 'items' }: P
               </tr>
             </thead>
             <tbody>
-              {stats.per_coder.map(c => {
-                const unique = Math.round(stats.items_per_coder * c.uniqueness_pct / 100)
+              {perCoder.map(c => {
+                const unique = Math.round((stats.items_per_coder ?? 0) * (c.uniqueness_pct ?? 0) / 100)
+                const sharedItems = Array.isArray(c.shared_items) ? c.shared_items : []
                 return (
                   <tr key={c.name} style={{ borderBottom: '1px solid #e5e7eb' }}>
                     <td style={td}>{c.name}</td>
                     <td style={td}><Badge pct={c.uniqueness_pct} /></td>
-                    <td style={{ ...td, color: '#374151' }}>{unique} / {stats.items_per_coder}</td>
-                    <td style={{ ...td, color: c.shared_items.length ? '#dc2626' : '#9ca3af' }}>
-                      {c.shared_items.length ? `${c.shared_items.length} shared` : '—'}
+                    <td style={{ ...td, color: '#374151' }}>{unique} / {stats.items_per_coder ?? 0}</td>
+                    <td style={{ ...td, color: sharedItems.length ? '#dc2626' : '#9ca3af' }}>
+                      {sharedItems.length ? `${sharedItems.length} shared` : '—'}
                     </td>
                   </tr>
                 )
@@ -127,7 +131,7 @@ export default function RandomisationStatsCard({ stats, itemLabel = 'items' }: P
           </table>
 
           {/* Overlapping pairs */}
-          {stats.top_overlaps.length > 0 && (
+          {topOverlaps.length > 0 && (
             <div style={{ marginTop: 12 }}>
               <div style={{ fontSize: 12, color: '#374151', fontWeight: 600, marginBottom: 6 }}>
                 Highest overlap pairs
@@ -142,7 +146,7 @@ export default function RandomisationStatsCard({ stats, itemLabel = 'items' }: P
                   </tr>
                 </thead>
                 <tbody>
-                  {stats.top_overlaps.map((o, i) => (
+                  {topOverlaps.map((o, i) => (
                     <tr key={i} style={{ borderBottom: '1px solid #e5e7eb' }}>
                       <td style={td}>{o.coder_a}</td>
                       <td style={td}>{o.coder_b}</td>
@@ -158,7 +162,7 @@ export default function RandomisationStatsCard({ stats, itemLabel = 'items' }: P
             </div>
           )}
 
-          {stats.top_overlaps.length === 0 && (
+          {topOverlaps.length === 0 && (
             <div style={{ fontSize: 12, color: '#16a34a', marginTop: 8, fontWeight: 600 }}>
               ✓ No overlap — all coders received fully unique sets.
             </div>
