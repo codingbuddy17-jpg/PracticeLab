@@ -73,9 +73,26 @@ def _shuffle(lst: list) -> list:
     return lst
 
 
+def _per_coder_pool(pool: List[AssessmentQuestion]) -> List[AssessmentQuestion]:
+    """
+    Return a per-coder randomised copy of the pool.
+    Mirrors the VBA approach: Fisher-Yates shuffle first (so questions with the
+    same last_used_at are in a different random order each call), then stable
+    LRU sort (oldest / never-used first).  This gives each coder a unique random
+    draw while still preferring questions that haven't been used recently.
+    """
+    randomised = list(pool)
+    _shuffle(randomised)                                       # random within tiers
+    _epoch = datetime.min.replace(tzinfo=timezone.utc)
+    randomised.sort(key=lambda x: (x.last_used_at is not None,
+                                   x.last_used_at or _epoch))  # LRU priority preserved
+    return randomised
+
+
 def _stratified_pick(pool: List[AssessmentQuestion], target: int, difficulty_ratios: Dict[str, float]) -> List[AssessmentQuestion]:
     """
     Pick `target` questions from pool using stratified difficulty ratios.
+    Pool must already be per-coder randomised (call _per_coder_pool first).
     Uses cascade overflow: if a difficulty bucket runs short, the deficit
     cascades to Medium then Hard then Easy.
     """
@@ -102,7 +119,7 @@ def _stratified_pick(pool: List[AssessmentQuestion], target: int, difficulty_rat
         picks.extend(available)
         accumulated_deficit = max(0, shortfall)
 
-    # If still short (total pool is smaller), just pad with whatever is left
+    # If still short (total pool is smaller), pad with whatever is left
     if len(picks) < target:
         used_ids = {q.id for q in picks}
         remainder = [q for q in pool if q.id not in used_ids]
@@ -229,7 +246,6 @@ def generate_assessment(req: GenerateRequest, db: Session = Depends(get_db)):
                 q = q.filter(or_(*[AssessmentQuestion.topic.ilike(f"%{t}%") for t in topics]))
 
         pool: List[AssessmentQuestion] = q.all()
-        pool.sort(key=lambda x: (x.last_used_at is not None, x.last_used_at or _epoch))
 
         if req.difficulty_mode == "auto":
             total_pool = len(pool)
@@ -293,10 +309,12 @@ def generate_assessment(req: GenerateRequest, db: Session = Depends(get_db)):
     sessions_created = []
 
     for coder in coders:
-        # Each coder gets their own stratified sample from the pool — different questions
+        # Each coder gets an independently shuffled + LRU-sorted view of each
+        # specialty pool, so _stratified_pick draws different questions per coder
         coder_combined: List[AssessmentQuestion] = []
         for p in specialty_pools:
-            picked = _stratified_pick(p["pool"], p["target"], p["ratios"])
+            coder_pool = _per_coder_pool(p["pool"])
+            picked = _stratified_pick(coder_pool, p["target"], p["ratios"])
             coder_combined.extend(picked)
 
         if not coder_combined:
