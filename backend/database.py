@@ -133,6 +133,8 @@ def _run_migrations():
         notes VARCHAR(300)
     )""")
 
+    _add_col("batch_allocation_cycles", "randomisation_stats", "TEXT")
+
     # ── batch_charts — cycle FK (SQLite doesn't support inline FK in ALTER) ──
     _add_col("batch_charts", "cycle_id", "INTEGER REFERENCES batch_allocation_cycles(id)", "INTEGER")
 
@@ -268,6 +270,8 @@ def _run_migrations():
         generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )""")
     _add_col("generated_assessments", "batch_name", "VARCHAR(100)")
+    _add_col("generated_assessments", "randomisation_stats", "TEXT")
+    _add_col("generated_assessments", "is_standalone", "BOOLEAN DEFAULT FALSE")
 
     # ── generated_assessment_students table ───────────────────────────────────
     _run("""CREATE TABLE IF NOT EXISTS generated_assessment_students (
