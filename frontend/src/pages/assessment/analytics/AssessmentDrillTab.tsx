@@ -3,6 +3,7 @@ import toast from 'react-hot-toast'
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell } from 'recharts'
 import { getAssessmentAnalyticsByAssessment, listAssessmentHistory } from '../../../api'
 import { scoreColor, bandColor, fmt, fmtTime, KpiCard, Panel, DiffBadge, PassBadge, LoadingSpinner, EmptyState, PASS } from './helpers'
+import { usePagination } from '../../../components/Paginator'
 
 export function AssessmentDrillTab() {
   const [assessments, setAssessments] = useState<any[]>([])
@@ -60,6 +61,88 @@ export function AssessmentDrillTab() {
   )
 }
 
+function CoderResultsTable({ rows }: { rows: any[] }) {
+  const { pageData, Paginator } = usePagination(rows, 15)
+  return (
+    <>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <thead>
+            <tr style={{ borderBottom: '2px solid #e5e7eb' }}>
+              {['Coder', 'Emp ID', 'Score', 'Correct', 'Time', 'Pass/Fail', 'Auto-submit'].map(h => (
+                <th key={h} style={{ textAlign: 'left', padding: '8px 12px', color: '#6b7280', fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.4 }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {pageData.map((row: any, i: number) => (
+              <tr key={i} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                <td style={{ padding: '9px 12px', fontWeight: 600 }}>{row.coder_name}</td>
+                <td style={{ padding: '9px 12px', color: '#6b7280' }}>{row.employee_id || '—'}</td>
+                <td style={{ padding: '9px 12px', fontWeight: 800, color: scoreColor(row.score_pct) }}>{fmt(row.score_pct)}</td>
+                <td style={{ padding: '9px 12px', color: '#374151' }}>{row.correct_count}/{row.total_questions}</td>
+                <td style={{ padding: '9px 12px', color: '#6b7280' }}>{fmtTime(row.time_taken_seconds)}</td>
+                <td style={{ padding: '9px 12px' }}><PassBadge pf={row.pass_fail} /></td>
+                <td style={{ padding: '9px 12px' }}>
+                  {row.auto_submitted && (
+                    <span style={{ fontSize: 11, background: '#fef3c7', color: '#92400e', padding: '2px 8px', borderRadius: 20, fontWeight: 700 }}>Auto</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <Paginator />
+    </>
+  )
+}
+
+function QuestionAccuracyTable({ rows }: { rows: any[] }) {
+  const { pageData, Paginator } = usePagination(rows, 20)
+  return (
+    <>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <thead>
+            <tr style={{ borderBottom: '2px solid #e5e7eb' }}>
+              {['Question', 'Topic', 'Difficulty', 'Accuracy', 'Responses'].map(h => (
+                <th key={h} style={{ textAlign: 'left', padding: '8px 12px', color: '#6b7280', fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.4 }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {pageData.map((q: any, i: number) => (
+              <tr key={i} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                <td style={{ padding: '9px 12px', minWidth: 320 }}>
+                  <div style={{ fontWeight: 600, color: '#111', fontSize: 12 }}>{q.question_id}</div>
+                  <div style={{ color: '#6b7280', fontSize: 11, marginTop: 2, lineHeight: 1.4 }}>{q.question_text}</div>
+                </td>
+                <td style={{ padding: '9px 12px', color: '#374151', fontSize: 12 }}>{q.topic}</td>
+                <td style={{ padding: '9px 12px' }}><DiffBadge diff={q.difficulty} /></td>
+                <td style={{ padding: '9px 12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ width: 70, height: 6, background: '#f3f4f6', borderRadius: 3 }}>
+                      {q.accuracy_pct != null && (
+                        <div style={{ height: '100%', borderRadius: 3, width: `${Math.min(q.accuracy_pct, 100)}%`, background: scoreColor(q.accuracy_pct) }} />
+                      )}
+                    </div>
+                    <span style={{ fontWeight: 700, color: scoreColor(q.accuracy_pct), fontSize: 12 }}>
+                      {q.accuracy_pct != null ? `${q.accuracy_pct}%` : '—'}
+                    </span>
+                  </div>
+                </td>
+                <td style={{ padding: '9px 12px', color: '#6b7280', fontSize: 12 }}>{q.correct}/{q.total}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <Paginator />
+    </>
+  )
+}
+
 function AssessmentDrillContent({ data }: { data: any }) {
   return (
     <div>
@@ -110,34 +193,7 @@ function AssessmentDrillContent({ data }: { data: any }) {
 
       {data.coder_rows && data.coder_rows.length > 0 && (
         <Panel title="Coder Results">
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-              <thead>
-                <tr style={{ borderBottom: '2px solid #e5e7eb' }}>
-                  {['Coder', 'Emp ID', 'Score', 'Correct', 'Time', 'Pass/Fail', 'Auto-submit'].map(h => (
-                    <th key={h} style={{ textAlign: 'left', padding: '8px 12px', color: '#6b7280', fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.4 }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {(data.coder_rows as any[]).map((row: any, i: number) => (
-                  <tr key={i} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                    <td style={{ padding: '9px 12px', fontWeight: 600 }}>{row.coder_name}</td>
-                    <td style={{ padding: '9px 12px', color: '#6b7280' }}>{row.employee_id || '—'}</td>
-                    <td style={{ padding: '9px 12px', fontWeight: 800, color: scoreColor(row.score_pct) }}>{fmt(row.score_pct)}</td>
-                    <td style={{ padding: '9px 12px', color: '#374151' }}>{row.correct_count}/{row.total_questions}</td>
-                    <td style={{ padding: '9px 12px', color: '#6b7280' }}>{fmtTime(row.time_taken_seconds)}</td>
-                    <td style={{ padding: '9px 12px' }}><PassBadge pf={row.pass_fail} /></td>
-                    <td style={{ padding: '9px 12px' }}>
-                      {row.auto_submitted && (
-                        <span style={{ fontSize: 11, background: '#fef3c7', color: '#92400e', padding: '2px 8px', borderRadius: 20, fontWeight: 700 }}>Auto</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <CoderResultsTable rows={data.coder_rows} />
         </Panel>
       )}
 
@@ -194,42 +250,7 @@ function AssessmentDrillContent({ data }: { data: any }) {
 
       {data.question_accuracy && data.question_accuracy.length > 0 && (
         <Panel title="Question Accuracy (Most-Missed First)">
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-              <thead>
-                <tr style={{ borderBottom: '2px solid #e5e7eb' }}>
-                  {['Question', 'Topic', 'Difficulty', 'Accuracy', 'Responses'].map(h => (
-                    <th key={h} style={{ textAlign: 'left', padding: '8px 12px', color: '#6b7280', fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.4 }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {(data.question_accuracy as any[]).map((q: any, i: number) => (
-                  <tr key={i} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                    <td style={{ padding: '9px 12px', minWidth: 320 }}>
-                      <div style={{ fontWeight: 600, color: '#111', fontSize: 12 }}>{q.question_id}</div>
-                      <div style={{ color: '#6b7280', fontSize: 11, marginTop: 2, lineHeight: 1.4 }}>{q.question_text}</div>
-                    </td>
-                    <td style={{ padding: '9px 12px', color: '#374151', fontSize: 12 }}>{q.topic}</td>
-                    <td style={{ padding: '9px 12px' }}><DiffBadge diff={q.difficulty} /></td>
-                    <td style={{ padding: '9px 12px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <div style={{ width: 70, height: 6, background: '#f3f4f6', borderRadius: 3 }}>
-                          {q.accuracy_pct != null && (
-                            <div style={{ height: '100%', borderRadius: 3, width: `${Math.min(q.accuracy_pct, 100)}%`, background: scoreColor(q.accuracy_pct) }} />
-                          )}
-                        </div>
-                        <span style={{ fontWeight: 700, color: scoreColor(q.accuracy_pct), fontSize: 12 }}>
-                          {q.accuracy_pct != null ? `${q.accuracy_pct}%` : '—'}
-                        </span>
-                      </div>
-                    </td>
-                    <td style={{ padding: '9px 12px', color: '#6b7280', fontSize: 12 }}>{q.correct}/{q.total}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <QuestionAccuracyTable rows={data.question_accuracy} />
         </Panel>
       )}
     </div>

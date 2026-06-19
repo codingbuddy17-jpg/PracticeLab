@@ -4,6 +4,9 @@ import toast from 'react-hot-toast'
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell } from 'recharts'
 import { getAssessmentAnalyticsByTopic } from '../../../api'
 import { scoreColor, Panel, LoadingSpinner, EmptyState, inputStyle } from './helpers'
+import { usePagination } from '../../../components/Paginator'
+
+const PAGE_SIZE = 20
 
 export function ByTopicTab() {
   const [data, setData] = useState<any>(null)
@@ -67,40 +70,51 @@ export function ByTopicTab() {
       )}
 
       <Panel title="Topic Detail">
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-            <thead>
-              <tr style={{ borderBottom: '2px solid #e5e7eb' }}>
-                {['Topic', 'Specialty', 'Accuracy', 'Correct / Total', 'Coders', 'Bar'].map(h => (
-                  <th key={h} style={{ textAlign: 'left', padding: '8px 14px', color: '#6b7280', fontWeight: 700, fontSize: 11, textTransform: 'uppercase' as const, letterSpacing: 0.4 }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((t: any, i: number) => (
-                <tr key={i} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                  <td style={{ padding: '10px 14px', fontWeight: 700, color: '#111' }}>{t.topic}</td>
-                  <td style={{ padding: '10px 14px' }}>
-                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                      {(t.specialties as string[]).map((sp: string, j: number) => (
-                        <span key={j} style={{ fontSize: 10, background: 'rgba(124,58,237,0.1)', color: '#7c3aed', padding: '1px 7px', borderRadius: 20, fontWeight: 700 }}>{sp}</span>
-                      ))}
-                    </div>
-                  </td>
-                  <td style={{ padding: '10px 14px', fontWeight: 800, color: scoreColor(t.accuracy_pct), fontSize: 14 }}>{t.accuracy_pct != null ? `${t.accuracy_pct}%` : '—'}</td>
-                  <td style={{ padding: '10px 14px', color: '#6b7280' }}>{t.correct} / {t.total_responses}</td>
-                  <td style={{ padding: '10px 14px', color: '#374151' }}>{t.coder_count}</td>
-                  <td style={{ padding: '10px 14px', minWidth: 100 }}>
-                    <div style={{ width: 90, height: 8, background: '#f3f4f6', borderRadius: 4 }}>
-                      {t.accuracy_pct != null && <div style={{ height: '100%', borderRadius: 4, width: `${Math.min(t.accuracy_pct, 100)}%`, background: scoreColor(t.accuracy_pct), transition: 'width 0.5s' }} />}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <TopicTable rows={filtered} />
       </Panel>
     </div>
+  )
+}
+
+function TopicTable({ rows }: { rows: any[] }) {
+  const { pageData, Paginator } = usePagination(rows, PAGE_SIZE)
+
+  return (
+    <>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <thead>
+            <tr style={{ borderBottom: '2px solid #e5e7eb' }}>
+              {['Topic', 'Specialty', 'Accuracy', 'Correct / Total', 'Coders', 'Bar'].map(h => (
+                <th key={h} style={{ textAlign: 'left', padding: '8px 14px', color: '#6b7280', fontWeight: 700, fontSize: 11, textTransform: 'uppercase' as const, letterSpacing: 0.4 }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {pageData.map((t: any, i: number) => (
+              <tr key={i} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                <td style={{ padding: '10px 14px', fontWeight: 700, color: '#111' }}>{t.topic}</td>
+                <td style={{ padding: '10px 14px' }}>
+                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                    {(t.specialties as string[]).map((sp: string, j: number) => (
+                      <span key={j} style={{ fontSize: 10, background: 'rgba(124,58,237,0.1)', color: '#7c3aed', padding: '1px 7px', borderRadius: 20, fontWeight: 700 }}>{sp}</span>
+                    ))}
+                  </div>
+                </td>
+                <td style={{ padding: '10px 14px', fontWeight: 800, color: scoreColor(t.accuracy_pct), fontSize: 14 }}>{t.accuracy_pct != null ? `${t.accuracy_pct}%` : '—'}</td>
+                <td style={{ padding: '10px 14px', color: '#6b7280' }}>{t.correct} / {t.total_responses}</td>
+                <td style={{ padding: '10px 14px', color: '#374151' }}>{t.coder_count}</td>
+                <td style={{ padding: '10px 14px', minWidth: 100 }}>
+                  <div style={{ width: 90, height: 8, background: '#f3f4f6', borderRadius: 4 }}>
+                    {t.accuracy_pct != null && <div style={{ height: '100%', borderRadius: 4, width: `${Math.min(t.accuracy_pct, 100)}%`, background: scoreColor(t.accuracy_pct), transition: 'width 0.5s' }} />}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <Paginator />
+    </>
   )
 }

@@ -3,6 +3,7 @@ import { Loader, ChevronDown, ChevronRight, FileDown } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { getAssessmentAnalyticsByBatch, getAssessmentAnalyticsBatchDrill, downloadAssessmentBatchReport, downloadAssessmentBatchCoderReportsZip } from '../../../api'
 import { PASS, scoreColor, fmt, LoadingSpinner, EmptyState } from './helpers'
+import { usePagination } from '../../../components/Paginator'
 
 export function BatchAnalysisTab() {
   const [batches, setBatches] = useState<any[]>([])
@@ -33,9 +34,19 @@ export function BatchAnalysisTab() {
   if (loading) return <LoadingSpinner />
   if (!batches.length) return <EmptyState message="No batches yet. Add a Batch / Cohort Name when generating assessments." />
 
+  return <BatchList batches={batches} expanded={expanded} setExpanded={setExpanded} drillData={drillData} drillLoading={drillLoading} toggleBatch={toggleBatch} />
+}
+
+function BatchList({ batches, expanded, setExpanded, drillData, drillLoading, toggleBatch }: {
+  batches: any[]; expanded: string | null; setExpanded: (v: string | null) => void;
+  drillData: Record<string, any>; drillLoading: string | null; toggleBatch: (name: string) => void;
+}) {
+  const { pageData, Paginator } = usePagination(batches, 10)
+
   return (
+    <>
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      {batches.map((batch: any) => {
+      {pageData.map((batch: any) => {
         const isOpen = expanded === batch.batch_name
         const drill = drillData[batch.batch_name]
         const isDrillLoading = drillLoading === batch.batch_name
@@ -173,5 +184,7 @@ export function BatchAnalysisTab() {
         )
       })}
     </div>
+    <Paginator />
+    </>
   )
 }
