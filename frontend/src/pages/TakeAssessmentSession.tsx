@@ -269,7 +269,7 @@ export function TakeAssessmentSession() {
 
   if (screen === 'review') {
     return (
-      <div style={{ ...s.page, position: 'relative' }}>
+      <div style={s.page}>
         <WatermarkOverlay lines={watermarkLines} />
         <div style={s.topBar}>
           <div style={{ fontWeight: 700, fontSize: 15 }}>Review & Submit</div>
@@ -328,7 +328,7 @@ export function TakeAssessmentSession() {
 
   // screen === 'taking'
   return (
-    <div style={{ ...s.page, position: 'relative' }}>
+    <div style={s.page}>
       <WatermarkOverlay lines={watermarkLines} />
       {/* Top bar */}
       <div style={s.topBar}>
@@ -457,12 +457,11 @@ function WatermarkOverlay({ lines }: { lines: string[] }) {
   if (!lines.length) return null
   const text = lines.join('   ·   ')
 
-  // Build a repeating diagonal tile using SVG data URI
   const svgText = encodeURIComponent(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="360" height="180">` +
+    `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="300">` +
     `<text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" ` +
-    `font-family="system-ui,sans-serif" font-size="13" font-weight="600" ` +
-    `fill="rgba(100,80,160,0.12)" transform="rotate(-30,180,90)">${text}</text>` +
+    `font-family="system-ui,sans-serif" font-size="12" font-weight="500" ` +
+    `fill="rgba(100,80,160,0.06)" transform="rotate(-25,300,150)">${text}</text>` +
     `</svg>`
   )
 
@@ -473,10 +472,10 @@ function WatermarkOverlay({ lines }: { lines: string[] }) {
         position: 'fixed',
         inset: 0,
         pointerEvents: 'none',
-        zIndex: 9,
+        zIndex: 1,
         backgroundImage: `url("data:image/svg+xml,${svgText}")`,
         backgroundRepeat: 'repeat',
-        backgroundSize: '360px 180px',
+        backgroundSize: '600px 300px',
       }}
     />
   )
