@@ -242,6 +242,7 @@ def run_allocation(batch_id: int, payload: AllocationRun, db: Session = Depends(
             if not available:
                 pool_warnings.append(f"{coder.coder_name}: all selected charts already assigned — skipped")
                 continue
+            random.shuffle(available)
             assigned = available[:charts_per_coder]
         else:
             available = [c for c in pool if c.id not in already]
