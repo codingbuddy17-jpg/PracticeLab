@@ -310,7 +310,7 @@ def export_responses_excel(assessment_id: int, db: Session = Depends(get_db)):
 
     # ── Header row 1: fixed columns + question group labels ──────────────────
     fixed_cols = ["Coder Name", "Employee ID", "Status", "Submitted At",
-                  "Score %", "Correct", "Total Q", "Time (min)"]
+                  "Score %", "Correct", "Total Q", "Time Taken", "Time (min)"]
     for ci, label in enumerate(fixed_cols, 1):
         hdr(ws.cell(row=1, column=ci), label)
 
@@ -332,7 +332,9 @@ def export_responses_excel(assessment_id: int, db: Session = Depends(get_db)):
         questions = slot_questions.get(sess.coder_name, [])
 
         submitted_str = sess.submitted_at.strftime("%Y-%m-%d %H:%M") if sess.submitted_at else "—"
-        time_min = round(result.time_taken_seconds / 60, 1) if result and result.time_taken_seconds else "—"
+        secs = result.time_taken_seconds if result and result.time_taken_seconds else None
+        time_hms  = (f"{secs // 3600:02}:{(secs % 3600) // 60:02}:{secs % 60:02}" if secs else "—")
+        time_min  = round(secs / 60, 1) if secs else "—"
         score_pct = round(result.score_pct, 1) if result else None
         correct   = result.correct_count if result else "—"
         total_q   = result.total_questions if result else len(questions)
@@ -357,7 +359,8 @@ def export_responses_excel(assessment_id: int, db: Session = Depends(get_db)):
         cell(5, f"{score_pct}%" if score_pct is not None else "—")
         cell(6, correct)
         cell(7, total_q)
-        cell(8, time_min)
+        cell(8, time_hms)
+        cell(9, time_min)
 
         for qi, q in enumerate(questions):
             base = q_start_col + qi * 4
@@ -389,7 +392,7 @@ def export_responses_excel(assessment_id: int, db: Session = Depends(get_db)):
         ws.row_dimensions[row_i].height = 40
 
     # ── Column widths ─────────────────────────────────────────────────────────
-    fixed_widths = [22, 14, 12, 18, 10, 10, 10, 12]
+    fixed_widths = [22, 14, 12, 18, 10, 10, 10, 12, 10]
     for ci, w in enumerate(fixed_widths, 1):
         ws.column_dimensions[get_column_letter(ci)].width = w
     for qi in range(max_q):
