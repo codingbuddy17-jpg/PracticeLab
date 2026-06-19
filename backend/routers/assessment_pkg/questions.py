@@ -567,6 +567,66 @@ def delete_question(
     return {"deleted": question_id}
 
 
+@router.post("/questions/parse-standalone")
+async def parse_standalone_questions(file: UploadFile = File(...)):
+    """Parse an Excel file of questions and return them as JSON without saving to the bank."""
+    try:
+        contents = await file.read()
+        wb = openpyxl.load_workbook(io.BytesIO(contents))
+        ws = wb.active
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Could not parse file: {exc}")
+
+    headers = [str(ws.cell(row=1, column=c).value or "").strip() for c in range(1, ws.max_column + 1)]
+
+    def col(name: str):
+        try: return headers.index(name) + 1
+        except ValueError: return None
+
+    col_map = {h: col(h) for h in TEMPLATE_HEADERS}
+    missing = [h for h in ["Question_Text", "Option_A", "Option_B", "Option_C", "Option_D", "Correct_Answer"] if not col_map.get(h)]
+    if missing:
+        raise HTTPException(status_code=400, detail=f"Missing required columns: {missing}")
+
+    questions = []
+    errors = []
+    for row_idx in range(2, ws.max_row + 1):
+        def cell_val(col_name: str) -> str:
+            c = col_map.get(col_name)
+            if not c: return ""
+            v = ws.cell(row=row_idx, column=c).value
+            return str(v).strip() if v is not None else ""
+
+        q_text = cell_val("Question_Text")
+        if not q_text:
+            continue
+        correct = cell_val("Correct_Answer").upper()
+        if correct not in ("A", "B", "C", "D"):
+            errors.append(f"Row {row_idx}: invalid Correct_Answer '{correct}' — skipped")
+            continue
+        difficulty = cell_val("Difficulty").capitalize() or "Medium"
+        if difficulty not in ("Easy", "Medium", "Hard"):
+            difficulty = "Medium"
+        shuffle_val = cell_val("Shuffle_Options").lower()
+        shuffle_options = shuffle_val not in ("no", "0", "false", "n")
+        questions.append({
+            "question_text": q_text,
+            "option_a": cell_val("Option_A"),
+            "option_b": cell_val("Option_B"),
+            "option_c": cell_val("Option_C"),
+            "option_d": cell_val("Option_D"),
+            "correct_answer": correct,
+            "difficulty": difficulty,
+            "topic": cell_val("Topic") or "",
+            "shuffle_options": shuffle_options,
+        })
+
+    if not questions:
+        raise HTTPException(status_code=400, detail="No valid question rows found. Check the template format.")
+
+    return {"questions": questions, "count": len(questions), "errors": errors}
+
+
 def _q_out(q: AssessmentQuestion) -> dict:
     return {
         "id": q.id,

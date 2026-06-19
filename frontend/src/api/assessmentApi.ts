@@ -310,3 +310,10 @@ export function downloadAssessmentBatchCoderReportsZip(batchName: string) {
   const params = new URLSearchParams({ batch_name: batchName })
   window.open(`${base}/assessment/analytics/batch-coder-reports.zip?${params}`)
 }
+
+export async function parseStandaloneQuestions(file: File): Promise<{ questions: object[]; count: number; errors: string[] }> {
+  const form = new FormData()
+  form.append('file', file)
+  const { data } = await api.post('/assessment/questions/parse-standalone', form)
+  return data
+}

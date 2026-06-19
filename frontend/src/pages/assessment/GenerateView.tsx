@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Plus, Trash2, AlertCircle, Download, RefreshCw, Users, Upload, Copy, CheckCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { getAssessmentPoolPreview, generateAssessment, parseCoderFile, downloadCoderTemplate } from '../../api'
+import { getAssessmentPoolPreview, generateAssessment, parseCoderFile, downloadCoderTemplate, parseStandaloneQuestions } from '../../api'
 import RandomisationStatsCard, { RandomisationStats } from '../../components/RandomisationStatsCard'
 
 const SPECIALTIES = [
@@ -27,34 +27,57 @@ interface GenerateResult {
 
 const trainerName = () => localStorage.getItem('trainer_name') || 'Trainer'
 
+interface StandaloneRow {
+  question_text: string; option_a: string; option_b: string
+  option_c: string; option_d: string; correct_answer: string
+  difficulty: string; topic: string
+}
+
 export function GenerateView() {
+  // ── Mode ────────────────────────────────────────────────────────────────────
+  const [mode, setMode] = useState<'standard' | 'standalone'>('standard')
+
+  // ── Shared fields ────────────────────────────────────────────────────────────
   const [name, setName] = useState('')
   const [batchName, setBatchName] = useState('')
   const [durationMinutes, setDurationMinutes] = useState(60)
   const [totalQuestions, setTotalQuestions] = useState(20)
-  const [specialtyMix, setSpecialtyMix] = useState<SpecialtyMixRow[]>([
-    { specialty: 'ICD10CM', pct: 50, topicFilter: '' },
-    { specialty: 'Surgery', pct: 50, topicFilter: '' },
-  ])
+  const [randomise, setRandomise] = useState(true)
   const [coders, setCoders] = useState<CoderRow[]>([{ coder_name: '', employee_id: '' }])
-  const [diffMode, setDiffMode] = useState<'auto' | 'manual'>('auto')
-  const [diffMix, setDiffMix] = useState({ easy: 33, medium: 34, hard: 33 })
-  const [poolData, setPoolData] = useState<PoolRow[]>([])
-  const [poolLoading, setPoolLoading] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [result, setResult] = useState<GenerateResult | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
+  // ── Standard-mode fields ─────────────────────────────────────────────────────
+  const [specialtyMix, setSpecialtyMix] = useState<SpecialtyMixRow[]>([
+    { specialty: 'ICD10CM', pct: 50, topicFilter: '' },
+    { specialty: 'Surgery', pct: 50, topicFilter: '' },
+  ])
+  const [diffMode, setDiffMode] = useState<'auto' | 'manual'>('auto')
+  const [diffMix, setDiffMix] = useState({ easy: 33, medium: 34, hard: 33 })
+  const [poolData, setPoolData] = useState<PoolRow[]>([])
+  const [poolLoading, setPoolLoading] = useState(false)
+
+  // ── Standalone-mode fields ───────────────────────────────────────────────────
+  const [standaloneQuestions, setStandaloneQuestions] = useState<StandaloneRow[]>([])
+  const [standaloneFileName, setStandaloneFileName] = useState('')
+  const [standaloneParseError, setStandaloneParseError] = useState('')
+  const standaloneFileRef = useRef<HTMLInputElement>(null)
+
+  // ── Derived ──────────────────────────────────────────────────────────────────
   const pctTotal = specialtyMix.reduce((s, r) => s + r.pct, 0)
   const diffTotal = diffMix.easy + diffMix.medium + diffMix.hard
   const validCoders = coders.filter(c => c.coder_name.trim())
-
   const pctValid = Math.abs(pctTotal - 100) < 1
   const diffValid = diffMode === 'auto' || Math.abs(diffTotal - 100) < 1
-  const canGenerate = name.trim() && totalQuestions >= 1 && validCoders.length >= 1 && pctValid && diffValid && specialtyMix.length > 0
 
+  const canGenerate = mode === 'standalone'
+    ? name.trim() && validCoders.length >= 1 && standaloneQuestions.length >= totalQuestions
+    : name.trim() && totalQuestions >= 1 && validCoders.length >= 1 && pctValid && diffValid && specialtyMix.length > 0
+
+  // ── Standard pool preview ────────────────────────────────────────────────────
   const fetchPool = useCallback(() => {
-    if (specialtyMix.length === 0) return
+    if (specialtyMix.length === 0 || mode === 'standalone') return
     setPoolLoading(true)
     const specs = specialtyMix.map(r => r.specialty)
     const topics = specialtyMix.map(r => r.topicFilter).join(',')
@@ -62,7 +85,7 @@ export function GenerateView() {
       .then(d => setPoolData(d as PoolRow[]))
       .catch(() => {})
       .finally(() => setPoolLoading(false))
-  }, [specialtyMix])
+  }, [specialtyMix, mode])
 
   useEffect(() => {
     const timer = setTimeout(fetchPool, 400)
@@ -80,6 +103,26 @@ export function GenerateView() {
     setSpecialtyMix(prev => prev.map((r, i) => i === idx ? { ...r, [field]: value } : r))
   }
 
+  // ── Standalone question upload ────────────────────────────────────────────────
+  async function handleStandaloneUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0]
+    if (!f) return
+    setStandaloneParseError('')
+    try {
+      const res = await parseStandaloneQuestions(f)
+      if (res.errors.length) toast(`⚠ ${res.errors.length} row(s) skipped — check file`)
+      setStandaloneQuestions(res.questions as StandaloneRow[])
+      setStandaloneFileName(f.name)
+      setTotalQuestions(res.count)
+      toast.success(`${res.count} standalone questions loaded`)
+    } catch (err: unknown) {
+      const e2 = err as { response?: { data?: { detail?: string } } }
+      setStandaloneParseError(e2?.response?.data?.detail || 'Failed to parse file. Use the question bank template format.')
+    }
+    if (standaloneFileRef.current) standaloneFileRef.current.value = ''
+  }
+
+  // ── Coder list upload ─────────────────────────────────────────────────────────
   async function handleParseFile(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0]
     if (!f) return
@@ -91,23 +134,30 @@ export function GenerateView() {
     if (fileRef.current) fileRef.current.value = ''
   }
 
+  // ── Generate ──────────────────────────────────────────────────────────────────
   async function handleGenerate() {
     if (!canGenerate) return
     setGenerating(true)
     try {
-      const payload = {
+      const base = {
         assessment_name: name.trim(),
         batch_name: batchName.trim() || undefined,
         coders: validCoders.map(c => ({ coder_name: c.coder_name.trim(), employee_id: c.employee_id.trim() || null })),
         duration_minutes: durationMinutes,
         total_questions: totalQuestions,
-        specialty_mix: specialtyMix.map(r => ({ specialty: r.specialty, pct: r.pct / 100, topic_filter: r.topicFilter })),
-        difficulty_mode: diffMode,
-        difficulty_mix: diffMode === 'manual' ? { easy: diffMix.easy / 100, medium: diffMix.medium / 100, hard: diffMix.hard / 100 } : undefined,
         generated_by: trainerName(),
-        save_config: true,
-        config_name: name.trim(),
+        randomise,
       }
+      const payload = mode === 'standalone'
+        ? { ...base, specialty_mix: [], standalone_questions: standaloneQuestions }
+        : {
+            ...base,
+            specialty_mix: specialtyMix.map(r => ({ specialty: r.specialty, pct: r.pct / 100, topic_filter: r.topicFilter })),
+            difficulty_mode: diffMode,
+            difficulty_mix: diffMode === 'manual' ? { easy: diffMix.easy / 100, medium: diffMix.medium / 100, hard: diffMix.hard / 100 } : undefined,
+            save_config: true,
+            config_name: name.trim(),
+          }
       const res = await generateAssessment(payload)
       setResult(res)
       toast.success(`Assessment generated for ${res.coder_count} coders`)
@@ -210,6 +260,28 @@ export function GenerateView() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
 
+      {/* Mode toggle */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+        <div style={{ display: 'inline-flex', background: '#f3f4f6', borderRadius: 12, padding: 4, gap: 2 }}>
+          {(['standard', 'standalone'] as const).map(m => (
+            <button key={m} onClick={() => setMode(m)} style={{
+              padding: '8px 20px', border: 'none', borderRadius: 9, cursor: 'pointer', fontSize: 13, fontWeight: 700,
+              background: mode === m ? (m === 'standalone' ? 'linear-gradient(135deg,#7c3aed,#4f46e5)' : '#fff') : 'none',
+              color: mode === m ? (m === 'standalone' ? '#fff' : '#374151') : '#6b7280',
+              boxShadow: mode === m ? '0 2px 8px rgba(0,0,0,0.1)' : 'none',
+              transition: 'all 0.15s',
+            }}>
+              {m === 'standard' ? '📋 Standard' : '⚡ Standalone'}
+            </button>
+          ))}
+        </div>
+        {mode === 'standalone' && (
+          <span style={{ fontSize: 12, color: '#7c3aed', fontWeight: 600, background: '#ede9fe', padding: '4px 12px', borderRadius: 20 }}>
+            Custom questions — not saved to question bank
+          </span>
+        )}
+      </div>
+
       {/* Assessment settings */}
       <div style={styles.panel}>
         <div style={styles.panelTitle}>Assessment Settings</div>
@@ -218,7 +290,7 @@ export function GenerateView() {
             <label style={styles.label}>Assessment Name *</label>
             <input
               style={{ ...styles.input, width: 300 }}
-              placeholder="e.g. Q3 2026 ICD-10-CM Practice"
+              placeholder={mode === 'standalone' ? 'e.g. Client SOP Assessment — June 2026' : 'e.g. Q3 2026 ICD-10-CM Practice'}
               value={name}
               onChange={e => setName(e.target.value)}
             />
@@ -232,18 +304,104 @@ export function GenerateView() {
               onChange={e => setBatchName(e.target.value)}
             />
           </div>
-          <div style={styles.formGroup}>
-            <label style={styles.label}>Total Questions</label>
-            <input type="number" style={{ ...styles.input, width: 100 }} min={1}
-              value={totalQuestions} onChange={e => setTotalQuestions(Number(e.target.value))} />
-          </div>
+          {mode === 'standard' && (
+            <div style={styles.formGroup}>
+              <label style={styles.label}>Total Questions</label>
+              <input type="number" style={{ ...styles.input, width: 100 }} min={1}
+                value={totalQuestions} onChange={e => setTotalQuestions(Number(e.target.value))} />
+            </div>
+          )}
           <div style={styles.formGroup}>
             <label style={styles.label}>Duration (minutes)</label>
             <input type="number" style={{ ...styles.input, width: 100 }} min={5} max={480}
               value={durationMinutes} onChange={e => setDurationMinutes(Number(e.target.value))} />
           </div>
+          <div style={styles.formGroup}>
+            <label style={styles.label}>Randomise per coder</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
+              <div
+                onClick={() => setRandomise(r => !r)}
+                style={{
+                  width: 42, height: 24, borderRadius: 12, cursor: 'pointer', position: 'relative',
+                  background: randomise ? '#7c3aed' : '#d1d5db', transition: 'background 0.2s',
+                }}
+              >
+                <div style={{
+                  position: 'absolute', top: 3, left: randomise ? 21 : 3,
+                  width: 18, height: 18, borderRadius: '50%', background: '#fff',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.2)', transition: 'left 0.2s',
+                }} />
+              </div>
+              <span style={{ fontSize: 12, color: randomise ? '#7c3aed' : '#9ca3af', fontWeight: 600 }}>
+                {randomise ? 'On — each coder gets a unique draw' : 'Off — all coders get the same set'}
+              </span>
+            </div>
+          </div>
         </div>
       </div>
+
+      {/* Standalone question upload */}
+      {mode === 'standalone' && (
+        <div style={styles.panel}>
+          <div style={styles.panelTitle}>Upload Questions</div>
+          <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 12 }}>
+            Use the same Excel template format as the Question Bank. Questions will <strong>not</strong> be added to the bank — they are used only for this assessment.
+          </div>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' as const }}>
+            <input ref={standaloneFileRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={handleStandaloneUpload} />
+            <button style={styles.btnOutline} onClick={() => standaloneFileRef.current?.click()}>
+              <Upload size={13} /> Upload Questions (.xlsx)
+            </button>
+            {standaloneQuestions.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: '#16a34a' }}>
+                  ✓ {standaloneQuestions.length} questions loaded
+                </span>
+                <span style={{ fontSize: 12, color: '#9ca3af' }}>from {standaloneFileName}</span>
+                <button style={{ ...styles.btnOutline, color: '#dc2626', borderColor: '#fca5a5', fontSize: 11 }}
+                  onClick={() => { setStandaloneQuestions([]); setStandaloneFileName('') }}>
+                  Clear
+                </button>
+              </div>
+            )}
+            {standaloneParseError && (
+              <span style={{ fontSize: 12, color: '#dc2626' }}>{standaloneParseError}</span>
+            )}
+          </div>
+
+          {standaloneQuestions.length > 0 && (
+            <div style={{ marginTop: 14 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', marginBottom: 6 }}>
+                QUESTIONS PREVIEW (first 5 of {standaloneQuestions.length})
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 6 }}>
+                {standaloneQuestions.slice(0, 5).map((q, i) => (
+                  <div key={i} style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 12px', fontSize: 12 }}>
+                    <span style={{ fontWeight: 700, color: '#374151', marginRight: 8 }}>Q{i + 1}.</span>
+                    <span style={{ color: '#374151' }}>{q.question_text.slice(0, 100)}{q.question_text.length > 100 ? '…' : ''}</span>
+                    <span style={{ marginLeft: 10, padding: '1px 7px', borderRadius: 10, fontSize: 11, fontWeight: 700,
+                      background: q.difficulty === 'Easy' ? '#dcfce7' : q.difficulty === 'Hard' ? '#fee2e2' : '#fef9c3',
+                      color: q.difficulty === 'Easy' ? '#16a34a' : q.difficulty === 'Hard' ? '#dc2626' : '#854d0e',
+                    }}>{q.difficulty}</span>
+                    {q.topic && <span style={{ marginLeft: 6, fontSize: 11, color: '#9ca3af' }}>{q.topic}</span>}
+                  </div>
+                ))}
+                {standaloneQuestions.length > 5 && (
+                  <div style={{ fontSize: 12, color: '#9ca3af', textAlign: 'center' as const }}>
+                    + {standaloneQuestions.length - 5} more questions
+                  </div>
+                )}
+              </div>
+              <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 12, color: '#6b7280' }}>Questions per coder:</span>
+                <input type="number" style={{ ...styles.input, width: 80 }} min={1} max={standaloneQuestions.length}
+                  value={totalQuestions} onChange={e => setTotalQuestions(Math.min(Number(e.target.value), standaloneQuestions.length))} />
+                <span style={{ fontSize: 12, color: '#9ca3af' }}>of {standaloneQuestions.length} uploaded</span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Coders */}
       <div style={styles.panel}>
@@ -292,7 +450,8 @@ export function GenerateView() {
         </div>
       </div>
 
-      {/* Specialty mix */}
+      {/* Standard-mode panels: specialty mix, difficulty, pool preview */}
+      {mode === 'standard' && <>
       <div style={styles.panel}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={styles.panelTitle}>Specialty Mix</div>
@@ -410,6 +569,7 @@ export function GenerateView() {
           </div>
         )}
       </div>
+      </>}
 
       {/* Generate */}
       <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 14 }}>

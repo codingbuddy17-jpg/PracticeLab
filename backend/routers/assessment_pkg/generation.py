@@ -52,18 +52,32 @@ class CoderItem(BaseModel):
     employee_id: Optional[str] = None
 
 
+class StandaloneQuestion(BaseModel):
+    question_text: str
+    option_a: str
+    option_b: str
+    option_c: str
+    option_d: str
+    correct_answer: str          # A / B / C / D
+    difficulty: str = "Medium"  # Easy / Medium / Hard
+    topic: str = ""
+    shuffle_options: bool = True
+
+
 class GenerateRequest(BaseModel):
     assessment_name: str
     batch_name: Optional[str] = None
-    coders: List[CoderItem]          # replaces student_count
-    duration_minutes: int = 60       # per-session time limit
+    coders: List[CoderItem]
+    duration_minutes: int = 60
     total_questions: int
-    specialty_mix: List[SpecialtyMixItem]
-    difficulty_mode: str = "auto"    # "auto" | "manual"
+    specialty_mix: List[SpecialtyMixItem] = []
+    difficulty_mode: str = "auto"
     difficulty_mix: Optional[DifficultyMix] = None
     generated_by: str
     save_config: bool = True
     config_name: Optional[str] = None
+    randomise: bool = True                                    # per-coder independent sampling
+    standalone_questions: Optional[List[StandaloneQuestion]] = None  # standalone mode
 
 
 def _shuffle(lst: list) -> list:
@@ -202,18 +216,9 @@ def pool_preview(
 
 @router.post("/generate")
 def generate_assessment(req: GenerateRequest, db: Session = Depends(get_db)):
-    # Validate
-    total_pct = sum(item.pct for item in req.specialty_mix)
-    if abs(total_pct - 1.0) > 0.01:
-        raise HTTPException(status_code=400, detail=f"specialty_mix percentages must sum to 1.0, got {total_pct:.3f}")
+    is_standalone = bool(req.standalone_questions)
 
-    if req.difficulty_mode == "manual":
-        if not req.difficulty_mix:
-            raise HTTPException(status_code=400, detail="difficulty_mix required when difficulty_mode is manual")
-        dm_sum = req.difficulty_mix.easy + req.difficulty_mix.medium + req.difficulty_mix.hard
-        if abs(dm_sum - 1.0) > 0.01:
-            raise HTTPException(status_code=400, detail=f"difficulty_mix must sum to 1.0, got {dm_sum:.3f}")
-
+    # ── Common validation ──────────────────────────────────────────────────────
     coders = [c for c in req.coders if c.coder_name.strip()]
     if not coders:
         raise HTTPException(status_code=400, detail="At least one coder is required")
@@ -222,65 +227,93 @@ def generate_assessment(req: GenerateRequest, db: Session = Depends(get_db)):
     if req.duration_minutes < 5 or req.duration_minutes > 480:
         raise HTTPException(status_code=400, detail="duration_minutes must be between 5 and 480")
 
-    # Build per-specialty pools and ratios once — reused for every coder's independent sample
-    _epoch = datetime.min.replace(tzinfo=timezone.utc)
-    specialty_pools: List[Dict[str, Any]] = []
-    specialty_count = len(req.specialty_mix)
-
-    for idx, item in enumerate(req.specialty_mix):
-        target_count = (
-            req.total_questions - sum(p["target"] for p in specialty_pools)
-            if idx == specialty_count - 1
-            else round(req.total_questions * item.pct)
-        )
-
-        q = db.query(AssessmentQuestion).filter(
-            AssessmentQuestion.specialty == item.specialty,
-            AssessmentQuestion.status == "Active",
-        )
-        if item.topic_filter:
-            topics = [t.strip() for t in item.topic_filter.split(",") if t.strip()]
-            if len(topics) == 1:
-                q = q.filter(AssessmentQuestion.topic.ilike(f"%{topics[0]}%"))
-            elif topics:
-                from sqlalchemy import or_
-                q = q.filter(or_(*[AssessmentQuestion.topic.ilike(f"%{t}%") for t in topics]))
-
-        pool: List[AssessmentQuestion] = q.all()
-
-        if req.difficulty_mode == "auto":
-            total_pool = len(pool)
-            if total_pool == 0:
-                ratios: Dict[str, float] = {"easy": 0.33, "medium": 0.34, "hard": 0.33}
-            else:
-                ratios = {
-                    "easy": sum(1 for q2 in pool if q2.difficulty == "Easy") / total_pool,
-                    "medium": sum(1 for q2 in pool if q2.difficulty == "Medium") / total_pool,
-                    "hard": sum(1 for q2 in pool if q2.difficulty == "Hard") / total_pool,
-                }
-        else:
-            ratios = {
-                "easy": req.difficulty_mix.easy,
-                "medium": req.difficulty_mix.medium,
-                "hard": req.difficulty_mix.hard,
-            }
-
-        specialty_pools.append({"pool": pool, "target": target_count, "ratios": ratios})
-
-    # Verify the pool is non-empty before committing
-    if not any(p["pool"] for p in specialty_pools):
-        raise HTTPException(status_code=400, detail="No questions available for the requested specialty/topic mix")
-
-    # Update last_used_at across the full union of pools (all questions are candidates)
     now = datetime.now(timezone.utc)
-    all_pool_ids = [q.id for p in specialty_pools for q in p["pool"]]
-    db.query(AssessmentQuestion).filter(AssessmentQuestion.id.in_(all_pool_ids)).update(
-        {"last_used_at": now}, synchronize_session=False
-    )
 
-    # Save config if requested
+    # ── Build question pool ────────────────────────────────────────────────────
+    if is_standalone:
+        # Standalone: use the provided questions directly — never touch the question bank
+        if len(req.standalone_questions) < req.total_questions:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Only {len(req.standalone_questions)} standalone questions provided but {req.total_questions} requested"
+            )
+        # Convert StandaloneQuestion → dict matching _shuffle_options / questions_json shape
+        def _sq_to_dict(sq: StandaloneQuestion) -> Dict[str, Any]:
+            return {
+                "question_id": None,
+                "question_text": sq.question_text,
+                "option_a": sq.option_a,
+                "option_b": sq.option_b,
+                "option_c": sq.option_c,
+                "option_d": sq.option_d,
+                "correct_answer": sq.correct_answer.upper(),
+                "difficulty": sq.difficulty,
+                "topic": sq.topic,
+                "shuffle_options": sq.shuffle_options,
+            }
+        standalone_pool = [_sq_to_dict(sq) for sq in req.standalone_questions]
+        specialty_pools = None   # not used in standalone path
+    else:
+        # Standard: validate specialty mix and build DB pools
+        total_pct = sum(item.pct for item in req.specialty_mix)
+        if abs(total_pct - 1.0) > 0.01:
+            raise HTTPException(status_code=400, detail=f"specialty_mix percentages must sum to 1.0, got {total_pct:.3f}")
+        if req.difficulty_mode == "manual":
+            if not req.difficulty_mix:
+                raise HTTPException(status_code=400, detail="difficulty_mix required when difficulty_mode is manual")
+            dm_sum = req.difficulty_mix.easy + req.difficulty_mix.medium + req.difficulty_mix.hard
+            if abs(dm_sum - 1.0) > 0.01:
+                raise HTTPException(status_code=400, detail=f"difficulty_mix must sum to 1.0, got {dm_sum:.3f}")
+
+        _epoch = datetime.min.replace(tzinfo=timezone.utc)
+        specialty_pools: List[Dict[str, Any]] = []
+        specialty_count = len(req.specialty_mix)
+
+        for idx, item in enumerate(req.specialty_mix):
+            target_count = (
+                req.total_questions - sum(p["target"] for p in specialty_pools)
+                if idx == specialty_count - 1
+                else round(req.total_questions * item.pct)
+            )
+            q = db.query(AssessmentQuestion).filter(
+                AssessmentQuestion.specialty == item.specialty,
+                AssessmentQuestion.status == "Active",
+            )
+            if item.topic_filter:
+                topics = [t.strip() for t in item.topic_filter.split(",") if t.strip()]
+                if len(topics) == 1:
+                    q = q.filter(AssessmentQuestion.topic.ilike(f"%{topics[0]}%"))
+                elif topics:
+                    from sqlalchemy import or_
+                    q = q.filter(or_(*[AssessmentQuestion.topic.ilike(f"%{t}%") for t in topics]))
+            pool: List[AssessmentQuestion] = q.all()
+
+            if req.difficulty_mode == "auto":
+                total_pool = len(pool)
+                ratios: Dict[str, float] = (
+                    {"easy": 0.33, "medium": 0.34, "hard": 0.33} if total_pool == 0
+                    else {
+                        "easy":   sum(1 for q2 in pool if q2.difficulty == "Easy")   / total_pool,
+                        "medium": sum(1 for q2 in pool if q2.difficulty == "Medium") / total_pool,
+                        "hard":   sum(1 for q2 in pool if q2.difficulty == "Hard")   / total_pool,
+                    }
+                )
+            else:
+                ratios = {"easy": req.difficulty_mix.easy, "medium": req.difficulty_mix.medium, "hard": req.difficulty_mix.hard}
+
+            specialty_pools.append({"pool": pool, "target": target_count, "ratios": ratios})
+
+        if not any(p["pool"] for p in specialty_pools):
+            raise HTTPException(status_code=400, detail="No questions available for the requested specialty/topic mix")
+
+        all_pool_ids = [q.id for p in specialty_pools for q in p["pool"]]
+        db.query(AssessmentQuestion).filter(AssessmentQuestion.id.in_(all_pool_ids)).update(
+            {"last_used_at": now}, synchronize_session=False
+        )
+
+    # ── Save config (standard mode only) ──────────────────────────────────────
     config_id = None
-    if req.save_config:
+    if not is_standalone and req.save_config:
         cfg = AssessmentConfig(
             name=req.config_name or req.assessment_name,
             total_questions=req.total_questions,
@@ -294,43 +327,62 @@ def generate_assessment(req: GenerateRequest, db: Session = Depends(get_db)):
         db.flush()
         config_id = cfg.id
 
-    # Save GeneratedAssessment
+    # ── Save GeneratedAssessment ───────────────────────────────────────────────
     assessment = GeneratedAssessment(
         config_id=config_id,
         assessment_name=req.assessment_name,
         batch_name=req.batch_name,
         student_count=len(coders),
         generated_by=req.generated_by,
+        is_standalone=is_standalone,
     )
     db.add(assessment)
     db.flush()
 
-    # Generate an independently sampled + shuffled question set per coder
+    # ── Per-coder question assignment ─────────────────────────────────────────
     expires_at = now + timedelta(hours=SESSION_EXPIRY_HOURS)
     sessions_created = []
-    coder_question_sets: Dict[str, set] = {}   # for randomisation stats
+    coder_question_sets: Dict[str, set] = {}
+
+    # Shared set (randomise=False or standalone with randomise=False): build once
+    shared_questions: Optional[List[Dict[str, Any]]] = None
+    if not req.randomise:
+        if is_standalone:
+            shared_questions = list(standalone_pool[:req.total_questions])
+            _shuffle(shared_questions)
+        else:
+            shared_combined: List[AssessmentQuestion] = []
+            for p in specialty_pools:
+                picked = _stratified_pick(p["pool"], p["target"], p["ratios"])
+                shared_combined.extend(picked)
+            _shuffle(shared_combined)
+            shared_questions = [_shuffle_options(q) for q in shared_combined]
 
     for coder in coders:
-        # Each coder gets an independently shuffled + LRU-sorted view of each
-        # specialty pool, so _stratified_pick draws different questions per coder
-        coder_combined: List[AssessmentQuestion] = []
-        for p in specialty_pools:
-            coder_pool = _per_coder_pool(p["pool"])
-            picked = _stratified_pick(coder_pool, p["target"], p["ratios"])
-            coder_combined.extend(picked)
-
-        if not coder_combined:
-            raise HTTPException(status_code=400, detail="No questions available for the requested specialty/topic mix")
-
-        coder_question_sets[coder.coder_name.strip()] = {q.id for q in coder_combined}
-
-        _shuffle(coder_combined)
-        shuffled_with_options = [_shuffle_options(q) for q in coder_combined]
+        if req.randomise:
+            if is_standalone:
+                # Shuffle the standalone pool independently per coder, slice to total_questions
+                coder_pool = list(standalone_pool)
+                _shuffle(coder_pool)
+                questions_for_coder = coder_pool[:req.total_questions]
+            else:
+                coder_combined: List[AssessmentQuestion] = []
+                for p in specialty_pools:
+                    coder_pool_db = _per_coder_pool(p["pool"])
+                    picked = _stratified_pick(coder_pool_db, p["target"], p["ratios"])
+                    coder_combined.extend(picked)
+                if not coder_combined:
+                    raise HTTPException(status_code=400, detail="No questions available for the requested specialty/topic mix")
+                coder_question_sets[coder.coder_name.strip()] = {q.id for q in coder_combined}
+                _shuffle(coder_combined)
+                questions_for_coder = [_shuffle_options(q) for q in coder_combined]
+        else:
+            questions_for_coder = shared_questions
 
         student_row = GeneratedAssessmentStudent(
             assessment_id=assessment.id,
             student_label=coder.coder_name.strip(),
-            questions_json=shuffled_with_options,
+            questions_json=questions_for_coder,
         )
         db.add(student_row)
         db.flush()
@@ -353,9 +405,19 @@ def generate_assessment(req: GenerateRequest, db: Session = Depends(get_db)):
             "session_token": token,
         })
 
-    # Compute and persist randomisation stats
-    total_pool_size = sum(len(p["pool"]) for p in specialty_pools)
-    rand_stats = compute_randomisation_stats(coder_question_sets, total_pool_size)
+    # ── Randomisation stats ────────────────────────────────────────────────────
+    if req.randomise and not is_standalone and coder_question_sets:
+        total_pool_size = sum(len(p["pool"]) for p in specialty_pools)
+        rand_stats = compute_randomisation_stats(coder_question_sets, total_pool_size)
+    elif not req.randomise:
+        rand_stats = {"avg_uniqueness_pct": 0.0, "note": "Randomisation disabled — all coders received the same question set"}
+    else:
+        pool_size = len(req.standalone_questions) if is_standalone else 0
+        rand_stats = compute_randomisation_stats(
+            {c.coder_name.strip(): set(range(i * req.total_questions, (i + 1) * req.total_questions))
+             for i, c in enumerate(coders)},
+            pool_size
+        ) if is_standalone and req.randomise else {}
     assessment.randomisation_stats = rand_stats
 
     db.commit()
@@ -371,4 +433,5 @@ def generate_assessment(req: GenerateRequest, db: Session = Depends(get_db)):
         "config_id": config_id,
         "generated_at": now.isoformat(),
         "randomisation_stats": rand_stats,
+        "is_standalone": is_standalone,
     }
