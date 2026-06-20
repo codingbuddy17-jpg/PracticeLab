@@ -18,3 +18,6 @@ dist/
 backend/local.db
 tmp_build/
 loadtest/
+
+# Claude Code agent worktrees (local only)
+.claude/worktrees/
