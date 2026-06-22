@@ -125,44 +125,44 @@ def generate_practice_tokens(payload: GeneratePracticeTokens, db: Session = Depe
     from sqlalchemy import text
     import json
     tokens = []
-    for coder_name, chart_ids in coder_charts.items():
-        # Check if token already exists for this batch/cycle/coder
-        existing = db.execute(text(
-            "SELECT id, token FROM practice_sessions "
-            "WHERE batch_id=:b AND cycle_id=:c AND coder_name=:n LIMIT 1"
-        ), {"b": payload.batch_id, "c": cycle.id, "n": coder_name}).fetchone()
-
-        if existing:
-            tokens.append({"coder_name": coder_name, "token": existing[1], "reused": True})
-            continue
-
-        token = _gen_token()
-        # ensure uniqueness
-        while db.execute(text("SELECT 1 FROM practice_sessions WHERE token=:t"), {"t": token}).fetchone():
-            token = _gen_token()
-
-        db.execute(text("""
-            INSERT INTO practice_sessions
-              (batch_id, cycle_id, coder_name, specialty, token,
-               chart_ids, show_results_to_coder, status, created_at)
-            VALUES
-              (:b, :c, :n, :sp, :t, :ci, :sr, 'pending', CURRENT_TIMESTAMP)
-        """), {
-            "b": payload.batch_id,
-            "c": cycle.id,
-            "n": coder_name,
-            "sp": specialty_val,
-            "t": token,
-            "ci": json.dumps(chart_ids),
-            "sr": payload.show_results_to_coder,
-        })
-        tokens.append({"coder_name": coder_name, "token": token, "reused": False})
-
     try:
+        for coder_name, chart_ids in coder_charts.items():
+            # Check if token already exists for this batch/cycle/coder
+            existing = db.execute(text(
+                "SELECT id, token FROM practice_sessions "
+                "WHERE batch_id=:b AND cycle_id=:c AND coder_name=:n LIMIT 1"
+            ), {"b": payload.batch_id, "c": cycle.id, "n": coder_name}).fetchone()
+
+            if existing:
+                tokens.append({"coder_name": coder_name, "token": existing[1], "reused": True})
+                continue
+
+            token = _gen_token()
+            # ensure uniqueness
+            while db.execute(text("SELECT 1 FROM practice_sessions WHERE token=:t"), {"t": token}).fetchone():
+                token = _gen_token()
+
+            db.execute(text("""
+                INSERT INTO practice_sessions
+                  (batch_id, cycle_id, coder_name, specialty, token,
+                   chart_ids, show_results_to_coder, status, created_at)
+                VALUES
+                  (:b, :c, :n, :sp, :t, :ci, :sr, 'pending', CURRENT_TIMESTAMP)
+            """), {
+                "b": payload.batch_id,
+                "c": cycle.id,
+                "n": coder_name,
+                "sp": specialty_val,
+                "t": token,
+                "ci": json.dumps(chart_ids),
+                "sr": payload.show_results_to_coder,
+            })
+            tokens.append({"coder_name": coder_name, "token": token, "reused": False})
+
         db.commit()
     except Exception as exc:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Token generation failed: {exc}")
+        raise HTTPException(status_code=500, detail=f"Session generation failed: {type(exc).__name__}: {exc}")
 
     return {"tokens": tokens, "batch_id": payload.batch_id, "cycle_id": cycle.id}
 

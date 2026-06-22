@@ -169,14 +169,14 @@ export function GenerateView() {
 
   function copyToken(token: string) {
     navigator.clipboard.writeText(token)
-    toast.success('Session code copied')
+    toast.success('Assessment ID copied')
   }
 
   function copyAllTokens() {
     if (!result) return
     const text = result.sessions.map((s: SessionResult) => `${s.coder_name}\t${s.employee_id || ''}\t${s.session_token}`).join('\n')
     navigator.clipboard.writeText(text)
-    toast.success('All session codes copied')
+    toast.success('All Assessment IDs copied')
   }
 
   // ── Success screen ────────────────────────────────────────────────────────────
@@ -192,7 +192,7 @@ export function GenerateView() {
             <strong>{result.assessment_name}</strong> — {result.total_questions} questions × {result.coder_count} coders × {result.duration_minutes} min
           </div>
           <div style={{ fontSize: 12, color: '#047857', marginTop: 4 }}>
-            Session codes valid for 8 hours from now. Share codes with coders to begin.
+            Assessment IDs valid for 8 hours from now. Share with coders to begin.
           </div>
           {result.randomisation_stats && (
             <RandomisationStatsCard stats={result.randomisation_stats} itemLabel="questions" />
@@ -201,7 +201,7 @@ export function GenerateView() {
 
         <div style={styles.panel}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-            <div style={styles.panelTitle}>Session Codes — Share with Coders</div>
+            <div style={styles.panelTitle}>Assessment IDs — Share with Coders</div>
             <button style={styles.btnOutline} onClick={copyAllTokens}>
               <Copy size={12} /> Copy All
             </button>
@@ -211,7 +211,7 @@ export function GenerateView() {
             <table style={styles.table}>
               <thead>
                 <tr style={styles.thead}>
-                  {['Coder Name', 'Employee ID', 'Session Code', ''].map(h => (
+                  {['Coder Name', 'Employee ID', 'Assessment ID', ''].map(h => (
                     <th key={h} style={styles.th}>{h}</th>
                   ))}
                 </tr>
@@ -230,7 +230,7 @@ export function GenerateView() {
                       <button
                         style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#7c3aed', padding: 4 }}
                         onClick={() => copyToken(s.session_token)}
-                        title="Copy session code"
+                        title="Copy Assessment ID"
                       >
                         <Copy size={13} />
                       </button>

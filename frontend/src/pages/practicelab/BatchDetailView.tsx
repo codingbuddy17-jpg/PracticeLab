@@ -893,7 +893,11 @@ function PracticeTokensSection({ batchId }: { batchId: number }) {
       setExpanded(true)
       toast.success(`${res.data.tokens.length} practice session${res.data.tokens.length !== 1 ? 's' : ''} generated`)
     } catch (e: any) {
-      toast.error(e?.response?.data?.detail || 'Failed to generate practice sessions')
+      const detail = e?.response?.data?.detail
+      const status = e?.response?.status
+      const msg = detail || (status ? `Server error ${status}` : e?.message || 'Failed to generate practice sessions')
+      toast.error(msg, { duration: 8000 })
+      console.error('Generate sessions error:', e?.response?.data, e?.message)
     }
     setLoading(false)
   }

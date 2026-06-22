@@ -11,7 +11,7 @@ export function TakeAssessmentEntry() {
 
   async function handleLookup() {
     const t = token.trim().toUpperCase()
-    if (!t) { setError('Enter your session code'); return }
+    if (!t) { setError('Enter your Assessment ID'); return }
     setLoading(true)
     setError('')
     try {
@@ -19,7 +19,7 @@ export function TakeAssessmentEntry() {
       navigate(`/take-assessment/${t}`)
     } catch (e: unknown) {
       const err = e as { response?: { data?: { detail?: string }; status?: number } }
-      setError(err?.response?.data?.detail || 'Session not found. Check your access code and try again.')
+      setError(err?.response?.data?.detail || 'Assessment not found. Check your Assessment ID and try again.')
     } finally { setLoading(false) }
   }
 
@@ -33,7 +33,7 @@ export function TakeAssessmentEntry() {
           <ClipboardList size={32} color="#7c3aed" />
         </div>
         <div style={s.title}>Medical Coding Assessment</div>
-        <div style={s.sub}>Enter your session code to begin your assessment.</div>
+        <div style={s.sub}>Enter your Assessment ID to begin your assessment.</div>
 
         <input
           style={s.input}
@@ -60,7 +60,7 @@ export function TakeAssessmentEntry() {
         </button>
 
         <div style={s.note}>
-          Your session code was provided by your trainer. It is valid for 8 hours from the time of generation.
+          Your Assessment ID was provided by your trainer. It is valid for 8 hours from the time of generation.
         </div>
       </div>
     </div>

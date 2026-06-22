@@ -37,7 +37,7 @@ export function TakeAssessmentSession() {
 
   // ── Load session info on mount ───────────────────────────────────────────────
   useEffect(() => {
-    if (!token) { setScreen('error'); setErrorMsg('No session code provided.'); return }
+    if (!token) { setScreen('error'); setErrorMsg('No Assessment ID provided.'); return }
     getSessionInfo(token)
       .then(info => {
         setSessionInfo(info)
@@ -52,7 +52,7 @@ export function TakeAssessmentSession() {
       })
       .catch((e: unknown) => {
         const err = e as { response?: { data?: { detail?: string } } }
-        setErrorMsg(err?.response?.data?.detail || 'Could not load assessment. Check your access code.')
+        setErrorMsg(err?.response?.data?.detail || 'Could not load assessment. Check your Assessment ID.')
         setScreen('error')
       })
   }, [token])
