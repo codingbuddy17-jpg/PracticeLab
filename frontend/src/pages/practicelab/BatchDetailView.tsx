@@ -1155,31 +1155,41 @@ function ReviewModal({ reviewData, onClose, onRefresh }: { reviewData: any; onCl
             }
 
             // IP / OP view
+            const noAK = c.total_score === null && c.pass_fail === null
             return (
-              <div key={i} style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: '12px 16px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: c.feedback?.length ? 8 : 0 }}>
+              <div key={i} style={{ border: `1px solid ${noAK ? '#fed7aa' : '#e5e7eb'}`, borderRadius: 10, padding: '12px 16px', background: noAK ? '#fffbeb' : '#fff' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
                   <span style={{ fontWeight: 700, fontSize: 14 }}>{c.chart_number}</span>
-                  {c.total_score !== null && (
+                  {!noAK && c.total_score !== null && (
                     <span style={{ fontWeight: 700, fontSize: 13, color: c.total_score >= 80 ? '#059669' : '#dc2626' }}>{c.total_score}%</span>
                   )}
-                  {c.pass_fail && (
+                  {!noAK && c.pass_fail && (
                     <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: c.pass_fail === 'PASS' ? '#d1fae5' : '#fee2e2', color: c.pass_fail === 'PASS' ? '#059669' : '#dc2626' }}>{c.pass_fail}</span>
                   )}
+                  {noAK && <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: '#fef3c7', color: '#b45309' }}>⚠ No Answer Key</span>}
                   {c.flagged && <span style={{ fontSize: 11, background: '#fef9c3', color: '#b45309', borderRadius: 6, padding: '1px 6px' }}>Flagged</span>}
                 </div>
-                <div style={{ fontSize: 12, color: '#374151' }}>
-                  <span style={{ color: '#6b7280' }}>PDx submitted:</span> <code>{c.pdx_submitted || '—'}</code>
-                  {' '}<span style={{ color: '#6b7280' }}>· AK:</span> <code>{c.pdx_answer_key || '—'}</code>
-                  {' '}{c.pdx_correct === true ? <span style={{ color: '#059669' }}>✓</span> : c.pdx_correct === false ? <span style={{ color: '#dc2626' }}>✗</span> : null}
-                </div>
-                {c.feedback?.length > 0 && (
-                  <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                    {c.feedback.map((fb: any, j: number) => (
-                      <div key={j} style={{ fontSize: 11, color: '#6b7280' }}>
-                        • [{fb.section}] {fb.issue} — submitted: <code>{fb.coder_code || '—'}</code> | expected: <code>{fb.ak_code || '—'}</code>
-                      </div>
-                    ))}
+                {noAK ? (
+                  <div style={{ fontSize: 12, color: '#92400e' }}>
+                    Coder submitted: PDx <code>{c.pdx_submitted || '—'}</code> — no answer key uploaded for this chart, grading was skipped. Upload an answer key and re-grade to score this submission.
                   </div>
+                ) : (
+                  <>
+                    <div style={{ fontSize: 12, color: '#374151' }}>
+                      <span style={{ color: '#6b7280' }}>PDx submitted:</span> <code>{c.pdx_submitted || '—'}</code>
+                      {' '}<span style={{ color: '#6b7280' }}>· AK:</span> <code>{c.pdx_answer_key || '—'}</code>
+                      {' '}{c.pdx_correct === true ? <span style={{ color: '#059669' }}>✓</span> : c.pdx_correct === false ? <span style={{ color: '#dc2626' }}>✗</span> : null}
+                    </div>
+                    {c.feedback?.length > 0 && (
+                      <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        {c.feedback.map((fb: any, j: number) => (
+                          <div key={j} style={{ fontSize: 11, color: '#6b7280' }}>
+                            • [{fb.section}] {fb.issue} — submitted: <code>{fb.coder_code || '—'}</code> | expected: <code>{fb.ak_code || '—'}</code>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
                 )}
                 {c.coder_notes && (
                   <div style={{ marginTop: 6, fontSize: 12, color: '#6b7280', fontStyle: 'italic' }}>Notes: {c.coder_notes}</div>
