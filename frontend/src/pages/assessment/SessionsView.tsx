@@ -103,7 +103,7 @@ export function SessionsView() {
 
   function copyToken(token: string) {
     navigator.clipboard.writeText(token)
-    toast.success('Token copied')
+    toast.success('Session code copied')
   }
 
   const hasSessions = sessions.length > 0
@@ -183,7 +183,7 @@ export function SessionsView() {
             <table style={s.table}>
               <thead>
                 <tr style={s.thead}>
-                  {['Coder', 'Emp ID', 'Session Token', 'Status', 'Score', 'Time Taken', 'Submitted', 'Review'].map(h => (
+                  {['Coder', 'Emp ID', 'Session Code', 'Status', 'Score', 'Time Taken', 'Submitted', 'Review'].map(h => (
                     <th key={h} style={s.th}>{h}</th>
                   ))}
                 </tr>
@@ -206,7 +206,7 @@ export function SessionsView() {
                           <button
                             style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280', padding: 2 }}
                             onClick={() => copyToken(row.session_token)}
-                            title="Copy token"
+                            title="Copy session code"
                           >
                             <Copy size={12} />
                           </button>
@@ -260,7 +260,7 @@ export function SessionsView() {
 
           <div style={{ fontSize: 12, color: '#9ca3af', display: 'flex', alignItems: 'center', gap: 6 }}>
             <AlertCircle size={12} />
-            Share session tokens with coders. They access the assessment at <strong>/take-assessment</strong> on this portal.
+            Share session codes with coders. They access the assessment at <strong>/take-assessment</strong> on this portal.
           </div>
         </>
       )}
