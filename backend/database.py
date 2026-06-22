@@ -349,7 +349,7 @@ def _run_migrations():
 
     # ── in-browser practice sessions ─────────────────────────────────────────
     _run("""CREATE TABLE IF NOT EXISTS practice_sessions (
-        id INTEGER PRIMARY KEY,
+        id SERIAL PRIMARY KEY,
         batch_id INTEGER REFERENCES batches(id),
         cycle_id INTEGER REFERENCES batch_allocation_cycles(id),
         coder_name VARCHAR(100) NOT NULL,
@@ -363,7 +363,7 @@ def _run_migrations():
     )""")
 
     _run("""CREATE TABLE IF NOT EXISTS practice_chart_drafts (
-        id INTEGER PRIMARY KEY,
+        id SERIAL PRIMARY KEY,
         session_id INTEGER REFERENCES practice_sessions(id) NOT NULL,
         chart_id INTEGER REFERENCES charts(id) NOT NULL,
         pdx_code VARCHAR(20),
@@ -386,7 +386,7 @@ def _run_migrations():
     _add_col("practice_chart_drafts", "ed_rationale", "TEXT", "TEXT")
 
     _run("""CREATE TABLE IF NOT EXISTS practice_results (
-        id INTEGER PRIMARY KEY,
+        id SERIAL PRIMARY KEY,
         session_id INTEGER REFERENCES practice_sessions(id) NOT NULL,
         chart_id INTEGER REFERENCES charts(id) NOT NULL,
         specialty VARCHAR(50),
@@ -431,6 +431,25 @@ def _run_migrations():
     _add_col("practice_results", "ed_rationale_tier", "VARCHAR(30)", "TEXT")
     _add_col("practice_results", "ed_trainer_note", "TEXT", "TEXT")
     _add_col("practice_results", "ed_graded_by", "VARCHAR(100)", "TEXT")
+
+    # ── Fix practice tables: ensure id columns use a sequence (PostgreSQL only) ─
+    # If tables were created with INTEGER PRIMARY KEY (no auto-increment on PG),
+    # add a sequence and attach it so inserts without explicit id work correctly.
+    if not is_sqlite:
+        for tbl in ("practice_sessions", "practice_chart_drafts", "practice_results"):
+            _run(f"""
+                DO $$ BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name='{tbl}' AND column_name='id'
+                        AND column_default LIKE 'nextval%'
+                    ) THEN
+                        CREATE SEQUENCE IF NOT EXISTS {tbl}_id_seq;
+                        ALTER TABLE {tbl} ALTER COLUMN id SET DEFAULT nextval('{tbl}_id_seq');
+                        SELECT setval('{tbl}_id_seq', COALESCE((SELECT MAX(id) FROM {tbl}), 0) + 1, false);
+                    END IF;
+                END $$;
+            """)
 
     # ── P2: backfill orphan batch_charts into synthetic legacy cycles ─────────
     _backfill_legacy_cycles()
