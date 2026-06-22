@@ -95,6 +95,7 @@ export function CreateBatchView({ onCreated, scoringCfg, directMode: directModeP
   }
 
   const isIP = ['IP-DRG'].includes(form.specialty)
+  const isED = ['Edits', 'Denials'].includes(form.specialty)
   const activeCfg = scoringCfg ? (isIP ? scoringCfg.IP : scoringCfg.OP) : null
 
   return (
@@ -164,29 +165,39 @@ export function CreateBatchView({ onCreated, scoringCfg, directMode: directModeP
 
       <div style={styles.formGroup}>
         <label style={styles.label}>Scoring Method</label>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <label style={styles.methodOption}>
-            <input type="checkbox" checked={form.use_weighted}
-              disabled={activeCfg ? activeCfg.weighted_enabled === false : false}
-              onChange={e => setForm(f => ({ ...f, use_weighted: e.target.checked }))} />
-            <div>
-              <div style={styles.methodLabel}>Weighted Scoring <span style={styles.methodBadge}>Primary · Pass/Fail</span></div>
-              <div style={styles.methodDesc}>Category importance (PDx / SDx / PCS / DRG weights) — drives the official pass/fail verdict</div>
+        {isED ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: '#fef9c3', border: '1px solid #fde68a', borderRadius: 8 }}>
+            <span style={{ fontSize: 16 }}>📋</span>
+            <div style={{ fontSize: 13, color: '#92400e' }}>
+              <strong>Manual rubric scoring applies for Edits &amp; Denials specialties.</strong>
+              <div style={{ fontWeight: 400, marginTop: 2 }}>Trainer scores each case using the 5-section rubric (Review · Research · Resolution · Rationale) after coder submission.</div>
             </div>
-          </label>
-          <label style={styles.methodOption}>
-            <input type="checkbox" checked={form.use_dpo}
-              disabled={activeCfg ? activeCfg.dpo_enabled === false : false}
-              onChange={e => setForm(f => ({ ...f, use_dpo: e.target.checked }))} />
-            <div>
-              <div style={styles.methodLabel}>DPO Accuracy <span style={{ ...styles.methodBadge, background: '#dbeafe', color: '#1d4ed8' }}>Supplementary</span></div>
-              <div style={styles.methodDesc}>Defect rate per code opportunity — shows Dx, POA and procedure accuracy % per coder</div>
-            </div>
-          </label>
-          {!form.use_weighted && !form.use_dpo && (
-            <div style={{ color: '#dc2626', fontSize: 12 }}>At least one method must be selected</div>
-          )}
-        </div>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <label style={styles.methodOption}>
+              <input type="checkbox" checked={form.use_weighted}
+                disabled={activeCfg ? activeCfg.weighted_enabled === false : false}
+                onChange={e => setForm(f => ({ ...f, use_weighted: e.target.checked }))} />
+              <div>
+                <div style={styles.methodLabel}>Weighted Scoring <span style={styles.methodBadge}>Primary · Pass/Fail</span></div>
+                <div style={styles.methodDesc}>Category importance (PDx / SDx / PCS / DRG weights) — drives the official pass/fail verdict</div>
+              </div>
+            </label>
+            <label style={styles.methodOption}>
+              <input type="checkbox" checked={form.use_dpo}
+                disabled={activeCfg ? activeCfg.dpo_enabled === false : false}
+                onChange={e => setForm(f => ({ ...f, use_dpo: e.target.checked }))} />
+              <div>
+                <div style={styles.methodLabel}>DPO Accuracy <span style={{ ...styles.methodBadge, background: '#dbeafe', color: '#1d4ed8' }}>Supplementary</span></div>
+                <div style={styles.methodDesc}>Defect rate per code opportunity — shows Dx, POA and procedure accuracy % per coder</div>
+              </div>
+            </label>
+            {!form.use_weighted && !form.use_dpo && (
+              <div style={{ color: '#dc2626', fontSize: 12 }}>At least one method must be selected</div>
+            )}
+          </div>
+        )}
       </div>
 
       <div style={styles.formGroup}>
