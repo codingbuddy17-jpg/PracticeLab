@@ -21,6 +21,11 @@ interface CodeEntry {
   sdx: Array<{ code: string; poa: string }>
   pcs: Array<{ code: string }>
   cpt: Array<{ code: string; modifier: string }>
+  // E&D fields
+  ed_review: string
+  ed_research: string
+  ed_resolution: string
+  ed_rationale: string
   flagged: boolean
   coder_notes: string
 }
@@ -51,16 +56,30 @@ const EMPTY_ENTRY = (chart_id: number): CodeEntry => ({
   sdx: [],
   pcs: [],
   cpt: [],
+  ed_review: '',
+  ed_research: '',
+  ed_resolution: '',
+  ed_rationale: '',
   flagged: false,
   coder_notes: '',
 })
 
 function isIP(specialty: string) {
-  const ip = ['IP-DRG', 'IP', 'INPATIENT', 'IP-MEDICAL', 'IP-SURGICAL', 'IP-NEONATAL', 'IP-OBSTETRICS', 'IP-PEDIATRIC']
-  return ip.some(k => specialty.toUpperCase().includes(k.replace('IP-', ''))) || specialty.toUpperCase().startsWith('IP')
+  return specialty.toUpperCase().startsWith('IP')
 }
 
-function chartStatus(entry: CodeEntry, ip: boolean): 'complete' | 'partial' | 'empty' {
+function isED(specialty: string) {
+  const sp = specialty.toUpperCase()
+  return sp.includes('EDIT') || sp.includes('DENIAL')
+}
+
+function chartStatus(entry: CodeEntry, ip: boolean, ed: boolean): 'complete' | 'partial' | 'empty' {
+  if (ed) {
+    const hasAny = entry.ed_review.trim() || entry.ed_research.trim() || entry.ed_resolution.trim() || entry.ed_rationale.trim()
+    if (!hasAny) return 'empty'
+    const hasAll = entry.ed_review.trim() && entry.ed_research.trim() && entry.ed_resolution.trim() && entry.ed_rationale.trim()
+    return hasAll ? 'complete' : 'partial'
+  }
   if (!entry.pdx_code.trim()) return 'empty'
   if (ip) {
     const missingPOA = !entry.pdx_poa || entry.sdx.some(s => s.code.trim() && !s.poa)
@@ -116,6 +135,10 @@ export function PracticeSession() {
           sdx: draft?.sdx || [],
           pcs: draft?.pcs || [],
           cpt: draft?.cpt || [],
+          ed_review: (draft as any)?.ed_review || '',
+          ed_research: (draft as any)?.ed_research || '',
+          ed_resolution: (draft as any)?.ed_resolution || '',
+          ed_rationale: (draft as any)?.ed_rationale || '',
           flagged: draft?.flagged || false,
           coder_notes: draft?.coder_notes || '',
         }
@@ -131,6 +154,7 @@ export function PracticeSession() {
   }, [token])
 
   const ip = session ? isIP(session.specialty) : false
+  const ed = session ? isED(session.specialty) : false
   const activeEntry = activeChartId !== null ? entries[activeChartId] : null
 
   // ── Save draft ──────────────────────────────────────────────────────────────
@@ -161,7 +185,7 @@ export function PracticeSession() {
   // ── Validate before Save button ─────────────────────────────────────────────
   function validateAndSave() {
     if (!activeEntry || !activeChartId) return
-    if (!activeEntry.pdx_code.trim()) {
+    if (!ed && !activeEntry.pdx_code.trim()) {
       showToast('Principal Diagnosis is required before saving this chart')
       return
     }
@@ -225,9 +249,9 @@ export function PracticeSession() {
   // ── Pre-submit review view ──────────────────────────────────────────────────
   if (view === 'review') {
     const charts = session.charts
-    const complete = charts.filter(c => chartStatus(entries[c.chart_id], ip) === 'complete').length
-    const partial = charts.filter(c => chartStatus(entries[c.chart_id], ip) === 'partial').length
-    const empty = charts.filter(c => chartStatus(entries[c.chart_id], ip) === 'empty').length
+    const complete = charts.filter(c => chartStatus(entries[c.chart_id], ip, ed) === 'complete').length
+    const partial = charts.filter(c => chartStatus(entries[c.chart_id], ip, ed) === 'partial').length
+    const empty = charts.filter(c => chartStatus(entries[c.chart_id], ip, ed) === 'empty').length
     const flagged = charts.filter(c => entries[c.chart_id]?.flagged).length
 
     return (
@@ -245,7 +269,7 @@ export function PracticeSession() {
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 28 }}>
           {charts.map(c => {
-            const st = chartStatus(entries[c.chart_id], ip)
+            const st = chartStatus(entries[c.chart_id], ip, ed)
             const fl = entries[c.chart_id]?.flagged
             return (
               <div key={c.chart_id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10 }}>
@@ -298,7 +322,7 @@ export function PracticeSession() {
 
         <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
           {charts.map(c => {
-            const st = chartStatus(entries[c.chart_id], ip)
+            const st = chartStatus(entries[c.chart_id], ip, ed)
             const fl = entries[c.chart_id]?.flagged
             const active = c.chart_id === activeChartId
             return (
@@ -340,6 +364,7 @@ export function PracticeSession() {
             chart={charts.find(c => c.chart_id === activeChartId)!}
             entry={activeEntry}
             ip={ip}
+            ed={ed}
             onChange={patch => updateEntry(activeChartId, patch)}
             onSave={validateAndSave}
             saving={saving}
@@ -359,13 +384,14 @@ interface FormProps {
   chart: ChartInfo
   entry: CodeEntry
   ip: boolean
+  ed: boolean
   onChange: (patch: Partial<CodeEntry>) => void
   onSave: () => void
   saving: boolean
   saveMsg: string
 }
 
-function CodeEntryForm({ chart, entry, ip, onChange, onSave, saving, saveMsg }: FormProps) {
+function CodeEntryForm({ chart, entry, ip, ed, onChange, onSave, saving, saveMsg }: FormProps) {
   function updateSdx(idx: number, field: 'code' | 'poa', val: string) {
     const sdx = [...entry.sdx]
     sdx[idx] = { ...sdx[idx], [field]: val }
@@ -414,6 +440,45 @@ function CodeEntryForm({ chart, entry, ip, onChange, onSave, saving, saveMsg }: 
           {entry.flagged ? 'Flagged' : 'Flag for Review'}
         </button>
       </div>
+
+      {/* ── E&D form ── */}
+      {ed && (<>
+        <Section title="Review" required>
+          <textarea
+            style={{ ...s.inputField, height: 100, resize: 'vertical', fontFamily: 'system-ui, sans-serif' }}
+            placeholder="Summarise your review of the claim/denial — what was the original decision and why?"
+            value={entry.ed_review}
+            onChange={e => onChange({ ed_review: e.target.value })}
+          />
+        </Section>
+        <Section title="Research" required>
+          <textarea
+            style={{ ...s.inputField, height: 100, resize: 'vertical', fontFamily: 'system-ui, sans-serif' }}
+            placeholder="What did you research? Include coding guidelines, payer rules, or nuances you found relevant."
+            value={entry.ed_research}
+            onChange={e => onChange({ ed_research: e.target.value })}
+          />
+        </Section>
+        <Section title="Resolution" required>
+          <textarea
+            style={{ ...s.inputField, height: 100, resize: 'vertical', fontFamily: 'system-ui, sans-serif' }}
+            placeholder="What is your recommended resolution? (e.g. Uphold denial / Reverse / Partial reversal — and why)"
+            value={entry.ed_resolution}
+            onChange={e => onChange({ ed_resolution: e.target.value })}
+          />
+        </Section>
+        <Section title="Final Rationale" required>
+          <textarea
+            style={{ ...s.inputField, height: 110, resize: 'vertical', fontFamily: 'system-ui, sans-serif' }}
+            placeholder="Write your final supporting rationale — cite the specific guidelines, payer policies, or clinical documentation that supports your resolution."
+            value={entry.ed_rationale}
+            onChange={e => onChange({ ed_rationale: e.target.value })}
+          />
+        </Section>
+      </>)}
+
+      {/* ── IP / OP form ── */}
+      {!ed && <>
 
       {/* Principal Diagnosis */}
       <Section title="Principal Diagnosis" required>
@@ -522,6 +587,7 @@ function CodeEntryForm({ chart, entry, ip, onChange, onSave, saving, saveMsg }: 
           <div style={s.hint}>5-digit CPT · append modifiers per guidelines where applicable</div>
         </Section>
       )}
+      </>}
 
       {/* Optional notes */}
       <Section title="Notes for Trainer (Optional)">

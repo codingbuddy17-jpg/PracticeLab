@@ -902,7 +902,7 @@ function PracticeTokensSection({ batchId }: { batchId: number }) {
     setReviewLoading(true)
     try {
       const res = await api.get(`/practicelab/practice-sessions/${sessionId}/review`)
-      setReviewData(res.data)
+      setReviewData({ ...res.data, session_id: sessionId })
     } catch {
       toast.error('Failed to load review')
     }
@@ -976,51 +976,210 @@ function PracticeTokensSection({ batchId }: { batchId: number }) {
 
       {/* Review modal */}
       {reviewData && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: '#fff', borderRadius: 16, padding: 28, maxWidth: 760, width: '92%', maxHeight: '80vh', overflowY: 'auto', boxShadow: '0 8px 40px rgba(0,0,0,0.18)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-              <div>
-                <div style={{ fontWeight: 800, fontSize: 16 }}>{reviewData.coder_name} — Practice Submission</div>
-                <div style={{ fontSize: 12, color: '#6b7280' }}>{reviewData.specialty} · Submitted {reviewData.submitted_at ? new Date(reviewData.submitted_at).toLocaleString() : '—'}</div>
-              </div>
-              <button onClick={() => setReviewData(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: '#6b7280' }}>✕</button>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {(reviewData.charts || []).map((c: any, i: number) => (
-                <div key={i} style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: '12px 16px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: c.feedback?.length ? 8 : 0 }}>
+        <ReviewModal
+          reviewData={reviewData}
+          onClose={() => setReviewData(null)}
+          onRefresh={() => openReview(reviewData.session_id)}
+        />
+      )}
+    </div>
+  )
+}
+
+// ── Review Modal (IP/OP codes + E&D rubric scoring) ───────────────────────────
+
+const ED_RUBRIC_ITEMS = [
+  { key: 'review_pass', label: 'Review', points: 30 },
+  { key: 'research_coding_pass', label: 'Research — Coding', points: 10 },
+  { key: 'research_payer_pass', label: 'Research — Payer', points: 10 },
+  { key: 'research_nuances_pass', label: 'Research — Nuances', points: 10 },
+  { key: 'resolution_pass', label: 'Resolution', points: 35 },
+]
+const RATIONALE_SCORES: Record<string, number> = { acceptable: 5, needs_improvement: 3, not_acceptable: 0 }
+
+function isEDSpecialty(sp: string) {
+  const s = sp.toUpperCase()
+  return s.includes('EDIT') || s.includes('DENIAL')
+}
+
+function ReviewModal({ reviewData, onClose, onRefresh }: { reviewData: any; onClose: () => void; onRefresh: () => void }) {
+  const ed = isEDSpecialty(reviewData.specialty || '')
+  const [rubrics, setRubrics] = useState<Record<number, any>>({})
+  const [scoring, setScoring] = useState<number | null>(null)
+
+  function initRubric(chartId: number, c: any) {
+    setRubrics(prev => ({
+      ...prev,
+      [chartId]: prev[chartId] || {
+        review_pass: c.ed_review_pass ?? false,
+        research_coding_pass: c.ed_research_coding_pass ?? false,
+        research_payer_pass: c.ed_research_payer_pass ?? false,
+        research_nuances_pass: c.ed_research_nuances_pass ?? false,
+        resolution_pass: c.ed_resolution_pass ?? false,
+        rationale_tier: c.ed_rationale_tier || 'not_acceptable',
+        trainer_note: c.ed_trainer_note || '',
+      }
+    }))
+  }
+
+  function calcScore(r: any) {
+    const base = ED_RUBRIC_ITEMS.reduce((s, i) => s + (r[i.key] ? i.points : 0), 0)
+    return base + (RATIONALE_SCORES[r.rationale_tier] ?? 0)
+  }
+
+  async function submitRubric(sessionId: number, chartId: number) {
+    const r = rubrics[chartId]
+    if (!r) return
+    setScoring(chartId)
+    try {
+      await api.post(`/practicelab/practice-sessions/${sessionId}/chart/${chartId}/score-ed`, {
+        ...r, graded_by: 'Trainer',
+      })
+      toast.success('Score saved')
+      onRefresh()
+    } catch {
+      toast.error('Failed to save score')
+    }
+    setScoring(null)
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ background: '#fff', borderRadius: 16, padding: 28, maxWidth: 820, width: '94%', maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 8px 40px rgba(0,0,0,0.18)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 16 }}>{reviewData.coder_name} — Practice Submission</div>
+            <div style={{ fontSize: 12, color: '#6b7280' }}>{reviewData.specialty} · Submitted {reviewData.submitted_at ? new Date(reviewData.submitted_at).toLocaleString() : '—'}</div>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: '#6b7280' }}>✕</button>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {(reviewData.charts || []).map((c: any, i: number) => {
+            if (ed) {
+              const r = rubrics[c.chart_id]
+              if (!r) initRubric(c.chart_id, c)
+              const liveScore = r ? calcScore(r) : (c.total_score ?? 0)
+              const livePass = liveScore >= 80
+
+              return (
+                <div key={i} style={{ border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
+                  {/* chart header */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
                     <span style={{ fontWeight: 700, fontSize: 14 }}>{c.chart_number}</span>
-                    {c.total_score !== null && (
-                      <span style={{ fontWeight: 700, fontSize: 13, color: c.total_score >= 80 ? '#059669' : '#dc2626' }}>{c.total_score}%</span>
+                    {c.ed_scored && (
+                      <>
+                        <span style={{ fontWeight: 700, fontSize: 13, color: (c.total_score ?? 0) >= 80 ? '#059669' : '#dc2626' }}>{c.total_score}%</span>
+                        <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: c.pass_fail === 'PASS' ? '#d1fae5' : '#fee2e2', color: c.pass_fail === 'PASS' ? '#059669' : '#dc2626' }}>{c.pass_fail}</span>
+                      </>
                     )}
-                    {c.pass_fail && (
-                      <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: c.pass_fail === 'PASS' ? '#d1fae5' : '#fee2e2', color: c.pass_fail === 'PASS' ? '#059669' : '#dc2626' }}>{c.pass_fail}</span>
-                    )}
+                    {!c.ed_scored && <span style={{ fontSize: 11, background: '#fef3c7', color: '#b45309', borderRadius: 6, padding: '2px 8px' }}>Pending Score</span>}
                     {c.flagged && <span style={{ fontSize: 11, background: '#fef9c3', color: '#b45309', borderRadius: 6, padding: '1px 6px' }}>Flagged</span>}
                   </div>
-                  <div style={{ fontSize: 12, color: '#374151' }}>
-                    <span style={{ color: '#6b7280' }}>PDx submitted:</span> <code>{c.pdx_submitted || '—'}</code>
-                    {' '}<span style={{ color: '#6b7280' }}>· AK:</span> <code>{c.pdx_answer_key || '—'}</code>
-                    {' '}{c.pdx_correct === true ? <span style={{ color: '#059669' }}>✓</span> : c.pdx_correct === false ? <span style={{ color: '#dc2626' }}>✗</span> : null}
-                  </div>
-                  {c.feedback?.length > 0 && (
-                    <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                      {c.feedback.map((fb: any, j: number) => (
-                        <div key={j} style={{ fontSize: 11, color: '#6b7280' }}>
-                          • [{fb.section}] {fb.issue} — submitted: <code>{fb.coder_code || '—'}</code> | expected: <code>{fb.ak_code || '—'}</code>
+
+                  {/* coder responses */}
+                  <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {[
+                      { label: 'Review', val: c.ed_review },
+                      { label: 'Research', val: c.ed_research },
+                      { label: 'Resolution', val: c.ed_resolution },
+                      { label: 'Final Rationale', val: c.ed_rationale },
+                    ].map(({ label, val }) => (
+                      <div key={label}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' as const, letterSpacing: 0.5, marginBottom: 3 }}>{label}</div>
+                        <div style={{ fontSize: 13, color: '#111', background: '#f9fafb', borderRadius: 6, padding: '8px 10px', lineHeight: 1.5 }}>{val || <span style={{ color: '#d1d5db' }}>Not answered</span>}</div>
+                      </div>
+                    ))}
+                    {c.coder_notes && (
+                      <div style={{ fontSize: 12, color: '#6b7280', fontStyle: 'italic' }}>Coder notes: {c.coder_notes}</div>
+                    )}
+
+                    {/* Rubric scoring panel */}
+                    {r && (
+                      <div style={{ border: '1.5px solid #e5e7eb', borderRadius: 10, padding: '12px 14px', marginTop: 4, background: '#fafafa' }}>
+                        <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 10 }}>
+                          Rubric Score — <span style={{ color: livePass ? '#059669' : '#dc2626' }}>{liveScore} pts ({livePass ? 'PASS' : 'FAIL'})</span>
                         </div>
-                      ))}
-                    </div>
-                  )}
-                  {c.coder_notes && (
-                    <div style={{ marginTop: 6, fontSize: 12, color: '#6b7280', fontStyle: 'italic' }}>Notes: {c.coder_notes}</div>
-                  )}
+                        {ED_RUBRIC_ITEMS.map(item => (
+                          <label key={item.key} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 7, cursor: 'pointer', fontSize: 13 }}>
+                            <input
+                              type="checkbox"
+                              checked={r[item.key] || false}
+                              onChange={e => setRubrics(prev => ({ ...prev, [c.chart_id]: { ...prev[c.chart_id], [item.key]: e.target.checked } }))}
+                            />
+                            <span style={{ flex: 1 }}>{item.label}</span>
+                            <span style={{ fontSize: 11, color: '#9ca3af' }}>{item.points} pts</span>
+                          </label>
+                        ))}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
+                          <span style={{ fontSize: 13, fontWeight: 600, minWidth: 80 }}>Rationale:</span>
+                          <select
+                            value={r.rationale_tier}
+                            onChange={e => setRubrics(prev => ({ ...prev, [c.chart_id]: { ...prev[c.chart_id], rationale_tier: e.target.value } }))}
+                            style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid #e5e7eb', fontSize: 13, cursor: 'pointer' }}
+                          >
+                            <option value="acceptable">Acceptable (5 pts)</option>
+                            <option value="needs_improvement">Needs Improvement (3 pts)</option>
+                            <option value="not_acceptable">Not Acceptable (0 pts)</option>
+                          </select>
+                        </div>
+                        <div style={{ marginTop: 8 }}>
+                          <input
+                            style={{ width: '100%', padding: '7px 10px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 13, boxSizing: 'border-box' as const }}
+                            placeholder="Trainer note (optional)"
+                            value={r.trainer_note}
+                            onChange={e => setRubrics(prev => ({ ...prev, [c.chart_id]: { ...prev[c.chart_id], trainer_note: e.target.value } }))}
+                          />
+                        </div>
+                        <button
+                          onClick={() => submitRubric(reviewData.session_id, c.chart_id)}
+                          disabled={scoring === c.chart_id}
+                          style={{ marginTop: 10, padding: '7px 18px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 700, fontSize: 13, opacity: scoring === c.chart_id ? 0.7 : 1 }}
+                        >
+                          {scoring === c.chart_id ? 'Saving…' : c.ed_scored ? 'Update Score' : 'Save Score'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              ))}
-            </div>
-          </div>
+              )
+            }
+
+            // IP / OP view
+            return (
+              <div key={i} style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: '12px 16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: c.feedback?.length ? 8 : 0 }}>
+                  <span style={{ fontWeight: 700, fontSize: 14 }}>{c.chart_number}</span>
+                  {c.total_score !== null && (
+                    <span style={{ fontWeight: 700, fontSize: 13, color: c.total_score >= 80 ? '#059669' : '#dc2626' }}>{c.total_score}%</span>
+                  )}
+                  {c.pass_fail && (
+                    <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: c.pass_fail === 'PASS' ? '#d1fae5' : '#fee2e2', color: c.pass_fail === 'PASS' ? '#059669' : '#dc2626' }}>{c.pass_fail}</span>
+                  )}
+                  {c.flagged && <span style={{ fontSize: 11, background: '#fef9c3', color: '#b45309', borderRadius: 6, padding: '1px 6px' }}>Flagged</span>}
+                </div>
+                <div style={{ fontSize: 12, color: '#374151' }}>
+                  <span style={{ color: '#6b7280' }}>PDx submitted:</span> <code>{c.pdx_submitted || '—'}</code>
+                  {' '}<span style={{ color: '#6b7280' }}>· AK:</span> <code>{c.pdx_answer_key || '—'}</code>
+                  {' '}{c.pdx_correct === true ? <span style={{ color: '#059669' }}>✓</span> : c.pdx_correct === false ? <span style={{ color: '#dc2626' }}>✗</span> : null}
+                </div>
+                {c.feedback?.length > 0 && (
+                  <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    {c.feedback.map((fb: any, j: number) => (
+                      <div key={j} style={{ fontSize: 11, color: '#6b7280' }}>
+                        • [{fb.section}] {fb.issue} — submitted: <code>{fb.coder_code || '—'}</code> | expected: <code>{fb.ak_code || '—'}</code>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {c.coder_notes && (
+                  <div style={{ marginTop: 6, fontSize: 12, color: '#6b7280', fontStyle: 'italic' }}>Notes: {c.coder_notes}</div>
+                )}
+              </div>
+            )
+          })}
         </div>
-      )}
+      </div>
     </div>
   )
 }

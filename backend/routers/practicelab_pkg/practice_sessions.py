@@ -23,7 +23,7 @@ from services.grading_engine import (
     IPAnswerKey, OPAnswerKey, IPSubmission, OPSubmission,
     DEFAULT_IP_CFG, DEFAULT_OP_CFG,
 )
-from .shared import _is_ip, MASTER_PASSPHRASE
+from .shared import _is_ip, _is_ed, MASTER_PASSPHRASE
 from .self_practice import _grade_chart_for_sp
 
 router = APIRouter()
@@ -52,11 +52,18 @@ class GeneratePracticeTokens(BaseModel):
 
 class ChartCodeEntry(BaseModel):
     chart_id: int
+    # IP / OP fields
     pdx_code: Optional[str] = None
     pdx_poa: Optional[str] = None
     sdx: list[dict] = []
     pcs: list[dict] = []
     cpt: list[dict] = []
+    # E&D fields
+    ed_review: Optional[str] = None
+    ed_research: Optional[str] = None
+    ed_resolution: Optional[str] = None
+    ed_rationale: Optional[str] = None
+    # common
     flagged: bool = False
     coder_notes: Optional[str] = None
 
@@ -195,7 +202,8 @@ def get_practice_session(token: str, db: Session = Depends(get_db)):
 
     # Load any saved drafts for this session
     drafts = db.execute(text(
-        "SELECT chart_id, pdx_code, pdx_poa, sdx, pcs, cpt, flagged, coder_notes "
+        "SELECT chart_id, pdx_code, pdx_poa, sdx, pcs, cpt, "
+        "ed_review, ed_research, ed_resolution, ed_rationale, flagged, coder_notes "
         "FROM practice_chart_drafts WHERE session_id=:s"
     ), {"s": sess_id}).fetchall()
 
@@ -207,7 +215,9 @@ def get_practice_session(token: str, db: Session = Depends(get_db)):
             "sdx": _json.loads(d[3]) if isinstance(d[3], str) else (d[3] or []),
             "pcs": _json.loads(d[4]) if isinstance(d[4], str) else (d[4] or []),
             "cpt": _json.loads(d[5]) if isinstance(d[5], str) else (d[5] or []),
-            "flagged": bool(d[6]), "coder_notes": d[7],
+            "ed_review": d[6], "ed_research": d[7],
+            "ed_resolution": d[8], "ed_rationale": d[9],
+            "flagged": bool(d[10]), "coder_notes": d[11],
         }
 
     return {
@@ -251,12 +261,15 @@ def save_draft(session_id: int, payload: SaveChartDraft, db: Session = Depends(g
             db.execute(text("""
                 UPDATE practice_chart_drafts SET
                   pdx_code=:pdx, pdx_poa=:poa, sdx=:sdx, pcs=:pcs, cpt=:cpt,
+                  ed_review=:er, ed_research=:eres, ed_resolution=:erl, ed_rationale=:era,
                   flagged=:fl, coder_notes=:cn, updated_at=CURRENT_TIMESTAMP
                 WHERE session_id=:s AND chart_id=:c
             """), {
                 "pdx": entry.pdx_code, "poa": entry.pdx_poa,
                 "sdx": json.dumps(entry.sdx), "pcs": json.dumps(entry.pcs),
                 "cpt": json.dumps(entry.cpt),
+                "er": entry.ed_review, "eres": entry.ed_research,
+                "erl": entry.ed_resolution, "era": entry.ed_rationale,
                 "fl": entry.flagged, "cn": entry.coder_notes,
                 "s": session_id, "c": entry.chart_id,
             })
@@ -264,13 +277,17 @@ def save_draft(session_id: int, payload: SaveChartDraft, db: Session = Depends(g
             db.execute(text("""
                 INSERT INTO practice_chart_drafts
                   (session_id, chart_id, pdx_code, pdx_poa, sdx, pcs, cpt,
+                   ed_review, ed_research, ed_resolution, ed_rationale,
                    flagged, coder_notes, updated_at)
-                VALUES (:s, :c, :pdx, :poa, :sdx, :pcs, :cpt, :fl, :cn, CURRENT_TIMESTAMP)
+                VALUES (:s, :c, :pdx, :poa, :sdx, :pcs, :cpt,
+                        :er, :eres, :erl, :era, :fl, :cn, CURRENT_TIMESTAMP)
             """), {
                 "s": session_id, "c": entry.chart_id,
                 "pdx": entry.pdx_code, "poa": entry.pdx_poa,
                 "sdx": json.dumps(entry.sdx), "pcs": json.dumps(entry.pcs),
                 "cpt": json.dumps(entry.cpt),
+                "er": entry.ed_review, "eres": entry.ed_research,
+                "erl": entry.ed_resolution, "era": entry.ed_rationale,
                 "fl": entry.flagged, "cn": entry.coder_notes,
             })
 
@@ -310,12 +327,15 @@ def submit_practice_session(session_id: int, payload: SubmitPracticeSession, db:
             db.execute(text("""
                 UPDATE practice_chart_drafts SET
                   pdx_code=:pdx, pdx_poa=:poa, sdx=:sdx, pcs=:pcs, cpt=:cpt,
+                  ed_review=:er, ed_research=:eres, ed_resolution=:erl, ed_rationale=:era,
                   flagged=:fl, coder_notes=:cn, updated_at=CURRENT_TIMESTAMP
                 WHERE session_id=:s AND chart_id=:c
             """), {
                 "pdx": entry.pdx_code, "poa": entry.pdx_poa,
                 "sdx": json.dumps(entry.sdx), "pcs": json.dumps(entry.pcs),
                 "cpt": json.dumps(entry.cpt),
+                "er": entry.ed_review, "eres": entry.ed_research,
+                "erl": entry.ed_resolution, "era": entry.ed_rationale,
                 "fl": entry.flagged, "cn": entry.coder_notes,
                 "s": session_id, "c": entry.chart_id,
             })
@@ -323,43 +343,50 @@ def submit_practice_session(session_id: int, payload: SubmitPracticeSession, db:
             db.execute(text("""
                 INSERT INTO practice_chart_drafts
                   (session_id, chart_id, pdx_code, pdx_poa, sdx, pcs, cpt,
+                   ed_review, ed_research, ed_resolution, ed_rationale,
                    flagged, coder_notes, updated_at)
-                VALUES (:s, :c, :pdx, :poa, :sdx, :pcs, :cpt, :fl, :cn, CURRENT_TIMESTAMP)
+                VALUES (:s, :c, :pdx, :poa, :sdx, :pcs, :cpt,
+                        :er, :eres, :erl, :era, :fl, :cn, CURRENT_TIMESTAMP)
             """), {
                 "s": session_id, "c": entry.chart_id,
                 "pdx": entry.pdx_code, "poa": entry.pdx_poa,
                 "sdx": json.dumps(entry.sdx), "pcs": json.dumps(entry.pcs),
                 "cpt": json.dumps(entry.cpt),
+                "er": entry.ed_review, "eres": entry.ed_research,
+                "erl": entry.ed_resolution, "era": entry.ed_rationale,
                 "fl": entry.flagged, "cn": entry.coder_notes,
             })
 
-    # ── Grade each chart ──────────────────────────────────────────────────────
-    ip_cfg_row = db.query(ScoringConfig).filter(ScoringConfig.specialty_type == "IP").first()
-    op_cfg_row = db.query(ScoringConfig).filter(ScoringConfig.specialty_type == "OP").first()
-    ip_cfg = cfg_from_db(ip_cfg_row) if ip_cfg_row else DEFAULT_IP_CFG
-    op_cfg = cfg_from_db(op_cfg_row) if op_cfg_row else DEFAULT_OP_CFG
+    is_ed_batch = _is_ed(specialty)
 
-    for entry in payload.entries:
-        chart = db.query(Chart).filter(Chart.id == entry.chart_id).first()
-        if not chart:
-            continue
-        ak_rec = db.query(AnswerKey).filter(AnswerKey.chart_id == entry.chart_id).first()
-        if not ak_rec:
-            # No answer key — store submission only, skip grading
-            _upsert_practice_result(db, session_id, entry, specialty, graded=False)
-            continue
+    if is_ed_batch:
+        # E&D: store text responses, no auto-grading — goes to trainer rubric queue
+        for entry in payload.entries:
+            _upsert_ed_practice_result(db, session_id, entry, specialty)
+    else:
+        # IP / OP: auto-grade against answer key
+        ip_cfg_row = db.query(ScoringConfig).filter(ScoringConfig.specialty_type == "IP").first()
+        op_cfg_row = db.query(ScoringConfig).filter(ScoringConfig.specialty_type == "OP").first()
+        ip_cfg = cfg_from_db(ip_cfg_row) if ip_cfg_row else DEFAULT_IP_CFG
+        op_cfg = cfg_from_db(op_cfg_row) if op_cfg_row else DEFAULT_OP_CFG
 
-        sub_data = {
-            "pdx_code": entry.pdx_code or "",
-            "pdx_poa": entry.pdx_poa or "",
-            "sdx": entry.sdx,
-            "pcs": entry.pcs,
-            "cpt": entry.cpt,
-        }
-        result_kwargs, feedback_items = _grade_chart_for_sp(chart, ak_rec, sub_data, ip_cfg, op_cfg)
-        _upsert_practice_result(db, session_id, entry, specialty, graded=True,
-                                result_kwargs=result_kwargs, feedback_items=feedback_items,
-                                ak_rec=ak_rec)
+        for entry in payload.entries:
+            chart = db.query(Chart).filter(Chart.id == entry.chart_id).first()
+            if not chart:
+                continue
+            ak_rec = db.query(AnswerKey).filter(AnswerKey.chart_id == entry.chart_id).first()
+            if not ak_rec:
+                _upsert_practice_result(db, session_id, entry, specialty, graded=False)
+                continue
+            sub_data = {
+                "pdx_code": entry.pdx_code or "",
+                "pdx_poa": entry.pdx_poa or "",
+                "sdx": entry.sdx, "pcs": entry.pcs, "cpt": entry.cpt,
+            }
+            result_kwargs, feedback_items = _grade_chart_for_sp(chart, ak_rec, sub_data, ip_cfg, op_cfg)
+            _upsert_practice_result(db, session_id, entry, specialty, graded=True,
+                                    result_kwargs=result_kwargs, feedback_items=feedback_items,
+                                    ak_rec=ak_rec)
 
     # Mark submitted
     db.execute(text(
@@ -367,11 +394,41 @@ def submit_practice_session(session_id: int, payload: SubmitPracticeSession, db:
     ), {"s": session_id})
     db.commit()
 
-    if show_results:
+    # E&D never auto-shows results — always goes to trainer review
+    if show_results and not is_ed_batch:
         results = _build_coder_results(session_id, db)
         return {"submitted": True, "show_results": True, "results": results}
 
-    return {"submitted": True, "show_results": False}
+    return {"submitted": True, "show_results": False, "is_ed": is_ed_batch}
+
+
+def _upsert_ed_practice_result(db, session_id, entry, specialty):
+    """Store E&D text responses — no auto-grading, ed_scored=False."""
+    from sqlalchemy import text
+
+    existing = db.execute(text(
+        "SELECT id FROM practice_results WHERE session_id=:s AND chart_id=:c"
+    ), {"s": session_id, "c": entry.chart_id}).fetchone()
+
+    vals = {
+        "s": session_id, "c": entry.chart_id, "sp": specialty.value,
+        "er": entry.ed_review, "eres": entry.ed_research,
+        "erl": entry.ed_resolution, "era": entry.ed_rationale,
+    }
+    if existing:
+        db.execute(text("""
+            UPDATE practice_results SET
+              specialty=:sp, ed_review=:er, ed_research=:eres,
+              ed_resolution=:erl, ed_rationale=:era, ed_scored=FALSE
+            WHERE session_id=:s AND chart_id=:c
+        """), vals)
+    else:
+        db.execute(text("""
+            INSERT INTO practice_results
+              (session_id, chart_id, specialty,
+               ed_review, ed_research, ed_resolution, ed_rationale, ed_scored)
+            VALUES (:s, :c, :sp, :er, :eres, :erl, :era, FALSE)
+        """), vals)
 
 
 def _upsert_practice_result(db, session_id, entry, specialty, graded=False,
@@ -448,7 +505,11 @@ def _build_coder_results(session_id: int, db) -> list:
                pr.sdx_submitted, pr.sdx_answer_key,
                pr.pcs_submitted, pr.pcs_answer_key,
                pr.cpt_submitted, pr.cpt_answer_key,
-               pr.feedback, pcd.flagged, pcd.coder_notes
+               pr.feedback, pcd.flagged, pcd.coder_notes,
+               pr.ed_review, pr.ed_research, pr.ed_resolution, pr.ed_rationale,
+               pr.ed_scored, pr.ed_review_pass, pr.ed_research_coding_pass,
+               pr.ed_research_payer_pass, pr.ed_research_nuances_pass,
+               pr.ed_resolution_pass, pr.ed_rationale_tier, pr.ed_trainer_note
         FROM practice_results pr
         JOIN charts c ON c.id = pr.chart_id
         LEFT JOIN practice_chart_drafts pcd
@@ -458,6 +519,7 @@ def _build_coder_results(session_id: int, db) -> list:
     """), {"s": session_id}).fetchall()
 
     def _j(v): return json.loads(v) if isinstance(v, str) else (v or [])
+    def _b(v): return bool(v) if v is not None else None
 
     results = []
     for r in rows:
@@ -466,13 +528,20 @@ def _build_coder_results(session_id: int, db) -> list:
             "specialty": r[3], "total_score": r[4], "pass_fail": r[5],
             "drg_flag": bool(r[6]),
             "pdx_submitted": r[7], "pdx_answer_key": r[8],
-            "pdx_correct": bool(r[9]) if r[9] is not None else None,
+            "pdx_correct": _b(r[9]),
             "sdx_submitted": _j(r[10]), "sdx_answer_key": _j(r[11]),
             "pcs_submitted": _j(r[12]), "pcs_answer_key": _j(r[13]),
             "cpt_submitted": _j(r[14]), "cpt_answer_key": _j(r[15]),
             "feedback": _j(r[16]),
             "flagged": bool(r[17]) if r[17] is not None else False,
             "coder_notes": r[18],
+            "ed_review": r[19], "ed_research": r[20],
+            "ed_resolution": r[21], "ed_rationale": r[22],
+            "ed_scored": bool(r[23]) if r[23] is not None else False,
+            "ed_review_pass": _b(r[24]), "ed_research_coding_pass": _b(r[25]),
+            "ed_research_payer_pass": _b(r[26]), "ed_research_nuances_pass": _b(r[27]),
+            "ed_resolution_pass": _b(r[28]),
+            "ed_rationale_tier": r[29], "ed_trainer_note": r[30],
         })
     return results
 
@@ -647,3 +716,83 @@ def batch_practice_grid(batch_id: int, cycle_id: Optional[int] = None, db: Sessi
         "grid": grid,
         "insights": insights,
     }
+
+
+# ── Trainer-facing: score E&D practice chart ─────────────────────────────────
+
+ED_RUBRIC_WEIGHTS = {
+    "review_pass": 30,
+    "research_coding_pass": 10,
+    "research_payer_pass": 10,
+    "research_nuances_pass": 10,
+    "resolution_pass": 35,
+}
+ED_RATIONALE_SCORES = {"acceptable": 5, "needs_improvement": 3, "not_acceptable": 0}
+ED_PASS_THRESHOLD = 80
+
+
+class EDPracticeScore(BaseModel):
+    review_pass: bool
+    research_coding_pass: bool
+    research_payer_pass: bool
+    research_nuances_pass: bool
+    resolution_pass: bool
+    rationale_tier: str  # acceptable | needs_improvement | not_acceptable
+    trainer_note: Optional[str] = None
+    graded_by: str
+
+
+@router.post("/practice-sessions/{session_id}/chart/{chart_id}/score-ed")
+def score_ed_practice_chart(
+    session_id: int, chart_id: int,
+    payload: EDPracticeScore, db: Session = Depends(get_db)
+):
+    """Trainer scores one E&D chart in a practice session using the rubric."""
+    from sqlalchemy import text
+
+    sess = db.execute(text(
+        "SELECT specialty, status FROM practice_sessions WHERE id=:s"
+    ), {"s": session_id}).fetchone()
+    if not sess:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if not _is_ed(Specialty(sess[0])):
+        raise HTTPException(status_code=400, detail="Rubric scoring only applies to E&D sessions")
+
+    score = sum(v for k, v in ED_RUBRIC_WEIGHTS.items() if getattr(payload, k))
+    score += ED_RATIONALE_SCORES.get(payload.rationale_tier, 0)
+    pf = "PASS" if score >= ED_PASS_THRESHOLD else "FAIL"
+
+    existing = db.execute(text(
+        "SELECT id FROM practice_results WHERE session_id=:s AND chart_id=:c"
+    ), {"s": session_id, "c": chart_id}).fetchone()
+
+    vals = {
+        "s": session_id, "c": chart_id, "tot": score, "pf": pf,
+        "rp": payload.review_pass, "rcp": payload.research_coding_pass,
+        "rpp": payload.research_payer_pass, "rnp": payload.research_nuances_pass,
+        "resp": payload.resolution_pass, "rt": payload.rationale_tier,
+        "tn": payload.trainer_note, "gb": payload.graded_by,
+    }
+
+    if existing:
+        db.execute(text("""
+            UPDATE practice_results SET
+              total_score=:tot, pass_fail=:pf, ed_scored=TRUE,
+              ed_review_pass=:rp, ed_research_coding_pass=:rcp,
+              ed_research_payer_pass=:rpp, ed_research_nuances_pass=:rnp,
+              ed_resolution_pass=:resp, ed_rationale_tier=:rt,
+              ed_trainer_note=:tn, ed_graded_by=:gb
+            WHERE session_id=:s AND chart_id=:c
+        """), vals)
+    else:
+        db.execute(text("""
+            INSERT INTO practice_results
+              (session_id, chart_id, ed_scored, total_score, pass_fail,
+               ed_review_pass, ed_research_coding_pass, ed_research_payer_pass,
+               ed_research_nuances_pass, ed_resolution_pass,
+               ed_rationale_tier, ed_trainer_note, ed_graded_by)
+            VALUES (:s, :c, TRUE, :tot, :pf, :rp, :rcp, :rpp, :rnp, :resp, :rt, :tn, :gb)
+        """), vals)
+
+    db.commit()
+    return {"scored": True, "total_score": score, "pass_fail": pf}

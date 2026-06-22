@@ -371,10 +371,19 @@ def _run_migrations():
         sdx TEXT DEFAULT '[]',
         pcs TEXT DEFAULT '[]',
         cpt TEXT DEFAULT '[]',
+        ed_review TEXT,
+        ed_research TEXT,
+        ed_resolution TEXT,
+        ed_rationale TEXT,
         flagged BOOLEAN DEFAULT FALSE,
         coder_notes TEXT,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )""")
+    # additive migrations for existing tables
+    _add_col("practice_chart_drafts", "ed_review", "TEXT", "TEXT")
+    _add_col("practice_chart_drafts", "ed_research", "TEXT", "TEXT")
+    _add_col("practice_chart_drafts", "ed_resolution", "TEXT", "TEXT")
+    _add_col("practice_chart_drafts", "ed_rationale", "TEXT", "TEXT")
 
     _run("""CREATE TABLE IF NOT EXISTS practice_results (
         id INTEGER PRIMARY KEY,
@@ -393,8 +402,35 @@ def _run_migrations():
         pcs_submitted TEXT DEFAULT '[]',
         pcs_answer_key TEXT DEFAULT '[]',
         cpt_submitted TEXT DEFAULT '[]',
-        cpt_answer_key TEXT DEFAULT '[]'
+        cpt_answer_key TEXT DEFAULT '[]',
+        ed_review TEXT,
+        ed_research TEXT,
+        ed_resolution TEXT,
+        ed_rationale TEXT,
+        ed_scored BOOLEAN DEFAULT FALSE,
+        ed_review_pass BOOLEAN,
+        ed_research_coding_pass BOOLEAN,
+        ed_research_payer_pass BOOLEAN,
+        ed_research_nuances_pass BOOLEAN,
+        ed_resolution_pass BOOLEAN,
+        ed_rationale_tier VARCHAR(30),
+        ed_trainer_note TEXT,
+        ed_graded_by VARCHAR(100)
     )""")
+    # additive migrations for existing tables
+    _add_col("practice_results", "ed_review", "TEXT", "TEXT")
+    _add_col("practice_results", "ed_research", "TEXT", "TEXT")
+    _add_col("practice_results", "ed_resolution", "TEXT", "TEXT")
+    _add_col("practice_results", "ed_rationale", "TEXT", "TEXT")
+    _add_col("practice_results", "ed_scored", "BOOLEAN DEFAULT FALSE", "BOOLEAN DEFAULT FALSE")
+    _add_col("practice_results", "ed_review_pass", "BOOLEAN", "BOOLEAN")
+    _add_col("practice_results", "ed_research_coding_pass", "BOOLEAN", "BOOLEAN")
+    _add_col("practice_results", "ed_research_payer_pass", "BOOLEAN", "BOOLEAN")
+    _add_col("practice_results", "ed_research_nuances_pass", "BOOLEAN", "BOOLEAN")
+    _add_col("practice_results", "ed_resolution_pass", "BOOLEAN", "BOOLEAN")
+    _add_col("practice_results", "ed_rationale_tier", "VARCHAR(30)", "TEXT")
+    _add_col("practice_results", "ed_trainer_note", "TEXT", "TEXT")
+    _add_col("practice_results", "ed_graded_by", "VARCHAR(100)", "TEXT")
 
     # ── P2: backfill orphan batch_charts into synthetic legacy cycles ─────────
     _backfill_legacy_cycles()
