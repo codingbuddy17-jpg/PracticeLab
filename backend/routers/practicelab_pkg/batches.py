@@ -295,28 +295,30 @@ def close_batch(batch_id: int, payload: BatchClose, db: Session = Depends(get_db
     if batch.status == BatchStatus.CLOSED:
         raise HTTPException(status_code=400, detail="Batch is already closed")
 
-    pending_submissions = (db.query(BatchChart)
-                           .filter(BatchChart.batch_id == batch_id,
-                                   BatchChart.submission_status == SubmissionStatus.PENDING)
+    # Direct assignments use in-browser practice sessions — no BatchChart submissions
+    if not batch.is_direct_assignment:
+        pending_submissions = (db.query(BatchChart)
+                               .filter(BatchChart.batch_id == batch_id,
+                                       BatchChart.submission_status == SubmissionStatus.PENDING)
+                               .count())
+        pending_drg = 0
+        if _is_ip(batch.specialty):
+            pending_drg = (db.query(GradingResult)
+                           .filter(GradingResult.batch_id == batch_id,
+                                   GradingResult.drg_flag == True,
+                                   GradingResult.drg_reviewed == False)
                            .count())
-    pending_drg = 0
-    if _is_ip(batch.specialty):
-        pending_drg = (db.query(GradingResult)
-                       .filter(GradingResult.batch_id == batch_id,
-                               GradingResult.drg_flag == True,
-                               GradingResult.drg_reviewed == False)
-                       .count())
 
-    blockers = []
-    if pending_submissions:
-        blockers.append(f"{pending_submissions} chart(s) still pending submission")
-    if pending_drg:
-        blockers.append(f"{pending_drg} DRG review(s) unresolved")
-    if blockers:
-        raise HTTPException(
-            status_code=409,
-            detail={"reason": "Cannot close batch — grading incomplete", "blockers": blockers},
-        )
+        blockers = []
+        if pending_submissions:
+            blockers.append(f"{pending_submissions} chart(s) still pending submission")
+        if pending_drg:
+            blockers.append(f"{pending_drg} DRG review(s) unresolved")
+        if blockers:
+            raise HTTPException(
+                status_code=409,
+                detail={"reason": "Cannot close batch — grading incomplete", "blockers": blockers},
+            )
 
     batch.status = BatchStatus.CLOSED
     batch.closed_at = datetime.utcnow()
