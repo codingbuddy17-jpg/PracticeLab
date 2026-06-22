@@ -32,7 +32,7 @@ export function PracticeEntry() {
         <div style={s.iconWrap}>
           <BookOpen size={32} color="#059669" />
         </div>
-        <div style={s.title}>PracticeLab — Code Entry</div>
+        <div style={s.title}>PracticeLab — Coding Interface</div>
         <div style={s.sub}>Enter your practice token to begin coding charts.</div>
 
         <input
