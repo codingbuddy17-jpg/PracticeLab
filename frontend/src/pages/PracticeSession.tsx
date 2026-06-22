@@ -262,7 +262,7 @@ export function PracticeSession() {
         <div style={{ fontSize: 14, color: '#6b7280', marginBottom: 20 }}>
           {complete} chart{complete !== 1 ? 's' : ''} coded
           {flagged > 0 ? ` · ${flagged} flagged for review` : ''}
-          {partial > 0 ? ` · ${partial} missing POA` : ''}
+          {partial > 0 ? ` · ${partial} ${ed ? 'incomplete' : 'missing POA'}` : ''}
           {empty > 0 ? ` · ${empty} not started` : ''}
         </div>
 
@@ -277,7 +277,7 @@ export function PracticeSession() {
                 <span style={{ fontSize: 13, color: '#6b7280', flex: 1 }}>{c.category}</span>
                 {fl && <Flag size={13} color="#f59e0b" />}
                 {st === 'empty' && <span style={{ fontSize: 12, color: '#9ca3af' }}>Not started</span>}
-                {st === 'partial' && <span style={{ fontSize: 12, color: '#f59e0b' }}>Missing POA</span>}
+                {st === 'partial' && <span style={{ fontSize: 12, color: '#f59e0b' }}>{ed ? 'Incomplete' : 'Missing POA'}</span>}
                 <button onClick={() => { setActiveChartId(c.chart_id); setView('coding') }} style={{ fontSize: 12, color: '#7c3aed', background: 'none', border: 'none', cursor: 'pointer' }}>Edit</button>
               </div>
             )

@@ -466,7 +466,7 @@ def _upsert_practice_result(db, session_id, entry, specialty, graded=False,
         vals = {
             "s": session_id, "c": entry.chart_id, "sp": specialty.value,
             "tot": r.get("weighted_score"), "pf": r.get("pass_fail"),
-            "drg_f": False,
+            "drg_f": bool(r.get("drg_flag", False)),
             "fb": json.dumps(fb),
             "pdx_sub": entry.pdx_code, "pdx_ak": pdx_ak, "pdx_ok": pdx_ok,
             "sdx_sub": json.dumps(entry.sdx),
@@ -526,7 +526,8 @@ def _build_coder_results(session_id: int, db) -> list:
                pr.ed_review, pr.ed_research, pr.ed_resolution, pr.ed_rationale,
                pr.ed_scored, pr.ed_review_pass, pr.ed_research_coding_pass,
                pr.ed_research_payer_pass, pr.ed_research_nuances_pass,
-               pr.ed_resolution_pass, pr.ed_rationale_tier, pr.ed_trainer_note
+               pr.ed_resolution_pass, pr.ed_rationale_tier, pr.ed_trainer_note,
+               pr.drg_reviewed, pr.drg_override
         FROM practice_results pr
         JOIN charts c ON c.id = pr.chart_id
         LEFT JOIN practice_chart_drafts pcd
@@ -559,6 +560,8 @@ def _build_coder_results(session_id: int, db) -> list:
             "ed_research_payer_pass": _b(r[26]), "ed_research_nuances_pass": _b(r[27]),
             "ed_resolution_pass": _b(r[28]),
             "ed_rationale_tier": r[29], "ed_trainer_note": r[30],
+            "drg_reviewed": bool(r[31]) if r[31] is not None else False,
+            "drg_override": r[32],
         })
     return results
 
@@ -658,7 +661,7 @@ def batch_practice_grid(batch_id: int, cycle_id: Optional[int] = None, db: Sessi
         chart = db.query(Chart).filter(Chart.id == cid).first()
         if chart:
             chart_order.append({"chart_id": cid, "chart_number": chart.chart_number,
-                                 "description": chart.description or ""})
+                                 "category": chart.category or ""})
 
     # Build grid rows
     grid = []
@@ -784,7 +787,7 @@ def score_ed_practice_chart(
     ), {"s": session_id, "c": chart_id}).fetchone()
 
     vals = {
-        "s": session_id, "c": chart_id, "tot": score, "pf": pf,
+        "s": session_id, "c": chart_id, "sp": sess[0], "tot": score, "pf": pf,
         "rp": payload.review_pass, "rcp": payload.research_coding_pass,
         "rpp": payload.research_payer_pass, "rnp": payload.research_nuances_pass,
         "resp": payload.resolution_pass, "rt": payload.rationale_tier,
@@ -794,7 +797,7 @@ def score_ed_practice_chart(
     if existing:
         db.execute(text("""
             UPDATE practice_results SET
-              total_score=:tot, pass_fail=:pf, ed_scored=TRUE,
+              specialty=:sp, total_score=:tot, pass_fail=:pf, ed_scored=TRUE,
               ed_review_pass=:rp, ed_research_coding_pass=:rcp,
               ed_research_payer_pass=:rpp, ed_research_nuances_pass=:rnp,
               ed_resolution_pass=:resp, ed_rationale_tier=:rt,
@@ -804,12 +807,138 @@ def score_ed_practice_chart(
     else:
         db.execute(text("""
             INSERT INTO practice_results
-              (session_id, chart_id, ed_scored, total_score, pass_fail,
+              (session_id, chart_id, specialty, ed_scored, total_score, pass_fail,
                ed_review_pass, ed_research_coding_pass, ed_research_payer_pass,
                ed_research_nuances_pass, ed_resolution_pass,
                ed_rationale_tier, ed_trainer_note, ed_graded_by)
-            VALUES (:s, :c, TRUE, :tot, :pf, :rp, :rcp, :rpp, :rnp, :resp, :rt, :tn, :gb)
+            VALUES (:s, :c, :sp, TRUE, :tot, :pf, :rp, :rcp, :rpp, :rnp, :resp, :rt, :tn, :gb)
         """), vals)
 
     db.commit()
     return {"scored": True, "total_score": score, "pass_fail": pf}
+
+
+# ── Trainer-facing: DRG review for a practice result ─────────────────────────
+
+class DRGReviewPayload(BaseModel):
+    drg_override: Optional[str] = None
+    reviewed_by: str = "Trainer"
+
+@router.post("/practice-sessions/{session_id}/chart/{chart_id}/drg-review")
+def drg_review_practice_chart(
+    session_id: int, chart_id: int,
+    payload: DRGReviewPayload, db: Session = Depends(get_db)
+):
+    """Trainer confirms or overrides DRG for an IP practice result."""
+    from sqlalchemy import text
+
+    result = db.execute(text(
+        "SELECT id, total_score, pass_fail, specialty FROM practice_results "
+        "WHERE session_id=:s AND chart_id=:c"
+    ), {"s": session_id, "c": chart_id}).fetchone()
+    if not result:
+        raise HTTPException(status_code=404, detail="Result not found")
+
+    sess_specialty = result[3]
+    ip_cfg_row = db.query(ScoringConfig).filter(ScoringConfig.specialty_type == "IP").first()
+    ip_cfg = cfg_from_db(ip_cfg_row) if ip_cfg_row else DEFAULT_IP_CFG
+
+    # If trainer provided an override DRG, recalculate pass/fail with corrected PDx
+    new_score = result[1]
+    new_pf = result[2]
+    if payload.drg_override:
+        ak_rec = db.execute(text(
+            "SELECT pdx_code, sdx, pcs FROM answer_keys WHERE chart_id=:c"
+        ), {"c": chart_id}).fetchone()
+        if ak_rec:
+            import json as _json
+            ak_pdx = payload.drg_override.strip().upper()
+            sub_pdx = db.execute(text(
+                "SELECT pdx_submitted FROM practice_results WHERE session_id=:s AND chart_id=:c"
+            ), {"s": session_id, "c": chart_id}).fetchone()
+            sub_pdx_code = (sub_pdx[0] or "").strip().upper() if sub_pdx else ""
+            # PDx correct if submitted matches trainer's confirmed DRG/PDx
+            pdx_ok = sub_pdx_code.replace(".", "") == ak_pdx.replace(".", "")
+            # Keep existing score but update pass/fail based on corrected PDx match
+            # Full rescore would need full submission; just adjust PDx weight impact
+            pass_threshold = ip_cfg.pass_threshold
+            new_pf = result[2]  # keep existing until full rescore available
+
+    db.execute(text("""
+        UPDATE practice_results SET
+          drg_reviewed=TRUE, drg_override=:ov, drg_reviewed_by=:rb,
+          drg_reviewed_at=CURRENT_TIMESTAMP, pass_fail=:pf
+        WHERE session_id=:s AND chart_id=:c
+    """), {
+        "ov": payload.drg_override, "rb": payload.reviewed_by,
+        "pf": new_pf, "s": session_id, "c": chart_id,
+    })
+    db.commit()
+    return {"reviewed": True, "drg_override": payload.drg_override, "pass_fail": new_pf}
+
+
+# ── Re-grade a practice session (after answer key uploaded) ──────────────────
+
+@router.post("/practice-sessions/{session_id}/regrade")
+def regrade_practice_session(session_id: int, db: Session = Depends(get_db)):
+    """Re-run grading for a session — useful after an answer key is uploaded."""
+    from sqlalchemy import text
+
+    sess = db.execute(text(
+        "SELECT id, specialty, status FROM practice_sessions WHERE id=:s"
+    ), {"s": session_id}).fetchone()
+    if not sess:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if sess[2] != "submitted":
+        raise HTTPException(status_code=400, detail="Session not yet submitted")
+
+    specialty = Specialty(sess[1])
+    if _is_ed(specialty):
+        raise HTTPException(status_code=400, detail="E&D sessions use rubric scoring, not auto-regrade")
+
+    ip_cfg_row = db.query(ScoringConfig).filter(ScoringConfig.specialty_type == "IP").first()
+    op_cfg_row = db.query(ScoringConfig).filter(ScoringConfig.specialty_type == "OP").first()
+    ip_cfg = cfg_from_db(ip_cfg_row) if ip_cfg_row else DEFAULT_IP_CFG
+    op_cfg = cfg_from_db(op_cfg_row) if op_cfg_row else DEFAULT_OP_CFG
+
+    drafts = db.execute(text(
+        "SELECT chart_id, pdx_code, pdx_poa, sdx, pcs, cpt, flagged, coder_notes "
+        "FROM practice_chart_drafts WHERE session_id=:s"
+    ), {"s": session_id}).fetchall()
+
+    import json
+    regraded = 0
+    for d in drafts:
+        chart_id = d[0]
+        chart = db.query(Chart).filter(Chart.id == chart_id).first()
+        if not chart:
+            continue
+        ak_rec = db.query(AnswerKey).filter(AnswerKey.chart_id == chart_id).first()
+        if not ak_rec:
+            continue
+
+        class _Entry:
+            pass
+        entry = _Entry()
+        entry.chart_id = chart_id
+        entry.pdx_code = d[1]
+        entry.pdx_poa = d[2]
+        entry.sdx = json.loads(d[3]) if isinstance(d[3], str) else (d[3] or [])
+        entry.pcs = json.loads(d[4]) if isinstance(d[4], str) else (d[4] or [])
+        entry.cpt = json.loads(d[5]) if isinstance(d[5], str) else (d[5] or [])
+        entry.flagged = d[6]
+        entry.coder_notes = d[7]
+
+        sub_data = {
+            "pdx_code": entry.pdx_code or "",
+            "pdx_poa": entry.pdx_poa or "",
+            "sdx": entry.sdx, "pcs": entry.pcs, "cpt": entry.cpt,
+        }
+        result_kwargs, feedback_items = _grade_chart_for_sp(chart, ak_rec, sub_data, ip_cfg, op_cfg)
+        _upsert_practice_result(db, session_id, entry, specialty, graded=True,
+                                result_kwargs=result_kwargs, feedback_items=feedback_items,
+                                ak_rec=ak_rec)
+        regraded += 1
+
+    db.commit()
+    return {"regraded": regraded, "session_id": session_id}

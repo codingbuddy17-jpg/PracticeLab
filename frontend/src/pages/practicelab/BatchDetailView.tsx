@@ -918,6 +918,16 @@ function PracticeTokensSection({ batchId }: { batchId: number }) {
     setReviewLoading(false)
   }
 
+  async function regrade(sessionId: number) {
+    try {
+      const res = await api.post(`/practicelab/practice-sessions/${sessionId}/regrade`)
+      toast.success(`Re-graded ${res.data.regraded} chart${res.data.regraded !== 1 ? 's' : ''}`)
+      if (reviewData?.session_id === sessionId) openReview(sessionId)
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || 'Re-grade failed')
+    }
+  }
+
   const statusColor = (s: string) => s === 'submitted' ? '#059669' : s === 'in_progress' ? '#d97706' : '#9ca3af'
 
   return (
@@ -967,12 +977,21 @@ function PracticeTokensSection({ batchId }: { batchId: number }) {
                 {s.status === 'submitted' ? '✓ Submitted' : s.status === 'in_progress' ? 'In Progress' : 'Pending'}
               </span>
               {s.status === 'submitted' && (
-                <button
-                  onClick={() => openReview(s.session_id)}
-                  style={{ background: 'none', border: '1px solid #e5e7eb', borderRadius: 6, cursor: 'pointer', color: '#7c3aed', padding: '3px 8px', fontSize: 12 }}
-                >
-                  <Eye size={12} /> Review
-                </button>
+                <>
+                  <button
+                    onClick={() => openReview(s.session_id)}
+                    style={{ background: 'none', border: '1px solid #e5e7eb', borderRadius: 6, cursor: 'pointer', color: '#7c3aed', padding: '3px 8px', fontSize: 12 }}
+                  >
+                    <Eye size={12} /> Review
+                  </button>
+                  <button
+                    onClick={() => regrade(s.session_id)}
+                    title="Re-grade after uploading answer keys"
+                    style={{ background: 'none', border: '1px solid #e5e7eb', borderRadius: 6, cursor: 'pointer', color: '#059669', padding: '3px 8px', fontSize: 12 }}
+                  >
+                    ↻ Re-grade
+                  </button>
+                </>
               )}
             </div>
           ))}
@@ -1015,6 +1034,8 @@ function ReviewModal({ reviewData, onClose, onRefresh }: { reviewData: any; onCl
   const ed = isEDSpecialty(reviewData.specialty || '')
   const [rubrics, setRubrics] = useState<Record<number, any>>({})
   const [scoring, setScoring] = useState<number | null>(null)
+  const [drgInputs, setDrgInputs] = useState<Record<number, string>>({})
+  const [drgSaving, setDrgSaving] = useState<number | null>(null)
 
   function initRubric(chartId: number, c: any) {
     setRubrics(prev => ({
@@ -1034,6 +1055,21 @@ function ReviewModal({ reviewData, onClose, onRefresh }: { reviewData: any; onCl
   function calcScore(r: any) {
     const base = ED_RUBRIC_ITEMS.reduce((s, i) => s + (r[i.key] ? i.points : 0), 0)
     return base + (RATIONALE_SCORES[r.rationale_tier] ?? 0)
+  }
+
+  async function submitDrgReview(sessionId: number, chartId: number, override: string) {
+    setDrgSaving(chartId)
+    try {
+      await api.post(`/practicelab/practice-sessions/${sessionId}/chart/${chartId}/drg-review`, {
+        drg_override: override.trim().toUpperCase() || null,
+        reviewed_by: 'Trainer',
+      })
+      toast.success('DRG review saved')
+      onRefresh()
+    } catch {
+      toast.error('Failed to save DRG review')
+    }
+    setDrgSaving(null)
   }
 
   async function submitRubric(sessionId: number, chartId: number) {
@@ -1156,9 +1192,13 @@ function ReviewModal({ reviewData, onClose, onRefresh }: { reviewData: any; onCl
 
             // IP / OP view
             const noAK = c.total_score === null && c.pass_fail === null
+            const hasDRG = c.drg_flag && !noAK
+            const drgDone = c.drg_reviewed
+            const borderColor = noAK ? '#fed7aa' : hasDRG && !drgDone ? '#fca5a5' : '#e5e7eb'
+            const bg = noAK ? '#fffbeb' : hasDRG && !drgDone ? '#fff5f5' : '#fff'
             return (
-              <div key={i} style={{ border: `1px solid ${noAK ? '#fed7aa' : '#e5e7eb'}`, borderRadius: 10, padding: '12px 16px', background: noAK ? '#fffbeb' : '#fff' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+              <div key={i} style={{ border: `1px solid ${borderColor}`, borderRadius: 10, padding: '12px 16px', background: bg }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
                   <span style={{ fontWeight: 700, fontSize: 14 }}>{c.chart_number}</span>
                   {!noAK && c.total_score !== null && (
                     <span style={{ fontWeight: 700, fontSize: 13, color: c.total_score >= 80 ? '#059669' : '#dc2626' }}>{c.total_score}%</span>
@@ -1167,11 +1207,14 @@ function ReviewModal({ reviewData, onClose, onRefresh }: { reviewData: any; onCl
                     <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: c.pass_fail === 'PASS' ? '#d1fae5' : '#fee2e2', color: c.pass_fail === 'PASS' ? '#059669' : '#dc2626' }}>{c.pass_fail}</span>
                   )}
                   {noAK && <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: '#fef3c7', color: '#b45309' }}>⚠ No Answer Key</span>}
+                  {hasDRG && !drgDone && <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: '#fee2e2', color: '#dc2626' }}>⚑ DRG Review Needed</span>}
+                  {hasDRG && drgDone && <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: '#d1fae5', color: '#059669' }}>✓ DRG Reviewed{c.drg_override ? ` — ${c.drg_override}` : ''}</span>}
                   {c.flagged && <span style={{ fontSize: 11, background: '#fef9c3', color: '#b45309', borderRadius: 6, padding: '1px 6px' }}>Flagged</span>}
                 </div>
                 {noAK ? (
                   <div style={{ fontSize: 12, color: '#92400e' }}>
-                    Coder submitted: PDx <code>{c.pdx_submitted || '—'}</code> — no answer key uploaded for this chart, grading was skipped. Upload an answer key and re-grade to score this submission.
+                    <div>Coder submitted: PDx <code>{c.pdx_submitted || '—'}</code> — no answer key uploaded for this chart, grading was skipped.</div>
+                    <div style={{ marginTop: 6, fontSize: 11, color: '#78350f' }}>Upload an answer key for this chart, then use the <strong>↻ Re-grade</strong> button on the session row to rescore.</div>
                   </div>
                 ) : (
                   <>
@@ -1187,6 +1230,35 @@ function ReviewModal({ reviewData, onClose, onRefresh }: { reviewData: any; onCl
                             • [{fb.section}] {fb.issue} — submitted: <code>{fb.coder_code || '—'}</code> | expected: <code>{fb.ak_code || '—'}</code>
                           </div>
                         ))}
+                      </div>
+                    )}
+                    {hasDRG && (
+                      <div style={{ marginTop: 10, padding: '10px 12px', background: drgDone ? '#f0fdf4' : '#fff1f2', borderRadius: 8, border: `1px solid ${drgDone ? '#bbf7d0' : '#fecaca'}` }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: drgDone ? '#059669' : '#dc2626', marginBottom: 6 }}>
+                          {drgDone ? '✓ DRG Reviewed' : '⚑ DRG Review Required'}
+                        </div>
+                        <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 8 }}>
+                          {drgDone
+                            ? `Reviewed by Trainer${c.drg_override ? ` — confirmed DRG/PDx: ${c.drg_override}` : ' — no override needed'}`
+                            : 'This chart has a DRG flag. Confirm the submitted code is acceptable or enter the correct DRG/PDx code below.'}
+                        </div>
+                        {!drgDone && (
+                          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                            <input
+                              style={{ flex: 1, padding: '6px 10px', border: '1px solid #fca5a5', borderRadius: 6, fontSize: 12, fontFamily: 'monospace' }}
+                              placeholder="Override DRG/PDx code (leave blank if no change)"
+                              value={drgInputs[c.chart_id] ?? ''}
+                              onChange={e => setDrgInputs(p => ({ ...p, [c.chart_id]: e.target.value.toUpperCase() }))}
+                            />
+                            <button
+                              style={{ padding: '6px 14px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: drgSaving === c.chart_id ? 'wait' : 'pointer', opacity: drgSaving === c.chart_id ? 0.7 : 1 }}
+                              disabled={drgSaving === c.chart_id}
+                              onClick={() => submitDrgReview(reviewData.session_id, c.chart_id, drgInputs[c.chart_id] ?? '')}
+                            >
+                              {drgSaving === c.chart_id ? 'Saving…' : 'Confirm DRG'}
+                            </button>
+                          </div>
+                        )}
                       </div>
                     )}
                   </>

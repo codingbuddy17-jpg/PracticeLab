@@ -49,6 +49,7 @@ def _grade_chart_for_sp(chart, ak_rec, sub_data, ip_cfg, op_cfg):
         return {
             "weighted_score": pct,
             "pass_fail": "PASS" if passed else "FAIL",
+            "drg_flag": bool(res.drg_flag),
             "dpo_dx_accuracy": dpo.dx.accuracy,
             "dpo_poa_accuracy": dpo.poa.accuracy,
             "dpo_proc_accuracy": dpo.proc.accuracy,
