@@ -432,24 +432,14 @@ def _run_migrations():
     _add_col("practice_results", "ed_trainer_note", "TEXT", "TEXT")
     _add_col("practice_results", "ed_graded_by", "VARCHAR(100)", "TEXT")
 
-    # ── Fix practice tables: ensure id columns use a sequence (PostgreSQL only) ─
-    # If tables were created with INTEGER PRIMARY KEY (no auto-increment on PG),
-    # add a sequence and attach it so inserts without explicit id work correctly.
+    # ── Fix practice tables: attach sequences so PG auto-increments id ──────────
+    # Tables were created with INTEGER PRIMARY KEY (no sequence on PG). Each step
+    # is a separate _run() so failures are individually logged, not silently lost.
     if not is_sqlite:
         for tbl in ("practice_sessions", "practice_chart_drafts", "practice_results"):
-            _run(f"""
-                DO $$ BEGIN
-                    IF NOT EXISTS (
-                        SELECT 1 FROM information_schema.columns
-                        WHERE table_name='{tbl}' AND column_name='id'
-                        AND column_default LIKE 'nextval%'
-                    ) THEN
-                        CREATE SEQUENCE IF NOT EXISTS {tbl}_id_seq;
-                        ALTER TABLE {tbl} ALTER COLUMN id SET DEFAULT nextval('{tbl}_id_seq');
-                        SELECT setval('{tbl}_id_seq', COALESCE((SELECT MAX(id) FROM {tbl}), 0) + 1, false);
-                    END IF;
-                END $$;
-            """)
+            _run(f"CREATE SEQUENCE IF NOT EXISTS {tbl}_id_seq")
+            _run(f"ALTER TABLE {tbl} ALTER COLUMN id SET DEFAULT nextval('{tbl}_id_seq')")
+            _run(f"SELECT setval('{tbl}_id_seq', COALESCE((SELECT MAX(id) FROM {tbl}), 0) + 1, false)")
 
     # ── P2: backfill orphan batch_charts into synthetic legacy cycles ─────────
     _backfill_legacy_cycles()
