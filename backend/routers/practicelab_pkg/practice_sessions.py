@@ -110,11 +110,20 @@ def generate_practice_tokens(payload: GeneratePracticeTokens, db: Session = Depe
         BatchChart.cycle_id == cycle.id,
     ).all()
 
+    if not assignments:
+        raise HTTPException(
+            status_code=400,
+            detail="No charts are assigned in this cycle. Run allocation first, then generate tokens."
+        )
+
     coder_charts: dict[str, list[int]] = {}
     for a in assignments:
         coder_charts.setdefault(a.coder_name, []).append(a.chart_id)
 
+    specialty_val = batch.specialty.value if hasattr(batch.specialty, 'value') else str(batch.specialty)
+
     from sqlalchemy import text
+    import json
     tokens = []
     for coder_name, chart_ids in coder_charts.items():
         # Check if token already exists for this batch/cycle/coder
@@ -132,7 +141,6 @@ def generate_practice_tokens(payload: GeneratePracticeTokens, db: Session = Depe
         while db.execute(text("SELECT 1 FROM practice_sessions WHERE token=:t"), {"t": token}).fetchone():
             token = _gen_token()
 
-        import json
         db.execute(text("""
             INSERT INTO practice_sessions
               (batch_id, cycle_id, coder_name, specialty, token,
@@ -143,14 +151,19 @@ def generate_practice_tokens(payload: GeneratePracticeTokens, db: Session = Depe
             "b": payload.batch_id,
             "c": cycle.id,
             "n": coder_name,
-            "sp": batch.specialty.value,
+            "sp": specialty_val,
             "t": token,
             "ci": json.dumps(chart_ids),
             "sr": payload.show_results_to_coder,
         })
         tokens.append({"coder_name": coder_name, "token": token, "reused": False})
 
-    db.commit()
+    try:
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Token generation failed: {exc}")
+
     return {"tokens": tokens, "batch_id": payload.batch_id, "cycle_id": cycle.id}
 
 
