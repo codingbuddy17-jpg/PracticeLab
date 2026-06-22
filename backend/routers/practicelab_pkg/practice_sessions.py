@@ -516,7 +516,7 @@ def _build_coder_results(session_id: int, db) -> list:
     import json
 
     rows = db.execute(text("""
-        SELECT pr.chart_id, c.chart_number, c.description,
+        SELECT pr.chart_id, c.chart_number, c.category,
                pr.specialty, pr.total_score, pr.pass_fail, pr.drg_flag,
                pr.pdx_submitted, pr.pdx_answer_key, pr.pdx_correct,
                pr.sdx_submitted, pr.sdx_answer_key,
@@ -541,7 +541,7 @@ def _build_coder_results(session_id: int, db) -> list:
     results = []
     for r in rows:
         results.append({
-            "chart_id": r[0], "chart_number": r[1], "description": r[2],
+            "chart_id": r[0], "chart_number": r[1], "category": r[2],
             "specialty": r[3], "total_score": r[4], "pass_fail": r[5],
             "drg_flag": bool(r[6]),
             "pdx_submitted": r[7], "pdx_answer_key": r[8],
