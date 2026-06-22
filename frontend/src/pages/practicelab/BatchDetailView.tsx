@@ -506,10 +506,10 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
   const totalAssigned = batch.coders?.reduce((sum: number, c: any) => sum + c.charts.length, 0) || 0
   const totalSubmitted = batch.coders?.reduce((sum: number, c: any) => sum + c.charts.filter((ch: any) => ch.submission_status === 'Submitted').length, 0) || 0
   const hasCycles = (batch.allocation_cycles?.length || 0) > 0
+  const isDirectAssignment = !!batch.is_direct_assignment
   const hasResults = isDirectAssignment
     ? (batch.direct_graded_count || 0) > 0
     : totalSubmitted > 0
-  const isDirectAssignment = !!batch.is_direct_assignment
   const pendingDRG = isIP && (batch.pending_drg_review ?? 0) > 0
   const pendingSubs = batch.pending_submissions ?? 0
   const closeBlockers: string[] = []
