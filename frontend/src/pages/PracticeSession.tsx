@@ -590,7 +590,7 @@ function CodeEntryForm({ chart, entry, ip, ed, onChange, onSave, saving, saveMsg
       </>}
 
       {/* Optional notes */}
-      <Section title="Notes for Trainer (Optional)">
+      <Section title={ed ? "Additional Notes (Optional) — anything extra beyond the 4 fields above" : "Notes for Trainer (Optional)"}>
         <textarea
           style={{ ...s.inputField, height: 72, resize: 'vertical', fontFamily: 'system-ui, sans-serif' }}
           placeholder="Any questions or notes about this chart…"
