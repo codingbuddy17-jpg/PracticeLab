@@ -507,26 +507,31 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
   const totalSubmitted = batch.coders?.reduce((sum: number, c: any) => sum + c.charts.filter((ch: any) => ch.submission_status === 'Submitted').length, 0) || 0
   const hasCycles = (batch.allocation_cycles?.length || 0) > 0
   const hasResults = totalSubmitted > 0
+  const isDirectAssignment = !!batch.is_direct_assignment
   const pendingDRG = isIP && (batch.pending_drg_review ?? 0) > 0
   const pendingSubs = batch.pending_submissions ?? 0
   const closeBlockers: string[] = []
-  if (pendingSubs > 0) closeBlockers.push(`${pendingSubs} chart(s) still pending submission`)
-  if ((batch.pending_drg_review ?? 0) > 0) closeBlockers.push(`${batch.pending_drg_review} DRG review(s) unresolved`)
-  const canClose = isOpen && closeBlockers.length === 0 && hasResults
+  if (!isDirectAssignment) {
+    if (pendingSubs > 0) closeBlockers.push(`${pendingSubs} chart(s) still pending submission`)
+    if ((batch.pending_drg_review ?? 0) > 0) closeBlockers.push(`${batch.pending_drg_review} DRG review(s) unresolved`)
+  }
+  const canClose = isOpen && closeBlockers.length === 0 && (hasResults || isDirectAssignment)
 
   // Progression steps
   const steps = [
     { label: 'Run Cycle', done: hasCycles, active: !hasCycles },
-    ...(isED
-      ? [{ label: 'Grade Cases', done: totalSubmitted > 0, active: hasCycles && totalSubmitted === 0 }]
-      : [
-          { label: 'Download Sheets', done: hasCycles, active: hasCycles && totalSubmitted === 0 },
-          { label: 'Upload Returns', done: totalSubmitted > 0, active: hasCycles && totalSubmitted === 0 },
-          ...(isIP ? [{ label: 'DRG Review', done: !pendingDRG && hasResults, active: pendingDRG }] : []),
-        ]
+    ...(isDirectAssignment
+      ? [{ label: 'Generate Sessions', done: false, active: hasCycles }]
+      : isED
+        ? [{ label: 'Grade Cases', done: totalSubmitted > 0, active: hasCycles && totalSubmitted === 0 }]
+        : [
+            { label: 'Download Sheets', done: hasCycles, active: hasCycles && totalSubmitted === 0 },
+            { label: 'Upload Returns', done: totalSubmitted > 0, active: hasCycles && totalSubmitted === 0 },
+            ...(isIP ? [{ label: 'DRG Review', done: !pendingDRG && hasResults, active: pendingDRG }] : []),
+          ]
     ),
     { label: 'View Results', done: false, active: hasResults && !pendingDRG },
-    { label: 'Close Batch', done: !isOpen, active: canClose },
+    { label: isDirectAssignment ? 'Close Assignment' : 'Close Batch', done: !isOpen, active: canClose },
   ]
 
   return (
@@ -706,11 +711,11 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
           </>
         )}
         {isOpen && closeBlockers.length === 0 && !confirmingClose && (
-          <button style={{ ...styles.destructiveOutlineBtn, marginLeft: 'auto' }} onClick={() => setConfirmingClose(true)}>✕ Close Batch</button>
+          <button style={{ ...styles.destructiveOutlineBtn, marginLeft: 'auto' }} onClick={() => setConfirmingClose(true)}>✕ {isDirectAssignment ? 'Close Assignment' : 'Close Batch'}</button>
         )}
         {isOpen && closeBlockers.length === 0 && confirmingClose && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 'auto', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 8, padding: '6px 12px' }}>
-            <span style={{ fontSize: 12, color: '#92400e', fontWeight: 600 }}>Lock all results?</span>
+            <span style={{ fontSize: 12, color: '#92400e', fontWeight: 600 }}>{isDirectAssignment ? 'Mark this assignment as complete?' : 'Lock all results?'}</span>
             <button style={{ ...styles.destructiveBtn, padding: '5px 12px', fontSize: 12 }} disabled={closing} onClick={handleClose}>
               {closing ? 'Closing…' : 'Yes, Close'}
             </button>

@@ -544,6 +544,7 @@ def get_batch(batch_id: int, db: Session = Depends(get_db)):
         "tags": batch.tags or [],
         "pending_submissions": pending_submissions_count,
         "pending_drg_review": pending_drg_count,
+        "is_direct_assignment": bool(batch.is_direct_assignment),
         "allocation_cycles": [
             {
                 "id": c.id, "cycle_number": c.cycle_number,
