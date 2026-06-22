@@ -1034,7 +1034,6 @@ function ReviewModal({ reviewData, onClose, onRefresh }: { reviewData: any; onCl
   const ed = isEDSpecialty(reviewData.specialty || '')
   const [rubrics, setRubrics] = useState<Record<number, any>>({})
   const [scoring, setScoring] = useState<number | null>(null)
-  const [drgInputs, setDrgInputs] = useState<Record<number, string>>({})
   const [drgSaving, setDrgSaving] = useState<number | null>(null)
 
   function initRubric(chartId: number, c: any) {
@@ -1057,14 +1056,14 @@ function ReviewModal({ reviewData, onClose, onRefresh }: { reviewData: any; onCl
     return base + (RATIONALE_SCORES[r.rationale_tier] ?? 0)
   }
 
-  async function submitDrgReview(sessionId: number, chartId: number, override: string) {
+  async function submitDrgReview(sessionId: number, chartId: number, drgError: boolean) {
     setDrgSaving(chartId)
     try {
       await api.post(`/practicelab/practice-sessions/${sessionId}/chart/${chartId}/drg-review`, {
-        drg_override: override.trim().toUpperCase() || null,
+        drg_error: drgError,
         reviewed_by: 'Trainer',
       })
-      toast.success('DRG review saved')
+      toast.success(drgError ? 'DRG marked as error — score set to 0' : 'DRG confirmed correct — full DRG score applied')
       onRefresh()
     } catch {
       toast.error('Failed to save DRG review')
@@ -1243,19 +1242,21 @@ function ReviewModal({ reviewData, onClose, onRefresh }: { reviewData: any; onCl
                             : 'This chart has a DRG flag. Confirm the submitted code is acceptable or enter the correct DRG/PDx code below.'}
                         </div>
                         {!drgDone && (
-                          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                            <input
-                              style={{ flex: 1, padding: '6px 10px', border: '1px solid #fca5a5', borderRadius: 6, fontSize: 12, fontFamily: 'monospace' }}
-                              placeholder="Override DRG/PDx code (leave blank if no change)"
-                              value={drgInputs[c.chart_id] ?? ''}
-                              onChange={e => setDrgInputs(p => ({ ...p, [c.chart_id]: e.target.value.toUpperCase() }))}
-                            />
+                          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                            <div style={{ fontSize: 11, color: '#6b7280', marginRight: 4 }}>DRG Change?</div>
                             <button
-                              style={{ padding: '6px 14px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: drgSaving === c.chart_id ? 'wait' : 'pointer', opacity: drgSaving === c.chart_id ? 0.7 : 1 }}
+                              style={{ padding: '6px 18px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: drgSaving === c.chart_id ? 'wait' : 'pointer', opacity: drgSaving === c.chart_id ? 0.7 : 1 }}
                               disabled={drgSaving === c.chart_id}
-                              onClick={() => submitDrgReview(reviewData.session_id, c.chart_id, drgInputs[c.chart_id] ?? '')}
+                              onClick={() => submitDrgReview(reviewData.session_id, c.chart_id, true)}
                             >
-                              {drgSaving === c.chart_id ? 'Saving…' : 'Confirm DRG'}
+                              Yes — DRG Error (0 pts)
+                            </button>
+                            <button
+                              style={{ padding: '6px 18px', background: '#059669', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: drgSaving === c.chart_id ? 'wait' : 'pointer', opacity: drgSaving === c.chart_id ? 0.7 : 1 }}
+                              disabled={drgSaving === c.chart_id}
+                              onClick={() => submitDrgReview(reviewData.session_id, c.chart_id, false)}
+                            >
+                              No — DRG Correct (full pts)
                             </button>
                           </div>
                         )}

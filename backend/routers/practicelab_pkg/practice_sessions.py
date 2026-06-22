@@ -821,7 +821,7 @@ def score_ed_practice_chart(
 # ── Trainer-facing: DRG review for a practice result ─────────────────────────
 
 class DRGReviewPayload(BaseModel):
-    drg_override: Optional[str] = None
+    drg_error: bool          # True = DRG wrong (score 0), False = DRG correct (full weight)
     reviewed_by: str = "Trainer"
 
 @router.post("/practice-sessions/{session_id}/chart/{chart_id}/drg-review")
@@ -829,52 +829,49 @@ def drg_review_practice_chart(
     session_id: int, chart_id: int,
     payload: DRGReviewPayload, db: Session = Depends(get_db)
 ):
-    """Trainer confirms or overrides DRG for an IP practice result."""
+    """
+    Trainer marks DRG as error (Yes) or correct (No).
+    Yes → DRG component = 0, recalculate total.
+    No  → DRG component = full drg_weight, recalculate total.
+    Mirrors VBA: drgScore = IIf(drgError, 0, WT_DRG)
+    """
     from sqlalchemy import text
 
     result = db.execute(text(
-        "SELECT id, total_score, pass_fail, specialty FROM practice_results "
-        "WHERE session_id=:s AND chart_id=:c"
+        "SELECT total_score, pass_fail, specialty, "
+        "pdx_submitted, sdx_submitted, pcs_submitted, cpt_submitted, "
+        "pdx_answer_key, sdx_answer_key, pcs_answer_key, cpt_answer_key "
+        "FROM practice_results WHERE session_id=:s AND chart_id=:c"
     ), {"s": session_id, "c": chart_id}).fetchone()
     if not result:
         raise HTTPException(status_code=404, detail="Result not found")
 
-    sess_specialty = result[3]
+    specialty_str = result[2]
     ip_cfg_row = db.query(ScoringConfig).filter(ScoringConfig.specialty_type == "IP").first()
     ip_cfg = cfg_from_db(ip_cfg_row) if ip_cfg_row else DEFAULT_IP_CFG
 
-    # If trainer provided an override DRG, recalculate pass/fail with corrected PDx
-    new_score = result[1]
-    new_pf = result[2]
-    if payload.drg_override:
-        ak_rec = db.execute(text(
-            "SELECT pdx_code, sdx, pcs FROM answer_keys WHERE chart_id=:c"
-        ), {"c": chart_id}).fetchone()
-        if ak_rec:
-            import json as _json
-            ak_pdx = payload.drg_override.strip().upper()
-            sub_pdx = db.execute(text(
-                "SELECT pdx_submitted FROM practice_results WHERE session_id=:s AND chart_id=:c"
-            ), {"s": session_id, "c": chart_id}).fetchone()
-            sub_pdx_code = (sub_pdx[0] or "").strip().upper() if sub_pdx else ""
-            # PDx correct if submitted matches trainer's confirmed DRG/PDx
-            pdx_ok = sub_pdx_code.replace(".", "") == ak_pdx.replace(".", "")
-            # Keep existing score but update pass/fail based on corrected PDx match
-            # Full rescore would need full submission; just adjust PDx weight impact
-            pass_threshold = ip_cfg.pass_threshold
-            new_pf = result[2]  # keep existing until full rescore available
+    # Recalculate total: DRG score is either 0 (error) or full drg_weight (correct)
+    drg_score = 0 if payload.drg_error else ip_cfg.drg_weight
+    existing_total = result[0] or 0
+
+    # Adjust: remove old DRG contribution (we stored it without DRG — it was 0 pending review)
+    # The stored total excludes DRG (drg_flag was set, drg_flag means DRG score was 0 at grading)
+    # So new_total = existing_total (non-DRG components) + drg_score
+    new_total = min(100, existing_total + drg_score)
+    new_pf = "PASS" if new_total >= ip_cfg.pass_threshold else "FAIL"
 
     db.execute(text("""
         UPDATE practice_results SET
-          drg_reviewed=TRUE, drg_override=:ov, drg_reviewed_by=:rb,
-          drg_reviewed_at=CURRENT_TIMESTAMP, pass_fail=:pf
+          drg_reviewed=TRUE, drg_reviewed_by=:rb,
+          drg_reviewed_at=CURRENT_TIMESTAMP,
+          total_score=:tot, pass_fail=:pf
         WHERE session_id=:s AND chart_id=:c
     """), {
-        "ov": payload.drg_override, "rb": payload.reviewed_by,
+        "rb": payload.reviewed_by, "tot": new_total,
         "pf": new_pf, "s": session_id, "c": chart_id,
     })
     db.commit()
-    return {"reviewed": True, "drg_override": payload.drg_override, "pass_fail": new_pf}
+    return {"reviewed": True, "drg_error": payload.drg_error, "total_score": new_total, "pass_fail": new_pf}
 
 
 # ── Re-grade a practice session (after answer key uploaded) ──────────────────
