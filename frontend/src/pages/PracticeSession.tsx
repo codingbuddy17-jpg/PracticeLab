@@ -313,12 +313,28 @@ export function PracticeSession() {
 
       {/* Left panel — chart palette */}
       <div style={s.leftPanel}>
-        <div style={{ padding: '16px 12px 8px', borderBottom: '1px solid #e5e7eb' }}>
+        <div style={{ padding: '14px 12px 10px', borderBottom: '1px solid #e5e7eb', background: 'linear-gradient(135deg, #f0fdf4, #eff6ff)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <BookOpen size={18} color="#059669" />
-            <span style={{ fontWeight: 700, fontSize: 14 }}>{session.coder_name}</span>
+            <BookOpen size={16} color="#059669" />
+            <span style={{ fontWeight: 800, fontSize: 13, color: '#111', flex: 1 }}>{session.coder_name}</span>
           </div>
-          <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{session.specialty}</div>
+          <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2, marginLeft: 24 }}>{session.specialty}</div>
+          {(() => {
+            const done = charts.filter(c => chartStatus(entries[c.chart_id], ip, ed) === 'complete').length
+            const total = charts.length
+            const pct = total ? Math.round((done / total) * 100) : 0
+            return (
+              <div style={{ marginTop: 10, marginLeft: 0 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#6b7280', marginBottom: 4 }}>
+                  <span>{done}/{total} charts coded</span>
+                  <span style={{ fontWeight: 700, color: pct === 100 ? '#059669' : '#374151' }}>{pct}%</span>
+                </div>
+                <div style={{ height: 4, background: '#e5e7eb', borderRadius: 4, overflow: 'hidden' }}>
+                  <div style={{ width: `${pct}%`, height: '100%', background: pct === 100 ? '#059669' : '#7c3aed', borderRadius: 4, transition: 'width 0.3s' }} />
+                </div>
+              </div>
+            )
+          })()}
         </div>
 
         <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
@@ -422,29 +438,29 @@ function CodeEntryForm({ chart, entry, ip, ed, onChange, onSave, saving, saveMsg
 
   return (
     <div style={{ padding: '24px 28px', maxWidth: 760, margin: '0 auto' }}>
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20 }}>
+      {/* Header card */}
+      <div style={{ background: 'linear-gradient(135deg, #f0fdf4, #eff6ff)', border: '1px solid #d1fae5', borderRadius: 12, padding: '16px 20px', marginBottom: 24, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
         <div>
-          <div style={{ fontSize: 18, fontWeight: 800, color: '#111' }}>{chart.chart_number}</div>
-          {chart.description && <div style={{ fontSize: 13, color: '#6b7280', marginTop: 2 }} dangerouslySetInnerHTML={{ __html: chart.description }} />}
-          <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+          <div style={{ fontSize: 20, fontWeight: 800, color: '#111', letterSpacing: -0.3 }}>{chart.chart_number}</div>
+          {chart.description && <div style={{ fontSize: 13, color: '#374151', marginTop: 4, lineHeight: 1.5 }} dangerouslySetInnerHTML={{ __html: chart.description }} />}
+          <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
             <Chip label={chart.specialty} />
-            {chart.category && <Chip label={chart.category} />}
-            {chart.difficulty && <Chip label={chart.difficulty} color="#f59e0b" bg="#fef9c3" />}
+            {chart.category && <Chip label={chart.category} color="#065f46" bg="#d1fae5" />}
+            {chart.difficulty && <Chip label={chart.difficulty} color="#b45309" bg="#fef9c3" />}
           </div>
         </div>
         <button
           onClick={() => onChange({ flagged: !entry.flagged })}
-          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 8, border: entry.flagged ? '1.5px solid #f59e0b' : '1.5px solid #e5e7eb', background: entry.flagged ? '#fef9c3' : '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: entry.flagged ? '#b45309' : '#6b7280' }}
+          style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 8, border: entry.flagged ? '1.5px solid #f59e0b' : '1.5px solid #d1d5db', background: entry.flagged ? '#fef9c3' : '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: entry.flagged ? '#b45309' : '#6b7280', whiteSpace: 'nowrap' }}
         >
           <Flag size={14} />
-          {entry.flagged ? 'Flagged' : 'Flag for Review'}
+          {entry.flagged ? 'Flagged' : 'Flag'}
         </button>
       </div>
 
       {/* ── E&D form ── */}
       {ed && (<>
-        <Section title="Review" required>
+        <Section title="Review" required type="ed_review" step={1}>
           <textarea
             style={{ ...s.inputField, height: 100, resize: 'vertical', fontFamily: 'system-ui, sans-serif' }}
             placeholder="Summarise your review of the claim/denial — what was the original decision and why?"
@@ -452,7 +468,7 @@ function CodeEntryForm({ chart, entry, ip, ed, onChange, onSave, saving, saveMsg
             onChange={e => onChange({ ed_review: e.target.value })}
           />
         </Section>
-        <Section title="Research" required>
+        <Section title="Research" required type="ed_research" step={2}>
           <textarea
             style={{ ...s.inputField, height: 100, resize: 'vertical', fontFamily: 'system-ui, sans-serif' }}
             placeholder="What did you research? Include coding guidelines, payer rules, or nuances you found relevant."
@@ -460,7 +476,7 @@ function CodeEntryForm({ chart, entry, ip, ed, onChange, onSave, saving, saveMsg
             onChange={e => onChange({ ed_research: e.target.value })}
           />
         </Section>
-        <Section title="Resolution" required>
+        <Section title="Resolution" required type="ed_resolution" step={3}>
           <textarea
             style={{ ...s.inputField, height: 100, resize: 'vertical', fontFamily: 'system-ui, sans-serif' }}
             placeholder="What is your recommended resolution? (e.g. Uphold denial / Reverse / Partial reversal — and why)"
@@ -468,7 +484,7 @@ function CodeEntryForm({ chart, entry, ip, ed, onChange, onSave, saving, saveMsg
             onChange={e => onChange({ ed_resolution: e.target.value })}
           />
         </Section>
-        <Section title="Final Rationale" required>
+        <Section title="Final Rationale" required type="ed_rationale" step={4}>
           <textarea
             style={{ ...s.inputField, height: 110, resize: 'vertical', fontFamily: 'system-ui, sans-serif' }}
             placeholder="Write your final supporting rationale — cite the specific guidelines, payer policies, or clinical documentation that supports your resolution."
@@ -482,7 +498,7 @@ function CodeEntryForm({ chart, entry, ip, ed, onChange, onSave, saving, saveMsg
       {!ed && <>
 
       {/* Principal Diagnosis */}
-      <Section title="Principal Diagnosis" required>
+      <Section title="Principal Diagnosis" required type="diagnosis">
         <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
           <div style={{ flex: 1 }}>
             <input
@@ -515,7 +531,7 @@ function CodeEntryForm({ chart, entry, ip, ed, onChange, onSave, saving, saveMsg
       </Section>
 
       {/* Secondary Diagnoses */}
-      <Section title="Secondary Diagnoses">
+      <Section title="Secondary Diagnoses" type="diagnosis">
         {entry.sdx.map((row, i) => (
           <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 8 }}>
             <input
@@ -546,7 +562,7 @@ function CodeEntryForm({ chart, entry, ip, ed, onChange, onSave, saving, saveMsg
 
       {/* PCS Procedures (IP only) */}
       {ip && (
-        <Section title="PCS Procedures">
+        <Section title="PCS Procedures" type="procedure">
           {entry.pcs.map((row, i) => (
             <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 8 }}>
               <input
@@ -566,7 +582,7 @@ function CodeEntryForm({ chart, entry, ip, ed, onChange, onSave, saving, saveMsg
 
       {/* CPT Procedures (OP only) */}
       {!ip && (
-        <Section title="CPT Procedures">
+        <Section title="CPT Procedures" type="procedure">
           {entry.cpt.map((row, i) => (
             <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 8 }}>
               <input
@@ -591,7 +607,7 @@ function CodeEntryForm({ chart, entry, ip, ed, onChange, onSave, saving, saveMsg
       </>}
 
       {/* Optional notes */}
-      <Section title={ed ? "Additional Notes (Optional) — anything extra beyond the 4 fields above" : "Notes for Trainer (Optional)"}>
+      <Section title={ed ? "Additional Notes (Optional)" : "Notes for Trainer (Optional)"} type="notes">
         <textarea
           style={{ ...s.inputField, height: 72, resize: 'vertical', fontFamily: 'system-ui, sans-serif' }}
           placeholder="Any questions or notes about this chart…"
@@ -601,15 +617,18 @@ function CodeEntryForm({ chart, entry, ip, ed, onChange, onSave, saving, saveMsg
       </Section>
 
       {/* Save button */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 16, padding: '14px 16px', background: '#f9fafb', borderRadius: 10, border: '1px solid #e5e7eb' }}>
         <button
           onClick={onSave}
           disabled={saving}
-          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 22px', background: '#059669', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 700, fontSize: 14, opacity: saving ? 0.7 : 1 }}
+          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 24px', background: 'linear-gradient(135deg, #059669, #0d9488)', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 700, fontSize: 14, opacity: saving ? 0.7 : 1, boxShadow: '0 2px 8px rgba(5,150,105,0.25)' }}
         >
-          <Save size={15} /> {saving ? 'Saving…' : 'Save'}
+          <Save size={15} /> {saving ? 'Saving…' : 'Save Progress'}
         </button>
-        {saveMsg && <span style={{ fontSize: 13, color: '#059669', fontWeight: 600 }}>✓ {saveMsg}</span>}
+        {saveMsg
+          ? <span style={{ fontSize: 13, color: '#059669', fontWeight: 600 }}>✓ {saveMsg}</span>
+          : <span style={{ fontSize: 12, color: '#9ca3af' }}>Auto-saves as you type · use Save to confirm</span>
+        }
       </div>
     </div>
   )
@@ -617,13 +636,31 @@ function CodeEntryForm({ chart, entry, ip, ed, onChange, onSave, saving, saveMsg
 
 // ── Section wrapper ────────────────────────────────────────────────────────────
 
-function Section({ title, required, children }: { title: string; required?: boolean; children: React.ReactNode }) {
+const SECTION_COLORS: Record<string, { accent: string; bg: string; label: string }> = {
+  diagnosis:  { accent: '#2563eb', bg: '#eff6ff', label: '#1d4ed8' },
+  procedure:  { accent: '#7c3aed', bg: '#f5f3ff', label: '#5b21b6' },
+  notes:      { accent: '#6b7280', bg: '#f9fafb', label: '#374151' },
+  ed_review:  { accent: '#0891b2', bg: '#ecfeff', label: '#0e7490' },
+  ed_research:{ accent: '#7c3aed', bg: '#f5f3ff', label: '#5b21b6' },
+  ed_resolution:{ accent: '#059669', bg: '#f0fdf4', label: '#065f46' },
+  ed_rationale: { accent: '#dc2626', bg: '#fef2f2', label: '#991b1b' },
+}
+
+function Section({ title, required, children, type = 'notes', step }: {
+  title: string; required?: boolean; children: React.ReactNode; type?: keyof typeof SECTION_COLORS; step?: number
+}) {
+  const c = SECTION_COLORS[type] || SECTION_COLORS.notes
   return (
-    <div style={{ marginBottom: 22 }}>
-      <div style={{ fontSize: 13, fontWeight: 700, color: '#374151', marginBottom: 8 }}>
-        {title}{required && <span style={{ color: '#dc2626', marginLeft: 4 }}>*</span>}
+    <div style={{ marginBottom: 20, background: c.bg, borderRadius: 10, border: `1px solid ${c.accent}22`, overflow: 'hidden' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderLeft: `4px solid ${c.accent}`, background: `${c.accent}0d` }}>
+        {step !== undefined && (
+          <span style={{ width: 22, height: 22, borderRadius: '50%', background: c.accent, color: '#fff', fontSize: 11, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{step}</span>
+        )}
+        <span style={{ fontSize: 13, fontWeight: 700, color: c.label }}>
+          {title}{required && <span style={{ color: '#dc2626', marginLeft: 4 }}>*</span>}
+        </span>
       </div>
-      {children}
+      <div style={{ padding: '12px 14px' }}>{children}</div>
     </div>
   )
 }
