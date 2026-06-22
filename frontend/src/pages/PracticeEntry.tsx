@@ -19,7 +19,7 @@ export function PracticeEntry() {
       navigate(`/practice/${t}`)
     } catch (e: unknown) {
       const err = e as { response?: { data?: { detail?: string }; status?: number } }
-      setError(err?.response?.data?.detail || 'Token not found. Check your token and try again.')
+      setError(err?.response?.data?.detail || 'Access code not found. Check your code and try again.')
     } finally { setLoading(false) }
   }
 
@@ -33,7 +33,7 @@ export function PracticeEntry() {
           <BookOpen size={32} color="#059669" />
         </div>
         <div style={s.title}>PracticeLab — Coding Interface</div>
-        <div style={s.sub}>Enter your practice token to begin coding charts.</div>
+        <div style={s.sub}>Enter your practice access code to begin coding charts.</div>
 
         <input
           style={s.input}
@@ -60,7 +60,7 @@ export function PracticeEntry() {
         </button>
 
         <div style={s.note}>
-          Your practice token was provided by your trainer. Each token is unique to you and gives access to your assigned charts.
+          Your practice access code was provided by your trainer. Each code is unique to you and gives access to your assigned charts.
         </div>
       </div>
     </div>

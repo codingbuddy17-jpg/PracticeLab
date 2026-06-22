@@ -891,9 +891,9 @@ function PracticeTokensSection({ batchId }: { batchId: number }) {
       const listRes = await api.get(`/practicelab/practice-sessions/batch/${batchId}`)
       setExisting(listRes.data.sessions || [])
       setExpanded(true)
-      toast.success(`${res.data.tokens.length} practice token${res.data.tokens.length !== 1 ? 's' : ''} generated`)
+      toast.success(`${res.data.tokens.length} practice session${res.data.tokens.length !== 1 ? 's' : ''} generated`)
     } catch (e: any) {
-      toast.error(e?.response?.data?.detail || 'Failed to generate tokens')
+      toast.error(e?.response?.data?.detail || 'Failed to generate practice sessions')
     }
     setLoading(false)
   }
@@ -916,10 +916,10 @@ function PracticeTokensSection({ batchId }: { batchId: number }) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <Key size={14} color="#7c3aed" />
-          <span style={{ fontWeight: 700, fontSize: 13, color: '#374151' }}>In-Browser Practice Tokens</span>
+          <span style={{ fontWeight: 700, fontSize: 13, color: '#374151' }}>In-Browser Practice Sessions</span>
           {existing.length > 0 && (
             <span style={{ fontSize: 11, background: '#ede9fe', color: '#7c3aed', borderRadius: 20, padding: '2px 8px', fontWeight: 600 }}>
-              {existing.length} token{existing.length !== 1 ? 's' : ''}
+              {existing.length} session{existing.length !== 1 ? 's' : ''}
             </span>
           )}
         </div>
@@ -933,7 +933,7 @@ function PracticeTokensSection({ batchId }: { batchId: number }) {
             disabled={loading}
             style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 700, opacity: loading ? 0.7 : 1 }}
           >
-            <Key size={12} /> {loading ? 'Generating…' : existing.length ? 'Regenerate Tokens' : 'Generate Tokens'}
+            <Key size={12} /> {loading ? 'Generating…' : existing.length ? 'Regenerate Sessions' : 'Generate Practice Sessions'}
           </button>
           {existing.length > 0 && (
             <button onClick={() => setExpanded(p => !p)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#7c3aed', fontSize: 12 }}>
@@ -950,9 +950,9 @@ function PracticeTokensSection({ batchId }: { batchId: number }) {
               <span style={{ fontWeight: 600, fontSize: 13, flex: 1 }}>{s.coder_name}</span>
               <code style={{ fontSize: 13, background: '#ede9fe', color: '#7c3aed', padding: '2px 8px', borderRadius: 6, letterSpacing: 1 }}>{s.token}</code>
               <button
-                onClick={() => { navigator.clipboard.writeText(s.token); toast.success('Token copied') }}
+                onClick={() => { navigator.clipboard.writeText(s.token); toast.success('Access code copied') }}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', padding: 4 }}
-                title="Copy token"
+                title="Copy access code"
               ><Copy size={13} /></button>
               <span style={{ fontSize: 11, fontWeight: 700, color: statusColor(s.status), width: 70, textAlign: 'center' as const }}>
                 {s.status === 'submitted' ? '✓ Submitted' : s.status === 'in_progress' ? 'In Progress' : 'Pending'}
@@ -971,7 +971,7 @@ function PracticeTokensSection({ batchId }: { batchId: number }) {
       )}
 
       {tokens && !expanded && (
-        <div style={{ fontSize: 12, color: '#059669' }}>Tokens generated — click Show to see them.</div>
+        <div style={{ fontSize: 12, color: '#059669' }}>Practice sessions generated — click Show to see them.</div>
       )}
 
       {/* Review modal */}
