@@ -14,6 +14,7 @@ from models import (
     Batch, BatchCoder, BatchChart, BatchStatus, BatchAllocationCycle,
     GradingResult, SubmissionStatus,
 )
+from sqlalchemy import text as _text
 from services.excel_service import generate_coder_sheet, generate_batch_zip
 from services.randomisation_stats import compute_randomisation_stats
 from config import settings
@@ -529,6 +530,32 @@ def get_batch(batch_id: int, db: Session = Depends(get_db)):
                                      GradingResult.drg_reviewed == False)
                              .count())
 
+    # For direct assignments: build coder_map from practice sessions + results
+    direct_graded_count = 0
+    if batch.is_direct_assignment:
+        sess_rows = db.execute(_text(
+            "SELECT id, coder_name, chart_ids FROM practice_sessions WHERE batch_id=:b"
+        ), {"b": batch_id}).fetchall()
+        for sr in sess_rows:
+            sess_id, sess_coder, chart_ids_raw = sr[0], sr[1], sr[2] or []
+            chart_ids = chart_ids_raw if isinstance(chart_ids_raw, list) else []
+            # Count graded results for this session
+            graded = db.execute(_text(
+                "SELECT chart_id, chart_number, specialty, total_score FROM practice_results "
+                "WHERE session_id=:s AND total_score IS NOT NULL"
+            ), {"s": sess_id}).fetchall()
+            direct_graded_count += len(graded)
+            # Populate coder_map with submitted/graded charts for this coder
+            for gr in graded:
+                coder_map.setdefault(sess_coder, []).append({
+                    "chart_id": gr[0],
+                    "chart_number": gr[1],
+                    "specialty": gr[2] if isinstance(gr[2], str) else (gr[2].value if gr[2] else None),
+                    "category": None,
+                    "difficulty": None,
+                    "submission_status": "Submitted",
+                })
+
     return {
         "id": batch.id, "name": batch.name, "specialty": batch.specialty.value,
         "categories": batch.categories, "difficulties": batch.difficulties,
@@ -547,6 +574,7 @@ def get_batch(batch_id: int, db: Session = Depends(get_db)):
         "pending_submissions": pending_submissions_count,
         "pending_drg_review": pending_drg_count,
         "is_direct_assignment": bool(batch.is_direct_assignment),
+        "direct_graded_count": direct_graded_count,
         "allocation_cycles": [
             {
                 "id": c.id, "cycle_number": c.cycle_number,

@@ -359,11 +359,134 @@ def submit_drg_decision(result_id: int, payload: DRGDecision, db: Session = Depe
     return {"result_id": result_id, "total_score": total, "pass_fail": pass_fail, "pending_drg": pending}
 
 
+def _get_direct_assignment_results(batch_id: int, batch, db):
+    """Build results response for direct-assignment batches from practice_results."""
+    from sqlalchemy import text as _text
+    is_ip = _is_ip(batch.specialty)
+
+    rows = db.execute(_text("""
+        SELECT ps.coder_name, pr.chart_id, pr.chart_number, pr.specialty,
+               pr.pdx_score, pr.sdx_score, pr.pcs_score, pr.cpt_score, pr.drg_score,
+               pr.total_score, pr.pass_fail, pr.drg_flag, pr.drg_reviewed, pr.feedback_items,
+               pr.dpo_dx_accuracy, pr.dpo_poa_accuracy, pr.dpo_proc_accuracy, pr.dpo_overall_accuracy
+        FROM practice_results pr
+        JOIN practice_sessions ps ON pr.session_id = ps.id
+        WHERE ps.batch_id = :b AND pr.total_score IS NOT NULL
+        ORDER BY ps.coder_name, pr.chart_number
+    """), {"b": batch_id}).fetchall()
+
+    coder_map: dict[str, dict] = {}
+    for r in rows:
+        (cname, chart_id, chart_num, spec, pdx_s, sdx_s, pcs_s, cpt_s, drg_s,
+         total_s, pf, drg_flag, drg_rev, fb_items,
+         dpo_dx, dpo_poa, dpo_proc, dpo_overall) = r
+
+        if cname not in coder_map:
+            coder_map[cname] = {
+                "coder_name": cname, "chart_count": 0,
+                "total_sum": 0, "total_cnt": 0, "pass_count": 0, "charts": [],
+            }
+        d = coder_map[cname]
+        d["chart_count"] += 1
+        if total_s is not None:
+            d["total_sum"] += total_s
+            d["total_cnt"] += 1
+        pf_str = pf.value if hasattr(pf, "value") else str(pf) if pf else None
+        if pf_str == "PASS":
+            d["pass_count"] += 1
+
+        feedback = []
+        for fb in (fb_items or []):
+            feedback.append({
+                "section": fb.get("section", ""),
+                "issue_type": fb.get("issue", fb.get("issue_type", "")),
+                "ak_code": fb.get("ak_code", ""),
+                "coder_code": fb.get("coder_code", ""),
+                "detail": fb.get("detail", ""),
+            })
+
+        d["charts"].append({
+            "chart_number": chart_num,
+            "category": None,
+            "specialty": spec.value if hasattr(spec, "value") else str(spec) if spec else None,
+            "pdx_score": pdx_s, "sdx_score": sdx_s, "pcs_score": pcs_s,
+            "cpt_score": cpt_s, "drg_score": drg_s, "total_score": total_s,
+            "pass_fail": pf_str,
+            "drg_flag": bool(drg_flag) if drg_flag is not None else False,
+            "drg_reviewed": bool(drg_rev) if drg_rev is not None else False,
+            "drg_reviewed_by": None, "drg_reviewed_at": None,
+            "dpo_dx_accuracy": dpo_dx, "dpo_poa_accuracy": dpo_poa,
+            "dpo_proc_accuracy": dpo_proc, "dpo_overall_accuracy": dpo_overall,
+            "feedback": feedback,
+        })
+
+    all_totals = [d["total_sum"] / d["total_cnt"] for d in coder_map.values() if d["total_cnt"]]
+    missed: dict[str, int] = {}
+    error_type_counts: dict[str, int] = {}
+    for d in coder_map.values():
+        for ch in d["charts"]:
+            for fb in ch["feedback"]:
+                it = fb.get("issue_type", "")
+                if it:
+                    error_type_counts[it] = error_type_counts.get(it, 0) + 1
+                if it == "Missed" and fb.get("ak_code"):
+                    missed[fb["ak_code"]] = missed.get(fb["ak_code"], 0) + 1
+
+    coder_summaries = []
+    for d in coder_map.values():
+        cnt = d["total_cnt"] or 1
+        avg = round(d["total_sum"] / cnt, 1)
+        pf_overall = "PENDING" if d["total_cnt"] == 0 else ("PASS" if d["pass_count"] == d["chart_count"] else "FAIL")
+        coder_summaries.append({
+            "coder_name": d["coder_name"],
+            "chart_count": d["chart_count"],
+            "charts_scored": d["total_cnt"],
+            "charts_passed": d["pass_count"],
+            "avg_total": avg,
+            "pass_fail": pf_overall,
+            "charts": d["charts"],
+        })
+
+    passed_coders = sum(1 for c in coder_summaries if c["pass_fail"] == "PASS")
+    total_coders = len(coder_summaries)
+    top_missed = sorted(missed.items(), key=lambda x: -x[1])[:10]
+
+    return {
+        "batch_id": batch_id,
+        "batch_name": batch.name,
+        "specialty": batch.specialty.value,
+        "status": batch.status.value,
+        "is_ip": is_ip,
+        "use_weighted": True,
+        "use_dpo": False,
+        "is_direct_assignment": True,
+        "batch_summary": {
+            "total_coders": total_coders,
+            "passed": passed_coders,
+            "failed": total_coders - passed_coders,
+            "pass_rate": round(passed_coders / total_coders * 100, 1) if total_coders else 0,
+            "avg_score": round(sum(all_totals) / len(all_totals), 1) if all_totals else 0,
+            "top_missed_codes": [{"code": c, "count": n} for c, n in top_missed],
+            "error_type_counts": error_type_counts,
+            "pending_drg_review": sum(
+                1 for d in coder_map.values()
+                for ch in d["charts"] if ch["drg_flag"] and not ch["drg_reviewed"]
+            ),
+        },
+        "coder_summaries": coder_summaries,
+    }
+
+
 @router.get("/batches/{batch_id}/results")
 def get_batch_results(batch_id: int, db: Session = Depends(get_db)):
+    from sqlalchemy import text as _text
     batch = db.query(Batch).filter(Batch.id == batch_id).first()
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
+
+    # Direct assignments store results in practice_results, not grading_results
+    if batch.is_direct_assignment:
+        return _get_direct_assignment_results(batch_id, batch, db)
 
     results = (db.query(GradingResult)
                .filter(GradingResult.batch_id == batch_id)
@@ -554,15 +677,51 @@ def export_results(batch_id: int, db: Session = Depends(get_db)):
 
 @router.get("/batches/{batch_id}/insights")
 def get_batch_insights(batch_id: int, db: Session = Depends(get_db)):
+    from sqlalchemy import text as _text
     batch = db.query(Batch).filter(Batch.id == batch_id).first()
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
 
-    results = (db.query(GradingResult)
-               .filter(GradingResult.batch_id == batch_id,
-                       GradingResult.total_score.isnot(None))
-               .join(Chart)
-               .all())
+    # Direct assignments store results in practice_results
+    if batch.is_direct_assignment:
+        raw = db.execute(_text("""
+            SELECT pr.total_score, pr.pass_fail, pr.chart_number, pr.feedback_items,
+                   c.category
+            FROM practice_results pr
+            JOIN practice_sessions ps ON pr.session_id = ps.id
+            LEFT JOIN charts c ON c.id = pr.chart_id
+            WHERE ps.batch_id = :b AND pr.total_score IS NOT NULL
+        """), {"b": batch_id}).fetchall()
+        if not raw:
+            return {"has_data": False, "batch_name": batch.name, "specialty": batch.specialty.value}
+        # Build a lightweight structure compatible with the rest of the function
+        class _R:
+            pass
+        results = []
+        for row in raw:
+            r = _R()
+            r.total_score = row[0]
+            r.pass_fail = type("PF", (), {"value": row[1].value if hasattr(row[1], "value") else str(row[1]) if row[1] else None})()
+            r.feedback = []
+            r._chart_number = row[2]
+            r._category = row[4]
+            for fb in (row[3] or []):
+                f = _R()
+                f.issue_type = type("IT", (), {"value": fb.get("issue", fb.get("issue_type", "Unknown"))})()
+                f.section = type("S", (), {"value": fb.get("section", "Unknown")})()
+                f.ak_code = fb.get("ak_code", "")
+                r.feedback.append(f)
+
+            class _Chart:
+                def __init__(self, num, cat): self.chart_number = num; self.category = cat
+            r.chart = _Chart(row[2], row[4])
+            results.append(r)
+    else:
+        results = (db.query(GradingResult)
+                   .filter(GradingResult.batch_id == batch_id,
+                           GradingResult.total_score.isnot(None))
+                   .join(Chart)
+                   .all())
 
     if not results:
         return {"has_data": False, "batch_name": batch.name, "specialty": batch.specialty.value}
