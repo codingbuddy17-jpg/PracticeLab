@@ -211,6 +211,7 @@ def get_practice_session(token: str, db: Session = Depends(get_db)):
                 charts.append({
                     "chart_id": chart.id,
                     "chart_number": chart.chart_number,
+                    "alias": chart.alias or "",
                     "description": chart.rationale or "",
                     "specialty": chart.specialty.value if chart.specialty else specialty,
                     "category": chart.category or "",
