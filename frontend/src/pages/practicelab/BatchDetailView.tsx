@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Loader, Download, Upload, BarChart2, Search, CheckSquare, Square, CheckCircle, Circle, AlertCircle, ChevronDown, ChevronRight } from 'lucide-react'
+import { Loader, Download, Upload, BarChart2, Search, CheckSquare, Square, CheckCircle, Circle, AlertCircle, ChevronDown, ChevronRight, Key, Copy, Eye } from 'lucide-react'
 import toast from 'react-hot-toast'
 import RandomisationStatsCard from '../../components/RandomisationStatsCard'
 import {
@@ -8,6 +8,7 @@ import {
   getBatchInsights, runAllocation, searchChartsForBatch, getCategories,
   addCodersToBatch, gradeEDChart, getEDGrades, EDRubricPayload,
 } from '../../api'
+import api from '../../api/client'
 import { SPECIALTY_COLORS } from '../../theme'
 import { trainerName } from './shared'
 import { InsightsPanel } from './InsightsPanel'
@@ -831,6 +832,8 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
         })}
       </div>
 
+      <PracticeTokensSection batchId={batchId} />
+
       <div style={styles.cycleSection}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
           <span style={{ fontWeight: 700, fontSize: 13, color: '#374151' }}>Batch Log</span>
@@ -854,6 +857,170 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
           </div>
         ))}
       </div>
+    </div>
+  )
+}
+
+// ── Practice Tokens Section ────────────────────────────────────────────────────
+
+function PracticeTokensSection({ batchId }: { batchId: number }) {
+  const [tokens, setTokens] = useState<{ coder_name: string; token: string; reused: boolean }[] | null>(null)
+  const [existing, setExisting] = useState<{ session_id: number; coder_name: string; token: string; status: string; submitted_at: string | null }[]>([])
+  const [loading, setLoading] = useState(false)
+  const [showResults, setShowResults] = useState(false)
+  const [expanded, setExpanded] = useState(false)
+  const [reviewData, setReviewData] = useState<any>(null)
+  const [reviewLoading, setReviewLoading] = useState(false)
+
+  useEffect(() => {
+    api.get(`/practicelab/practice-sessions/batch/${batchId}`).then(res => {
+      setExisting(res.data.sessions || [])
+      if ((res.data.sessions || []).length) setExpanded(true)
+    }).catch(() => {})
+  }, [batchId])
+
+  async function generateTokens() {
+    setLoading(true)
+    try {
+      const res = await api.post('/practicelab/practice-sessions/generate-tokens', {
+        batch_id: batchId,
+        show_results_to_coder: showResults,
+      })
+      setTokens(res.data.tokens)
+      // Refresh existing list
+      const listRes = await api.get(`/practicelab/practice-sessions/batch/${batchId}`)
+      setExisting(listRes.data.sessions || [])
+      setExpanded(true)
+      toast.success(`${res.data.tokens.length} practice token${res.data.tokens.length !== 1 ? 's' : ''} generated`)
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || 'Failed to generate tokens')
+    }
+    setLoading(false)
+  }
+
+  async function openReview(sessionId: number) {
+    setReviewLoading(true)
+    try {
+      const res = await api.get(`/practicelab/practice-sessions/${sessionId}/review`)
+      setReviewData(res.data)
+    } catch {
+      toast.error('Failed to load review')
+    }
+    setReviewLoading(false)
+  }
+
+  const statusColor = (s: string) => s === 'submitted' ? '#059669' : s === 'in_progress' ? '#d97706' : '#9ca3af'
+
+  return (
+    <div style={{ ...styles.cycleSection, marginBottom: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Key size={14} color="#7c3aed" />
+          <span style={{ fontWeight: 700, fontSize: 13, color: '#374151' }}>In-Browser Practice Tokens</span>
+          {existing.length > 0 && (
+            <span style={{ fontSize: 11, background: '#ede9fe', color: '#7c3aed', borderRadius: 20, padding: '2px 8px', fontWeight: 600 }}>
+              {existing.length} token{existing.length !== 1 ? 's' : ''}
+            </span>
+          )}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#6b7280', cursor: 'pointer' }}>
+            <input type="checkbox" checked={showResults} onChange={e => setShowResults(e.target.checked)} />
+            Show results to coder
+          </label>
+          <button
+            onClick={generateTokens}
+            disabled={loading}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 700, opacity: loading ? 0.7 : 1 }}
+          >
+            <Key size={12} /> {loading ? 'Generating…' : existing.length ? 'Regenerate Tokens' : 'Generate Tokens'}
+          </button>
+          {existing.length > 0 && (
+            <button onClick={() => setExpanded(p => !p)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#7c3aed', fontSize: 12 }}>
+              {expanded ? 'Hide' : 'Show'}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {expanded && existing.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {existing.map((s, i) => (
+            <div key={s.session_id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: i % 2 === 0 ? '#f9fafb' : '#fff', borderRadius: 8, border: '1px solid #f3f4f6' }}>
+              <span style={{ fontWeight: 600, fontSize: 13, flex: 1 }}>{s.coder_name}</span>
+              <code style={{ fontSize: 13, background: '#ede9fe', color: '#7c3aed', padding: '2px 8px', borderRadius: 6, letterSpacing: 1 }}>{s.token}</code>
+              <button
+                onClick={() => { navigator.clipboard.writeText(s.token); toast.success('Token copied') }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', padding: 4 }}
+                title="Copy token"
+              ><Copy size={13} /></button>
+              <span style={{ fontSize: 11, fontWeight: 700, color: statusColor(s.status), width: 70, textAlign: 'center' as const }}>
+                {s.status === 'submitted' ? '✓ Submitted' : s.status === 'in_progress' ? 'In Progress' : 'Pending'}
+              </span>
+              {s.status === 'submitted' && (
+                <button
+                  onClick={() => openReview(s.session_id)}
+                  style={{ background: 'none', border: '1px solid #e5e7eb', borderRadius: 6, cursor: 'pointer', color: '#7c3aed', padding: '3px 8px', fontSize: 12 }}
+                >
+                  <Eye size={12} /> Review
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {tokens && !expanded && (
+        <div style={{ fontSize: 12, color: '#059669' }}>Tokens generated — click Show to see them.</div>
+      )}
+
+      {/* Review modal */}
+      {reviewData && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: '#fff', borderRadius: 16, padding: 28, maxWidth: 760, width: '92%', maxHeight: '80vh', overflowY: 'auto', boxShadow: '0 8px 40px rgba(0,0,0,0.18)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: 16 }}>{reviewData.coder_name} — Practice Submission</div>
+                <div style={{ fontSize: 12, color: '#6b7280' }}>{reviewData.specialty} · Submitted {reviewData.submitted_at ? new Date(reviewData.submitted_at).toLocaleString() : '—'}</div>
+              </div>
+              <button onClick={() => setReviewData(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: '#6b7280' }}>✕</button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {(reviewData.charts || []).map((c: any, i: number) => (
+                <div key={i} style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: '12px 16px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: c.feedback?.length ? 8 : 0 }}>
+                    <span style={{ fontWeight: 700, fontSize: 14 }}>{c.chart_number}</span>
+                    {c.total_score !== null && (
+                      <span style={{ fontWeight: 700, fontSize: 13, color: c.total_score >= 80 ? '#059669' : '#dc2626' }}>{c.total_score}%</span>
+                    )}
+                    {c.pass_fail && (
+                      <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: c.pass_fail === 'PASS' ? '#d1fae5' : '#fee2e2', color: c.pass_fail === 'PASS' ? '#059669' : '#dc2626' }}>{c.pass_fail}</span>
+                    )}
+                    {c.flagged && <span style={{ fontSize: 11, background: '#fef9c3', color: '#b45309', borderRadius: 6, padding: '1px 6px' }}>Flagged</span>}
+                  </div>
+                  <div style={{ fontSize: 12, color: '#374151' }}>
+                    <span style={{ color: '#6b7280' }}>PDx submitted:</span> <code>{c.pdx_submitted || '—'}</code>
+                    {' '}<span style={{ color: '#6b7280' }}>· AK:</span> <code>{c.pdx_answer_key || '—'}</code>
+                    {' '}{c.pdx_correct === true ? <span style={{ color: '#059669' }}>✓</span> : c.pdx_correct === false ? <span style={{ color: '#dc2626' }}>✗</span> : null}
+                  </div>
+                  {c.feedback?.length > 0 && (
+                    <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      {c.feedback.map((fb: any, j: number) => (
+                        <div key={j} style={{ fontSize: 11, color: '#6b7280' }}>
+                          • [{fb.section}] {fb.issue} — submitted: <code>{fb.coder_code || '—'}</code> | expected: <code>{fb.ak_code || '—'}</code>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {c.coder_notes && (
+                    <div style={{ marginTop: 6, fontSize: 12, color: '#6b7280', fontStyle: 'italic' }}>Notes: {c.coder_notes}</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

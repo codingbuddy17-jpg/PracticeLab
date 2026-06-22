@@ -13,6 +13,8 @@ import { AssessmentHome } from './pages/assessment/AssessmentHome'
 import { ChartManagementHome } from './pages/ChartManagementHome'
 import { TakeAssessmentEntry } from './pages/TakeAssessmentEntry'
 import { TakeAssessmentSession } from './pages/TakeAssessmentSession'
+import { PracticeEntry } from './pages/PracticeEntry'
+import { PracticeSession } from './pages/PracticeSession'
 
 export default function App() {
   return (
@@ -32,6 +34,8 @@ export default function App() {
         <Route path="/trainer/chart-management" element={<ChartManagementHome />} />
         <Route path="/take-assessment" element={<TakeAssessmentEntry />} />
         <Route path="/take-assessment/:token" element={<TakeAssessmentSession />} />
+        <Route path="/practice" element={<PracticeEntry />} />
+        <Route path="/practice/:token" element={<PracticeSession />} />
       </Routes>
     </BrowserRouter>
   )

@@ -347,6 +347,55 @@ def _run_migrations():
         finally:
             _seed_db.close()
 
+    # ── in-browser practice sessions ─────────────────────────────────────────
+    _run("""CREATE TABLE IF NOT EXISTS practice_sessions (
+        id INTEGER PRIMARY KEY,
+        batch_id INTEGER REFERENCES batches(id),
+        cycle_id INTEGER REFERENCES batch_allocation_cycles(id),
+        coder_name VARCHAR(100) NOT NULL,
+        specialty VARCHAR(50) NOT NULL,
+        token VARCHAR(20) NOT NULL UNIQUE,
+        chart_ids TEXT NOT NULL DEFAULT '[]',
+        show_results_to_coder BOOLEAN NOT NULL DEFAULT FALSE,
+        status VARCHAR(20) NOT NULL DEFAULT 'pending',
+        submitted_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )""")
+
+    _run("""CREATE TABLE IF NOT EXISTS practice_chart_drafts (
+        id INTEGER PRIMARY KEY,
+        session_id INTEGER REFERENCES practice_sessions(id) NOT NULL,
+        chart_id INTEGER REFERENCES charts(id) NOT NULL,
+        pdx_code VARCHAR(20),
+        pdx_poa VARCHAR(5),
+        sdx TEXT DEFAULT '[]',
+        pcs TEXT DEFAULT '[]',
+        cpt TEXT DEFAULT '[]',
+        flagged BOOLEAN DEFAULT FALSE,
+        coder_notes TEXT,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )""")
+
+    _run("""CREATE TABLE IF NOT EXISTS practice_results (
+        id INTEGER PRIMARY KEY,
+        session_id INTEGER REFERENCES practice_sessions(id) NOT NULL,
+        chart_id INTEGER REFERENCES charts(id) NOT NULL,
+        specialty VARCHAR(50),
+        total_score INTEGER,
+        pass_fail VARCHAR(10),
+        drg_flag BOOLEAN DEFAULT FALSE,
+        feedback TEXT DEFAULT '[]',
+        pdx_submitted VARCHAR(20),
+        pdx_answer_key VARCHAR(20),
+        pdx_correct BOOLEAN,
+        sdx_submitted TEXT DEFAULT '[]',
+        sdx_answer_key TEXT DEFAULT '[]',
+        pcs_submitted TEXT DEFAULT '[]',
+        pcs_answer_key TEXT DEFAULT '[]',
+        cpt_submitted TEXT DEFAULT '[]',
+        cpt_answer_key TEXT DEFAULT '[]'
+    )""")
+
     # ── P2: backfill orphan batch_charts into synthetic legacy cycles ─────────
     _backfill_legacy_cycles()
 
