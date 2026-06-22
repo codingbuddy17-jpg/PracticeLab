@@ -275,7 +275,7 @@ export function PracticeSession() {
               <div key={c.chart_id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10 }}>
                 {st === 'complete' ? <CheckCircle size={16} color="#059669" /> : st === 'partial' ? <AlertTriangle size={16} color="#f59e0b" /> : <Circle size={16} color="#d1d5db" />}
                 <span style={{ fontWeight: 600, fontSize: 14 }}>{c.chart_number}</span>
-                <span style={{ fontSize: 13, color: '#6b7280', flex: 1 }}>{c.description}</span>
+                <span style={{ fontSize: 13, color: '#6b7280', flex: 1 }}>{c.description ? c.description.replace(/<[^>]*>/g, '') : ''}</span>
                 {fl && <Flag size={13} color="#f59e0b" />}
                 {st === 'empty' && <span style={{ fontSize: 12, color: '#9ca3af' }}>Not started</span>}
                 {st === 'partial' && <span style={{ fontSize: 12, color: '#f59e0b' }}>Missing POA</span>}
@@ -425,7 +425,7 @@ function CodeEntryForm({ chart, entry, ip, ed, onChange, onSave, saving, saveMsg
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20 }}>
         <div>
           <div style={{ fontSize: 18, fontWeight: 800, color: '#111' }}>{chart.chart_number}</div>
-          <div style={{ fontSize: 13, color: '#6b7280', marginTop: 2 }}>{chart.description}</div>
+          {chart.description && <div style={{ fontSize: 13, color: '#6b7280', marginTop: 2 }} dangerouslySetInnerHTML={{ __html: chart.description }} />}
           <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
             <Chip label={chart.specialty} />
             {chart.category && <Chip label={chart.category} />}
