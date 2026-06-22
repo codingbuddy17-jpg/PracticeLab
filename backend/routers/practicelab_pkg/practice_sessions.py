@@ -175,13 +175,16 @@ def get_practice_session(token: str, db: Session = Depends(get_db)):
     from sqlalchemy import text
     import json
 
-    sess = db.execute(text(
-        "SELECT id, batch_id, coder_name, specialty, chart_ids, "
-        "show_results_to_coder, status FROM practice_sessions WHERE token=:t"
-    ), {"t": token}).fetchone()
+    try:
+        sess = db.execute(text(
+            "SELECT id, batch_id, coder_name, specialty, chart_ids, "
+            "show_results_to_coder, status FROM practice_sessions WHERE token=:t"
+        ), {"t": token}).fetchone()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Session lookup failed: {type(exc).__name__}: {exc}")
 
     if not sess:
-        raise HTTPException(status_code=404, detail="Invalid or expired practice token")
+        raise HTTPException(status_code=404, detail="Practice session not found — check your access code")
 
     sess_id, batch_id, coder_name, specialty, chart_ids_raw, show_results, status = sess
 
@@ -197,51 +200,53 @@ def get_practice_session(token: str, db: Session = Depends(get_db)):
         return {"session_id": sess_id, "status": "submitted", "show_results": False,
                 "coder_name": coder_name, "specialty": specialty}
 
-    chart_ids = json.loads(chart_ids_raw) if isinstance(chart_ids_raw, str) else chart_ids_raw
+    try:
+        chart_ids = json.loads(chart_ids_raw) if isinstance(chart_ids_raw, str) else chart_ids_raw
 
-    # Load chart details
-    charts = []
-    for cid in chart_ids:
-        chart = db.query(Chart).filter(Chart.id == cid).first()
-        if chart:
-            charts.append({
-                "chart_id": chart.id,
-                "chart_number": chart.chart_number,
-                "description": chart.description or "",
-                "specialty": chart.specialty.value if chart.specialty else specialty,
-                "category": chart.category or "",
-                "difficulty": chart.difficulty.value if chart.difficulty else "",
-            })
+        # Load chart details
+        charts = []
+        for cid in chart_ids:
+            chart = db.query(Chart).filter(Chart.id == cid).first()
+            if chart:
+                charts.append({
+                    "chart_id": chart.id,
+                    "chart_number": chart.chart_number,
+                    "description": chart.description or "",
+                    "specialty": chart.specialty.value if chart.specialty else specialty,
+                    "category": chart.category or "",
+                    "difficulty": chart.difficulty.value if chart.difficulty else "",
+                })
 
-    # Load any saved drafts for this session
-    drafts = db.execute(text(
-        "SELECT chart_id, pdx_code, pdx_poa, sdx, pcs, cpt, "
-        "ed_review, ed_research, ed_resolution, ed_rationale, flagged, coder_notes "
-        "FROM practice_chart_drafts WHERE session_id=:s"
-    ), {"s": sess_id}).fetchall()
+        # Load any saved drafts for this session
+        drafts = db.execute(text(
+            "SELECT chart_id, pdx_code, pdx_poa, sdx, pcs, cpt, "
+            "ed_review, ed_research, ed_resolution, ed_rationale, flagged, coder_notes "
+            "FROM practice_chart_drafts WHERE session_id=:s"
+        ), {"s": sess_id}).fetchall()
 
-    draft_map = {}
-    for d in drafts:
-        import json as _json
-        draft_map[d[0]] = {
-            "pdx_code": d[1], "pdx_poa": d[2],
-            "sdx": _json.loads(d[3]) if isinstance(d[3], str) else (d[3] or []),
-            "pcs": _json.loads(d[4]) if isinstance(d[4], str) else (d[4] or []),
-            "cpt": _json.loads(d[5]) if isinstance(d[5], str) else (d[5] or []),
-            "ed_review": d[6], "ed_research": d[7],
-            "ed_resolution": d[8], "ed_rationale": d[9],
-            "flagged": bool(d[10]), "coder_notes": d[11],
+        draft_map = {}
+        for d in drafts:
+            draft_map[d[0]] = {
+                "pdx_code": d[1], "pdx_poa": d[2],
+                "sdx": json.loads(d[3]) if isinstance(d[3], str) else (d[3] or []),
+                "pcs": json.loads(d[4]) if isinstance(d[4], str) else (d[4] or []),
+                "cpt": json.loads(d[5]) if isinstance(d[5], str) else (d[5] or []),
+                "ed_review": d[6], "ed_research": d[7],
+                "ed_resolution": d[8], "ed_rationale": d[9],
+                "flagged": bool(d[10]), "coder_notes": d[11],
+            }
+
+        return {
+            "session_id": sess_id,
+            "coder_name": coder_name,
+            "specialty": specialty,
+            "status": status,
+            "show_results": bool(show_results),
+            "charts": charts,
+            "drafts": draft_map,
         }
-
-    return {
-        "session_id": sess_id,
-        "coder_name": coder_name,
-        "specialty": specialty,
-        "status": status,
-        "show_results": bool(show_results),
-        "charts": charts,
-        "drafts": draft_map,
-    }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Session load failed: {type(exc).__name__}: {exc}")
 
 
 # ── Coder-facing: save draft (auto-save) ──────────────────────────────────────

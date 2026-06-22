@@ -18,8 +18,11 @@ export function PracticeEntry() {
       await api.get(`/practicelab/practice-sessions/by-token/${t}`)
       navigate(`/practice/${t}`)
     } catch (e: unknown) {
-      const err = e as { response?: { data?: { detail?: string }; status?: number } }
-      setError(err?.response?.data?.detail || 'Access code not found. Check your code and try again.')
+      const err = e as { response?: { data?: { detail?: string }; status?: number }; message?: string }
+      const detail = err?.response?.data?.detail
+      const status = err?.response?.status
+      setError(detail || (status ? `Error ${status} — try again` : err?.message || 'Access code not found. Check your code and try again.'))
+      console.error('Practice session lookup error:', err?.response?.data, err?.message)
     } finally { setLoading(false) }
   }
 
