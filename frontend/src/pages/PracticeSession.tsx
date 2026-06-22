@@ -425,10 +425,7 @@ function CodeEntryForm({ chart, entry, ip, ed, onChange, onSave, saving, saveMsg
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20 }}>
         <div>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
-            <div style={{ fontSize: 18, fontWeight: 800, color: '#111' }}>{chart.chart_number}</div>
-            {chart.alias && <div style={{ fontSize: 15, fontWeight: 600, color: '#374151' }}>{chart.alias}</div>}
-          </div>
+          <div style={{ fontSize: 18, fontWeight: 800, color: '#111' }}>{chart.chart_number}</div>
           {chart.description && <div style={{ fontSize: 13, color: '#6b7280', marginTop: 2 }} dangerouslySetInnerHTML={{ __html: chart.description }} />}
           <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
             <Chip label={chart.specialty} />
