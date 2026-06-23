@@ -344,13 +344,13 @@ export function CoderHome() {
 
           {/* Right: quick access buttons */}
           <div style={styles.quickAccess}>
-            <button style={styles.practiceBtn} onClick={() => navigate('/practice')}
+            <button style={styles.practiceBtn} onClick={() => window.open('/practice', '_blank')}
               onMouseEnter={e => { e.currentTarget.style.background = '#047857'; e.currentTarget.style.boxShadow = '0 4px 14px rgba(5,150,105,0.35)' }}
               onMouseLeave={e => { e.currentTarget.style.background = '#059669'; e.currentTarget.style.boxShadow = '0 2px 8px rgba(5,150,105,0.22)' }}>
               <Monitor size={15} style={{ flexShrink: 0 }} />
               <span style={styles.quickBtnTitle}>Start Practice Session</span>
             </button>
-            <button style={styles.assessmentBtn} onClick={() => navigate('/take-assessment')}
+            <button style={styles.assessmentBtn} onClick={() => window.open('/take-assessment', '_blank')}
               onMouseEnter={e => { e.currentTarget.style.background = '#6d28d9'; e.currentTarget.style.boxShadow = '0 4px 14px rgba(124,58,237,0.35)' }}
               onMouseLeave={e => { e.currentTarget.style.background = '#7c3aed'; e.currentTarget.style.boxShadow = '0 2px 8px rgba(124,58,237,0.22)' }}>
               <ClipboardList size={15} style={{ flexShrink: 0 }} />
