@@ -364,22 +364,21 @@ def _get_direct_assignment_results(batch_id: int, batch, db):
     from sqlalchemy import text as _text
     is_ip = _is_ip(batch.specialty)
 
+    import json as _json
     rows = db.execute(_text("""
-        SELECT ps.coder_name, pr.chart_id, pr.chart_number, pr.specialty,
-               pr.pdx_score, pr.sdx_score, pr.pcs_score, pr.cpt_score, pr.drg_score,
-               pr.total_score, pr.pass_fail, pr.drg_flag, pr.drg_reviewed, pr.feedback_items,
-               pr.dpo_dx_accuracy, pr.dpo_poa_accuracy, pr.dpo_proc_accuracy, pr.dpo_overall_accuracy
+        SELECT ps.coder_name, pr.chart_id, c.chart_number, c.category, pr.specialty,
+               pr.total_score, pr.pass_fail, pr.drg_flag, pr.drg_reviewed, pr.feedback
         FROM practice_results pr
         JOIN practice_sessions ps ON pr.session_id = ps.id
+        JOIN charts c ON c.id = pr.chart_id
         WHERE ps.batch_id = :b AND pr.total_score IS NOT NULL
-        ORDER BY ps.coder_name, pr.chart_number
+        ORDER BY ps.coder_name, c.chart_number
     """), {"b": batch_id}).fetchall()
 
     coder_map: dict[str, dict] = {}
     for r in rows:
-        (cname, chart_id, chart_num, spec, pdx_s, sdx_s, pcs_s, cpt_s, drg_s,
-         total_s, pf, drg_flag, drg_rev, fb_items,
-         dpo_dx, dpo_poa, dpo_proc, dpo_overall) = r
+        cname, chart_id, chart_num, category, spec = r[0], r[1], r[2], r[3], r[4]
+        total_s, pf, drg_flag, drg_rev, fb_raw = r[5], r[6], r[7], r[8], r[9]
 
         if cname not in coder_map:
             coder_map[cname] = {
@@ -395,28 +394,26 @@ def _get_direct_assignment_results(batch_id: int, batch, db):
         if pf_str == "PASS":
             d["pass_count"] += 1
 
-        feedback = []
-        for fb in (fb_items or []):
-            feedback.append({
-                "section": fb.get("section", ""),
-                "issue_type": fb.get("issue", fb.get("issue_type", "")),
-                "ak_code": fb.get("ak_code", ""),
-                "coder_code": fb.get("coder_code", ""),
-                "detail": fb.get("detail", ""),
-            })
+        fb_items = _json.loads(fb_raw) if isinstance(fb_raw, str) else (fb_raw or [])
+        feedback = [{
+            "section": fb.get("section", ""),
+            "issue_type": fb.get("issue", fb.get("issue_type", "")),
+            "ak_code": fb.get("ak_code", ""),
+            "coder_code": fb.get("coder_code", ""),
+            "detail": fb.get("detail", ""),
+        } for fb in fb_items]
 
+        spec_str = spec.value if hasattr(spec, "value") else str(spec) if spec else None
         d["charts"].append({
-            "chart_number": chart_num,
-            "category": None,
-            "specialty": spec.value if hasattr(spec, "value") else str(spec) if spec else None,
-            "pdx_score": pdx_s, "sdx_score": sdx_s, "pcs_score": pcs_s,
-            "cpt_score": cpt_s, "drg_score": drg_s, "total_score": total_s,
-            "pass_fail": pf_str,
+            "chart_number": chart_num, "category": category, "specialty": spec_str,
+            "total_score": total_s, "pass_fail": pf_str,
             "drg_flag": bool(drg_flag) if drg_flag is not None else False,
             "drg_reviewed": bool(drg_rev) if drg_rev is not None else False,
             "drg_reviewed_by": None, "drg_reviewed_at": None,
-            "dpo_dx_accuracy": dpo_dx, "dpo_poa_accuracy": dpo_poa,
-            "dpo_proc_accuracy": dpo_proc, "dpo_overall_accuracy": dpo_overall,
+            "pdx_score": None, "sdx_score": None, "pcs_score": None,
+            "cpt_score": None, "drg_score": None,
+            "dpo_dx_accuracy": None, "dpo_poa_accuracy": None,
+            "dpo_proc_accuracy": None, "dpo_overall_accuracy": None,
             "feedback": feedback,
         })
 
@@ -684,12 +681,13 @@ def get_batch_insights(batch_id: int, db: Session = Depends(get_db)):
 
     # Direct assignments store results in practice_results
     if batch.is_direct_assignment:
+        import json as _json
         raw = db.execute(_text("""
-            SELECT pr.total_score, pr.pass_fail, pr.chart_number, pr.feedback_items,
+            SELECT pr.total_score, pr.pass_fail, c.chart_number, pr.feedback,
                    c.category
             FROM practice_results pr
             JOIN practice_sessions ps ON pr.session_id = ps.id
-            LEFT JOIN charts c ON c.id = pr.chart_id
+            JOIN charts c ON c.id = pr.chart_id
             WHERE ps.batch_id = :b AND pr.total_score IS NOT NULL
         """), {"b": batch_id}).fetchall()
         if not raw:
@@ -705,7 +703,8 @@ def get_batch_insights(batch_id: int, db: Session = Depends(get_db)):
             r.feedback = []
             r._chart_number = row[2]
             r._category = row[4]
-            for fb in (row[3] or []):
+            fb_list = _json.loads(row[3]) if isinstance(row[3], str) else (row[3] or [])
+            for fb in fb_list:
                 f = _R()
                 f.issue_type = type("IT", (), {"value": fb.get("issue", fb.get("issue_type", "Unknown"))})()
                 f.section = type("S", (), {"value": fb.get("section", "Unknown")})()
