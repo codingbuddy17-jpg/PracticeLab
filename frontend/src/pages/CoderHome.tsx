@@ -149,25 +149,16 @@ export function CoderHome() {
         {/* Quick access buttons */}
         <div style={styles.quickAccess}>
           <button style={styles.practiceBtn} onClick={() => navigate('/practice')}
-            onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 8px 28px rgba(79,70,229,0.35)' }}
-            onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(79,70,229,0.25)' }}>
-            <div style={styles.quickBtnIcon}><Stethoscope size={22} /></div>
-            <div>
-              <div style={styles.quickBtnTitle}>Start Practice Session</div>
-              <div style={styles.quickBtnSub}>Enter your practice token to begin</div>
-            </div>
-            <div style={styles.quickBtnArrow}>→</div>
+            onMouseEnter={e => { e.currentTarget.style.background = '#4338ca'; e.currentTarget.style.boxShadow = '0 4px 12px rgba(79,70,229,0.35)' }}
+            onMouseLeave={e => { e.currentTarget.style.background = '#4f46e5'; e.currentTarget.style.boxShadow = '0 2px 6px rgba(79,70,229,0.2)' }}>
+            <Stethoscope size={14} />
+            Start Practice Session
           </button>
-
           <button style={styles.assessmentBtn} onClick={() => navigate('/take-assessment')}
-            onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 8px 28px rgba(5,150,105,0.35)' }}
-            onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(5,150,105,0.25)' }}>
-            <div style={styles.quickBtnIconGreen}><ClipboardList size={22} /></div>
-            <div>
-              <div style={styles.quickBtnTitle}>Take Assessment</div>
-              <div style={styles.quickBtnSub}>Enter your session token to begin</div>
-            </div>
-            <div style={styles.quickBtnArrow}>→</div>
+            onMouseEnter={e => { e.currentTarget.style.background = '#047857'; e.currentTarget.style.boxShadow = '0 4px 12px rgba(5,150,105,0.35)' }}
+            onMouseLeave={e => { e.currentTarget.style.background = '#059669'; e.currentTarget.style.boxShadow = '0 2px 6px rgba(5,150,105,0.2)' }}>
+            <ClipboardList size={14} />
+            Take Assessment
           </button>
         </div>
 
@@ -420,14 +411,9 @@ const styles: Record<string, React.CSSProperties> = {
   emptyTitle: { fontSize: 16, fontWeight: 700, color: '#6b7280' },
   emptySub: { fontSize: 13, color: '#9ca3af', maxWidth: 380, lineHeight: 1.7 },
   skeletonRow: { height: 48, borderBottom: '1px solid #f3f4f6', background: 'linear-gradient(90deg, #f9fafb 25%, #f3f4f6 50%, #f9fafb 75%)', backgroundSize: '200% 100%', animation: 'shimmer 1.4s infinite' },
-  quickAccess: { display: 'flex', gap: 14, marginBottom: 20, flexWrap: 'wrap' as const },
-  practiceBtn: { flex: 1, minWidth: 240, display: 'flex', alignItems: 'center', gap: 14, padding: '18px 22px', background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)', color: '#fff', border: 'none', borderRadius: 14, cursor: 'pointer', textAlign: 'left' as const, boxShadow: '0 4px 16px rgba(79,70,229,0.25)', transition: 'transform 0.15s, box-shadow 0.15s' },
-  assessmentBtn: { flex: 1, minWidth: 240, display: 'flex', alignItems: 'center', gap: 14, padding: '18px 22px', background: 'linear-gradient(135deg, #059669 0%, #0891b2 100%)', color: '#fff', border: 'none', borderRadius: 14, cursor: 'pointer', textAlign: 'left' as const, boxShadow: '0 4px 16px rgba(5,150,105,0.25)', transition: 'transform 0.15s, box-shadow 0.15s' },
-  quickBtnIcon: { background: 'rgba(255,255,255,0.2)', borderRadius: 10, padding: 10, display: 'flex', flexShrink: 0 },
-  quickBtnIconGreen: { background: 'rgba(255,255,255,0.2)', borderRadius: 10, padding: 10, display: 'flex', flexShrink: 0 },
-  quickBtnTitle: { fontWeight: 800, fontSize: 15, letterSpacing: -0.3, marginBottom: 3 },
-  quickBtnSub: { fontSize: 12, opacity: 0.8, fontWeight: 400 },
-  quickBtnArrow: { marginLeft: 'auto', fontSize: 20, opacity: 0.6, flexShrink: 0 },
+  quickAccess: { display: 'flex', gap: 8, justifyContent: 'flex-end', marginBottom: 14 },
+  practiceBtn: { display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: '#4f46e5', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600, boxShadow: '0 2px 6px rgba(79,70,229,0.2)', transition: 'background 0.15s, box-shadow 0.15s', whiteSpace: 'nowrap' as const },
+  assessmentBtn: { display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: '#059669', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600, boxShadow: '0 2px 6px rgba(5,150,105,0.2)', transition: 'background 0.15s, box-shadow 0.15s', whiteSpace: 'nowrap' as const },
   nameOverlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999, backdropFilter: 'blur(4px)' },
   nameBox: { background: '#fff', borderRadius: 14, padding: '36px 32px', maxWidth: 400, width: '90%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, textAlign: 'center', boxShadow: '0 20px 40px rgba(0,0,0,0.2)' },
   nameLogoWrap: { background: '#ede9fe', borderRadius: '50%', padding: 14, display: 'flex' },
