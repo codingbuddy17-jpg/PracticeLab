@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Search, BookOpen, Clock, X, ArrowUpDown, Pencil, ExternalLink, Stethoscope, ClipboardList } from 'lucide-react'
+import { Search, BookOpen, Clock, X, ArrowUpDown, Pencil, ExternalLink, Monitor, ClipboardList } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { searchCharts, getCategories, getResources } from '../api'
@@ -142,22 +142,9 @@ export function CoderHome() {
       </div>
 
       <div style={styles.main}>
-
-        {/* Quick access buttons */}
-        <div style={styles.quickAccess}>
-          <button style={styles.practiceBtn} onClick={() => navigate('/practice')}
-            onMouseEnter={e => { e.currentTarget.style.background = '#4338ca'; e.currentTarget.style.boxShadow = '0 4px 12px rgba(79,70,229,0.35)' }}
-            onMouseLeave={e => { e.currentTarget.style.background = '#4f46e5'; e.currentTarget.style.boxShadow = '0 2px 6px rgba(79,70,229,0.2)' }}>
-            <Stethoscope size={14} />
-            Start Practice Session
-          </button>
-          <button style={styles.assessmentBtn} onClick={() => navigate('/take-assessment')}
-            onMouseEnter={e => { e.currentTarget.style.background = '#047857'; e.currentTarget.style.boxShadow = '0 4px 12px rgba(5,150,105,0.35)' }}
-            onMouseLeave={e => { e.currentTarget.style.background = '#059669'; e.currentTarget.style.boxShadow = '0 2px 6px rgba(5,150,105,0.2)' }}>
-            <ClipboardList size={14} />
-            Take Assessment
-          </button>
-        </div>
+        <div style={styles.contentRow}>
+          {/* Left: everything */}
+          <div style={{ flex: 1, minWidth: 0 }}>
 
         {/* Search section */}
         <div style={styles.searchSection}>
@@ -353,6 +340,31 @@ export function CoderHome() {
           )
         })()}
 
+          </div>{/* end left */}
+
+          {/* Right: quick access buttons */}
+          <div style={styles.quickAccess}>
+            <button style={styles.practiceBtn} onClick={() => navigate('/practice')}
+              onMouseEnter={e => { e.currentTarget.style.background = '#047857'; e.currentTarget.style.boxShadow = '0 4px 14px rgba(5,150,105,0.35)' }}
+              onMouseLeave={e => { e.currentTarget.style.background = '#059669'; e.currentTarget.style.boxShadow = '0 2px 8px rgba(5,150,105,0.22)' }}>
+              <Monitor size={15} />
+              <div>
+                <div style={styles.quickBtnTitle}>Start Practice Session</div>
+                <div style={styles.quickBtnSub}>Enter practice token</div>
+              </div>
+            </button>
+            <button style={styles.assessmentBtn} onClick={() => navigate('/take-assessment')}
+              onMouseEnter={e => { e.currentTarget.style.background = '#6d28d9'; e.currentTarget.style.boxShadow = '0 4px 14px rgba(124,58,237,0.35)' }}
+              onMouseLeave={e => { e.currentTarget.style.background = '#7c3aed'; e.currentTarget.style.boxShadow = '0 2px 8px rgba(124,58,237,0.22)' }}>
+              <ClipboardList size={15} />
+              <div>
+                <div style={styles.quickBtnTitle}>Take Assessment</div>
+                <div style={styles.quickBtnSub}>Enter session token</div>
+              </div>
+            </button>
+          </div>
+
+        </div>{/* end contentRow */}
       </div>
 
       {selectedChart && (
@@ -374,7 +386,13 @@ const styles: Record<string, React.CSSProperties> = {
   coderChip: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#374151', background: '#f3f4f6', padding: '5px 12px', borderRadius: 20, fontWeight: 500 },
   coderDot: { width: 7, height: 7, borderRadius: '50%', background: '#22c55e' },
   selfPracticeBtn: { display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: '#4f46e5', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 700 },
-  main: { maxWidth: 960, margin: '0 auto', padding: '24px 24px 60px' },
+  main: { maxWidth: 1080, margin: '0 auto', padding: '24px 24px 60px' },
+  contentRow: { display: 'flex', gap: 20, alignItems: 'flex-start' },
+  quickAccess: { display: 'flex', flexDirection: 'column' as const, gap: 10, paddingTop: 0, flexShrink: 0, width: 160 },
+  practiceBtn: { display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', background: '#059669', color: '#fff', border: 'none', borderRadius: 10, cursor: 'pointer', textAlign: 'left' as const, boxShadow: '0 2px 8px rgba(5,150,105,0.22)', transition: 'background 0.15s, box-shadow 0.15s', width: '100%' },
+  assessmentBtn: { display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 10, cursor: 'pointer', textAlign: 'left' as const, boxShadow: '0 2px 8px rgba(124,58,237,0.22)', transition: 'background 0.15s, box-shadow 0.15s', width: '100%' },
+  quickBtnTitle: { fontWeight: 700, fontSize: 12, lineHeight: 1.3 },
+  quickBtnSub: { fontSize: 10, opacity: 0.75, marginTop: 2 },
   searchSection: { background: 'rgba(255,255,255,0.62)', backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)', border: '1px solid rgba(255,255,255,0.5)', borderRadius: 14, padding: 20, marginBottom: 20, boxShadow: '0 4px 24px rgba(0,0,0,0.07)' },
   searchRow: { display: 'flex', gap: 10, marginBottom: 14 },
   searchWrap: { flex: 1, position: 'relative', display: 'flex', alignItems: 'center' },
@@ -408,9 +426,6 @@ const styles: Record<string, React.CSSProperties> = {
   emptyTitle: { fontSize: 16, fontWeight: 700, color: '#6b7280' },
   emptySub: { fontSize: 13, color: '#9ca3af', maxWidth: 380, lineHeight: 1.7 },
   skeletonRow: { height: 48, borderBottom: '1px solid #f3f4f6', background: 'linear-gradient(90deg, #f9fafb 25%, #f3f4f6 50%, #f9fafb 75%)', backgroundSize: '200% 100%', animation: 'shimmer 1.4s infinite' },
-  quickAccess: { display: 'flex', gap: 8, justifyContent: 'flex-end', marginBottom: 14 },
-  practiceBtn: { display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: '#4f46e5', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600, boxShadow: '0 2px 6px rgba(79,70,229,0.2)', transition: 'background 0.15s, box-shadow 0.15s', whiteSpace: 'nowrap' as const },
-  assessmentBtn: { display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: '#059669', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600, boxShadow: '0 2px 6px rgba(5,150,105,0.2)', transition: 'background 0.15s, box-shadow 0.15s', whiteSpace: 'nowrap' as const },
   nameOverlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999, backdropFilter: 'blur(4px)' },
   nameBox: { background: '#fff', borderRadius: 14, padding: '36px 32px', maxWidth: 400, width: '90%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, textAlign: 'center', boxShadow: '0 20px 40px rgba(0,0,0,0.2)' },
   nameLogoWrap: { background: '#ede9fe', borderRadius: '50%', padding: 14, display: 'flex' },
