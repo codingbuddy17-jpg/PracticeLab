@@ -347,20 +347,14 @@ export function CoderHome() {
             <button style={styles.practiceBtn} onClick={() => navigate('/practice')}
               onMouseEnter={e => { e.currentTarget.style.background = '#047857'; e.currentTarget.style.boxShadow = '0 4px 14px rgba(5,150,105,0.35)' }}
               onMouseLeave={e => { e.currentTarget.style.background = '#059669'; e.currentTarget.style.boxShadow = '0 2px 8px rgba(5,150,105,0.22)' }}>
-              <Monitor size={15} />
-              <div>
-                <div style={styles.quickBtnTitle}>Start Practice Session</div>
-                <div style={styles.quickBtnSub}>Enter practice token</div>
-              </div>
+              <Monitor size={15} style={{ flexShrink: 0 }} />
+              <span style={styles.quickBtnTitle}>Start Practice Session</span>
             </button>
             <button style={styles.assessmentBtn} onClick={() => navigate('/take-assessment')}
               onMouseEnter={e => { e.currentTarget.style.background = '#6d28d9'; e.currentTarget.style.boxShadow = '0 4px 14px rgba(124,58,237,0.35)' }}
               onMouseLeave={e => { e.currentTarget.style.background = '#7c3aed'; e.currentTarget.style.boxShadow = '0 2px 8px rgba(124,58,237,0.22)' }}>
-              <ClipboardList size={15} />
-              <div>
-                <div style={styles.quickBtnTitle}>Take Assessment</div>
-                <div style={styles.quickBtnSub}>Enter session token</div>
-              </div>
+              <ClipboardList size={15} style={{ flexShrink: 0 }} />
+              <span style={styles.quickBtnTitle}>Take Assessment</span>
             </button>
           </div>
 
@@ -389,10 +383,9 @@ const styles: Record<string, React.CSSProperties> = {
   main: { maxWidth: 1080, margin: '0 auto', padding: '24px 24px 60px' },
   contentRow: { display: 'flex', gap: 20, alignItems: 'flex-start' },
   quickAccess: { display: 'flex', flexDirection: 'column' as const, gap: 10, paddingTop: 0, flexShrink: 0, width: 160 },
-  practiceBtn: { display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', background: '#059669', color: '#fff', border: 'none', borderRadius: 10, cursor: 'pointer', textAlign: 'left' as const, boxShadow: '0 2px 8px rgba(5,150,105,0.22)', transition: 'background 0.15s, box-shadow 0.15s', width: '100%' },
-  assessmentBtn: { display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 10, cursor: 'pointer', textAlign: 'left' as const, boxShadow: '0 2px 8px rgba(124,58,237,0.22)', transition: 'background 0.15s, box-shadow 0.15s', width: '100%' },
-  quickBtnTitle: { fontWeight: 700, fontSize: 12, lineHeight: 1.3 },
-  quickBtnSub: { fontSize: 10, opacity: 0.75, marginTop: 2 },
+  practiceBtn: { display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', background: '#059669', color: '#fff', border: 'none', borderRadius: 10, cursor: 'pointer', textAlign: 'left' as const, boxShadow: '0 2px 8px rgba(5,150,105,0.22)', transition: 'background 0.15s, box-shadow 0.15s', width: '100%', minHeight: 48 },
+  assessmentBtn: { display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 10, cursor: 'pointer', textAlign: 'left' as const, boxShadow: '0 2px 8px rgba(124,58,237,0.22)', transition: 'background 0.15s, box-shadow 0.15s', width: '100%', minHeight: 48 },
+  quickBtnTitle: { fontWeight: 700, fontSize: 12, lineHeight: 1.4 },
   searchSection: { background: 'rgba(255,255,255,0.62)', backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)', border: '1px solid rgba(255,255,255,0.5)', borderRadius: 14, padding: 20, marginBottom: 20, boxShadow: '0 4px 24px rgba(0,0,0,0.07)' },
   searchRow: { display: 'flex', gap: 10, marginBottom: 14 },
   searchWrap: { flex: 1, position: 'relative', display: 'flex', alignItems: 'center' },
