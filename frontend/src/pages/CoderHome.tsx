@@ -139,9 +139,6 @@ export function CoderHome() {
             {coderName}
           </div>
         )}
-        <button style={styles.selfPracticeBtn} onClick={() => navigate('/self-practice')}>
-          <Pencil size={14} /> Self Practice
-        </button>
       </div>
 
       <div style={styles.main}>
