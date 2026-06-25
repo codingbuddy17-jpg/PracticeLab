@@ -47,10 +47,14 @@ export function TrainerCharts() {
 
   const totalPages = Math.ceil(total / PAGE_SIZE)
 
-  const startEdit = (c: Chart) => {
+  const startEdit = async (c: Chart) => {
     setEditing(c)
     setEditForm({ category: c.category, difficulty: c.difficulty, rationale: '' })
     setActor(trainerName)
+    try {
+      const full = await getChartTrainer(c.id)
+      setEditForm(f => ({ ...f, rationale: full.rationale || '' }))
+    } catch { /* leave rationale blank, user can still edit */ }
   }
 
   const saveEdit = async () => {
