@@ -1,13 +1,42 @@
 import { useState } from 'react'
-import { FileCheck, Search, X } from 'lucide-react'
+import { FileCheck, Search, X, ChevronDown, ChevronRight } from 'lucide-react'
 import { SPECIALTY_COLORS } from '../../theme'
 import styles from './styles'
 
 type StatusFilter = 'open' | 'closed' | 'all'
 
+// ── Date grouping ─────────────────────────────────────────────────────────────
+function getGroup(dateStr: string): string {
+  if (!dateStr) return 'Older'
+  const d    = new Date(dateStr)
+  const now  = new Date()
+  const diff = Math.floor((now.getTime() - d.getTime()) / 86400000)
+  const dow  = now.getDay()                    // 0 = Sun
+  const startOfWeek = diff - (dow === 0 ? 6 : dow - 1) // Monday-based
+  if (diff <= startOfWeek + 6 && diff >= startOfWeek) return 'This Week'
+  if (diff <= startOfWeek + 13)                         return 'Last Week'
+  const startOfMonth = now.getDate() - 1
+  if (diff <= startOfMonth)                             return 'This Month'
+  return 'Older'
+}
+
+const GROUP_ORDER = ['This Week', 'Last Week', 'This Month', 'Older']
+
+function groupBatches(list: any[]) {
+  const map: Record<string, any[]> = {}
+  for (const b of list) {
+    const g = getGroup(b.created_at)
+    if (!map[g]) map[g] = []
+    map[g].push(b)
+  }
+  return GROUP_ORDER.filter(g => map[g]?.length).map(g => ({ label: g, items: map[g] }))
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
 export function HomeView({ batches, directAssignments, overview, loading, onOpen, statusColor, onCreateBatch, onCreateDirect }: any) {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('open')
-  const [search, setSearch] = useState('')
+  const [search, setSearch]             = useState('')
+  const [collapsed, setCollapsed]       = useState<Record<string, boolean>>({})
 
   if (loading) return (
     <div style={styles.center}>
@@ -30,15 +59,20 @@ export function HomeView({ batches, directAssignments, overview, loading, onOpen
     return out
   }
 
-  const openCount  = batches.filter((b: any) => b.status === 'Open').length
-  const closedCount = batches.filter((b: any) => b.status !== 'Open').length
-  const filteredBatches = filterList(batches)
-  const filteredDirect  = filterList(directAssignments ?? [])
+  function toggleGroup(label: string) {
+    setCollapsed(prev => ({ ...prev, [label]: !prev[label] }))
+  }
 
-  const tabs: { key: StatusFilter; label: string; count: number }[] = [
-    { key: 'open',   label: 'Open',   count: openCount },
-    { key: 'closed', label: 'Closed', count: closedCount },
-    { key: 'all',    label: 'All',    count: batches.length },
+  const openCount   = batches.filter((b: any) => b.status === 'Open').length
+  const closedCount = batches.filter((b: any) => b.status !== 'Open').length
+  const filtered    = filterList(batches)
+  const groups      = groupBatches(filtered)
+  const filteredDA  = filterList(directAssignments ?? [])
+
+  const TAB_CFG: { key: StatusFilter; label: string; count: number; color: string; activeBg: string; activeBorder: string }[] = [
+    { key: 'open',   label: 'Open',   count: openCount,        color: '#1d4ed8', activeBg: '#eff6ff', activeBorder: '#3b82f6' },
+    { key: 'closed', label: 'Closed', count: closedCount,      color: '#15803d', activeBg: '#f0fdf4', activeBorder: '#22c55e' },
+    { key: 'all',    label: 'All',    count: batches.length,   color: '#374151', activeBg: '#f8fafc', activeBorder: '#94a3b8' },
   ]
 
   return (
@@ -47,10 +81,10 @@ export function HomeView({ batches, directAssignments, overview, loading, onOpen
       {overview && overview.total_batches > 0 && (
         <div style={styles.statsRow}>
           {[
-            { label: 'Total Batches',    value: overview.total_batches },
-            { label: 'Open',             value: overview.open_batches ?? openCount, color: '#2563eb' },
-            { label: 'Closed',           value: overview.complete_batches ?? closedCount, color: '#16a34a' },
-            { label: 'Total Graded',     value: overview.total_graded },
+            { label: 'Total Batches',     value: overview.total_batches },
+            { label: 'Open',              value: overview.open_batches ?? openCount,    color: '#2563eb' },
+            { label: 'Closed',            value: overview.complete_batches ?? closedCount, color: '#16a34a' },
+            { label: 'Total Graded',      value: overview.total_graded },
             { label: 'Overall Pass Rate', value: `${overview.overall_pass_rate}%`,
               color: overview.overall_pass_rate >= 80 ? '#16a34a' : overview.overall_pass_rate >= 60 ? '#d97706' : '#dc2626' },
           ].map(s => (
@@ -62,55 +96,67 @@ export function HomeView({ batches, directAssignments, overview, loading, onOpen
         </div>
       )}
 
-      {/* ── Filter bar: status tabs + search ── */}
+      {/* ── Filter bar ── */}
       {batches.length > 0 && (
         <div style={s.filterBar}>
-          {/* Status tabs */}
-          <div style={s.statusTabs}>
-            {tabs.map(t => (
-              <button
-                key={t.key}
-                style={{ ...s.statusTab, ...(statusFilter === t.key ? s.statusTabActive : {}) }}
-                onClick={() => setStatusFilter(t.key)}
-              >
-                {t.label}
-                <span style={{ ...s.countBadge, ...(statusFilter === t.key ? s.countBadgeActive : {}) }}>
-                  {t.count}
-                </span>
-              </button>
-            ))}
+          {/* Coloured status tabs */}
+          <div style={s.tabGroup}>
+            {TAB_CFG.map(t => {
+              const active = statusFilter === t.key
+              return (
+                <button
+                  key={t.key}
+                  onClick={() => setStatusFilter(t.key)}
+                  style={{
+                    ...s.tab,
+                    ...(active ? {
+                      background: t.activeBg,
+                      border: `1.5px solid ${t.activeBorder}`,
+                      color: t.color,
+                    } : {}),
+                  }}
+                >
+                  {t.label}
+                  <span style={{
+                    ...s.badge,
+                    background: active ? t.color : '#e5e7eb',
+                    color: active ? '#fff' : '#6b7280',
+                  }}>
+                    {t.count}
+                  </span>
+                </button>
+              )
+            })}
           </div>
 
           {/* Search */}
           <div style={s.searchWrap}>
-            <Search size={14} color="#9ca3af" style={{ flexShrink: 0 }} />
+            <Search size={13} color="#9ca3af" style={{ flexShrink: 0 }} />
             <input
               style={s.searchInput}
-              placeholder="Search by name, specialty, creator…"
+              placeholder="Search name, specialty, creator…"
               value={search}
               onChange={e => setSearch(e.target.value)}
             />
             {search && (
-              <button style={s.clearBtn} onClick={() => setSearch('')}>
-                <X size={13} />
-              </button>
+              <button style={s.clearBtn} onClick={() => setSearch('')}><X size={12} /></button>
             )}
           </div>
         </div>
       )}
 
-      {/* ── Batch list ── */}
+      {/* ── Batch groups ── */}
       {batches.length === 0 ? (
         <div style={styles.empty}>
-          <FileCheck size={40} color="#d1d5db" />
-          <p style={{ color: '#6b7280', marginBottom: 4 }}>No batches yet.</p>
-          <p style={{ fontSize: 13, color: '#9ca3af', marginBottom: 16 }}>
-            Start by uploading answer keys for your charts, then create a batch to assign them to coders.
+          <FileCheck size={36} color="#d1d5db" />
+          <p style={{ color: '#6b7280', marginBottom: 4, fontSize: 14 }}>No batches yet.</p>
+          <p style={{ fontSize: 12, color: '#9ca3af', marginBottom: 16 }}>
+            Upload answer keys for your charts, then create a batch to assign them to coders.
           </p>
           <button style={styles.primaryBtn} onClick={onCreateBatch}>Create your first batch</button>
         </div>
-      ) : filteredBatches.length === 0 ? (
-        <div style={{ ...styles.empty, padding: '32px 0' }}>
+      ) : groups.length === 0 ? (
+        <div style={{ ...styles.empty, padding: '28px 0' }}>
           <p style={{ color: '#9ca3af', fontSize: 13 }}>
             {search ? `No batches match "${search}"` : `No ${statusFilter} batches.`}
           </p>
@@ -121,17 +167,40 @@ export function HomeView({ batches, directAssignments, overview, loading, onOpen
           )}
         </div>
       ) : (
-        <div style={styles.batchList}>
-          {filteredBatches.map((b: any) => (
-            <BatchRow key={b.id} b={b} onOpen={onOpen} statusColor={statusColor} />
-          ))}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {groups.map(({ label, items }) => {
+            const isCollapsed = collapsed[label]
+            return (
+              <div key={label}>
+                {/* Group header */}
+                <button style={s.groupHeader} onClick={() => toggleGroup(label)}>
+                  {isCollapsed
+                    ? <ChevronRight size={14} color="#9ca3af" />
+                    : <ChevronDown size={14} color="#9ca3af" />
+                  }
+                  <span style={s.groupLabel}>{label}</span>
+                  <span style={s.groupCount}>{items.length}</span>
+                  <span style={s.groupLine} />
+                </button>
+
+                {/* Group rows */}
+                {!isCollapsed && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 4 }}>
+                    {items.map((b: any) => (
+                      <BatchRow key={b.id} b={b} onOpen={onOpen} statusColor={statusColor} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </div>
       )}
 
       {/* ── Direct Assignments ── */}
       {((directAssignments?.length > 0) || onCreateDirect) && (
         <>
-          <div style={{ ...styles.sectionHeader, marginTop: 32 }}>
+          <div style={{ ...styles.sectionHeader, marginTop: 28 }}>
             <span style={styles.sectionTitle}>Direct Assignments</span>
             {onCreateDirect && (
               <button
@@ -145,16 +214,15 @@ export function HomeView({ batches, directAssignments, overview, loading, onOpen
 
           {!directAssignments?.length ? (
             <div style={{ fontSize: 12, color: '#9ca3af', padding: '8px 4px 4px' }}>
-              No direct assignments yet — use this for one-off chart assignments to specific coder(s) without a full batch workflow.
+              No direct assignments yet — use this for one-off chart assignments without a full batch workflow.
             </div>
-          ) : filteredDirect.length === 0 ? (
+          ) : filteredDA.length === 0 ? (
             <div style={{ fontSize: 13, color: '#9ca3af', padding: '12px 4px' }}>
-              No {statusFilter !== 'all' ? statusFilter : ''} direct assignments
-              {search ? ` matching "${search}"` : ''}.
+              No {statusFilter !== 'all' ? statusFilter + ' ' : ''}direct assignments{search ? ` matching "${search}"` : ''}.
             </div>
           ) : (
-            <div style={styles.batchList}>
-              {filteredDirect.map((b: any) => (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {filteredDA.map((b: any) => (
                 <BatchRow key={b.id} b={b} onOpen={onOpen} statusColor={statusColor} />
               ))}
             </div>
@@ -165,126 +233,132 @@ export function HomeView({ batches, directAssignments, overview, loading, onOpen
   )
 }
 
+// ── Compact batch row ─────────────────────────────────────────────────────────
 function BatchRow({ b, onOpen, statusColor }: any) {
-  const sc = SPECIALTY_COLORS[b.specialty as keyof typeof SPECIALTY_COLORS]
+  const sc     = SPECIALTY_COLORS[b.specialty as keyof typeof SPECIALTY_COLORS]
   const isOpen = b.status === 'Open'
 
   let hint = ''
   if (isOpen) {
-    if ((b.allocation_cycles ?? 0) === 0) hint = 'Run first cycle →'
+    if ((b.allocation_cycles ?? 0) === 0) hint = 'Run first cycle'
     else if (b.days_open != null && b.days_open > 0) hint = 'Awaiting submissions'
   }
 
   return (
-    <div className="pl-batch-row" style={styles.batchRow} onClick={() => onOpen(b.id)}>
-      <div style={{ ...styles.batchAccent, background: sc?.bg || '#6b7280' }} />
-      <div style={styles.batchInfo}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={styles.batchName}>{b.name}</div>
-          {hint && (
-            <span style={{ fontSize: 11, fontWeight: 700, color: '#4f46e5', background: '#eef2ff', padding: '2px 8px', borderRadius: 10 }}>
-              {hint}
-            </span>
-          )}
+    <div
+      className="pl-batch-row"
+      style={s.row}
+      onClick={() => onOpen(b.id)}
+    >
+      {/* Left accent */}
+      <div style={{ ...s.accent, background: sc?.bg || '#94a3b8' }} />
+
+      {/* Main info */}
+      <div style={s.info}>
+        <div style={s.nameRow}>
+          <span style={s.name}>{b.name}</span>
+          {hint && <span style={s.hint}>{hint}</span>}
         </div>
-        <div style={styles.batchMeta}>
-          <span style={{ ...styles.badge, background: sc?.light || '#f3f4f6', color: sc?.bg || '#374151' }}>{b.specialty}</span>
-          <span style={styles.metaText}>{b.coder_count} coder{b.coder_count !== 1 ? 's' : ''}</span>
-          <span style={styles.metaText}>{b.allocation_cycles ?? 0} cycle{b.allocation_cycles !== 1 ? 's' : ''}</span>
+        <div style={s.meta}>
+          <span style={{ ...s.specialtyBadge, background: sc?.light || '#f1f5f9', color: sc?.bg || '#475569' }}>
+            {b.specialty}
+          </span>
+          <span style={s.dot}>·</span>
+          <span style={s.metaItem}>{b.coder_count} coder{b.coder_count !== 1 ? 's' : ''}</span>
+          <span style={s.dot}>·</span>
+          <span style={s.metaItem}>{b.allocation_cycles ?? 0} cycle{b.allocation_cycles !== 1 ? 's' : ''}</span>
           {b.days_open != null && (
-            <span style={{ ...styles.metaText, color: b.days_open > 14 ? '#d97706' : '#6b7280' }}>
-              open {b.days_open}d
-            </span>
+            <>
+              <span style={s.dot}>·</span>
+              <span style={{ ...s.metaItem, color: b.days_open > 14 ? '#d97706' : '#9ca3af' }}>
+                {b.days_open}d open
+              </span>
+            </>
           )}
-          <span style={styles.metaText}>by {b.created_by}</span>
-          {b.force_closed && (
-            <span style={{ ...styles.metaText, color: '#dc2626', fontWeight: 700 }}>force-closed</span>
-          )}
+          <span style={s.dot}>·</span>
+          <span style={s.metaItem}>{b.created_by}</span>
+          {b.force_closed && <><span style={s.dot}>·</span><span style={{ ...s.metaItem, color: '#dc2626', fontWeight: 700 }}>force-closed</span></>}
         </div>
       </div>
-      <span style={{ ...styles.statusPill, color: statusColor(b.status), borderColor: statusColor(b.status) }}>
+
+      {/* Status pill */}
+      <span style={{
+        ...s.statusPill,
+        color: statusColor(b.status),
+        borderColor: statusColor(b.status),
+        background: b.status === 'Open' ? '#eff6ff' : '#f0fdf4',
+      }}>
         {b.status}
       </span>
     </div>
   )
 }
 
+// ── Styles ────────────────────────────────────────────────────────────────────
 const s: Record<string, React.CSSProperties> = {
-  filterBar: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 16,
-    marginBottom: 16,
-    flexWrap: 'wrap',
-  },
-  statusTabs: {
-    display: 'flex',
-    gap: 2,
-    background: '#f1f5f9',
-    borderRadius: 10,
-    padding: 3,
-  },
-  statusTab: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 6,
-    padding: '6px 14px',
-    borderRadius: 8,
-    border: 'none',
-    background: 'none',
-    cursor: 'pointer',
-    fontSize: 13,
-    fontWeight: 600,
-    color: '#6b7280',
+  // Filter bar
+  filterBar: { display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14, flexWrap: 'wrap' as const },
+  tabGroup:  { display: 'flex', gap: 6 },
+  tab: {
+    display: 'flex', alignItems: 'center', gap: 6,
+    padding: '5px 12px', borderRadius: 8,
+    border: '1.5px solid #e5e7eb', background: '#fff',
+    cursor: 'pointer', fontSize: 12, fontWeight: 600, color: '#6b7280',
     transition: 'all 0.15s',
   },
-  statusTabActive: {
-    background: '#fff',
-    color: '#111',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-  },
-  countBadge: {
-    fontSize: 11,
-    fontWeight: 700,
-    background: '#e2e8f0',
-    color: '#64748b',
-    padding: '1px 7px',
-    borderRadius: 20,
-    minWidth: 20,
-    textAlign: 'center' as const,
-  },
-  countBadgeActive: {
-    background: '#0f766e',
-    color: '#fff',
+  badge: {
+    fontSize: 10, fontWeight: 700, padding: '1px 6px',
+    borderRadius: 20, minWidth: 18, textAlign: 'center' as const,
+    transition: 'all 0.15s',
   },
   searchWrap: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    flex: 1,
-    minWidth: 200,
-    maxWidth: 340,
-    background: '#fff',
-    border: '1px solid #e5e7eb',
-    borderRadius: 8,
-    padding: '7px 12px',
+    display: 'flex', alignItems: 'center', gap: 7,
+    flex: 1, minWidth: 180, maxWidth: 300,
+    background: '#fff', border: '1px solid #e5e7eb',
+    borderRadius: 7, padding: '5px 10px',
   },
   searchInput: {
-    flex: 1,
-    border: 'none',
-    outline: 'none',
-    fontSize: 13,
-    color: '#111',
-    background: 'transparent',
+    flex: 1, border: 'none', outline: 'none',
+    fontSize: 12, color: '#111', background: 'transparent',
     fontFamily: 'system-ui, sans-serif',
   },
-  clearBtn: {
-    display: 'flex',
-    alignItems: 'center',
-    background: 'none',
-    border: 'none',
-    cursor: 'pointer',
-    color: '#9ca3af',
-    padding: 2,
+  clearBtn: { display: 'flex', alignItems: 'center', background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', padding: 1 },
+
+  // Group header
+  groupHeader: {
+    display: 'flex', alignItems: 'center', gap: 6,
+    width: '100%', background: 'none', border: 'none',
+    cursor: 'pointer', padding: '6px 2px', marginBottom: 4,
+    textAlign: 'left' as const,
+  },
+  groupLabel: { fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' as const, letterSpacing: 0.8 },
+  groupCount: { fontSize: 10, fontWeight: 700, color: '#9ca3af', background: '#f1f5f9', padding: '1px 6px', borderRadius: 10 },
+  groupLine:  { flex: 1, height: 1, background: '#f1f5f9' },
+
+  // Batch row — compact
+  row: {
+    display: 'flex', alignItems: 'center', gap: 0,
+    background: '#fff', border: '1px solid #f1f5f9',
+    borderRadius: 8, overflow: 'hidden', cursor: 'pointer',
+    transition: 'border-color 0.12s, box-shadow 0.12s',
+  },
+  accent: { width: 3, alignSelf: 'stretch', flexShrink: 0 },
+  info:   { flex: 1, padding: '10px 14px', display: 'flex', flexDirection: 'column' as const, gap: 3 },
+
+  nameRow: { display: 'flex', alignItems: 'center', gap: 8 },
+  name:    { fontWeight: 700, fontSize: 13, color: '#111', lineHeight: 1.3 },
+  hint:    { fontSize: 10, fontWeight: 700, color: '#4f46e5', background: '#eef2ff', padding: '1px 7px', borderRadius: 8 },
+
+  meta:    { display: 'flex', flexWrap: 'wrap' as const, alignItems: 'center', gap: 4 },
+  dot:     { fontSize: 10, color: '#d1d5db' },
+  metaItem:{ fontSize: 11, color: '#9ca3af' },
+  specialtyBadge: {
+    fontSize: 10, fontWeight: 700, padding: '1px 7px',
+    borderRadius: 10, display: 'inline-flex', alignItems: 'center',
+  },
+  statusPill: {
+    fontSize: 11, fontWeight: 700, padding: '3px 10px',
+    borderRadius: 20, border: '1px solid', marginRight: 12,
+    whiteSpace: 'nowrap' as const, flexShrink: 0,
   },
 }
