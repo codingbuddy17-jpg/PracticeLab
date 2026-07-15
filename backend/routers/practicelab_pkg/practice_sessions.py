@@ -1021,3 +1021,118 @@ def regrade_practice_session(session_id: int, db: Session = Depends(get_db)):
 
     db.commit()
     return {"regraded": regraded, "session_id": session_id}
+
+
+# ── E/M MDM analytics for a batch ────────────────────────────────────────────
+
+@router.get("/practice-sessions/batch/{batch_id}/em-breakdown")
+def batch_em_breakdown(batch_id: int, db: Session = Depends(get_db)):
+    """
+    Aggregate E/M MDM component scores for a batch.
+    Parses feedback JSON stored in practice_results for EM/ED Profee sessions.
+    Returns per-coder and team-level Coding Accuracy / Reasoning Accuracy breakdown.
+    """
+    from sqlalchemy import text
+    import json
+
+    rows = db.execute(text("""
+        SELECT ps.coder_name, pr.chart_id, c.chart_number,
+               pr.total_score, pr.pass_fail, pr.feedback
+        FROM practice_results pr
+        JOIN practice_sessions ps ON pr.session_id = ps.id
+        JOIN charts c ON c.id = pr.chart_id
+        WHERE ps.batch_id = :b
+          AND (pr.specialty IN ('E/M', 'ED Profee', 'ED_PROFEE'))
+          AND pr.total_score IS NOT NULL
+        ORDER BY ps.coder_name, c.chart_number
+    """), {"b": batch_id}).fetchall()
+
+    def _extract_pts(issue: str) -> float:
+        import re
+        m = re.search(r'([\d.]+)\s*\/?\s*[\d.]*\s*pts', issue)
+        return float(m.group(1)) if m else 0.0
+
+    def _extract_ak(issue: str) -> str:
+        """Extract AK level from reasoning feedback like 'COPA (Moderate) — X pts'"""
+        import re
+        m = re.search(r'\(([^)]+)\)', issue)
+        return m.group(1) if m else ""
+
+    coder_map: dict[str, dict] = {}
+    for coder_name, chart_id, chart_number, total_score, pass_fail, fb_raw in rows:
+        try:
+            fb = json.loads(fb_raw) if isinstance(fb_raw, str) else (fb_raw or [])
+        except Exception:
+            fb = []
+
+        ca_items = [f for f in fb if f.get("section") == "Coding Accuracy"]
+        ra_items = [f for f in fb if f.get("section") == "Reasoning Accuracy"]
+
+        ca_total = sum(_extract_pts(f["issue"]) for f in ca_items)
+        ra_total = sum(_extract_pts(f["issue"]) for f in ra_items)
+
+        copa_pts = _extract_pts(ra_items[0]["issue"]) if len(ra_items) > 0 else 0.0
+        dr_pts   = _extract_pts(ra_items[1]["issue"]) if len(ra_items) > 1 else 0.0
+        risk_pts = _extract_pts(ra_items[2]["issue"]) if len(ra_items) > 2 else 0.0
+
+        # Derive level matches from ak_code vs coder_code
+        copa_match = ra_items[0].get("ak_code") == ra_items[0].get("coder_code") and bool(ra_items[0].get("ak_code")) if ra_items else False
+        dr_match   = ra_items[1].get("ak_code") == ra_items[1].get("coder_code") and bool(ra_items[1].get("ak_code")) if len(ra_items) > 1 else False
+        risk_match = ra_items[2].get("ak_code") == ra_items[2].get("coder_code") and bool(ra_items[2].get("ak_code")) if len(ra_items) > 2 else False
+        em_level_match = ca_items[0].get("ak_code") == ca_items[0].get("coder_code") and bool(ca_items[0].get("ak_code")) if ca_items else False
+
+        # "Right level, wrong reasoning" = E/M code correct but RA < threshold
+        right_code_wrong_reasoning = em_level_match and ra_total < 15  # rough threshold: 50% of 30 pts
+
+        chart_entry = {
+            "chart_id": chart_id, "chart_number": chart_number,
+            "total_score": total_score, "pass_fail": pass_fail,
+            "coding_accuracy": round(ca_total, 1), "reasoning_accuracy": round(ra_total, 1),
+            "copa_pts": round(copa_pts, 1), "dr_pts": round(dr_pts, 1), "risk_pts": round(risk_pts, 1),
+            "copa_match": copa_match, "dr_match": dr_match, "risk_match": risk_match,
+            "em_level_match": em_level_match,
+            "right_code_wrong_reasoning": right_code_wrong_reasoning,
+        }
+        if coder_name not in coder_map:
+            coder_map[coder_name] = {"coder_name": coder_name, "charts": []}
+        coder_map[coder_name]["charts"].append(chart_entry)
+
+    # Build per-coder summaries
+    coder_summaries = []
+    for coder_name, data in coder_map.items():
+        charts = data["charts"]
+        n = len(charts)
+        coder_summaries.append({
+            "coder_name": coder_name,
+            "chart_count": n,
+            "avg_total": round(sum(c["total_score"] for c in charts) / n, 1),
+            "avg_coding_accuracy": round(sum(c["coding_accuracy"] for c in charts) / n, 1),
+            "avg_reasoning_accuracy": round(sum(c["reasoning_accuracy"] for c in charts) / n, 1),
+            "copa_pct": round(100 * sum(1 for c in charts if c["copa_match"]) / n, 1),
+            "dr_pct": round(100 * sum(1 for c in charts if c["dr_match"]) / n, 1),
+            "risk_pct": round(100 * sum(1 for c in charts if c["risk_match"]) / n, 1),
+            "em_level_pct": round(100 * sum(1 for c in charts if c["em_level_match"]) / n, 1),
+            "right_code_wrong_reasoning_count": sum(1 for c in charts if c["right_code_wrong_reasoning"]),
+            "pass_count": sum(1 for c in charts if c["pass_fail"] == "PASS"),
+        })
+
+    all_charts = [c for data in coder_map.values() for c in data["charts"]]
+    n_all = len(all_charts) or 1
+    team = {
+        "chart_count": n_all,
+        "avg_total": round(sum(c["total_score"] for c in all_charts) / n_all, 1),
+        "avg_coding_accuracy": round(sum(c["coding_accuracy"] for c in all_charts) / n_all, 1),
+        "avg_reasoning_accuracy": round(sum(c["reasoning_accuracy"] for c in all_charts) / n_all, 1),
+        "copa_pct": round(100 * sum(1 for c in all_charts if c["copa_match"]) / n_all, 1),
+        "dr_pct": round(100 * sum(1 for c in all_charts if c["dr_match"]) / n_all, 1),
+        "risk_pct": round(100 * sum(1 for c in all_charts if c["risk_match"]) / n_all, 1),
+        "em_level_pct": round(100 * sum(1 for c in all_charts if c["em_level_match"]) / n_all, 1),
+        "right_code_wrong_reasoning_count": sum(1 for c in all_charts if c["right_code_wrong_reasoning"]),
+        "pass_count": sum(1 for c in all_charts if c["pass_fail"] == "PASS"),
+    }
+
+    return {
+        "team": team,
+        "coders": sorted(coder_summaries, key=lambda x: x["avg_total"], reverse=True),
+        "has_data": len(all_charts) > 0,
+    }

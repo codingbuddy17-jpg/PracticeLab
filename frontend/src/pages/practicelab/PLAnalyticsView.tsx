@@ -9,6 +9,7 @@ import {
   getPLAnalyticsOverview, getPLAnalyticsBySpecialty, getPLAnalyticsByChart,
   getPLAnalyticsByBatch, getCoderTrend, getCoderSummary, downloadCoderReportPdf,
   getPLAnalyticsByCategory, getPLChartTeachingValue, getPLCoderMatrix, getPLChartDetail,
+  getBatchEMBreakdown,
   type PLFilters,
 } from '../../api'
 import { round1 } from './shared'
@@ -26,7 +27,7 @@ const TEACHING_LABEL_META: Record<string, { color: string; bg: string; desc: str
 const TAB_STORAGE_KEY = 'pl_analytics_tab'
 
 export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: number) => void } = {}) {
-  const [tab, setTab] = useState<'overview' | 'specialty' | 'chart' | 'batch' | 'coder' | 'category' | 'teaching' | 'matrix'>(
+  const [tab, setTab] = useState<'overview' | 'specialty' | 'chart' | 'batch' | 'coder' | 'category' | 'teaching' | 'matrix' | 'em_mdm'>(
     () => (localStorage.getItem(TAB_STORAGE_KEY) as any) || 'overview'
   )
 
@@ -50,6 +51,9 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
   const [filters, setFilters] = useState<PLFilters>({})
   const [ipThreshold, setIpThreshold] = useState(80)
   const [opThreshold, setOpThreshold] = useState(90)
+  const [emBatchId, setEmBatchId] = useState<number | null>(null)
+  const [emBreakdown, setEmBreakdown] = useState<any>(null)
+  const [emLoading, setEmLoading] = useState(false)
 
   // Score color derived from the active pass threshold
   function sc(v: number | null | undefined, specialty?: string): string {
@@ -115,6 +119,13 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
     if ((tab === 'matrix' || tab === 'coder') && !matrixData) getPLCoderMatrix(filters).then(setMatrixData).catch(() => {})
   }, [tab, filterVersion])
 
+  useEffect(() => {
+    if (tab === 'em_mdm' && emBatchId) {
+      setEmLoading(true)
+      getBatchEMBreakdown(emBatchId).then(setEmBreakdown).catch(() => {}).finally(() => setEmLoading(false))
+    }
+  }, [tab, emBatchId])
+
   async function loadCoderTrend() {
     if (!coderName.trim()) return
     const name = coderName.trim()
@@ -168,6 +179,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
     { key: 'teaching', label: 'Chart Value' },
     { key: 'matrix', label: 'Coder Matrix' },
     { key: 'chart', label: 'By Chart' },
+    { key: 'em_mdm', label: 'E/M MDM' },
   ]
 
   if (loading) return <div style={styles.center}><Loader size={24} /></div>
@@ -1014,6 +1026,123 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
           )}
         </div>
       )}
+      {/* E/M MDM tab */}
+      {tab === 'em_mdm' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {/* Batch selector — filter byBatch for E/M specialty */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' as const }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>Select E/M Batch:</span>
+            <select
+              style={{ ...styles.input, width: 320, fontSize: 13 }}
+              value={emBatchId ?? ''}
+              onChange={e => { setEmBatchId(e.target.value ? Number(e.target.value) : null); setEmBreakdown(null) }}
+            >
+              <option value="">— choose a batch —</option>
+              {byBatch.filter((b: any) => (b.specialty || '').toUpperCase().includes('E/M') || (b.specialty || '').toUpperCase().includes('ED PROFEE')).map((b: any) => (
+                <option key={b.batch_id || b.id} value={b.batch_id || b.id}>{b.batch_name || b.name} ({b.specialty})</option>
+              ))}
+            </select>
+            {emBatchId && (
+              <button onClick={() => { setEmLoading(true); getBatchEMBreakdown(emBatchId).then(setEmBreakdown).catch(() => {}).finally(() => setEmLoading(false)) }}
+                style={{ ...styles.outlineBtn, fontSize: 12 }}>Refresh</button>
+            )}
+          </div>
+
+          {!emBatchId && (
+            <div style={styles.emptyState}>Select an E/M or ED Profee batch above to see MDM component analytics.</div>
+          )}
+
+          {emBatchId && emLoading && <div style={styles.center}><Loader size={20} /></div>}
+
+          {emBatchId && !emLoading && emBreakdown && !emBreakdown.has_data && (
+            <div style={styles.emptyState}>No submitted E/M results found for this batch yet.</div>
+          )}
+
+          {emBatchId && !emLoading && emBreakdown?.has_data && (() => {
+            const t = emBreakdown.team
+            const componentData = [
+              { name: 'COPA', pct: t.copa_pct, fill: '#7c3aed' },
+              { name: 'Data Review', pct: t.dr_pct, fill: '#0891b2' },
+              { name: 'Risk', pct: t.risk_pct, fill: '#dc2626' },
+              { name: 'E/M Level', pct: t.em_level_pct, fill: '#059669' },
+            ]
+            return (
+              <>
+                {/* Team KPI tiles */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
+                  {[
+                    { label: 'Avg Total Score', value: `${t.avg_total}%`, color: t.avg_total >= 80 ? '#059669' : '#dc2626' },
+                    { label: 'Coding Accuracy', value: `${t.avg_coding_accuracy.toFixed(1)} pts`, color: '#7c3aed' },
+                    { label: 'Reasoning Accuracy', value: `${t.avg_reasoning_accuracy.toFixed(1)} pts`, color: '#0891b2' },
+                    { label: 'Right Code, Wrong Reasoning', value: `${t.right_code_wrong_reasoning_count}`, color: '#f59e0b', sub: 'charts' },
+                  ].map(tile => (
+                    <div key={tile.label} style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '14px 16px', textAlign: 'center' }}>
+                      <div style={{ fontSize: 22, fontWeight: 800, color: tile.color }}>{tile.value}</div>
+                      {tile.sub && <div style={{ fontSize: 11, color: '#9ca3af' }}>{tile.sub}</div>}
+                      <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>{tile.label}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* MDM Component accuracy bar chart */}
+                <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '16px 20px' }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: '#111', marginBottom: 16 }}>MDM Component Level Accuracy — % of charts where derived level matched answer key</div>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <BarChart data={componentData} margin={{ top: 0, right: 20, left: 0, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                      <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+                      <YAxis domain={[0, 100]} tickFormatter={v => `${v}%`} tick={{ fontSize: 11 }} width={40} />
+                      <Tooltip formatter={(v: any) => [`${v}%`, 'Match Rate']} />
+                      <Bar dataKey="pct" radius={[4, 4, 0, 0]}>
+                        {componentData.map((entry, i) => (
+                          <Cell key={i} fill={entry.fill} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+
+                {/* Per-coder table */}
+                <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden' }}>
+                  <div style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', fontSize: 14, fontWeight: 700, color: '#111' }}>Per-Coder MDM Breakdown</div>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ borderCollapse: 'collapse', fontSize: 12, width: '100%' }}>
+                      <thead>
+                        <tr style={{ background: '#f9fafb' }}>
+                          {['Coder', 'Charts', 'Total %', 'Coding Acc.', 'Reasoning Acc.', 'COPA Match', 'DR Match', 'Risk Match', 'E/M Level', 'RCWR'].map(h => (
+                            <th key={h} style={{ padding: '8px 10px', textAlign: h === 'Coder' ? 'left' : 'center', fontWeight: 700, color: '#374151', borderBottom: '2px solid #e5e7eb', whiteSpace: 'nowrap' as const, fontSize: 11 }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {emBreakdown.coders.map((c: any, i: number) => (
+                          <tr key={c.coder_name} style={{ background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
+                            <td style={{ padding: '7px 10px', fontWeight: 600, borderBottom: '1px solid #f3f4f6', whiteSpace: 'nowrap' as const }}>{c.coder_name}</td>
+                            <td style={{ padding: '7px 10px', textAlign: 'center', borderBottom: '1px solid #f3f4f6', color: '#6b7280' }}>{c.chart_count}</td>
+                            <td style={{ padding: '7px 10px', textAlign: 'center', borderBottom: '1px solid #f3f4f6', fontWeight: 700, color: c.avg_total >= 80 ? '#059669' : '#dc2626' }}>{c.avg_total}%</td>
+                            <td style={{ padding: '7px 10px', textAlign: 'center', borderBottom: '1px solid #f3f4f6', color: '#7c3aed', fontWeight: 600 }}>{c.avg_coding_accuracy.toFixed(1)}</td>
+                            <td style={{ padding: '7px 10px', textAlign: 'center', borderBottom: '1px solid #f3f4f6', color: '#0891b2', fontWeight: 600 }}>{c.avg_reasoning_accuracy.toFixed(1)}</td>
+                            {[c.copa_pct, c.dr_pct, c.risk_pct, c.em_level_pct].map((pct, j) => (
+                              <td key={j} style={{ padding: '7px 10px', textAlign: 'center', borderBottom: '1px solid #f3f4f6', fontWeight: 600, color: pct >= 80 ? '#059669' : pct >= 60 ? '#d97706' : '#dc2626' }}>{pct}%</td>
+                            ))}
+                            <td style={{ padding: '7px 10px', textAlign: 'center', borderBottom: '1px solid #f3f4f6', fontWeight: 700, color: c.right_code_wrong_reasoning_count > 0 ? '#f59e0b' : '#9ca3af' }}>
+                              {c.right_code_wrong_reasoning_count > 0 ? `⚠ ${c.right_code_wrong_reasoning_count}` : '—'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div style={{ padding: '8px 16px', fontSize: 11, color: '#9ca3af', borderTop: '1px solid #f3f4f6' }}>
+                    RCWR = Right Code, Wrong Reasoning (E/M level correct but reasoning accuracy &lt;50%) · Match % = derived MDM level matched answer key
+                  </div>
+                </div>
+              </>
+            )
+          })()}
+        </div>
+      )}
+
     </div>
   )
 }

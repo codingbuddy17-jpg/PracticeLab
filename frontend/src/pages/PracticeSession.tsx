@@ -998,6 +998,7 @@ function RiskChip({ label, field: _field, value, onChange, level }: { label: str
 
 interface ResultRow {
   chart_number: string
+  specialty?: string
   total_score: number | null
   pass_fail: string | null
   pdx_submitted: string | null
@@ -1009,8 +1010,85 @@ interface ResultRow {
 
 function _shapeResult(r: unknown): ResultRow { return r as ResultRow }
 
+// Parse E/M feedback into structured breakdown
+function parseEMFeedback(feedback: ResultRow['feedback']) {
+  const caItems = feedback.filter(f => f.section === 'Coding Accuracy')
+  const raItems = feedback.filter(f => f.section === 'Reasoning Accuracy')
+  const extractPts = (issue: string) => {
+    const m = issue.match(/([\d.]+)\s*\/?\s*[\d.]*\s*pts/)
+    return m ? parseFloat(m[1]) : null
+  }
+  return {
+    em_level: caItems[0] ? { pts: extractPts(caItems[0].issue), ak: caItems[0].ak_code, sub: caItems[0].coder_code } : null,
+    cpt:      caItems[1] ? { pts: extractPts(caItems[1].issue) } : null,
+    dx:       caItems[2] ? { pts: extractPts(caItems[2].issue) } : null,
+    copa:     raItems[0] ? { pts: extractPts(raItems[0].issue), ak: raItems[0].ak_code, sub: raItems[0].coder_code } : null,
+    dr:       raItems[1] ? { pts: extractPts(raItems[1].issue), ak: raItems[1].ak_code, sub: raItems[1].coder_code } : null,
+    risk:     raItems[2] ? { pts: extractPts(raItems[2].issue), ak: raItems[2].ak_code, sub: raItems[2].coder_code } : null,
+    ca_total: caItems.reduce((s, f) => s + (extractPts(f.issue) ?? 0), 0),
+    ra_total: raItems.reduce((s, f) => s + (extractPts(f.issue) ?? 0), 0),
+  }
+}
+
+function EMResultCard({ r }: { r: ResultRow }) {
+  const em = parseEMFeedback(r.feedback || [])
+  const levelMatch = em.em_level?.ak && em.em_level?.sub && em.em_level.ak === em.em_level.sub
+  return (
+    <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: '14px 18px' }}>
+      {/* Header row */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+        <span style={{ fontWeight: 700, fontSize: 14 }}>{r.chart_number}</span>
+        {r.total_score !== null && (
+          <span style={{ fontSize: 16, fontWeight: 800, color: (r.total_score ?? 0) >= 80 ? '#059669' : '#dc2626' }}>{r.total_score?.toFixed(1)}%</span>
+        )}
+        <span style={{ fontSize: 12, fontWeight: 700, padding: '2px 10px', borderRadius: 6, background: r.pass_fail === 'PASS' ? '#d1fae5' : '#fee2e2', color: r.pass_fail === 'PASS' ? '#059669' : '#dc2626' }}>{r.pass_fail || '—'}</span>
+        {r.flagged && <Flag size={13} color="#f59e0b" />}
+      </div>
+      {/* Two-panel accuracy breakdown */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+        {/* Coding Accuracy */}
+        <div style={{ background: '#f5f3ff', border: '1px solid #ddd6fe', borderRadius: 8, padding: '10px 12px' }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#5b21b6', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            Coding Accuracy — {em.ca_total.toFixed(1)} pts
+          </div>
+          <EMScoreLine label="E/M Level" pts={em.em_level?.pts} ak={em.em_level?.ak} sub={em.em_level?.sub} isMatch={levelMatch === null ? null : !!levelMatch} />
+          <EMScoreLine label="CPT" pts={em.cpt?.pts} />
+          <EMScoreLine label="Dx Coding" pts={em.dx?.pts} />
+        </div>
+        {/* Reasoning Accuracy */}
+        <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '10px 12px' }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#065f46', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            Reasoning Accuracy — {em.ra_total.toFixed(1)} pts
+          </div>
+          <EMScoreLine label="COPA" pts={em.copa?.pts} ak={em.copa?.ak} sub={em.copa?.sub} isMatch={em.copa?.ak === em.copa?.sub && !!em.copa?.ak} />
+          <EMScoreLine label="Data Review" pts={em.dr?.pts} ak={em.dr?.ak} sub={em.dr?.sub} isMatch={em.dr?.ak === em.dr?.sub && !!em.dr?.ak} />
+          <EMScoreLine label="Risk" pts={em.risk?.pts} ak={em.risk?.ak} sub={em.risk?.sub} isMatch={em.risk?.ak === em.risk?.sub && !!em.risk?.ak} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function EMScoreLine({ label, pts, ak, sub, isMatch }: { label: string; pts: number | null | undefined; ak?: string; sub?: string; isMatch?: boolean | null }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
+      {isMatch !== undefined && isMatch !== null && (
+        <span style={{ fontSize: 12, flexShrink: 0 }}>{isMatch ? '✓' : '✗'}</span>
+      )}
+      <span style={{ fontSize: 12, color: '#374151', flex: 1 }}>{label}</span>
+      {pts !== null && pts !== undefined && (
+        <span style={{ fontSize: 12, fontWeight: 700, color: pts > 0 ? '#059669' : '#9ca3af' }}>{pts.toFixed(1)} pts</span>
+      )}
+      {ak && sub && ak !== sub && (
+        <span style={{ fontSize: 10, color: '#dc2626', marginLeft: 2 }}>({sub} ≠ {ak})</span>
+      )}
+    </div>
+  )
+}
+
 function ResultsView({ results, coderName }: { results: ReturnType<typeof _shapeResult>[]; coderName: string }) {
   const avg = results.filter(r => r.total_score !== null).reduce((a, r) => a + (r.total_score ?? 0), 0) / (results.filter(r => r.total_score !== null).length || 1)
+  const isEMSession = results.some(r => r.specialty && isEM(r.specialty))
   return (
     <div style={{ fontFamily: 'system-ui, sans-serif', maxWidth: 900, margin: '0 auto', padding: '32px 20px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
@@ -1021,25 +1099,28 @@ function ResultsView({ results, coderName }: { results: ReturnType<typeof _shape
         </div>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {results.map((r, i) => (
-          <div key={i} style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: '14px 18px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: r.feedback?.length ? 10 : 0 }}>
-              <span style={{ fontWeight: 700, fontSize: 14 }}>{r.chart_number}</span>
-              {r.total_score !== null && (
-                <span style={{ fontSize: 13, fontWeight: 700, color: (r.total_score ?? 0) >= 80 ? '#059669' : '#dc2626' }}>{r.total_score}%</span>
-              )}
-              <span style={{ fontSize: 12, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: r.pass_fail === 'PASS' ? '#d1fae5' : '#fee2e2', color: r.pass_fail === 'PASS' ? '#059669' : '#dc2626' }}>{r.pass_fail || '—'}</span>
-              {r.flagged && <Flag size={13} color="#f59e0b" />}
-            </div>
-            {r.feedback?.length > 0 && (
-              <div style={{ fontSize: 12, color: '#6b7280', display: 'flex', flexDirection: 'column', gap: 3 }}>
-                {r.feedback.map((fb, j) => (
-                  <div key={j}>• [{fb.section}] {fb.issue} — submitted: <code>{fb.coder_code || '—'}</code> | expected: <code>{fb.ak_code || '—'}</code></div>
-                ))}
+        {results.map((r, i) => {
+          if (isEMSession) return <EMResultCard key={i} r={r} />
+          return (
+            <div key={i} style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: '14px 18px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: r.feedback?.length ? 10 : 0 }}>
+                <span style={{ fontWeight: 700, fontSize: 14 }}>{r.chart_number}</span>
+                {r.total_score !== null && (
+                  <span style={{ fontSize: 13, fontWeight: 700, color: (r.total_score ?? 0) >= 80 ? '#059669' : '#dc2626' }}>{r.total_score}%</span>
+                )}
+                <span style={{ fontSize: 12, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: r.pass_fail === 'PASS' ? '#d1fae5' : '#fee2e2', color: r.pass_fail === 'PASS' ? '#059669' : '#dc2626' }}>{r.pass_fail || '—'}</span>
+                {r.flagged && <Flag size={13} color="#f59e0b" />}
               </div>
-            )}
-          </div>
-        ))}
+              {r.feedback?.length > 0 && (
+                <div style={{ fontSize: 12, color: '#6b7280', display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  {r.feedback.map((fb, j) => (
+                    <div key={j}>• [{fb.section}] {fb.issue} — submitted: <code>{fb.coder_code || '—'}</code> | expected: <code>{fb.ak_code || '—'}</code></div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        })}
       </div>
     </div>
   )

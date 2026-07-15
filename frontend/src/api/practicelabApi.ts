@@ -367,6 +367,25 @@ export function downloadEMAnswerKeyTemplate() {
   window.open(`${import.meta.env.VITE_API_URL || '/api'}/practicelab/em/answer-key/template`)
 }
 
+export async function getBatchEMBreakdown(batchId: number) {
+  const { data } = await api.get(`/practicelab/practice-sessions/batch/${batchId}/em-breakdown`)
+  return data as {
+    has_data: boolean
+    team: {
+      chart_count: number; avg_total: number
+      avg_coding_accuracy: number; avg_reasoning_accuracy: number
+      copa_pct: number; dr_pct: number; risk_pct: number; em_level_pct: number
+      right_code_wrong_reasoning_count: number; pass_count: number
+    }
+    coders: Array<{
+      coder_name: string; chart_count: number; avg_total: number
+      avg_coding_accuracy: number; avg_reasoning_accuracy: number
+      copa_pct: number; dr_pct: number; risk_pct: number; em_level_pct: number
+      right_code_wrong_reasoning_count: number; pass_count: number
+    }>
+  }
+}
+
 export async function standaloneGrade(trainerName: string, files: File[]) {
   const form = new FormData()
   form.append('trainer_name', trainerName)
