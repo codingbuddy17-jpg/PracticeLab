@@ -328,6 +328,20 @@ class EMScoringConfigPayload(BaseModel):
 
 # ── Answer key endpoints ──────────────────────────────────────────────────────
 
+@router.get("/em/answer-key/list")
+def list_em_answer_keys(db: Session = Depends(get_db)):
+    rows = db.execute(text("""
+        SELECT eak.chart_id, c.chart_number, c.category, c.specialty,
+               eak.em_code, eak.copa_level, eak.dr_level, eak.risk_level,
+               eak.entered_by, eak.entered_at,
+               eak.copa_level_overridden, eak.dr_level_overridden, eak.risk_level_overridden
+        FROM em_answer_keys eak
+        JOIN charts c ON c.id = eak.chart_id
+        ORDER BY c.chart_number
+    """)).mappings().fetchall()
+    return [dict(r) for r in rows]
+
+
 @router.get("/em/answer-key/{chart_id}")
 def get_em_answer_key(chart_id: int, db: Session = Depends(get_db)):
     row = db.execute(
@@ -458,20 +472,6 @@ def delete_em_answer_key(chart_id: int, passphrase: str, db: Session = Depends(g
     db.execute(text("DELETE FROM em_answer_keys WHERE chart_id = :c"), {"c": chart_id})
     db.commit()
     return {"status": "deleted"}
-
-
-@router.get("/em/answer-key/list")
-def list_em_answer_keys(db: Session = Depends(get_db)):
-    rows = db.execute(text("""
-        SELECT eak.chart_id, c.chart_number, c.category, c.specialty,
-               eak.em_code, eak.copa_level, eak.dr_level, eak.risk_level,
-               eak.entered_by, eak.entered_at,
-               eak.copa_level_overridden, eak.dr_level_overridden, eak.risk_level_overridden
-        FROM em_answer_keys eak
-        JOIN charts c ON c.id = eak.chart_id
-        ORDER BY c.chart_number
-    """)).mappings().fetchall()
-    return [dict(r) for r in rows]
 
 
 # ── Scoring config endpoints ──────────────────────────────────────────────────
