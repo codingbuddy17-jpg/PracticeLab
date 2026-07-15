@@ -12,7 +12,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Chart Viewer API", lifespan=lifespan)
+app = FastAPI(title="PracticeLab API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
