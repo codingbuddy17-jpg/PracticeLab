@@ -27,6 +27,45 @@ interface CodeEntry {
   ed_rationale: string
   flagged: boolean
   coder_notes: string
+  // E/M MDM fields
+  em_data?: {
+    // COPA counts
+    copa_self_limited: number
+    copa_stable_chronic: number
+    copa_stable_acute: number
+    copa_acute_uncomplicated: number
+    copa_chronic_exacerbation: number
+    copa_undiagnosed_new: number
+    copa_acute_systemic: number
+    copa_acute_complicated_injury: number
+    copa_threat_to_life: number
+    copa_chronic_severe: number
+    // Data Review
+    dr_prior_external_notes: number
+    dr_review_test_results: number
+    dr_order_tests: number
+    dr_independent_historian: boolean
+    dr_independent_interpretation: boolean
+    dr_external_discussion: boolean
+    // Risk booleans
+    risk_low: boolean
+    risk_prescription_drug_mgmt: boolean
+    risk_minor_surgery_with_factors: boolean
+    risk_elective_major_no_factors: boolean
+    risk_hospitalization: boolean
+    risk_sdoh: boolean
+    risk_drug_intensive_monitoring: boolean
+    risk_elective_major_with_factors: boolean
+    risk_emergency_major_surgery: boolean
+    risk_hospitalization_escalation: boolean
+    risk_dnr_deescalate: boolean
+    risk_parenteral_controlled: boolean
+    // E/M code + Dx + CPT
+    em_code: string
+    em_modifier: string
+    em_dx: Array<{ code: string }>
+    em_cpt: Array<{ code: string; modifier: string }>
+  }
 }
 
 interface SessionData {
@@ -48,6 +87,35 @@ const POA_OPTIONS = [
   { value: '1', label: '1 — Exempt from POA' },
 ]
 
+
+function isIP(specialty: string) {
+  return specialty.toUpperCase().startsWith('IP')
+}
+
+function isED(specialty: string) {
+  const sp = specialty.toUpperCase()
+  return sp.includes('EDIT') || sp.includes('DENIAL')
+}
+
+function isEM(specialty: string) {
+  const sp = specialty.toUpperCase()
+  return sp === 'E/M' || sp.includes('E/M') || sp === 'ED PROFEE' || sp.includes('ED_PROFEE') || sp.includes('ED PROFEE')
+}
+
+const EMPTY_EM_DATA = () => ({
+  copa_self_limited: 0, copa_stable_chronic: 0, copa_stable_acute: 0,
+  copa_acute_uncomplicated: 0, copa_chronic_exacerbation: 0, copa_undiagnosed_new: 0,
+  copa_acute_systemic: 0, copa_acute_complicated_injury: 0, copa_threat_to_life: 0, copa_chronic_severe: 0,
+  dr_prior_external_notes: 0, dr_review_test_results: 0, dr_order_tests: 0,
+  dr_independent_historian: false, dr_independent_interpretation: false, dr_external_discussion: false,
+  risk_low: false, risk_prescription_drug_mgmt: false, risk_minor_surgery_with_factors: false,
+  risk_elective_major_no_factors: false, risk_hospitalization: false, risk_sdoh: false,
+  risk_drug_intensive_monitoring: false, risk_elective_major_with_factors: false,
+  risk_emergency_major_surgery: false, risk_hospitalization_escalation: false,
+  risk_dnr_deescalate: false, risk_parenteral_controlled: false,
+  em_code: '', em_modifier: '', em_dx: [] as Array<{ code: string }>, em_cpt: [] as Array<{ code: string; modifier: string }>,
+})
+
 const EMPTY_ENTRY = (chart_id: number): CodeEntry => ({
   chart_id,
   pdx_code: '',
@@ -61,18 +129,17 @@ const EMPTY_ENTRY = (chart_id: number): CodeEntry => ({
   ed_rationale: '',
   flagged: false,
   coder_notes: '',
+  em_data: EMPTY_EM_DATA(),
 })
 
-function isIP(specialty: string) {
-  return specialty.toUpperCase().startsWith('IP')
-}
-
-function isED(specialty: string) {
-  const sp = specialty.toUpperCase()
-  return sp.includes('EDIT') || sp.includes('DENIAL')
-}
-
-function chartStatus(entry: CodeEntry, ip: boolean, ed: boolean): 'complete' | 'partial' | 'empty' {
+function chartStatus(entry: CodeEntry, ip: boolean, ed: boolean, em: boolean): 'complete' | 'partial' | 'empty' {
+  if (em) {
+    const d = entry.em_data
+    if (!d) return 'empty'
+    if (d.em_code) return 'complete'
+    const hasAny = d.em_dx.length > 0 || Object.values(d).some(v => typeof v === 'number' && v > 0) || Object.values(d).some(v => v === true)
+    return hasAny ? 'partial' : 'empty'
+  }
   if (ed) {
     const hasAny = entry.ed_review.trim() || entry.ed_research.trim() || entry.ed_resolution.trim() || entry.ed_rationale.trim()
     if (!hasAny) return 'empty'
@@ -126,7 +193,8 @@ export function PracticeSession() {
       // Hydrate entries from drafts
       const initial: Record<number, CodeEntry> = {}
       for (const chart of data.charts) {
-        const draft = data.drafts?.[chart.chart_id]
+        const draft = data.drafts?.[chart.chart_id] as any
+        const savedEm = draft?.em_data
         initial[chart.chart_id] = {
           chart_id: chart.chart_id,
           pdx_code: draft?.pdx_code || '',
@@ -134,12 +202,13 @@ export function PracticeSession() {
           sdx: draft?.sdx || [],
           pcs: draft?.pcs || [],
           cpt: draft?.cpt || [],
-          ed_review: (draft as any)?.ed_review || '',
-          ed_research: (draft as any)?.ed_research || '',
-          ed_resolution: (draft as any)?.ed_resolution || '',
-          ed_rationale: (draft as any)?.ed_rationale || '',
+          ed_review: draft?.ed_review || '',
+          ed_research: draft?.ed_research || '',
+          ed_resolution: draft?.ed_resolution || '',
+          ed_rationale: draft?.ed_rationale || '',
           flagged: draft?.flagged || false,
           coder_notes: draft?.coder_notes || '',
+          em_data: savedEm ? { ...EMPTY_EM_DATA(), ...savedEm } : EMPTY_EM_DATA(),
         }
       }
       setEntries(initial)
@@ -154,6 +223,7 @@ export function PracticeSession() {
 
   const ip = session ? isIP(session.specialty) : false
   const ed = session ? isED(session.specialty) : false
+  const em = session ? isEM(session.specialty) : false
   const activeEntry = activeChartId !== null ? entries[activeChartId] : null
 
   // ── Save draft ──────────────────────────────────────────────────────────────
@@ -184,7 +254,7 @@ export function PracticeSession() {
   // ── Validate before Save button ─────────────────────────────────────────────
   function validateAndSave() {
     if (!activeEntry || !activeChartId) return
-    if (!ed && !activeEntry.pdx_code.trim()) {
+    if (!ed && !em && !activeEntry.pdx_code.trim()) {
       showToast('Principal Diagnosis is required before saving this chart')
       return
     }
@@ -248,9 +318,9 @@ export function PracticeSession() {
   // ── Pre-submit review view ──────────────────────────────────────────────────
   if (view === 'review') {
     const charts = session.charts
-    const complete = charts.filter(c => chartStatus(entries[c.chart_id], ip, ed) === 'complete').length
-    const partial = charts.filter(c => chartStatus(entries[c.chart_id], ip, ed) === 'partial').length
-    const empty = charts.filter(c => chartStatus(entries[c.chart_id], ip, ed) === 'empty').length
+    const complete = charts.filter(c => chartStatus(entries[c.chart_id], ip, ed, em) === 'complete').length
+    const partial = charts.filter(c => chartStatus(entries[c.chart_id], ip, ed, em) === 'partial').length
+    const empty = charts.filter(c => chartStatus(entries[c.chart_id], ip, ed, em) === 'empty').length
     const flagged = charts.filter(c => entries[c.chart_id]?.flagged).length
 
     return (
@@ -268,7 +338,7 @@ export function PracticeSession() {
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 28 }}>
           {charts.map(c => {
-            const st = chartStatus(entries[c.chart_id], ip, ed)
+            const st = chartStatus(entries[c.chart_id], ip, ed, em)
             const fl = entries[c.chart_id]?.flagged
             return (
               <div key={c.chart_id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10 }}>
@@ -318,7 +388,7 @@ export function PracticeSession() {
           </div>
           <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2, marginLeft: 24 }}>{session.specialty}</div>
           {(() => {
-            const done = charts.filter(c => chartStatus(entries[c.chart_id], ip, ed) === 'complete').length
+            const done = charts.filter(c => chartStatus(entries[c.chart_id], ip, ed, em) === 'complete').length
             const total = charts.length
             const pct = total ? Math.round((done / total) * 100) : 0
             return (
@@ -337,7 +407,7 @@ export function PracticeSession() {
 
         <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
           {charts.map(c => {
-            const st = chartStatus(entries[c.chart_id], ip, ed)
+            const st = chartStatus(entries[c.chart_id], ip, ed, em)
             const fl = entries[c.chart_id]?.flagged
             const active = c.chart_id === activeChartId
             return (
@@ -380,6 +450,7 @@ export function PracticeSession() {
             entry={activeEntry}
             ip={ip}
             ed={ed}
+            em={em}
             onChange={patch => updateEntry(activeChartId, patch)}
             onSave={validateAndSave}
             saving={saving}
@@ -400,13 +471,22 @@ interface FormProps {
   entry: CodeEntry
   ip: boolean
   ed: boolean
+  em: boolean
   onChange: (patch: Partial<CodeEntry>) => void
   onSave: () => void
   saving: boolean
   saveMsg: string
 }
 
-function CodeEntryForm({ chart, entry, ip, ed, onChange, onSave, saving, saveMsg }: FormProps) {
+function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, saveMsg }: FormProps) {
+  const [emOpenSections, setEmOpenSections] = useState({ copa: true, dr: false, risk: false, dx: false, code: false })
+  function toggleSection(s: keyof typeof emOpenSections) {
+    setEmOpenSections(prev => ({ ...prev, [s]: !prev[s] }))
+  }
+  const emData = entry.em_data || EMPTY_EM_DATA()
+  function updateEM(patch: Partial<typeof emData>) {
+    onChange({ em_data: { ...emData, ...patch } })
+  }
   function updateSdx(idx: number, field: 'code' | 'poa', val: string) {
     const sdx = [...entry.sdx]
     sdx[idx] = { ...sdx[idx], [field]: val }
@@ -455,6 +535,201 @@ function CodeEntryForm({ chart, entry, ip, ed, onChange, onSave, saving, saveMsg
         </button>
       </div>
 
+      {/* ── E/M MDM form ── */}
+      {em && (<>
+        {/* Progress bar */}
+        <div style={{ display: 'flex', gap: 4, marginBottom: 20 }}>
+          {(['COPA', 'Data Review', 'Risk', 'Dx Coding', 'E/M & CPT'] as const).map((label, i) => {
+            const sectionKey = (['copa', 'dr', 'risk', 'dx', 'code'] as const)[i]
+            const active = emOpenSections[sectionKey]
+            return (
+              <button key={label} onClick={() => toggleSection(sectionKey)} style={{ flex: 1, padding: '6px 4px', fontSize: 11, fontWeight: 700, borderRadius: 6, border: 'none', cursor: 'pointer', background: active ? '#7c3aed' : '#e5e7eb', color: active ? '#fff' : '#6b7280', transition: 'all 0.15s' }}>
+                {label}
+              </button>
+            )
+          })}
+        </div>
+
+        {/* ── COPA ── */}
+        <EMAccordion title="COPA — Number & Complexity of Problems" open={emOpenSections.copa} onToggle={() => toggleSection('copa')} accent="#7c3aed">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            {([
+              { key: 'copa_self_limited', label: 'Self-limited / minor', level: 'Minimal', color: '#059669' },
+              { key: 'copa_stable_chronic', label: 'Stable, chronic illness', level: 'Low', color: '#0891b2' },
+              { key: 'copa_stable_acute', label: 'Stable, acute illness ★', level: 'Low', color: '#0891b2' },
+              { key: 'copa_acute_uncomplicated', label: 'Acute, uncomplicated illness/injury', level: 'Low', color: '#0891b2' },
+              { key: 'copa_chronic_exacerbation', label: 'Chronic illness with exacerbation', level: 'Moderate', color: '#d97706' },
+              { key: 'copa_undiagnosed_new', label: 'Undiagnosed new problem', level: 'Moderate', color: '#d97706' },
+              { key: 'copa_acute_systemic', label: 'Acute illness with systemic symptoms', level: 'Moderate', color: '#d97706' },
+              { key: 'copa_acute_complicated_injury', label: 'Acute, complicated injury', level: 'Moderate', color: '#d97706' },
+              { key: 'copa_chronic_severe', label: 'Chronic illness, severe exacerbation', level: 'High', color: '#dc2626' },
+              { key: 'copa_threat_to_life', label: 'Threat to life or bodily function', level: 'High', color: '#dc2626' },
+            ] as Array<{ key: keyof typeof emData; label: string; level: string; color: string }>).map(item => (
+              <div key={item.key} style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#111', lineHeight: 1.3 }}>{item.label}</div>
+                <span style={{ fontSize: 10, fontWeight: 700, color: item.color, background: `${item.color}15`, padding: '1px 6px', borderRadius: 4, alignSelf: 'flex-start' }}>{item.level}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                  <button onClick={() => updateEM({ [item.key]: Math.max(0, (emData[item.key] as number) - 1) })} style={{ width: 28, height: 28, borderRadius: 6, border: '1.5px solid #d1d5db', background: '#f9fafb', cursor: 'pointer', fontSize: 16, fontWeight: 700, color: '#374151', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
+                  <span style={{ width: 28, textAlign: 'center', fontWeight: 800, fontSize: 16, color: (emData[item.key] as number) > 0 ? '#7c3aed' : '#9ca3af' }}>{emData[item.key] as number}</span>
+                  <button onClick={() => updateEM({ [item.key]: (emData[item.key] as number) + 1 })} style={{ width: 28, height: 28, borderRadius: 6, border: '1.5px solid #7c3aed', background: '#f5f3ff', cursor: 'pointer', fontSize: 16, fontWeight: 700, color: '#7c3aed', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 8 }}>★ 2023 AMA addition · mark all that apply</div>
+        </EMAccordion>
+
+        {/* ── Data Review ── */}
+        <EMAccordion title="Data Review — Amount and/or Complexity" open={emOpenSections.dr} onToggle={() => toggleSection('dr')} accent="#0891b2">
+          <div style={{ border: '1px solid #bae6fd', borderRadius: 8, padding: 12, marginBottom: 10, background: '#f0f9ff' }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#0e7490', marginBottom: 8 }}>Category 1 — Tests, Documents, Orders</div>
+            {([
+              { key: 'dr_order_tests', label: 'Tests ordered' },
+              { key: 'dr_review_test_results', label: 'Test results reviewed' },
+              { key: 'dr_prior_external_notes', label: 'Prior external notes reviewed' },
+            ] as Array<{ key: keyof typeof emData; label: string }>).map(item => (
+              <div key={item.key} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                <button onClick={() => updateEM({ [item.key]: Math.max(0, (emData[item.key] as number) - 1) })} style={{ width: 24, height: 24, borderRadius: 5, border: '1.5px solid #bae6fd', background: '#fff', cursor: 'pointer', fontWeight: 700, color: '#0891b2' }}>−</button>
+                <span style={{ width: 24, textAlign: 'center', fontWeight: 800, color: (emData[item.key] as number) > 0 ? '#0891b2' : '#9ca3af' }}>{emData[item.key] as number}</span>
+                <button onClick={() => updateEM({ [item.key]: (emData[item.key] as number) + 1 })} style={{ width: 24, height: 24, borderRadius: 5, border: '1.5px solid #0891b2', background: '#e0f2fe', cursor: 'pointer', fontWeight: 700, color: '#0891b2' }}>+</button>
+                <span style={{ fontSize: 13, color: '#0e7490' }}>{item.label}</span>
+              </div>
+            ))}
+            <DrToggle label="Independent historian" value={emData.dr_independent_historian} onChange={v => updateEM({ dr_independent_historian: v })} color="#0891b2" />
+          </div>
+          <DrToggle label="Category 2 — Independent interpretation of test results" value={emData.dr_independent_interpretation} onChange={v => updateEM({ dr_independent_interpretation: v })} color="#7c3aed" />
+          <DrToggle label="Category 3 — Discussion with treating/consulting provider" value={emData.dr_external_discussion} onChange={v => updateEM({ dr_external_discussion: v })} color="#059669" />
+        </EMAccordion>
+
+        {/* ── Risk ── */}
+        <EMAccordion title="Risk — Risk of Complications, Morbidity, and/or Mortality" open={emOpenSections.risk} onToggle={() => toggleSection('risk')} accent="#dc2626">
+          <div style={{ marginBottom: 8 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#059669', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5 }}>Minimal Risk</div>
+            <RiskChip label="Minor/OTC medications only; lab tests; X-rays; limited ultrasound" field="risk_low" value={emData.risk_low} onChange={v => updateEM({ risk_low: v })} level="Minimal" />
+          </div>
+          <div style={{ marginBottom: 8 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#d97706', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5 }}>Moderate Risk</div>
+            {([
+              { field: 'risk_prescription_drug_mgmt', label: 'Prescription drug management' },
+              { field: 'risk_minor_surgery_with_factors', label: 'Minor surgery with identified risk factors' },
+              { field: 'risk_elective_major_no_factors', label: 'Elective major surgery without identified risk factors' },
+              { field: 'risk_hospitalization', label: 'Decision regarding hospitalization' },
+              { field: 'risk_sdoh', label: 'Social determinants of health (SDOH)' },
+            ] as Array<{ field: keyof typeof emData; label: string }>).map(item => (
+              <RiskChip key={item.field} label={item.label} field={item.field} value={emData[item.field] as boolean} onChange={v => updateEM({ [item.field]: v })} level="Moderate" />
+            ))}
+          </div>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#dc2626', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5 }}>High Risk</div>
+            {([
+              { field: 'risk_drug_intensive_monitoring', label: 'Drug therapy requiring intensive monitoring for toxicity' },
+              { field: 'risk_elective_major_with_factors', label: 'Elective major surgery with identified risk factors' },
+              { field: 'risk_emergency_major_surgery', label: 'Emergency major surgery' },
+              { field: 'risk_hospitalization_escalation', label: 'Hospitalization or escalation of care' },
+              { field: 'risk_dnr_deescalate', label: 'Decision not to resuscitate or de-escalate care ★' },
+              { field: 'risk_parenteral_controlled', label: 'Parenteral controlled substances ★' },
+            ] as Array<{ field: keyof typeof emData; label: string }>).map(item => (
+              <RiskChip key={item.field} label={item.label} field={item.field} value={emData[item.field] as boolean} onChange={v => updateEM({ [item.field]: v })} level="High" />
+            ))}
+          </div>
+          <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 8 }}>★ 2023 AMA addition · highest element present determines Risk level</div>
+        </EMAccordion>
+
+        {/* ── Dx Coding ── */}
+        <EMAccordion title="Dx Coding — ICD-10-CM Diagnoses" open={emOpenSections.dx} onToggle={() => toggleSection('dx')} accent="#059669">
+          {emData.em_dx.map((row, i) => (
+            <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+              <input
+                style={{ ...s.inputField, flex: 1, marginBottom: 0, textTransform: 'uppercase' }}
+                placeholder={i === 0 ? 'PDx — e.g. J18.9' : `Dx ${i + 1} — e.g. E11.9`}
+                value={row.code}
+                onChange={e => {
+                  const dx = [...emData.em_dx]
+                  dx[i] = { code: e.target.value.toUpperCase() }
+                  updateEM({ em_dx: dx })
+                }}
+              />
+              <button onClick={() => updateEM({ em_dx: emData.em_dx.filter((_, j) => j !== i) })} style={s.removeBtn}><X size={14} /></button>
+            </div>
+          ))}
+          <button onClick={() => updateEM({ em_dx: [...emData.em_dx, { code: '' }] })} style={s.addBtn}><Plus size={13} /> Add Diagnosis</button>
+          <div style={s.hint}>ICD-10-CM · dot optional · list principal diagnosis first</div>
+        </EMAccordion>
+
+        {/* ── E/M Code & CPT ── */}
+        <EMAccordion title="E/M Code, Modifier & Procedure CPTs" open={emOpenSections.code} onToggle={() => toggleSection('code')} accent="#f59e0b">
+          <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 4 }}>E/M Code</div>
+              <select
+                style={{ ...s.selectField }}
+                value={emData.em_code}
+                onChange={e => updateEM({ em_code: e.target.value })}
+              >
+                <option value="">Select E/M level…</option>
+                <optgroup label="Office / Outpatient (New)">
+                  <option value="99202">99202 — Straightforward MDM</option>
+                  <option value="99203">99203 — Low MDM</option>
+                  <option value="99204">99204 — Moderate MDM</option>
+                  <option value="99205">99205 — High MDM</option>
+                </optgroup>
+                <optgroup label="Office / Outpatient (Established)">
+                  <option value="99212">99212 — Straightforward MDM</option>
+                  <option value="99213">99213 — Low MDM</option>
+                  <option value="99214">99214 — Moderate MDM</option>
+                  <option value="99215">99215 — High MDM</option>
+                </optgroup>
+                <optgroup label="Emergency Department">
+                  <option value="99281">99281 — Minimal MDM</option>
+                  <option value="99282">99282 — Straightforward MDM</option>
+                  <option value="99283">99283 — Low MDM</option>
+                  <option value="99284">99284 — Moderate MDM</option>
+                  <option value="99285">99285 — High MDM</option>
+                </optgroup>
+              </select>
+            </div>
+            <div style={{ width: 120 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 4 }}>Modifier</div>
+              <input
+                style={{ ...s.inputField, marginBottom: 0 }}
+                placeholder="e.g. 25"
+                value={emData.em_modifier}
+                onChange={e => updateEM({ em_modifier: e.target.value })}
+                maxLength={10}
+              />
+            </div>
+          </div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Procedure CPTs (if applicable)</div>
+          {emData.em_cpt.map((row, i) => (
+            <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+              <input
+                style={{ ...s.inputField, width: 120, marginBottom: 0 }}
+                placeholder="e.g. 20610"
+                value={row.code}
+                onChange={e => {
+                  const cpt = [...emData.em_cpt]
+                  cpt[i] = { ...cpt[i], code: e.target.value }
+                  updateEM({ em_cpt: cpt })
+                }}
+              />
+              <input
+                style={{ ...s.inputField, flex: 1, marginBottom: 0 }}
+                placeholder="Modifier e.g. 25"
+                value={row.modifier}
+                onChange={e => {
+                  const cpt = [...emData.em_cpt]
+                  cpt[i] = { ...cpt[i], modifier: e.target.value }
+                  updateEM({ em_cpt: cpt })
+                }}
+              />
+              <button onClick={() => updateEM({ em_cpt: emData.em_cpt.filter((_, j) => j !== i) })} style={s.removeBtn}><X size={14} /></button>
+            </div>
+          ))}
+          <button onClick={() => updateEM({ em_cpt: [...emData.em_cpt, { code: '', modifier: '' }] })} style={s.addBtn}><Plus size={13} /> Add Procedure CPT</button>
+          <div style={s.hint}>Add any procedures performed during the visit that require separate CPT coding</div>
+        </EMAccordion>
+      </>)}
+
       {/* ── E&D form ── */}
       {ed && (<>
         <Section title="Review" required type="ed_review" step={1}>
@@ -492,7 +767,7 @@ function CodeEntryForm({ chart, entry, ip, ed, onChange, onSave, saving, saveMsg
       </>)}
 
       {/* ── IP / OP form ── */}
-      {!ed && <>
+      {!ed && !em && <>
 
       {/* Principal Diagnosis */}
       <Section title="Principal Diagnosis" required type="diagnosis">
@@ -665,6 +940,57 @@ function Section({ title, required, children, type = 'notes', step }: {
 function Chip({ label, color = '#4f46e5', bg = '#ede9fe' }: { label: string; color?: string; bg?: string }) {
   return (
     <span style={{ fontSize: 11, fontWeight: 600, background: bg, color, borderRadius: 6, padding: '2px 8px' }}>{label}</span>
+  )
+}
+
+// ── E/M helper components ──────────────────────────────────────────────────────
+
+function EMAccordion({ title, open, onToggle, accent, children }: {
+  title: string; open: boolean; onToggle: () => void; accent: string; children: React.ReactNode
+}) {
+  return (
+    <div style={{ marginBottom: 14, border: `1px solid ${accent}33`, borderRadius: 10, overflow: 'hidden' }}>
+      <button
+        onClick={onToggle}
+        style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: `${accent}0d`, borderLeft: `4px solid ${accent}`, border: 'none', cursor: 'pointer', textAlign: 'left' }}
+      >
+        <span style={{ fontSize: 13, fontWeight: 700, color: accent, flex: 1 }}>{title}</span>
+        <span style={{ fontSize: 16, color: accent, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>▾</span>
+      </button>
+      {open && <div style={{ padding: '12px 14px' }}>{children}</div>}
+    </div>
+  )
+}
+
+function DrToggle({ label, value, onChange, color }: { label: string; value: boolean; onChange: (v: boolean) => void; color: string }) {
+  return (
+    <div
+      onClick={() => onChange(!value)}
+      style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderRadius: 8, border: `1.5px solid ${value ? color : '#e5e7eb'}`, background: value ? `${color}0d` : '#fff', cursor: 'pointer', marginBottom: 6 }}
+    >
+      <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${value ? color : '#d1d5db'}`, background: value ? color : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+        {value && <span style={{ color: '#fff', fontSize: 12, fontWeight: 800, lineHeight: 1 }}>✓</span>}
+      </div>
+      <span style={{ fontSize: 13, color: value ? color : '#374151', fontWeight: value ? 600 : 400 }}>{label}</span>
+    </div>
+  )
+}
+
+const RISK_LEVEL_COLORS = { Minimal: { bg: '#d1fae5', text: '#059669' }, Moderate: { bg: '#fef3c7', text: '#d97706' }, High: { bg: '#fee2e2', text: '#dc2626' } }
+
+function RiskChip({ label, field: _field, value, onChange, level }: { label: string; field: string; value: boolean; onChange: (v: boolean) => void; level: 'Minimal' | 'Moderate' | 'High' }) {
+  const c = RISK_LEVEL_COLORS[level]
+  return (
+    <div
+      onClick={() => onChange(!value)}
+      style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', borderRadius: 8, border: `1.5px solid ${value ? c.text : '#e5e7eb'}`, background: value ? c.bg : '#fff', cursor: 'pointer', marginBottom: 5 }}
+    >
+      <div style={{ width: 16, height: 16, borderRadius: 3, border: `2px solid ${value ? c.text : '#d1d5db'}`, background: value ? c.text : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+        {value && <span style={{ color: '#fff', fontSize: 10, fontWeight: 800, lineHeight: 1 }}>✓</span>}
+      </div>
+      <span style={{ fontSize: 12, color: value ? c.text : '#374151', fontWeight: value ? 600 : 400, flex: 1 }}>{label}</span>
+      <span style={{ fontSize: 10, fontWeight: 700, color: c.text, background: c.bg, border: `1px solid ${c.text}44`, borderRadius: 4, padding: '1px 5px', flexShrink: 0 }}>{level}</span>
+    </div>
   )
 }
 

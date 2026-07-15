@@ -384,6 +384,7 @@ def _run_migrations():
     _add_col("practice_chart_drafts", "ed_research", "TEXT", "TEXT")
     _add_col("practice_chart_drafts", "ed_resolution", "TEXT", "TEXT")
     _add_col("practice_chart_drafts", "ed_rationale", "TEXT", "TEXT")
+    _add_col("practice_chart_drafts", "em_data", "TEXT", "TEXT")
 
     _run("""CREATE TABLE IF NOT EXISTS practice_results (
         id SERIAL PRIMARY KEY,

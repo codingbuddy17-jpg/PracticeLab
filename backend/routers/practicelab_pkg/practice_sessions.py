@@ -63,6 +63,8 @@ class ChartCodeEntry(BaseModel):
     ed_research: Optional[str] = None
     ed_resolution: Optional[str] = None
     ed_rationale: Optional[str] = None
+    # E/M MDM fields (stored as JSON blob)
+    em_data: Optional[dict] = None
     # common
     flagged: bool = False
     coder_notes: Optional[str] = None
@@ -219,12 +221,18 @@ def get_practice_session(token: str, db: Session = Depends(get_db)):
         # Load any saved drafts for this session
         drafts = db.execute(text(
             "SELECT chart_id, pdx_code, pdx_poa, sdx, pcs, cpt, "
-            "ed_review, ed_research, ed_resolution, ed_rationale, flagged, coder_notes "
+            "ed_review, ed_research, ed_resolution, ed_rationale, flagged, coder_notes, em_data "
             "FROM practice_chart_drafts WHERE session_id=:s"
         ), {"s": sess_id}).fetchall()
 
         draft_map = {}
         for d in drafts:
+            em_data = None
+            if d[12]:
+                try:
+                    em_data = json.loads(d[12]) if isinstance(d[12], str) else d[12]
+                except Exception:
+                    em_data = None
             draft_map[d[0]] = {
                 "pdx_code": d[1], "pdx_poa": d[2],
                 "sdx": json.loads(d[3]) if isinstance(d[3], str) else (d[3] or []),
@@ -233,6 +241,7 @@ def get_practice_session(token: str, db: Session = Depends(get_db)):
                 "ed_review": d[6], "ed_research": d[7],
                 "ed_resolution": d[8], "ed_rationale": d[9],
                 "flagged": bool(d[10]), "coder_notes": d[11],
+                "em_data": em_data,
             }
 
         return {
@@ -274,12 +283,13 @@ def save_draft(session_id: int, payload: SaveChartDraft, db: Session = Depends(g
             "SELECT id FROM practice_chart_drafts WHERE session_id=:s AND chart_id=:c"
         ), {"s": session_id, "c": entry.chart_id}).fetchone()
 
+        em_json = json.dumps(entry.em_data) if entry.em_data else None
         if existing:
             db.execute(text("""
                 UPDATE practice_chart_drafts SET
                   pdx_code=:pdx, pdx_poa=:poa, sdx=:sdx, pcs=:pcs, cpt=:cpt,
                   ed_review=:er, ed_research=:eres, ed_resolution=:erl, ed_rationale=:era,
-                  flagged=:fl, coder_notes=:cn, updated_at=CURRENT_TIMESTAMP
+                  em_data=:em, flagged=:fl, coder_notes=:cn, updated_at=CURRENT_TIMESTAMP
                 WHERE session_id=:s AND chart_id=:c
             """), {
                 "pdx": entry.pdx_code, "poa": entry.pdx_poa,
@@ -287,6 +297,7 @@ def save_draft(session_id: int, payload: SaveChartDraft, db: Session = Depends(g
                 "cpt": json.dumps(entry.cpt),
                 "er": entry.ed_review, "eres": entry.ed_research,
                 "erl": entry.ed_resolution, "era": entry.ed_rationale,
+                "em": em_json,
                 "fl": entry.flagged, "cn": entry.coder_notes,
                 "s": session_id, "c": entry.chart_id,
             })
@@ -295,9 +306,9 @@ def save_draft(session_id: int, payload: SaveChartDraft, db: Session = Depends(g
                 INSERT INTO practice_chart_drafts
                   (session_id, chart_id, pdx_code, pdx_poa, sdx, pcs, cpt,
                    ed_review, ed_research, ed_resolution, ed_rationale,
-                   flagged, coder_notes, updated_at)
+                   em_data, flagged, coder_notes, updated_at)
                 VALUES (:s, :c, :pdx, :poa, :sdx, :pcs, :cpt,
-                        :er, :eres, :erl, :era, :fl, :cn, CURRENT_TIMESTAMP)
+                        :er, :eres, :erl, :era, :em, :fl, :cn, CURRENT_TIMESTAMP)
             """), {
                 "s": session_id, "c": entry.chart_id,
                 "pdx": entry.pdx_code, "poa": entry.pdx_poa,
@@ -305,6 +316,7 @@ def save_draft(session_id: int, payload: SaveChartDraft, db: Session = Depends(g
                 "cpt": json.dumps(entry.cpt),
                 "er": entry.ed_review, "eres": entry.ed_research,
                 "erl": entry.ed_resolution, "era": entry.ed_rationale,
+                "em": em_json,
                 "fl": entry.flagged, "cn": entry.coder_notes,
             })
 
@@ -337,6 +349,7 @@ def submit_practice_session(session_id: int, payload: SubmitPracticeSession, db:
 
     # Save final drafts
     for entry in payload.entries:
+        em_json = json.dumps(entry.em_data) if entry.em_data else None
         existing = db.execute(text(
             "SELECT id FROM practice_chart_drafts WHERE session_id=:s AND chart_id=:c"
         ), {"s": session_id, "c": entry.chart_id}).fetchone()
@@ -345,7 +358,7 @@ def submit_practice_session(session_id: int, payload: SubmitPracticeSession, db:
                 UPDATE practice_chart_drafts SET
                   pdx_code=:pdx, pdx_poa=:poa, sdx=:sdx, pcs=:pcs, cpt=:cpt,
                   ed_review=:er, ed_research=:eres, ed_resolution=:erl, ed_rationale=:era,
-                  flagged=:fl, coder_notes=:cn, updated_at=CURRENT_TIMESTAMP
+                  em_data=:em, flagged=:fl, coder_notes=:cn, updated_at=CURRENT_TIMESTAMP
                 WHERE session_id=:s AND chart_id=:c
             """), {
                 "pdx": entry.pdx_code, "poa": entry.pdx_poa,
@@ -353,6 +366,7 @@ def submit_practice_session(session_id: int, payload: SubmitPracticeSession, db:
                 "cpt": json.dumps(entry.cpt),
                 "er": entry.ed_review, "eres": entry.ed_research,
                 "erl": entry.ed_resolution, "era": entry.ed_rationale,
+                "em": em_json,
                 "fl": entry.flagged, "cn": entry.coder_notes,
                 "s": session_id, "c": entry.chart_id,
             })
@@ -361,9 +375,9 @@ def submit_practice_session(session_id: int, payload: SubmitPracticeSession, db:
                 INSERT INTO practice_chart_drafts
                   (session_id, chart_id, pdx_code, pdx_poa, sdx, pcs, cpt,
                    ed_review, ed_research, ed_resolution, ed_rationale,
-                   flagged, coder_notes, updated_at)
+                   em_data, flagged, coder_notes, updated_at)
                 VALUES (:s, :c, :pdx, :poa, :sdx, :pcs, :cpt,
-                        :er, :eres, :erl, :era, :fl, :cn, CURRENT_TIMESTAMP)
+                        :er, :eres, :erl, :era, :em, :fl, :cn, CURRENT_TIMESTAMP)
             """), {
                 "s": session_id, "c": entry.chart_id,
                 "pdx": entry.pdx_code, "poa": entry.pdx_poa,
@@ -371,15 +385,83 @@ def submit_practice_session(session_id: int, payload: SubmitPracticeSession, db:
                 "cpt": json.dumps(entry.cpt),
                 "er": entry.ed_review, "eres": entry.ed_research,
                 "erl": entry.ed_resolution, "era": entry.ed_rationale,
+                "em": em_json,
                 "fl": entry.flagged, "cn": entry.coder_notes,
             })
 
     is_ed_batch = _is_ed(specialty)
+    from .em_grading import _is_em, grade_em_chart, derive_copa_level, derive_dr_level, derive_risk_level
+    is_em_batch = _is_em(specialty)
 
     if is_ed_batch:
         # E&D: store text responses, no auto-grading — goes to trainer rubric queue
         for entry in payload.entries:
             _upsert_ed_practice_result(db, session_id, entry, specialty)
+    elif is_em_batch:
+        # E/M MDM: auto-grade against em_answer_keys using MDM scoring engine
+        cfg_row = db.execute(text(
+            "SELECT line1_weight, line2_weight, em_level_weight, cpt_weight, dx_weight, "
+            "copa_weight, dr_weight, risk_weight, pass_threshold, overcoding_penalty "
+            "FROM em_scoring_configs WHERE id=1"
+        )).fetchone()
+        cfg = {
+            "line1_weight": cfg_row[0], "line2_weight": cfg_row[1],
+            "em_level_weight": cfg_row[2], "cpt_weight": cfg_row[3], "dx_weight": cfg_row[4],
+            "copa_weight": cfg_row[5], "dr_weight": cfg_row[6], "risk_weight": cfg_row[7],
+            "pass_threshold": cfg_row[8], "overcoding_penalty": bool(cfg_row[9]),
+        } if cfg_row else {
+            "line1_weight": 70, "line2_weight": 30,
+            "em_level_weight": 23.33, "cpt_weight": 23.33, "dx_weight": 23.34,
+            "copa_weight": 10.0, "dr_weight": 10.0, "risk_weight": 10.0,
+            "pass_threshold": 80, "overcoding_penalty": True,
+        }
+        ak_keys = [
+            "id", "chart_id", "copa_self_limited", "copa_stable_chronic", "copa_stable_acute",
+            "copa_acute_uncomplicated", "copa_chronic_exacerbation", "copa_undiagnosed_new",
+            "copa_acute_systemic", "copa_acute_complicated_injury", "copa_threat_to_life",
+            "copa_chronic_severe", "copa_level", "copa_level_override",
+            "dr_prior_external_notes", "dr_review_test_results", "dr_order_tests",
+            "dr_independent_historian", "dr_independent_interpretation", "dr_external_discussion",
+            "dr_level", "dr_level_override",
+            "risk_low", "risk_prescription_drug_mgmt", "risk_minor_surgery_with_factors",
+            "risk_elective_major_no_factors", "risk_hospitalization", "risk_sdoh",
+            "risk_drug_intensive_monitoring", "risk_elective_major_with_factors",
+            "risk_emergency_major_surgery", "risk_hospitalization_escalation",
+            "risk_dnr_deescalate", "risk_parenteral_controlled",
+            "risk_level", "risk_level_override",
+            "em_code", "em_modifier", "dx_codes", "procedure_cpts",
+            "entered_by", "entered_at",
+        ]
+        for entry in payload.entries:
+            em = entry.em_data or {}
+            # Build sub dict with sub_ prefix for grading engine
+            sub = {f"sub_{k}": v for k, v in em.items()}
+            ak_row = db.execute(text(
+                "SELECT * FROM em_answer_keys WHERE chart_id=:c"
+            ), {"c": entry.chart_id}).fetchone()
+            if ak_row is None:
+                _upsert_practice_result(db, session_id, entry, specialty, graded=False)
+                continue
+            ak = dict(zip(ak_keys, ak_row))
+            scoring = grade_em_chart(ak, sub, cfg, cfg["overcoding_penalty"])
+            total = round(
+                scoring["em_level_score"] + scoring["cpt_score"] + scoring["dx_score"] +
+                scoring["copa_element_score"] + scoring["dr_element_score"] + scoring["risk_element_score"],
+                1
+            )
+            pf = "PASS" if total >= cfg["pass_threshold"] else "FAIL"
+            # Build feedback items from scoring breakdown for results display
+            em_feedback = [
+                {"section": "Coding Accuracy", "issue": f"E/M Level: {scoring.get('em_level_score', 0):.1f}/{cfg['em_level_weight']:.1f} pts", "ak_code": ak.get("em_code", ""), "coder_code": em.get("em_code", "")},
+                {"section": "Coding Accuracy", "issue": f"CPT: {scoring.get('cpt_score', 0):.1f} pts", "ak_code": "", "coder_code": ""},
+                {"section": "Coding Accuracy", "issue": f"Dx: {scoring.get('dx_score', 0):.1f} pts", "ak_code": "", "coder_code": ""},
+                {"section": "Reasoning Accuracy", "issue": f"COPA ({scoring.get('derived_copa_level', '')}) — {scoring.get('copa_element_score', 0):.1f} pts", "ak_code": ak.get("copa_level", ""), "coder_code": scoring.get("derived_copa_level", "")},
+                {"section": "Reasoning Accuracy", "issue": f"Data Review ({scoring.get('derived_dr_level', '')}) — {scoring.get('dr_element_score', 0):.1f} pts", "ak_code": ak.get("dr_level", ""), "coder_code": scoring.get("derived_dr_level", "")},
+                {"section": "Reasoning Accuracy", "issue": f"Risk ({scoring.get('derived_risk_level', '')}) — {scoring.get('risk_element_score', 0):.1f} pts", "ak_code": ak.get("risk_level", ""), "coder_code": scoring.get("derived_risk_level", "")},
+            ]
+            _upsert_practice_result(db, session_id, entry, specialty, graded=True,
+                                    result_kwargs={"weighted_score": total, "pass_fail": pf, "drg_flag": False},
+                                    feedback_items=em_feedback, ak_rec=None)
     else:
         # IP / OP: auto-grade against answer key
         ip_cfg_row = db.query(ScoringConfig).filter(ScoringConfig.specialty_type == "IP").first()
