@@ -451,6 +451,139 @@ def _run_migrations():
     # ── Scrub "None" sentinel strings from answer key JSON arrays ─────────────
     _clean_none_in_answer_keys()
 
+    # ── E/M MDM answer keys ───────────────────────────────────────────────────
+    _run("""CREATE TABLE IF NOT EXISTS em_answer_keys (
+        id INTEGER PRIMARY KEY,
+        chart_id INTEGER REFERENCES charts(id) NOT NULL UNIQUE,
+        -- COPA elements (counts per problem type)
+        copa_self_limited INTEGER NOT NULL DEFAULT 0,
+        copa_stable_acute INTEGER NOT NULL DEFAULT 0,
+        copa_stable_chronic INTEGER NOT NULL DEFAULT 0,
+        copa_acute_uncomplicated INTEGER NOT NULL DEFAULT 0,
+        copa_chronic_exacerbation INTEGER NOT NULL DEFAULT 0,
+        copa_undiagnosed_new INTEGER NOT NULL DEFAULT 0,
+        copa_acute_systemic INTEGER NOT NULL DEFAULT 0,
+        copa_acute_complicated_injury INTEGER NOT NULL DEFAULT 0,
+        copa_chronic_severe INTEGER NOT NULL DEFAULT 0,
+        copa_threat_to_life INTEGER NOT NULL DEFAULT 0,
+        copa_level VARCHAR(20) NOT NULL,
+        copa_level_overridden BOOLEAN NOT NULL DEFAULT FALSE,
+        -- Data Review elements
+        dr_prior_external_notes INTEGER NOT NULL DEFAULT 0,
+        dr_review_test_results INTEGER NOT NULL DEFAULT 0,
+        dr_order_tests INTEGER NOT NULL DEFAULT 0,
+        dr_independent_historian BOOLEAN NOT NULL DEFAULT FALSE,
+        dr_independent_interpretation BOOLEAN NOT NULL DEFAULT FALSE,
+        dr_external_discussion BOOLEAN NOT NULL DEFAULT FALSE,
+        dr_level VARCHAR(20) NOT NULL,
+        dr_level_overridden BOOLEAN NOT NULL DEFAULT FALSE,
+        -- Risk elements
+        risk_low BOOLEAN NOT NULL DEFAULT FALSE,
+        risk_prescription_drug_mgmt BOOLEAN NOT NULL DEFAULT FALSE,
+        risk_minor_surgery_with_factors BOOLEAN NOT NULL DEFAULT FALSE,
+        risk_elective_major_no_factors BOOLEAN NOT NULL DEFAULT FALSE,
+        risk_hospitalization BOOLEAN NOT NULL DEFAULT FALSE,
+        risk_sdoh BOOLEAN NOT NULL DEFAULT FALSE,
+        risk_drug_intensive_monitoring BOOLEAN NOT NULL DEFAULT FALSE,
+        risk_elective_major_with_factors BOOLEAN NOT NULL DEFAULT FALSE,
+        risk_emergency_major_surgery BOOLEAN NOT NULL DEFAULT FALSE,
+        risk_hospitalization_escalation BOOLEAN NOT NULL DEFAULT FALSE,
+        risk_dnr_deescalate BOOLEAN NOT NULL DEFAULT FALSE,
+        risk_parenteral_controlled BOOLEAN NOT NULL DEFAULT FALSE,
+        risk_level VARCHAR(20) NOT NULL,
+        risk_level_overridden BOOLEAN NOT NULL DEFAULT FALSE,
+        -- Coding outputs
+        em_code VARCHAR(10) NOT NULL,
+        em_modifier VARCHAR(10),
+        dx_codes TEXT NOT NULL DEFAULT '[]',
+        procedure_cpts TEXT NOT NULL DEFAULT '[]',
+        entered_by VARCHAR(100) NOT NULL,
+        entered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )""")
+
+    # ── E/M grading results ───────────────────────────────────────────────────
+    _run("""CREATE TABLE IF NOT EXISTS em_grading_results (
+        id INTEGER PRIMARY KEY,
+        result_id INTEGER REFERENCES grading_results(id) NOT NULL UNIQUE,
+        -- Submitted COPA
+        sub_copa_self_limited INTEGER NOT NULL DEFAULT 0,
+        sub_copa_stable_acute INTEGER NOT NULL DEFAULT 0,
+        sub_copa_stable_chronic INTEGER NOT NULL DEFAULT 0,
+        sub_copa_acute_uncomplicated INTEGER NOT NULL DEFAULT 0,
+        sub_copa_chronic_exacerbation INTEGER NOT NULL DEFAULT 0,
+        sub_copa_undiagnosed_new INTEGER NOT NULL DEFAULT 0,
+        sub_copa_acute_systemic INTEGER NOT NULL DEFAULT 0,
+        sub_copa_acute_complicated_injury INTEGER NOT NULL DEFAULT 0,
+        sub_copa_chronic_severe INTEGER NOT NULL DEFAULT 0,
+        sub_copa_threat_to_life INTEGER NOT NULL DEFAULT 0,
+        -- Submitted Data Review
+        sub_dr_prior_external_notes INTEGER NOT NULL DEFAULT 0,
+        sub_dr_review_test_results INTEGER NOT NULL DEFAULT 0,
+        sub_dr_order_tests INTEGER NOT NULL DEFAULT 0,
+        sub_dr_independent_historian BOOLEAN NOT NULL DEFAULT FALSE,
+        sub_dr_independent_interpretation BOOLEAN NOT NULL DEFAULT FALSE,
+        sub_dr_external_discussion BOOLEAN NOT NULL DEFAULT FALSE,
+        -- Submitted Risk
+        sub_risk_low BOOLEAN NOT NULL DEFAULT FALSE,
+        sub_risk_prescription_drug_mgmt BOOLEAN NOT NULL DEFAULT FALSE,
+        sub_risk_minor_surgery_with_factors BOOLEAN NOT NULL DEFAULT FALSE,
+        sub_risk_elective_major_no_factors BOOLEAN NOT NULL DEFAULT FALSE,
+        sub_risk_hospitalization BOOLEAN NOT NULL DEFAULT FALSE,
+        sub_risk_sdoh BOOLEAN NOT NULL DEFAULT FALSE,
+        sub_risk_drug_intensive_monitoring BOOLEAN NOT NULL DEFAULT FALSE,
+        sub_risk_elective_major_with_factors BOOLEAN NOT NULL DEFAULT FALSE,
+        sub_risk_emergency_major_surgery BOOLEAN NOT NULL DEFAULT FALSE,
+        sub_risk_hospitalization_escalation BOOLEAN NOT NULL DEFAULT FALSE,
+        sub_risk_dnr_deescalate BOOLEAN NOT NULL DEFAULT FALSE,
+        sub_risk_parenteral_controlled BOOLEAN NOT NULL DEFAULT FALSE,
+        -- Submitted coding outputs
+        sub_em_code VARCHAR(10),
+        sub_em_modifier VARCHAR(10),
+        sub_dx_codes TEXT NOT NULL DEFAULT '[]',
+        sub_procedure_cpts TEXT NOT NULL DEFAULT '[]',
+        -- Derived levels
+        derived_copa_level VARCHAR(20),
+        derived_dr_level VARCHAR(20),
+        derived_risk_level VARCHAR(20),
+        -- Coding Accuracy scores
+        em_level_score FLOAT,
+        cpt_score FLOAT,
+        dx_score FLOAT,
+        coding_accuracy_total FLOAT,
+        -- Reasoning Accuracy scores
+        copa_element_score FLOAT,
+        dr_element_score FLOAT,
+        risk_element_score FLOAT,
+        reasoning_accuracy_total FLOAT
+    )""")
+
+    # ── E/M scoring config ────────────────────────────────────────────────────
+    _run("""CREATE TABLE IF NOT EXISTS em_scoring_configs (
+        id INTEGER PRIMARY KEY,
+        line1_weight FLOAT NOT NULL DEFAULT 70.0,
+        line2_weight FLOAT NOT NULL DEFAULT 30.0,
+        em_level_weight FLOAT NOT NULL DEFAULT 23.33,
+        cpt_weight FLOAT NOT NULL DEFAULT 23.33,
+        dx_weight FLOAT NOT NULL DEFAULT 23.34,
+        copa_weight FLOAT NOT NULL DEFAULT 10.0,
+        dr_weight FLOAT NOT NULL DEFAULT 10.0,
+        risk_weight FLOAT NOT NULL DEFAULT 10.0,
+        pass_threshold FLOAT NOT NULL DEFAULT 80.0,
+        overcoding_penalty BOOLEAN NOT NULL DEFAULT TRUE,
+        updated_by VARCHAR(100),
+        updated_at TIMESTAMP
+    )""")
+    _run("""INSERT INTO em_scoring_configs
+        (line1_weight, line2_weight, em_level_weight, cpt_weight, dx_weight,
+         copa_weight, dr_weight, risk_weight, pass_threshold, overcoding_penalty)
+        VALUES (70.0, 30.0, 23.33, 23.33, 23.34, 10.0, 10.0, 10.0, 80.0, TRUE)
+        ON CONFLICT DO NOTHING""" if not True else
+        """INSERT INTO em_scoring_configs
+        (id, line1_weight, line2_weight, em_level_weight, cpt_weight, dx_weight,
+         copa_weight, dr_weight, risk_weight, pass_threshold, overcoding_penalty)
+        VALUES (1, 70.0, 30.0, 23.33, 23.33, 23.34, 10.0, 10.0, 10.0, 80.0, TRUE)
+        ON CONFLICT (id) DO NOTHING""")
+
 
 def _backfill_legacy_cycles() -> None:
     """
