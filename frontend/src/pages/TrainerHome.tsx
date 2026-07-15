@@ -6,7 +6,7 @@ import { getPLAnalyticsOverview, getChartStats, getAssessmentStats } from '../ap
 export function TrainerHome() {
   const [plStats, setPlStats] = useState<{ total_batches: number; complete_batches: number; total_graded: number; overall_pass_rate: number } | null>(null)
   const [chartStats, setChartStats] = useState<{ total_charts: number; open_feedback: number; total_specialties: number } | null>(null)
-  const [assessmentStats, setAssessmentStats] = useState<{ totalActive: number } | null>(null)
+  const [assessmentStats, setAssessmentStats] = useState<{ totalActive: number; totalSpecialties: number } | null>(null)
 
   useEffect(() => {
     getPLAnalyticsOverview().then(setPlStats).catch(() => {})
@@ -14,7 +14,8 @@ export function TrainerHome() {
     getAssessmentStats()
       .then(rows => {
         const totalActive = rows.reduce((s, r) => s + r.active, 0)
-        setAssessmentStats({ totalActive })
+        const totalSpecialties = rows.filter(r => r.active > 0).length
+        setAssessmentStats({ totalActive, totalSpecialties })
       })
       .catch(() => {})
   }, [])
@@ -160,9 +161,9 @@ export function TrainerHome() {
           </Link>
 
           <Link to="/trainer/assessment" style={{ ...styles.bentoCell, ...styles.bentoCellStat, background: 'rgba(238,242,255,0.6)' }}>
-            <div style={styles.bentoStatNum}>10</div>
+            <div style={styles.bentoStatNum}>{assessmentStats?.totalSpecialties ?? '—'}</div>
             <div style={styles.bentoStatLabel}>Specialties</div>
-            <div style={styles.bentoStatSub}>ICD-10 · Surgery · ED · more</div>
+            <div style={styles.bentoStatSub}>with active questions</div>
           </Link>
 
           <Link to="/trainer/assessment" style={{ ...styles.bentoCell, ...styles.bentoCellPassRate, background: 'rgba(245,243,255,0.45)' }}>

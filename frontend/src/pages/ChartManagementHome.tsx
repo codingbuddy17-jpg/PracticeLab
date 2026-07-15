@@ -74,14 +74,21 @@ export function ChartManagementHome() {
             </Link>
           ))}
 
-          {/* Coding Resources */}
-          <div style={{ ...s.card, cursor: 'pointer' }} onClick={() => setShowResourcesPanel(p => !p)}>
+          {/* Coding Resources — toggle card (visually distinct from nav cards) */}
+          <div
+            style={{ ...s.card, cursor: 'pointer', border: showResourcesPanel ? '1.5px solid #059669' : '1.5px dashed #6ee7b7', background: showResourcesPanel ? 'rgba(240,253,244,0.7)' : 'rgba(240,253,244,0.35)' }}
+            onClick={() => setShowResourcesPanel(p => !p)}
+          >
             <div style={s.cardTop}>
-              <div style={{ ...s.iconWrap, background: '#f0fdf4', color: '#059669' }}><BookOpen size={26} /></div>
-              {resources.length > 0 && <span style={{ ...s.cardBadge, background: '#dcfce7', color: '#166534' }}>{resources.length}</span>}
+              <div style={{ ...s.iconWrap, background: '#dcfce7', color: '#059669' }}><BookOpen size={26} /></div>
+              <span style={{ fontSize: 11, fontWeight: 700, color: '#059669', background: '#dcfce7', padding: '3px 8px', borderRadius: 6 }}>
+                {showResourcesPanel ? '▲ Hide' : '▼ Show'}
+              </span>
             </div>
             <div style={s.cardTitle}>Coding Resources</div>
-            <div style={s.cardDesc}>Links visible to all coders — guides, PDFs, tools</div>
+            <div style={s.cardDesc}>
+              {resources.length > 0 ? `${resources.length} link${resources.length > 1 ? 's' : ''} — guides, PDFs, tools` : 'Links visible to all coders — guides, PDFs, tools'}
+            </div>
           </div>
         </div>
 
