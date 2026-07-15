@@ -141,19 +141,38 @@ export function CoderHome() {
         )}
       </div>
 
-      {/* Floating right-edge quick access */}
+      {/* Floating right-edge quick access — icon-only at rest, slides open on hover */}
+      <style>{`
+        .quick-btn {
+          display: flex; align-items: center; gap: 0;
+          border: none; cursor: pointer; text-align: left;
+          border-radius: 10px 0 0 10px;
+          padding: 13px 14px;
+          width: 44px; overflow: hidden;
+          transition: width 0.22s ease, box-shadow 0.15s, background 0.15s;
+          white-space: nowrap;
+        }
+        .quick-btn:hover { width: 130px; }
+        .quick-btn .qb-label {
+          opacity: 0; max-width: 0;
+          font-size: 12px; font-weight: 700; line-height: 1.4;
+          transition: opacity 0.18s ease 0.08s, max-width 0.22s ease;
+          overflow: hidden;
+        }
+        .quick-btn:hover .qb-label { opacity: 1; max-width: 100px; margin-left: 8px; }
+        .quick-btn-practice { background: #059669; color: #fff; box-shadow: -2px 2px 10px rgba(5,150,105,0.25); margin-bottom: 4px; }
+        .quick-btn-practice:hover { background: #047857; box-shadow: 0 4px 14px rgba(5,150,105,0.35); }
+        .quick-btn-assessment { background: #7c3aed; color: #fff; box-shadow: -2px 2px 10px rgba(124,58,237,0.25); }
+        .quick-btn-assessment:hover { background: #6d28d9; box-shadow: 0 4px 14px rgba(124,58,237,0.35); }
+      `}</style>
       <div style={styles.quickAccess}>
-        <button style={styles.practiceBtn} onClick={() => window.open('/practice', '_blank')}
-          onMouseEnter={e => { e.currentTarget.style.background = '#047857'; e.currentTarget.style.boxShadow = '0 4px 14px rgba(5,150,105,0.35)' }}
-          onMouseLeave={e => { e.currentTarget.style.background = '#059669'; e.currentTarget.style.boxShadow = '0 2px 8px rgba(5,150,105,0.22)' }}>
+        <button className="quick-btn quick-btn-practice" onClick={() => window.open('/practice', '_blank')}>
           <Monitor size={15} style={{ flexShrink: 0 }} />
-          <span style={styles.quickBtnTitle}>Start Practice Session</span>
+          <span className="qb-label">Practice</span>
         </button>
-        <button style={styles.assessmentBtn} onClick={() => window.open('/take-assessment', '_blank')}
-          onMouseEnter={e => { e.currentTarget.style.background = '#6d28d9'; e.currentTarget.style.boxShadow = '0 4px 14px rgba(124,58,237,0.35)' }}
-          onMouseLeave={e => { e.currentTarget.style.background = '#7c3aed'; e.currentTarget.style.boxShadow = '0 2px 8px rgba(124,58,237,0.22)' }}>
+        <button className="quick-btn quick-btn-assessment" onClick={() => window.open('/take-assessment', '_blank')}>
           <ClipboardList size={15} style={{ flexShrink: 0 }} />
-          <span style={styles.quickBtnTitle}>Take Assessment</span>
+          <span className="qb-label">Assessment</span>
         </button>
       </div>
 
@@ -376,9 +395,6 @@ const styles: Record<string, React.CSSProperties> = {
   selfPracticeBtn: { display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: '#4f46e5', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 700 },
   main: { maxWidth: 1080, margin: '0 auto', padding: '24px 24px 60px' },
   quickAccess: { position: 'fixed', right: 0, top: '50%', transform: 'translateY(-50%)', display: 'flex', flexDirection: 'column' as const, gap: 0, zIndex: 20 },
-  practiceBtn: { display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px', background: '#059669', color: '#fff', border: 'none', borderRadius: '10px 0 0 10px', cursor: 'pointer', textAlign: 'left' as const, boxShadow: '-2px 2px 10px rgba(5,150,105,0.25)', transition: 'background 0.15s, box-shadow 0.15s', width: 160, marginBottom: 4 },
-  assessmentBtn: { display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: '10px 0 0 10px', cursor: 'pointer', textAlign: 'left' as const, boxShadow: '-2px 2px 10px rgba(124,58,237,0.25)', transition: 'background 0.15s, box-shadow 0.15s', width: 160 },
-  quickBtnTitle: { fontWeight: 700, fontSize: 12, lineHeight: 1.4 },
   searchSection: { background: 'rgba(255,255,255,0.62)', backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)', border: '1px solid rgba(255,255,255,0.5)', borderRadius: 14, padding: 20, marginBottom: 20, boxShadow: '0 4px 24px rgba(0,0,0,0.07)' },
   searchRow: { display: 'flex', gap: 10, marginBottom: 14 },
   searchWrap: { flex: 1, position: 'relative', display: 'flex', alignItems: 'center' },
