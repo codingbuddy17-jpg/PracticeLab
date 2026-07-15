@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Loader } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { getScoringConfigs, updateScoringConfig } from '../../api'
+import { getScoringConfigs, updateScoringConfig, getEMScoringConfig, updateEMScoringConfig } from '../../api'
 import { trainerName } from './shared'
 import styles from './styles'
 
@@ -26,8 +26,9 @@ function WeightField({ label, value, onChange }: { label: string; value: number;
 
 export function ScoringConfigView() {
   const [configs, setConfigs] = useState<any>(null)
-  const [tab, setTab] = useState<'IP' | 'OP'>('IP')
+  const [tab, setTab] = useState<'IP' | 'OP' | 'EM'>('IP')
   const [form, setForm] = useState<any>({})
+  const [emForm, setEmForm] = useState<any>(null)
   const [passphrase, setPassphrase] = useState('')
   const [saving, setSaving] = useState(false)
   const [showPassphrase, setShowPassphrase] = useState(false)
@@ -36,10 +37,46 @@ export function ScoringConfigView() {
 
   async function loadConfigs() {
     try {
-      const data = await getScoringConfigs()
+      const [data, emData] = await Promise.all([getScoringConfigs(), getEMScoringConfig()])
       setConfigs(data)
       setForm({ IP: { ...data.IP }, OP: { ...data.OP } })
+      setEmForm({ ...emData })
     } catch { toast.error('Failed to load scoring config') }
+  }
+
+  function updateEmField(field: string, value: any) {
+    setEmForm((f: any) => ({ ...f, [field]: value }))
+  }
+
+  function emLine1Sum() {
+    if (!emForm) return 0
+    return (emForm.em_level_weight || 0) + (emForm.cpt_weight || 0) + (emForm.dx_weight || 0)
+  }
+  function emLine2Sum() {
+    if (!emForm) return 0
+    return (emForm.copa_weight || 0) + (emForm.dr_weight || 0) + (emForm.risk_weight || 0)
+  }
+  function emLinesSumTo100() {
+    if (!emForm) return false
+    return Math.abs((emForm.line1_weight || 0) + (emForm.line2_weight || 0) - 100) < 0.1
+  }
+
+  async function handleSaveEM() {
+    if (!passphrase) return toast.error('Enter master admin passphrase')
+    if (!emLinesSumTo100()) return toast.error('Coding Accuracy + Reasoning Accuracy weights must sum to 100')
+    const l1 = emForm.line1_weight || 0
+    const l2 = emForm.line2_weight || 0
+    if (Math.abs(emLine1Sum() - l1) > 0.5) return toast.error(`Coding Accuracy weights must sum to ${l1} (currently ${emLine1Sum().toFixed(2)})`)
+    if (Math.abs(emLine2Sum() - l2) > 0.5) return toast.error(`Reasoning Accuracy weights must sum to ${l2} (currently ${emLine2Sum().toFixed(2)})`)
+    setSaving(true)
+    try {
+      await updateEMScoringConfig({ ...emForm, passphrase, updated_by: trainerName() })
+      toast.success('E/M scoring config saved')
+      loadConfigs()
+      setPassphrase('')
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail || 'Failed to save')
+    } finally { setSaving(false) }
   }
 
   function updateField(stype: string, field: string, value: any) {
@@ -90,7 +127,7 @@ export function ScoringConfigView() {
     } finally { setSaving(false) }
   }
 
-  if (!form.IP || !form.OP) return <div style={styles.center}><Loader size={24} /></div>
+  if (!form.IP || !form.OP || !emForm) return <div style={styles.center}><Loader size={24} /></div>
 
   const f = form[tab]
   const sum = weightSum(tab)
@@ -104,13 +141,117 @@ export function ScoringConfigView() {
       </div>
 
       <div style={styles.chipRow}>
-        {(['IP', 'OP'] as const).map(t => (
-          <button key={t} style={tab === t ? styles.chipActive : styles.chip} onClick={() => setTab(t)}>
-            {t === 'IP' ? 'IP-DRG' : 'Outpatient (OP)'}
+        {(['IP', 'OP', 'EM'] as const).map(t => (
+          <button key={t} style={tab === t ? styles.chipActive : styles.chip} onClick={() => { setTab(t); setPassphrase('') }}>
+            {t === 'IP' ? 'IP-DRG' : t === 'OP' ? 'Outpatient (OP)' : 'E/M (MDM-based)'}
           </button>
         ))}
       </div>
 
+      {/* ── E/M Config ── */}
+      {tab === 'EM' && (<>
+        <div style={styles.configSection}>
+          <div style={styles.configSectionTitle}>Score Line Weights
+            <span style={styles.hint}> — must sum to 100</span>
+          </div>
+          <div style={{ display: 'flex', gap: 20, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#1e3a5f', marginBottom: 4 }}>Coding Accuracy weight</div>
+              <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 6 }}>E/M Level + CPT + Dx</div>
+              <input type="number" min={0} max={100} style={{ ...styles.input, width: 80, textAlign: 'center' }}
+                value={emForm.line1_weight} onChange={e => updateEmField('line1_weight', parseFloat(e.target.value) || 0)} />
+            </div>
+            <div style={{ fontSize: 22, fontWeight: 300, color: '#9ca3af', paddingBottom: 8 }}>+</div>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#7c3aed', marginBottom: 4 }}>Reasoning Accuracy weight</div>
+              <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 6 }}>COPA + Data Review + Risk elements</div>
+              <input type="number" min={0} max={100} style={{ ...styles.input, width: 80, textAlign: 'center' }}
+                value={emForm.line2_weight} onChange={e => updateEmField('line2_weight', parseFloat(e.target.value) || 0)} />
+            </div>
+            <div style={{ paddingBottom: 8, fontSize: 13, fontWeight: 700,
+              color: emLinesSumTo100() ? '#16a34a' : '#dc2626' }}>
+              = {((emForm.line1_weight || 0) + (emForm.line2_weight || 0)).toFixed(1)} / 100 {emLinesSumTo100() ? '✓' : '⚠'}
+            </div>
+          </div>
+        </div>
+
+        <div style={styles.configSection}>
+          <div style={styles.configSectionTitle}>Coding Accuracy — Per-Metric Weights
+            <span style={styles.hint}> — must sum to {emForm.line1_weight}</span>
+          </div>
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <WeightField label="E/M Level" value={emForm.em_level_weight}
+              onChange={v => updateEmField('em_level_weight', v)} />
+            <WeightField label="CPT Procedures" value={emForm.cpt_weight}
+              onChange={v => updateEmField('cpt_weight', v)} />
+            <WeightField label="Dx Coding" value={emForm.dx_weight}
+              onChange={v => updateEmField('dx_weight', v)} />
+            <div style={{ fontSize: 13, fontWeight: 700, paddingBottom: 4,
+              color: Math.abs(emLine1Sum() - (emForm.line1_weight || 0)) < 0.5 ? '#16a34a' : '#dc2626' }}>
+              = {emLine1Sum().toFixed(2)} / {emForm.line1_weight} {Math.abs(emLine1Sum() - (emForm.line1_weight || 0)) < 0.5 ? '✓' : '⚠'}
+            </div>
+          </div>
+          <div style={{ fontSize: 11, color: '#6b7280', marginTop: 8 }}>
+            CPT weight auto-redistributes to E/M Level and Dx equally when a chart has no procedure CPTs in the answer key.
+          </div>
+        </div>
+
+        <div style={styles.configSection}>
+          <div style={styles.configSectionTitle}>Reasoning Accuracy — Per-Component Weights
+            <span style={styles.hint}> — must sum to {emForm.line2_weight}</span>
+          </div>
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <WeightField label="COPA Elements" value={emForm.copa_weight}
+              onChange={v => updateEmField('copa_weight', v)} />
+            <WeightField label="Data Review Elements" value={emForm.dr_weight}
+              onChange={v => updateEmField('dr_weight', v)} />
+            <WeightField label="Risk Elements" value={emForm.risk_weight}
+              onChange={v => updateEmField('risk_weight', v)} />
+            <div style={{ fontSize: 13, fontWeight: 700, paddingBottom: 4,
+              color: Math.abs(emLine2Sum() - (emForm.line2_weight || 0)) < 0.5 ? '#16a34a' : '#dc2626' }}>
+              = {emLine2Sum().toFixed(2)} / {emForm.line2_weight} {Math.abs(emLine2Sum() - (emForm.line2_weight || 0)) < 0.5 ? '✓' : '⚠'}
+            </div>
+          </div>
+        </div>
+
+        <div style={styles.configSection}>
+          <div style={styles.configSectionTitle}>Pass Threshold</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <input type="number" min={50} max={100} style={{ ...styles.input, width: 80 }}
+              value={emForm.pass_threshold} onChange={e => updateEmField('pass_threshold', parseFloat(e.target.value) || 80)} />
+            <span style={styles.hint}>% minimum overall score to pass</span>
+          </div>
+        </div>
+
+        <div style={styles.configSection}>
+          <div style={styles.configSectionTitle}>Overcoding Penalty</div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontSize: 13 }}>
+            <input type="checkbox" checked={emForm.overcoding_penalty}
+              onChange={e => updateEmField('overcoding_penalty', e.target.checked)} />
+            Penalize extra Dx or CPT codes submitted beyond the answer key count
+          </label>
+        </div>
+
+        <div style={styles.configSection}>
+          <div style={styles.configSectionTitle}>Master Admin Passphrase *</div>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <input type={showPassphrase ? 'text' : 'password'} style={{ ...styles.input, width: 220 }}
+              placeholder="Enter passphrase to save" value={passphrase} onChange={e => setPassphrase(e.target.value)} />
+            <button style={styles.outlineBtn} onClick={() => setShowPassphrase(s => !s)}>{showPassphrase ? 'Hide' : 'Show'}</button>
+            <button style={saving ? { ...styles.primaryBtn, opacity: 0.6 } : styles.primaryBtn} disabled={saving} onClick={handleSaveEM}>
+              {saving ? <><Loader size={14} /> Saving...</> : 'Save E/M Config'}
+            </button>
+          </div>
+          {emForm.updated_by && (
+            <div style={{ fontSize: 12, color: '#6b7280', marginTop: 6 }}>
+              Last updated by {emForm.updated_by}{emForm.updated_at && ` on ${new Date(emForm.updated_at).toLocaleDateString()}`}
+            </div>
+          )}
+        </div>
+      </>)}
+
+      {/* ── IP / OP Config ── */}
+      {tab !== 'EM' && (<>
       <div style={styles.configSection}>
         <div style={styles.configSectionTitle}>Scoring Weights <span style={styles.hint}>(must sum to 100)</span></div>
         <div style={styles.weightGrid}>
@@ -203,6 +344,7 @@ export function ScoringConfigView() {
           </div>
         )}
       </div>
+      </>)}
     </div>
   )
 }
