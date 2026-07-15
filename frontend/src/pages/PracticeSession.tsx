@@ -255,7 +255,7 @@ export function PracticeSession() {
   function validateAndSave() {
     if (!activeEntry || !activeChartId) return
     if (!ed && !em && !activeEntry.pdx_code.trim()) {
-      showToast('Principal Diagnosis is required before saving this chart')
+      showToast(`${ip ? 'Principal' : 'First-Listed'} Diagnosis is required before saving this chart`)
       return
     }
     if (ip && (!activeEntry.pdx_poa || activeEntry.sdx.some(s => s.code.trim() && !s.poa))) {
@@ -770,7 +770,7 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
       {!ed && !em && <>
 
       {/* Principal Diagnosis */}
-      <Section title="Principal Diagnosis" required type="diagnosis">
+      <Section title={ip ? "Principal Diagnosis" : "First-Listed Diagnosis"} required type="diagnosis">
         <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
           <div style={{ flex: 1 }}>
             <input
@@ -803,7 +803,7 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
       </Section>
 
       {/* Secondary Diagnoses */}
-      <Section title="Secondary Diagnoses" type="diagnosis">
+      <Section title={ip ? "Secondary Diagnoses" : "Additional Diagnoses"} type="diagnosis">
         {entry.sdx.map((row, i) => (
           <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 8 }}>
             <input
@@ -826,9 +826,9 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
           </div>
         ))}
         {sdxPOAMissing.length > 0 && (
-          <div style={s.warningLine}><AlertTriangle size={11} color="#f59e0b" /> {sdxPOAMissing.length} secondary diagnosis{sdxPOAMissing.length > 1 ? 'es' : ''} missing POA</div>
+          <div style={s.warningLine}><AlertTriangle size={11} color="#f59e0b" /> {sdxPOAMissing.length} secondary {sdxPOAMissing.length > 1 ? 'diagnoses' : 'diagnosis'} missing POA</div>
         )}
-        <button onClick={addSdx} style={s.addBtn}><Plus size={13} /> Add Secondary Diagnosis</button>
+        <button onClick={addSdx} style={s.addBtn}><Plus size={13} /> {ip ? 'Add Secondary Diagnosis' : 'Add Additional Diagnosis'}</button>
         <div style={s.hint}>ICD-10-CM · dot optional</div>
       </Section>
 
