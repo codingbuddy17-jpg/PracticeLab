@@ -331,6 +331,42 @@ export async function releaseSelfPractice(submissionId: number, trainerFeedback:
   return data
 }
 
+// ── E/M MDM API ──────────────────────────────────────────────────────────────
+
+export async function getEMAnswerKey(chartId: number) {
+  const { data } = await api.get(`/practicelab/em/answer-key/${chartId}`)
+  return data
+}
+
+export async function listEMAnswerKeys() {
+  const { data } = await api.get('/practicelab/em/answer-key/list')
+  return data as any[]
+}
+
+export async function upsertEMAnswerKey(payload: Record<string, any>) {
+  const { data } = await api.post('/practicelab/em/answer-key', payload)
+  return data as { status: string; copa_level: string; dr_level: string; risk_level: string }
+}
+
+export async function deleteEMAnswerKey(chartId: number, passphrase: string) {
+  const { data } = await api.delete(`/practicelab/em/answer-key/${chartId}`, { params: { passphrase } })
+  return data
+}
+
+export async function getEMScoringConfig() {
+  const { data } = await api.get('/practicelab/em/scoring-config')
+  return data
+}
+
+export async function updateEMScoringConfig(payload: Record<string, any>) {
+  const { data } = await api.put('/practicelab/em/scoring-config', payload)
+  return data
+}
+
+export function downloadEMAnswerKeyTemplate() {
+  window.open(`${import.meta.env.VITE_API_URL || '/api'}/practicelab/em/answer-key/template`)
+}
+
 export async function standaloneGrade(trainerName: string, files: File[]) {
   const form = new FormData()
   form.append('trainer_name', trainerName)

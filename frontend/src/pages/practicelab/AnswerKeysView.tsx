@@ -8,6 +8,7 @@ import {
 } from '../../api'
 import { trainerName, SPECIALTIES } from './shared'
 import styles from './styles'
+import { EMAnswerKeysView } from './EMAnswerKeysView'
 
 interface AKRow {
   chart_id: number
@@ -25,6 +26,7 @@ interface PassphraseDialog {
 }
 
 export function AnswerKeysView() {
+  const [akTab, setAkTab] = useState<'ip-op' | 'em'>('ip-op')
   const [status, setStatus] = useState<any>(null)
   const [specialty, setSpecialty] = useState('IP-DRG')
   const [uploading, setUploading] = useState(false)
@@ -119,6 +121,23 @@ export function AnswerKeysView() {
       <div style={styles.sectionHeader}>
         <span style={styles.sectionTitle}>Answer Keys</span>
       </div>
+
+      {/* Tab switcher */}
+      <div style={{ display: 'flex', gap: 0, marginBottom: 20, borderRadius: 8, overflow: 'hidden', border: '1px solid #e2e8f0', width: 'fit-content' }}>
+        {([['ip-op', 'IP / OP Charts'], ['em', 'E/M Charts']] as const).map(([key, label]) => (
+          <button key={key} onClick={() => setAkTab(key)}
+            style={{ padding: '8px 20px', border: 'none', borderRight: key === 'ip-op' ? '1px solid #e2e8f0' : 'none',
+              background: akTab === key ? '#1e3a5f' : '#fff',
+              color: akTab === key ? '#fff' : '#374151',
+              fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {akTab === 'em' && <EMAnswerKeysView />}
+      {akTab === 'ip-op' && <>
+
       <p style={styles.helpText}>
         Answer keys are stored permanently per chart and reused across all batches automatically.
         Charts must be uploaded first — answer keys are linked by system-assigned chart numbers.
@@ -334,6 +353,7 @@ export function AnswerKeysView() {
           </div>
         </div>
       )}
+      </>}
     </div>
   )
 }
