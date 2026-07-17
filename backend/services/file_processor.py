@@ -25,8 +25,8 @@ def process_file(filename: str, file_bytes: bytes) -> List[Tuple[bytes, str, str
 def _pdf_to_images(data: bytes) -> List[Tuple[bytes, str, str]]:
     doc = fitz.open(stream=data, filetype="pdf")
     pages = []
+    mat = fitz.Matrix(1.5, 1.5)  # 1.5x: ~44% smaller PNGs vs 2x, still sharp enough for chart viewing
     for page in doc:
-        mat = fitz.Matrix(2.0, 2.0)
         pix = page.get_pixmap(matrix=mat)
         text = page.get_text("text") or ""
         pages.append((pix.tobytes("png"), "image/png", text.strip()))

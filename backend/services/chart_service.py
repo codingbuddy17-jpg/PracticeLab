@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from sqlalchemy.orm import Session
 from sqlalchemy import select, update
 from models import Chart, ChartFile, ChartSequence, AuditLog, ChartStatus, Specialty, SPECIALTY_PREFIX
@@ -42,10 +43,22 @@ def ingest_file(
     pages = process_file(filename, file_bytes)
     total = len(pages)
 
-    for i, (png_bytes, mime, page_text) in enumerate(pages):
-        key = f"charts/{chart_id}/{page_order_start + i:04d}_{filename}.png"
+    # Build (key, png_bytes, mime) tuples first
+    entries = [
+        (f"charts/{chart_id}/{page_order_start + i:04d}_{filename}.png", png_bytes, mime, page_text)
+        for i, (png_bytes, mime, page_text) in enumerate(pages)
+    ]
+
+    # Upload all pages to storage in parallel (up to 6 concurrent)
+    def _upload(args):
+        key, png_bytes, mime, _ = args
         upload_bytes(key, png_bytes, mime)
 
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        list(pool.map(_upload, entries))
+
+    # Insert DB rows sequentially (SQLAlchemy session is not thread-safe)
+    for i, (key, _, _, page_text) in enumerate(entries):
         cf = ChartFile(
             chart_id=chart_id,
             storage_key=key,

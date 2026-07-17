@@ -128,13 +128,14 @@ export function TrainerUpload() {
         alias: r.alias || undefined,
       }))
 
-      // Simulate progress
+      // Phase 1: 0→60% while bytes are transferring (~2% every 300ms)
       const progressInterval = setInterval(() => {
-        setUploadProgress(p => Math.min(p + 8, 90))
-      }, 400)
+        setUploadProgress(p => Math.min(p + 2, 60))
+      }, 300)
 
       const res = await bulkUpload(rows.map(r => r.file), meta)
       clearInterval(progressInterval)
+      // Phase 2: jump to 100 once server responds
       setUploadProgress(100)
 
       setTimeout(() => {
@@ -296,7 +297,11 @@ export function TrainerUpload() {
                 <div style={styles.progressBar}>
                   <div style={{ ...styles.progressFill, width: `${uploadProgress}%` }} />
                 </div>
-                <span style={styles.progressText}>Uploading... {uploadProgress}%</span>
+                <span style={styles.progressText}>
+                  {uploadProgress < 60
+                    ? `Transferring files… ${uploadProgress}%`
+                    : `Server is converting and storing pages — almost done…`}
+                </span>
               </div>
             )}
 
