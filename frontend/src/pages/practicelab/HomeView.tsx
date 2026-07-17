@@ -33,7 +33,7 @@ function groupBatches(list: any[]) {
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
-export function HomeView({ batches, directAssignments, overview, loading, onOpen, statusColor, onCreateBatch, onCreateDirect }: any) {
+export function HomeView({ batches, directAssignments, overview, loading, onOpen, statusColor, onCreateBatch }: any) {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('open')
   const [search, setSearch]             = useState('')
   const [collapsed, setCollapsed]       = useState<Record<string, boolean>>({})
@@ -63,11 +63,16 @@ export function HomeView({ batches, directAssignments, overview, loading, onOpen
     setCollapsed(prev => ({ ...prev, [label]: !prev[label] }))
   }
 
-  const openCount   = batches.filter((b: any) => b.status === 'Open').length
-  const closedCount = batches.filter((b: any) => b.status !== 'Open').length
-  const filtered    = filterList(batches)
+  // Merge direct assignments into the main list with a flag
+  const allBatches = [
+    ...batches,
+    ...(directAssignments ?? []).map((b: any) => ({ ...b, _direct: true })),
+  ]
+
+  const openCount   = allBatches.filter((b: any) => b.status === 'Open').length
+  const closedCount = allBatches.filter((b: any) => b.status !== 'Open').length
+  const filtered    = filterList(allBatches)
   const groups      = groupBatches(filtered)
-  const filteredDA  = filterList(directAssignments ?? [])
 
   const TAB_CFG: { key: StatusFilter; label: string; count: number; color: string; activeBg: string; activeBorder: string }[] = [
     { key: 'open',   label: 'Open',   count: openCount,        color: '#1d4ed8', activeBg: '#eff6ff', activeBorder: '#3b82f6' },
@@ -146,7 +151,7 @@ export function HomeView({ batches, directAssignments, overview, loading, onOpen
       )}
 
       {/* ── Batch groups ── */}
-      {batches.length === 0 ? (
+      {allBatches.length === 0 ? (
         <div style={styles.empty}>
           <FileCheck size={36} color="#d1d5db" />
           <p style={{ color: '#6b7280', marginBottom: 4, fontSize: 14 }}>No batches yet.</p>
@@ -197,38 +202,6 @@ export function HomeView({ batches, directAssignments, overview, loading, onOpen
         </div>
       )}
 
-      {/* ── Direct Assignments ── */}
-      {((directAssignments?.length > 0) || onCreateDirect) && (
-        <>
-          <div style={{ ...styles.sectionHeader, marginTop: 28 }}>
-            <span style={styles.sectionTitle}>Direct Assignments</span>
-            {onCreateDirect && (
-              <button
-                style={{ ...styles.outlineBtn, fontSize: 12, color: '#4f46e5', borderColor: '#c7d2fe' }}
-                onClick={onCreateDirect}
-              >
-                + New Assignment
-              </button>
-            )}
-          </div>
-
-          {!directAssignments?.length ? (
-            <div style={{ fontSize: 12, color: '#9ca3af', padding: '8px 4px 4px' }}>
-              No direct assignments yet — use this for one-off chart assignments without a full batch workflow.
-            </div>
-          ) : filteredDA.length === 0 ? (
-            <div style={{ fontSize: 13, color: '#9ca3af', padding: '12px 4px' }}>
-              No {statusFilter !== 'all' ? statusFilter + ' ' : ''}direct assignments{search ? ` matching "${search}"` : ''}.
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              {filteredDA.map((b: any) => (
-                <BatchRow key={b.id} b={b} onOpen={onOpen} statusColor={statusColor} />
-              ))}
-            </div>
-          )}
-        </>
-      )}
     </div>
   )
 }
@@ -257,6 +230,7 @@ function BatchRow({ b, onOpen, statusColor }: any) {
       <div style={s.info}>
         <div style={s.nameRow}>
           <span style={s.name}>{b.name}</span>
+          {b._direct && <span style={{ ...s.hint, color: '#7c3aed', background: '#ede9fe' }}>Direct</span>}
           {hint && <span style={s.hint}>{hint}</span>}
         </div>
         <div style={s.meta}>

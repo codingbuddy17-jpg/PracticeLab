@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ChevronLeft, Plus, Zap } from 'lucide-react'
+import { ChevronLeft, Plus, Zap, Settings } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { listBatches, getPLAnalyticsOverview, getScoringConfigs } from '../api'
 import { HomeView } from './practicelab/HomeView'
@@ -14,15 +14,14 @@ import { SelfPracticeView } from './practicelab/SelfPracticeView'
 import { PLAnalyticsView } from './practicelab/PLAnalyticsView'
 import styles from './practicelab/styles'
 
-type Tab = 'home' | 'answer-keys' | 'self-practice' | 'analytics' | 'scoring-config'
-type View = Tab | 'create-batch' | 'create-direct' | 'batch-detail' | 'drg-review' | 'results'
+type Tab = 'home' | 'answer-keys' | 'self-practice' | 'analytics'
+type View = Tab | 'scoring-config' | 'create-batch' | 'create-direct' | 'batch-detail' | 'drg-review' | 'results'
 
 const TABS: { key: Tab; label: string }[] = [
-  { key: 'home',           label: 'Batches' },
-  { key: 'answer-keys',    label: 'Answer Keys' },
-  { key: 'self-practice',  label: 'Self Practice' },
-  { key: 'analytics',      label: 'Analytics' },
-  { key: 'scoring-config', label: 'Config' },
+  { key: 'home',          label: 'Batches' },
+  { key: 'answer-keys',   label: 'Answer Keys' },
+  { key: 'self-practice', label: 'Self Practice' },
+  { key: 'analytics',     label: 'Analytics' },
 ]
 
 export function TrainerPracticeLab() {
@@ -66,11 +65,11 @@ export function TrainerPracticeLab() {
   const statusColor = (s: string) => ({ Open: '#2563eb', Closed: '#16a34a' }[s] || '#6b7280')
 
   // Which tab is "active" — drilldown views belong to 'home'
-  const activeTab: Tab = (['home', 'answer-keys', 'self-practice', 'analytics', 'scoring-config'] as Tab[]).includes(view as Tab)
+  const activeTab: Tab = (['home', 'answer-keys', 'self-practice', 'analytics'] as Tab[]).includes(view as Tab)
     ? (view as Tab)
     : 'home'
 
-  const isDrilldown = !(['home', 'answer-keys', 'self-practice', 'analytics', 'scoring-config'] as string[]).includes(view)
+  const isDrilldown = !(['home', 'answer-keys', 'self-practice', 'analytics'] as string[]).includes(view)
 
   return (
     <div style={styles.container}>
@@ -114,6 +113,20 @@ export function TrainerPracticeLab() {
               </button>
             </>
           )}
+          {/* Scoring config gear — always accessible */}
+          <button
+            title="Scoring Config"
+            style={{
+              ...styles.navBtn,
+              padding: '6px 10px',
+              color: view === 'scoring-config' ? '#0f766e' : '#9ca3af',
+              borderColor: view === 'scoring-config' ? '#0f766e' : '#e5e7eb',
+              background: view === 'scoring-config' ? '#f0fdf4' : 'transparent',
+            }}
+            onClick={() => setView(view === 'scoring-config' ? 'home' : 'scoring-config')}
+          >
+            <Settings size={15} />
+          </button>
         </div>
       </div>
 
@@ -141,7 +154,6 @@ export function TrainerPracticeLab() {
             overview={overview} loading={loading}
             onOpen={openBatch} statusColor={statusColor}
             onCreateBatch={() => setView('create-batch')}
-            onCreateDirect={() => setView('create-direct')}
           />
         )}
         {view === 'answer-keys'    && <AnswerKeysView />}
