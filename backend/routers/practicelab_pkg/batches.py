@@ -15,9 +15,7 @@ from models import (
     GradingResult, SubmissionStatus,
 )
 from sqlalchemy import text as _text
-from services.excel_service import generate_coder_sheet, generate_batch_zip
 from services.randomisation_stats import compute_randomisation_stats
-from config import settings
 from .shared import MASTER_PASSPHRASE, _is_ip, _is_ed
 
 router = APIRouter()
@@ -591,70 +589,3 @@ def get_batch(batch_id: int, db: Session = Depends(get_db)):
     }
 
 
-def _build_excel_zip(batch: Batch, coders, assignments, label: str, db: Session):
-    """Build a ZIP of per-coder assessment sheets from a list of assignments."""
-    coder_charts: dict[str, list] = {}
-    for a in assignments:
-        chart_url = f"{settings.FRONTEND_URL}/chart/{a.chart.chart_number}" if hasattr(settings, "FRONTEND_URL") else ""
-        coder_charts.setdefault(a.coder_name, []).append({
-            "chart_number": a.chart.chart_number,
-            "specialty": a.chart.specialty.value,
-            "category": a.chart.category,
-            "difficulty": a.chart.difficulty.value,
-            "chart_url": chart_url,
-        })
-
-    coder_map = {c.coder_name: c for c in coders}
-    coder_files = []
-    for coder_name, charts in coder_charts.items():
-        coder = coder_map.get(coder_name)
-        emp = (coder.emp_id or "").replace(" ", "_") if coder else ""
-        excel_bytes = generate_coder_sheet(coder_name, label, charts, emp_id=emp)
-        safe_name = coder_name.replace(" ", "_")
-        filename = f"{emp}_{safe_name}_Assessment.xlsx" if emp else f"{safe_name}_Assessment.xlsx"
-        coder_files.append((filename, excel_bytes))
-        if coder:
-            coder.excel_generated_at = datetime.utcnow()
-
-    db.commit()
-    return generate_batch_zip(coder_files)
-
-
-@router.get("/batches/{batch_id}/generate-excel")
-def generate_excel(batch_id: int, db: Session = Depends(get_db)):
-    batch = db.query(Batch).filter(Batch.id == batch_id).first()
-    if not batch:
-        raise HTTPException(status_code=404, detail="Batch not found")
-    coders = db.query(BatchCoder).filter(BatchCoder.batch_id == batch_id).all()
-    assignments = db.query(BatchChart).filter(BatchChart.batch_id == batch_id).join(Chart).all()
-    zip_bytes = _build_excel_zip(batch, coders, assignments, batch.name, db)
-    return StreamingResponse(
-        io.BytesIO(zip_bytes),
-        media_type="application/zip",
-        headers={"Content-Disposition": f"attachment; filename={batch.name.replace(' ','_')}_All_Assessments.zip"},
-    )
-
-
-@router.get("/batches/{batch_id}/cycles/{cycle_id}/generate-excel")
-def generate_cycle_excel(batch_id: int, cycle_id: int, db: Session = Depends(get_db)):
-    batch = db.query(Batch).filter(Batch.id == batch_id).first()
-    if not batch:
-        raise HTTPException(status_code=404, detail="Batch not found")
-    cycle = db.query(BatchAllocationCycle).filter(
-        BatchAllocationCycle.id == cycle_id,
-        BatchAllocationCycle.batch_id == batch_id
-    ).first()
-    if not cycle:
-        raise HTTPException(status_code=404, detail="Cycle not found")
-    coders = db.query(BatchCoder).filter(BatchCoder.batch_id == batch_id).all()
-    assignments = db.query(BatchChart).filter(
-        BatchChart.batch_id == batch_id,
-        BatchChart.cycle_id == cycle_id
-    ).join(Chart).all()
-    label = f"{batch.name} — Cycle {cycle.cycle_number}"
-    zip_bytes = _build_excel_zip(batch, coders, assignments, label, db)
-    return StreamingResponse(
-        io.BytesIO(zip_bytes),
-        media_type="application/zip",
-        headers={"Content-Disposition": f"attachment; filename={batch.name.replace(' ','_')}_Cycle{cycle.cycle_number}_Assessments.zip"},
-    )

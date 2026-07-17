@@ -123,10 +123,6 @@ export async function addCodersToBatch(batchId: number, coders: { name: string; 
   return data as { added: string[]; skipped_duplicates: string[] }
 }
 
-export function downloadCycleExcel(batchId: number, cycleId: number) {
-  window.open(`${import.meta.env.VITE_API_URL || '/api'}/practicelab/batches/${batchId}/cycles/${cycleId}/generate-excel`, '_blank')
-}
-
 export async function getAdminOpenBatches(passphrase: string) {
   const { data } = await api.get('/practicelab/admin/open-batches', { params: { passphrase } })
   return data as Array<{
@@ -147,20 +143,6 @@ export async function listBatches(status?: string, specialty?: string, directOnl
 export async function getBatch(batchId: number) {
   const { data } = await api.get(`/practicelab/batches/${batchId}`)
   return data
-}
-
-export function downloadBatchExcel(batchId: number) {
-  window.open(`${import.meta.env.VITE_API_URL || '/api'}/practicelab/batches/${batchId}/generate-excel`, '_blank')
-}
-
-export async function gradeSubmissions(batchId: number, files: File[], regrade = false) {
-  const form = new FormData()
-  files.forEach(f => form.append('files', f))
-  const { data } = await api.post(`/practicelab/batches/${batchId}/grade`, form, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-    params: regrade ? { regrade: true } : undefined,
-  })
-  return data as { graded: string[]; errors: string[]; needs_confirmation?: boolean; conflicts?: { coder: string; chart: string }[] }
 }
 
 export async function getDRGReview(batchId: number) {

@@ -1,10 +1,10 @@
-import { useState, useEffect, useRef } from 'react'
-import { Loader, Download, Upload, BarChart2, Search, CheckSquare, Square, CheckCircle, Circle, AlertCircle, ChevronDown, ChevronRight, Key, Copy, Eye } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Loader, Download, BarChart2, Search, CheckSquare, Square, CheckCircle, Circle, AlertCircle, ChevronDown, ChevronRight, Key, Copy, Eye } from 'lucide-react'
 import toast from 'react-hot-toast'
 import RandomisationStatsCard from '../../components/RandomisationStatsCard'
 import {
-  getBatch, gradeSubmissions, closeBatch, addBatchNote,
-  downloadBatchExcel, downloadCycleExcel, downloadBatchResultsExcel,
+  getBatch, closeBatch, addBatchNote,
+  downloadBatchResultsExcel,
   getBatchInsights, runAllocation, searchChartsForBatch, getCategories,
   addCodersToBatch, gradeEDChart, getEDGrades, EDRubricPayload,
 } from '../../api'
@@ -383,10 +383,6 @@ function AllocationPanel({ batch, onDone }: { batch: any; onDone: () => void }) 
 export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
   const [batch, setBatch] = useState<any>(null)
   const [loading, setLoading] = useState(true)
-  const [grading, setGrading] = useState(false)
-  const [gradingResult, setGradingResult] = useState<any>(null)
-  const [pendingRegrade, setPendingRegrade] = useState<File[] | null>(null)
-  const [regradeConflicts, setRegradeConflicts] = useState<{ coder: string; chart: string }[] | null>(null)
   const [showAllocationPanel, setShowAllocationPanel] = useState(false)
   const [closing, setClosing] = useState(false)
   const [confirmingClose, setConfirmingClose] = useState(false)
@@ -397,46 +393,12 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
   const [noteText, setNoteText] = useState('')
   const [insights, setInsights] = useState<any>(null)
   const [showInsights, setShowInsights] = useState(false)
-  const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { loadBatch() }, [batchId])
 
   async function loadBatch() {
     setLoading(true)
     try { setBatch(await getBatch(batchId)) } catch { toast.error('Failed to load batch') } finally { setLoading(false) }
-  }
-
-  async function handleGradeUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(e.target.files || [])
-    if (!files.length) return
-    setGrading(true)
-    setGradingResult(null)
-    const tid = toast.loading(`Grading ${files.length} file${files.length !== 1 ? 's' : ''}…`)
-    try {
-      const res = await gradeSubmissions(batchId, files)
-      toast.dismiss(tid)
-      if (res.needs_confirmation) {
-        setPendingRegrade(files)
-        setRegradeConflicts(res.conflicts || [])
-        return
-      }
-      setGradingResult(res)
-      const missingKeys = (res.errors as string[]).filter(e => e.includes('no answer key'))
-      const otherErrors = (res.errors as string[]).filter(e => !e.includes('no answer key'))
-      if (res.graded.length) toast.success(`${res.graded.length} chart${res.graded.length !== 1 ? 's' : ''} graded${res.errors.length ? ` · ${res.errors.length} skipped` : ''}`)
-      if (missingKeys.length) toast(`${missingKeys.length} chart${missingKeys.length !== 1 ? 's' : ''} skipped — answer key missing. Upload keys then re-grade.`, { icon: '🔑', duration: 8000 })
-      if (otherErrors.length) otherErrors.forEach((e: string) => toast.error(e, { duration: 6000 }))
-      loadBatch()
-      if (res.graded.length) {
-        getBatchInsights(batchId).then(ins => { setInsights(ins); if (ins.has_data) setShowInsights(true) }).catch(() => {})
-      }
-    } catch (err: any) {
-      toast.dismiss(tid)
-      toast.error(err?.response?.data?.detail || 'Grading failed')
-    } finally {
-      setGrading(false)
-      if (fileRef.current) fileRef.current.value = ''
-    }
   }
 
   async function handleClose() {
@@ -463,36 +425,6 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
       setShowNoteBox(false)
       loadBatch()
     } catch { toast.error('Failed to add note') }
-  }
-
-  async function handleRegradeConfirm() {
-    if (!pendingRegrade) return
-    const files = pendingRegrade
-    setPendingRegrade(null)
-    setRegradeConflicts(null)
-    setGrading(true)
-    setGradingResult(null)
-    const tid = toast.loading(`Re-grading ${files.length} file${files.length !== 1 ? 's' : ''}…`)
-    try {
-      const res = await gradeSubmissions(batchId, files, true)
-      setGradingResult(res)
-      toast.dismiss(tid)
-      const missingKeys2 = (res.errors as string[]).filter(e => e.includes('no answer key'))
-      const otherErrors2 = (res.errors as string[]).filter(e => !e.includes('no answer key'))
-      if (res.graded.length) toast.success(`${res.graded.length} chart${res.graded.length !== 1 ? 's' : ''} re-graded${res.errors.length ? ` · ${res.errors.length} skipped` : ''}`)
-      if (missingKeys2.length) toast(`${missingKeys2.length} chart${missingKeys2.length !== 1 ? 's' : ''} skipped — answer key missing. Upload keys then re-grade.`, { icon: '🔑', duration: 8000 })
-      if (otherErrors2.length) otherErrors2.forEach((e: string) => toast.error(e, { duration: 6000 }))
-      loadBatch()
-      if (res.graded.length) {
-        getBatchInsights(batchId).then(ins => { setInsights(ins); if (ins.has_data) setShowInsights(true) }).catch(() => {})
-      }
-    } catch (err: any) {
-      toast.dismiss(tid)
-      toast.error(err?.response?.data?.detail || 'Re-grading failed')
-    } finally {
-      setGrading(false)
-      if (fileRef.current) fileRef.current.value = ''
-    }
   }
 
   if (loading) return <div style={styles.center}><Loader size={24} /></div>
@@ -522,15 +454,10 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
   // Progression steps
   const steps = [
     { label: 'Run Cycle', done: hasCycles, active: !hasCycles },
-    ...(isDirectAssignment
-      ? [{ label: 'Generate Sessions', done: false, active: hasCycles }]
-      : isED
-        ? [{ label: 'Grade Cases', done: totalSubmitted > 0, active: hasCycles && totalSubmitted === 0 }]
-        : [
-            { label: 'Download Sheets', done: hasCycles, active: hasCycles && totalSubmitted === 0 },
-            { label: 'Upload Returns', done: totalSubmitted > 0, active: hasCycles && totalSubmitted === 0 },
-            ...(isIP ? [{ label: 'DRG Review', done: !pendingDRG && hasResults, active: pendingDRG }] : []),
-          ]
+    ...(isDirectAssignment || !isED
+      ? [{ label: 'Generate Sessions', done: totalSubmitted > 0, active: hasCycles && totalSubmitted === 0 },
+         ...(isIP && !isDirectAssignment ? [{ label: 'DRG Review', done: !pendingDRG && hasResults, active: pendingDRG }] : [])]
+      : [{ label: 'Grade Cases', done: totalSubmitted > 0, active: hasCycles && totalSubmitted === 0 }]
     ),
     { label: 'View Results', done: false, active: hasResults && !pendingDRG },
     { label: isDirectAssignment ? 'Close Assignment' : 'Close Batch', done: !isOpen, active: canClose },
@@ -538,28 +465,6 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
 
   return (
     <div style={styles.section}>
-      {/* Re-grade confirmation dialog */}
-      {regradeConflicts && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: '#fff', borderRadius: 12, padding: 28, maxWidth: 460, width: '90%', boxShadow: '0 8px 32px rgba(0,0,0,0.18)' }}>
-            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 8 }}>Re-grade existing submissions?</div>
-            <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 12 }}>
-              The following sheets have already been graded in this batch. Re-grading will overwrite their previous results.
-            </div>
-            <div style={{ background: '#f9fafb', borderRadius: 8, border: '1px solid #e5e7eb', padding: '8px 12px', marginBottom: 18, maxHeight: 180, overflowY: 'auto' }}>
-              {regradeConflicts.map((c, i) => (
-                <div key={i} style={{ fontSize: 13, padding: '3px 0', borderBottom: i < regradeConflicts.length - 1 ? '1px solid #f0f0f0' : undefined }}>
-                  <span style={{ fontWeight: 600 }}>{c.coder}</span> — Chart {c.chart}
-                </div>
-              ))}
-            </div>
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button style={styles.outlineBtn} onClick={() => { setPendingRegrade(null); setRegradeConflicts(null); if (fileRef.current) fileRef.current.value = '' }}>Cancel</button>
-              <button style={styles.warningBtn} onClick={handleRegradeConfirm}>Re-grade (overwrite)</button>
-            </div>
-          </div>
-        </div>
-      )}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8, flexWrap: 'wrap' as const }}>
         <span style={{ ...styles.badge, background: sc?.light || '#f3f4f6', color: sc?.bg || '#374151', fontSize: 13 }}>{batch.specialty}</span>
         <span style={styles.sectionTitle}>{batch.name}</span>
@@ -650,7 +555,7 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
         {showAllocationPanel && isOpen && <AllocationPanel batch={batch} onDone={() => { setShowAllocationPanel(false); loadBatch() }} />}
         {(batch.allocation_cycles || []).length === 0 && !showAllocationPanel && (
           <div style={{ fontSize: 13, color: '#6b7280', padding: '14px 16px', background: '#f8fafc', borderRadius: 8, border: '1px dashed #e5e7eb' }}>
-            No cycles yet. Click <strong>Run New Cycle</strong> above to assign charts to coders{isED ? ' — then grade each case using the rubric below.' : ' and generate their answer sheets.'}
+            No cycles yet. Click <strong>Run New Cycle</strong> above to assign charts to coders{isED ? ' — then grade each case using the rubric below.' : ' — coders complete charts in their practice sessions.'}
           </div>
         )}
         {(batch.allocation_cycles || []).map((c: any) => (
@@ -661,22 +566,12 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
                 <div style={{ fontSize: 13, fontWeight: 600 }}>{c.assigned_count} assignment{c.assigned_count !== 1 ? 's' : ''}{c.assigned_count > 0 ? ` · ${c.charts_per_coder} charts/coder` : ' — pool exhausted'}</div>
                 <div style={{ fontSize: 11, color: '#9ca3af' }}>by {c.run_by} on {new Date(c.run_at).toLocaleDateString()}{c.notes && <span style={{ marginLeft: 8, color: '#6b7280' }}>— {c.notes}</span>}</div>
               </div>
-              {c.assigned_count > 0 && !isED && (
-                <button style={styles.outlineBtn} title={`Download a ZIP of all coder Excel answer sheets for Cycle ${c.cycle_number}`}
-                  onClick={() => downloadCycleExcel(batchId, c.id)}><Download size={13} /> {c.cycle_number === 0 ? 'Legacy Sheets' : `Cycle ${c.cycle_number} Sheets`}</button>
-              )}
             </div>
             {c.randomisation_stats && (
               <RandomisationStatsCard stats={c.randomisation_stats} itemLabel="charts" />
             )}
           </div>
         ))}
-        {!isED && (batch.allocation_cycles || []).some((c: any) => c.assigned_count > 0) && (
-          <div style={{ marginTop: 6 }}>
-            <button style={{ ...styles.outlineBtn, fontSize: 12 }} title="Download answer sheets for ALL cycles bundled into one ZIP"
-              onClick={() => downloadBatchExcel(batchId)}><Download size={13} /> All Cycles (ZIP)</button>
-          </div>
-        )}
       </div>
 
       {isED && hasCycles && (
@@ -687,12 +582,6 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
       )}
 
       <div style={styles.actionRow}>
-        {isOpen && !isED && (
-          <label style={grading ? { ...styles.primaryBtn, opacity: 0.6 } : styles.primaryBtn}>
-            {grading ? <><Loader size={14} /> Grading...</> : <><Upload size={15} /> Upload Returned Sheets</>}
-            <input ref={fileRef} type="file" accept=".xlsx" multiple style={{ display: 'none' }} onChange={handleGradeUpload} disabled={grading} />
-          </label>
-        )}
         {hasResults && (
           <>
             {pendingDRG && (
@@ -725,43 +614,6 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
           </div>
         )}
       </div>
-
-      {gradingResult && (() => {
-        const missingKeyErrs = (gradingResult.errors as string[]).filter((e: string) => e.includes('no answer key'))
-        const otherErrs = (gradingResult.errors as string[]).filter((e: string) => !e.includes('no answer key'))
-        return (
-          <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 8 }}>
-            <div style={styles.infoBox}>
-              <strong>Grading complete:</strong> {gradingResult.graded.length} chart{gradingResult.graded.length !== 1 ? 's' : ''} graded
-              {gradingResult.errors.length > 0 && <span style={{ color: '#6b7280' }}> · {gradingResult.errors.length} skipped</span>}
-            </div>
-            {missingKeyErrs.length > 0 && (
-              <div style={{ background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 8, padding: '12px 14px' }}>
-                <div style={{ fontWeight: 700, fontSize: 13, color: '#92400e', marginBottom: 6 }}>
-                  🔑 {missingKeyErrs.length} chart{missingKeyErrs.length !== 1 ? 's' : ''} skipped — answer key not found
-                </div>
-                <div style={{ fontSize: 12, color: '#78350f', marginBottom: 8 }}>
-                  Upload answer keys for these charts in the Answer Keys section, then re-upload this grading sheet.
-                </div>
-                <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12, color: '#92400e' }}>
-                  {missingKeyErrs.map((e: string, i: number) => {
-                    const match = e.match(/no answer key for (.+)$/)
-                    return <li key={i}>{match ? match[1] : e}</li>
-                  })}
-                </ul>
-              </div>
-            )}
-            {otherErrs.length > 0 && (
-              <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '12px 14px' }}>
-                <div style={{ fontWeight: 700, fontSize: 13, color: '#dc2626', marginBottom: 6 }}>Other errors ({otherErrs.length})</div>
-                <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12, color: '#dc2626' }}>
-                  {otherErrs.map((e: string, i: number) => <li key={i}>{e}</li>)}
-                </ul>
-              </div>
-            )}
-          </div>
-        )
-      })()}
 
       {showInsights && insights?.has_data && <InsightsPanel insights={insights} batchId={batchId} onClose={() => setShowInsights(false)} />}
 

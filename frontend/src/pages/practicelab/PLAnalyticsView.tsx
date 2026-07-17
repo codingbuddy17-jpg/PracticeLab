@@ -278,7 +278,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
 
               {overview.total_graded === 0 ? (
                 <div style={{ ...styles.warnBox, lineHeight: 1.6 }}>
-                  No grading results yet. Run an allocation cycle inside a batch, distribute the Excel sheets to coders, then upload the returned files to unlock analytics.
+                  No grading results yet. Run an allocation cycle inside a batch, then have coders complete their practice sessions to unlock analytics.
                 </div>
               ) : (
                 <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '18px 16px', display: 'flex', alignItems: 'center', gap: 32 }}>
