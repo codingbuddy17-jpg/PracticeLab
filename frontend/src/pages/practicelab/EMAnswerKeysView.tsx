@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react'
-import { Download, Plus, Trash2, ChevronDown, ChevronUp, CheckCircle } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { Download, Plus, Trash2, ChevronDown, ChevronUp, CheckCircle, Upload } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { listEMAnswerKeys, upsertEMAnswerKey, deleteEMAnswerKey, downloadEMAnswerKeyTemplate } from '../../api'
+import { listEMAnswerKeys, upsertEMAnswerKey, deleteEMAnswerKey, downloadEMAnswerKeyTemplate, uploadEMAnswerKeys } from '../../api'
 import { searchCharts } from '../../api'
 import { trainerName } from './shared'
 import styles from './styles'
@@ -85,6 +85,11 @@ export function EMAnswerKeysView() {
   const [deletePassphrase, setDeletePassphrase] = useState('')
   const [deleting, setDeleting] = useState(false)
   const [expandedSection, setExpandedSection] = useState<string>('copa')
+  const [uploading, setUploading] = useState(false)
+  const [uploadReplace, setUploadReplace] = useState(false)
+  const [uploadPassphrase, setUploadPassphrase] = useState('')
+  const [showUploadPassphrase, setShowUploadPassphrase] = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { loadList() }, [])
 
@@ -155,6 +160,34 @@ export function EMAnswerKeysView() {
 
   const toggle = (s: string) => setExpandedSection(v => v === s ? '' : s)
 
+  const handleUploadFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = ''
+    if (uploadReplace && !uploadPassphrase) {
+      toast.error('Enter passphrase to replace existing keys')
+      return
+    }
+    setUploading(true)
+    try {
+      const res = await uploadEMAnswerKeys(file, trainerName(), uploadReplace, uploadPassphrase)
+      const parts = []
+      if (res.stored.length) parts.push(`${res.stored.length} stored`)
+      if (res.replaced.length) parts.push(`${res.replaced.length} replaced`)
+      if (res.skipped_duplicates.length) parts.push(`${res.skipped_duplicates.length} skipped (duplicate)`)
+      if (res.not_found.length) parts.push(`${res.not_found.length} not found`)
+      toast.success(parts.join(', ') || 'No changes')
+      loadList()
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail || 'Upload failed')
+    } finally {
+      setUploading(false)
+      setUploadPassphrase('')
+      setShowUploadPassphrase(false)
+      setUploadReplace(false)
+    }
+  }
+
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
@@ -163,15 +196,48 @@ export function EMAnswerKeysView() {
             E/M and ED Profee charts — MDM element-level answer keys.
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <button style={styles.outlineBtn} onClick={downloadEMAnswerKeyTemplate}>
             <Download size={14} /> Bulk Template
+          </button>
+          <button
+            style={styles.outlineBtn}
+            onClick={() => setShowUploadPassphrase(v => !v)}
+            disabled={uploading}
+          >
+            <Upload size={14} /> {uploading ? 'Uploading…' : 'Upload Keys'}
           </button>
           <button style={styles.primaryBtn} onClick={() => { setShowForm(true); setExpandedSection('copa') }}>
             <Plus size={14} /> Add Answer Key
           </button>
+          <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={handleUploadFile} />
         </div>
       </div>
+
+      {/* Upload panel */}
+      {showUploadPassphrase && (
+        <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: 14, marginBottom: 16, display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
+            <input type="checkbox" checked={uploadReplace} onChange={e => setUploadReplace(e.target.checked)} />
+            Replace existing keys
+          </label>
+          {uploadReplace && (
+            <input
+              type="password"
+              placeholder="Master passphrase"
+              value={uploadPassphrase}
+              onChange={e => setUploadPassphrase(e.target.value)}
+              style={{ ...styles.input, width: 200, margin: 0 }}
+            />
+          )}
+          <button style={styles.primaryBtn} onClick={() => fileRef.current?.click()} disabled={uploading}>
+            <Upload size={13} /> Choose File & Upload
+          </button>
+          <button style={styles.outlineBtn} onClick={() => { setShowUploadPassphrase(false); setUploadReplace(false); setUploadPassphrase('') }}>
+            Cancel
+          </button>
+        </div>
+      )}
 
       {/* Entry Form */}
       {showForm && (

@@ -3,13 +3,14 @@ from __future__ import annotations
 
 import json
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from database import get_db
-from models import Specialty
+from models import Chart, Specialty
+from services.excel_service import parse_em_answer_key_upload
 from .shared import MASTER_PASSPHRASE
 
 router = APIRouter()
@@ -521,6 +522,181 @@ def update_em_scoring_config(payload: EMScoringConfigPayload, db: Session = Depe
     """), {k: v for k, v in d.items() if k != "updated_at"})
     db.commit()
     return {"status": "saved"}
+
+
+# ── Bulk Excel upload ─────────────────────────────────────────────────────────
+
+@router.post("/em/answer-key/upload")
+def upload_em_answer_keys(
+    file: UploadFile = File(...),
+    entered_by: str = Form(...),
+    replace: bool = Form(False),
+    passphrase: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    if replace and passphrase != MASTER_PASSPHRASE:
+        raise HTTPException(status_code=403, detail="Invalid passphrase")
+
+    try:
+        rows = parse_em_answer_key_upload(file.file.read())
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"Could not parse file: {e}")
+
+    stored, replaced, skipped, not_found = [], [], [], []
+
+    for row in rows:
+        chart_num = row["chart_number"]
+        chart = db.query(Chart).filter(Chart.chart_number == chart_num).first()
+        if not chart:
+            not_found.append(chart_num)
+            continue
+
+        if chart.specialty.value not in ("E/M", "ED Profee"):
+            not_found.append(chart_num)
+            continue
+
+        em_code = row.get("em_code", "").strip()
+        if not em_code:
+            skipped.append(chart_num)
+            continue
+
+        entered_by_val = row.get("entered_by") or entered_by
+
+        copa_override_raw = row.get("copa_level_override", "") or ""
+        dr_override_raw = row.get("dr_level_override", "") or ""
+        risk_override_raw = row.get("risk_level_override", "") or ""
+
+        copa_level = copa_override_raw or derive_copa_level(row)
+        dr_level = dr_override_raw or derive_dr_level(row)
+        risk_level = risk_override_raw or derive_risk_level(row)
+
+        dx_codes = json.dumps(row.get("dx_codes", []))
+        procedure_cpts = json.dumps(row.get("procedure_cpts", []))
+
+        existing = db.execute(
+            text("SELECT id FROM em_answer_keys WHERE chart_id = :c"), {"c": chart.id}
+        ).first()
+
+        params = {
+            "chart_id": chart.id,
+            "copa_self_limited": row.get("copa_self_limited", 0),
+            "copa_stable_acute": row.get("copa_stable_acute", 0),
+            "copa_stable_chronic": row.get("copa_stable_chronic", 0),
+            "copa_acute_uncomplicated": row.get("copa_acute_uncomplicated", 0),
+            "copa_chronic_exacerbation": row.get("copa_chronic_exacerbation", 0),
+            "copa_undiagnosed_new": row.get("copa_undiagnosed_new", 0),
+            "copa_acute_systemic": row.get("copa_acute_systemic", 0),
+            "copa_acute_complicated_injury": row.get("copa_acute_complicated_injury", 0),
+            "copa_chronic_severe": row.get("copa_chronic_severe", 0),
+            "copa_threat_to_life": row.get("copa_threat_to_life", 0),
+            "copa_level": copa_level,
+            "copa_level_overridden": bool(copa_override_raw),
+            "dr_prior_external_notes": row.get("dr_prior_external_notes", 0),
+            "dr_review_test_results": row.get("dr_review_test_results", 0),
+            "dr_order_tests": row.get("dr_order_tests", 0),
+            "dr_independent_historian": row.get("dr_independent_historian", False),
+            "dr_independent_interpretation": row.get("dr_independent_interpretation", False),
+            "dr_external_discussion": row.get("dr_external_discussion", False),
+            "dr_level": dr_level,
+            "dr_level_overridden": bool(dr_override_raw),
+            "risk_low": row.get("risk_low", False),
+            "risk_prescription_drug_mgmt": row.get("risk_prescription_drug_mgmt", False),
+            "risk_minor_surgery_with_factors": row.get("risk_minor_surgery_with_factors", False),
+            "risk_elective_major_no_factors": row.get("risk_elective_major_no_factors", False),
+            "risk_hospitalization": row.get("risk_hospitalization", False),
+            "risk_sdoh": row.get("risk_sdoh", False),
+            "risk_drug_intensive_monitoring": row.get("risk_drug_intensive_monitoring", False),
+            "risk_elective_major_with_factors": row.get("risk_elective_major_with_factors", False),
+            "risk_emergency_major_surgery": row.get("risk_emergency_major_surgery", False),
+            "risk_hospitalization_escalation": row.get("risk_hospitalization_escalation", False),
+            "risk_dnr_deescalate": row.get("risk_dnr_deescalate", False),
+            "risk_parenteral_controlled": row.get("risk_parenteral_controlled", False),
+            "risk_level": risk_level,
+            "risk_level_overridden": bool(risk_override_raw),
+            "em_code": em_code,
+            "em_modifier": row.get("em_modifier", "") or "",
+            "dx_codes": dx_codes,
+            "procedure_cpts": procedure_cpts,
+            "entered_by": entered_by_val,
+        }
+
+        if existing:
+            if not replace:
+                skipped.append(chart_num)
+                continue
+            db.execute(text("""
+                UPDATE em_answer_keys SET
+                    copa_self_limited=:copa_self_limited, copa_stable_acute=:copa_stable_acute,
+                    copa_stable_chronic=:copa_stable_chronic, copa_acute_uncomplicated=:copa_acute_uncomplicated,
+                    copa_chronic_exacerbation=:copa_chronic_exacerbation, copa_undiagnosed_new=:copa_undiagnosed_new,
+                    copa_acute_systemic=:copa_acute_systemic, copa_acute_complicated_injury=:copa_acute_complicated_injury,
+                    copa_chronic_severe=:copa_chronic_severe, copa_threat_to_life=:copa_threat_to_life,
+                    copa_level=:copa_level, copa_level_overridden=:copa_level_overridden,
+                    dr_prior_external_notes=:dr_prior_external_notes, dr_review_test_results=:dr_review_test_results,
+                    dr_order_tests=:dr_order_tests, dr_independent_historian=:dr_independent_historian,
+                    dr_independent_interpretation=:dr_independent_interpretation, dr_external_discussion=:dr_external_discussion,
+                    dr_level=:dr_level, dr_level_overridden=:dr_level_overridden,
+                    risk_low=:risk_low, risk_prescription_drug_mgmt=:risk_prescription_drug_mgmt,
+                    risk_minor_surgery_with_factors=:risk_minor_surgery_with_factors,
+                    risk_elective_major_no_factors=:risk_elective_major_no_factors,
+                    risk_hospitalization=:risk_hospitalization, risk_sdoh=:risk_sdoh,
+                    risk_drug_intensive_monitoring=:risk_drug_intensive_monitoring,
+                    risk_elective_major_with_factors=:risk_elective_major_with_factors,
+                    risk_emergency_major_surgery=:risk_emergency_major_surgery,
+                    risk_hospitalization_escalation=:risk_hospitalization_escalation,
+                    risk_dnr_deescalate=:risk_dnr_deescalate, risk_parenteral_controlled=:risk_parenteral_controlled,
+                    risk_level=:risk_level, risk_level_overridden=:risk_level_overridden,
+                    em_code=:em_code, em_modifier=:em_modifier,
+                    dx_codes=:dx_codes, procedure_cpts=:procedure_cpts,
+                    entered_by=:entered_by, entered_at=CURRENT_TIMESTAMP
+                WHERE chart_id=:chart_id
+            """), params)
+            replaced.append(chart_num)
+        else:
+            db.execute(text("""
+                INSERT INTO em_answer_keys (
+                    chart_id,
+                    copa_self_limited, copa_stable_acute, copa_stable_chronic,
+                    copa_acute_uncomplicated, copa_chronic_exacerbation, copa_undiagnosed_new,
+                    copa_acute_systemic, copa_acute_complicated_injury, copa_chronic_severe, copa_threat_to_life,
+                    copa_level, copa_level_overridden,
+                    dr_prior_external_notes, dr_review_test_results, dr_order_tests,
+                    dr_independent_historian, dr_independent_interpretation, dr_external_discussion,
+                    dr_level, dr_level_overridden,
+                    risk_low, risk_prescription_drug_mgmt, risk_minor_surgery_with_factors,
+                    risk_elective_major_no_factors, risk_hospitalization, risk_sdoh,
+                    risk_drug_intensive_monitoring, risk_elective_major_with_factors,
+                    risk_emergency_major_surgery, risk_hospitalization_escalation,
+                    risk_dnr_deescalate, risk_parenteral_controlled,
+                    risk_level, risk_level_overridden,
+                    em_code, em_modifier, dx_codes, procedure_cpts, entered_by
+                ) VALUES (
+                    :chart_id,
+                    :copa_self_limited, :copa_stable_acute, :copa_stable_chronic,
+                    :copa_acute_uncomplicated, :copa_chronic_exacerbation, :copa_undiagnosed_new,
+                    :copa_acute_systemic, :copa_acute_complicated_injury, :copa_chronic_severe, :copa_threat_to_life,
+                    :copa_level, :copa_level_overridden,
+                    :dr_prior_external_notes, :dr_review_test_results, :dr_order_tests,
+                    :dr_independent_historian, :dr_independent_interpretation, :dr_external_discussion,
+                    :dr_level, :dr_level_overridden,
+                    :risk_low, :risk_prescription_drug_mgmt, :risk_minor_surgery_with_factors,
+                    :risk_elective_major_no_factors, :risk_hospitalization, :risk_sdoh,
+                    :risk_drug_intensive_monitoring, :risk_elective_major_with_factors,
+                    :risk_emergency_major_surgery, :risk_hospitalization_escalation,
+                    :risk_dnr_deescalate, :risk_parenteral_controlled,
+                    :risk_level, :risk_level_overridden,
+                    :em_code, :em_modifier, :dx_codes, :procedure_cpts, :entered_by
+                )
+            """), params)
+            stored.append(chart_num)
+
+    db.commit()
+    return {
+        "stored": stored,
+        "replaced": replaced,
+        "skipped_duplicates": skipped,
+        "not_found": not_found,
+    }
 
 
 # ── Excel template download ───────────────────────────────────────────────────

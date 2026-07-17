@@ -349,6 +349,26 @@ export function downloadEMAnswerKeyTemplate() {
   window.open(`${import.meta.env.VITE_API_URL || '/api'}/practicelab/em/answer-key/template`)
 }
 
+export async function uploadEMAnswerKeys(
+  file: File,
+  enteredBy: string,
+  replace: boolean,
+  passphrase: string,
+) {
+  const form = new FormData()
+  form.append('file', file)
+  form.append('entered_by', enteredBy)
+  form.append('replace', String(replace))
+  form.append('passphrase', passphrase)
+  const { data } = await api.post('/practicelab/em/answer-key/upload', form)
+  return data as {
+    stored: string[]
+    replaced: string[]
+    skipped_duplicates: string[]
+    not_found: string[]
+  }
+}
+
 export async function getBatchEMBreakdown(batchId: number) {
   const { data } = await api.get(`/practicelab/practice-sessions/batch/${batchId}/em-breakdown`)
   return data as {

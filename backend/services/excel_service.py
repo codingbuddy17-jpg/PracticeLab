@@ -854,6 +854,129 @@ def parse_submission(file_bytes: bytes) -> list[dict]:
     return results
 
 
+# ── E/M answer key Excel parser ──────────────────────────────────────────────
+
+def parse_em_answer_key_upload(file_bytes: bytes) -> list[dict]:
+    """
+    Parse a trainer-filled E/M answer key Excel (from the bulk template).
+
+    Column layout (A=0 … AQ=42):
+      A  chart_number
+      B  copa_self_limited      C  copa_stable_acute       D  copa_stable_chronic
+      E  copa_acute_uncomplicated F copa_chronic_exacerbation G copa_undiagnosed_new
+      H  copa_acute_systemic    I  copa_acute_complicated_injury
+      J  copa_chronic_severe    K  copa_threat_to_life
+      L  copa_level_override (blank = auto-derive)
+      M  dr_prior_external_notes N dr_review_test_results  O  dr_order_tests
+      P  dr_independent_historian (Y/N)
+      Q  dr_independent_interpretation (Y/N)
+      R  dr_external_discussion (Y/N)
+      S  dr_level_override
+      T  risk_low               U  risk_prescription_drug_mgmt
+      V  risk_minor_surgery_with_factors W risk_elective_major_no_factors
+      X  risk_hospitalization   Y  risk_sdoh
+      Z  risk_drug_intensive_monitoring AA risk_elective_major_with_factors
+      AB risk_emergency_major_surgery   AC risk_hospitalization_escalation
+      AD risk_dnr_deescalate           AE risk_parenteral_controlled
+      AF risk_level_override
+      AG em_code               AH em_modifier
+      AI-AL dx_codes (Primary + 3 additional)
+      AM-AP procedure_cpts (2 CPTs × code+modifier)
+      AQ entered_by
+    """
+    wb = load_workbook(io.BytesIO(file_bytes), data_only=False)
+    ws = wb.worksheets[0]
+
+    HEADER_NAMES = {"chart_number", "chart number", "chart#", "chartnumber"}
+
+    def _v(row, idx, default=""):
+        val = row[idx] if idx < len(row) else None
+        if val is None:
+            return default
+        s = str(val).strip()
+        return default if s.lower() in ("none", "") else s
+
+    def _int(row, idx) -> int:
+        try:
+            return max(0, int(float(_v(row, idx, "0") or "0")))
+        except (ValueError, TypeError):
+            return 0
+
+    def _bool(row, idx) -> bool:
+        return _v(row, idx).upper() in ("Y", "YES", "TRUE", "1")
+
+    results = []
+    for row in ws.iter_rows(min_row=1, values_only=True):
+        if not row or row[0] is None:
+            continue
+        chart_number = _v(row, 0)
+        if not chart_number or chart_number.lower().replace(" ", "_") in HEADER_NAMES:
+            continue
+
+        # COPA counts
+        copa_override = _v(row, 11)  # L
+
+        # Data Review
+        dr_override = _v(row, 18)  # S
+
+        # Risk booleans (T–AE = indices 19–30)
+        risk_fields = [
+            "risk_low", "risk_prescription_drug_mgmt", "risk_minor_surgery_with_factors",
+            "risk_elective_major_no_factors", "risk_hospitalization", "risk_sdoh",
+            "risk_drug_intensive_monitoring", "risk_elective_major_with_factors",
+            "risk_emergency_major_surgery", "risk_hospitalization_escalation",
+            "risk_dnr_deescalate", "risk_parenteral_controlled",
+        ]
+        risk_override = _v(row, 31)  # AF
+
+        # Dx codes (AI–AL = indices 34–37)
+        dx_codes = [_v(row, i) for i in range(34, 38) if _v(row, i)]
+
+        # Procedure CPTs (AM+AN = 38+39, AO+AP = 40+41)
+        procedure_cpts = []
+        for base in (38, 40):
+            code = _v(row, base)
+            if code:
+                modifier = _v(row, base + 1)
+                procedure_cpts.append(f"{code}:{modifier}" if modifier else code)
+
+        entered_by = _v(row, 42)  # AQ
+
+        results.append({
+            "chart_number": chart_number,
+            "copa_self_limited":           _int(row, 1),
+            "copa_stable_acute":           _int(row, 2),
+            "copa_stable_chronic":         _int(row, 3),
+            "copa_acute_uncomplicated":    _int(row, 4),
+            "copa_chronic_exacerbation":   _int(row, 5),
+            "copa_undiagnosed_new":        _int(row, 6),
+            "copa_acute_systemic":         _int(row, 7),
+            "copa_acute_complicated_injury": _int(row, 8),
+            "copa_chronic_severe":         _int(row, 9),
+            "copa_threat_to_life":         _int(row, 10),
+            "copa_level_override":         copa_override,
+            "copa_level_overridden":       bool(copa_override),
+            "dr_prior_external_notes":     _int(row, 12),
+            "dr_review_test_results":      _int(row, 13),
+            "dr_order_tests":              _int(row, 14),
+            "dr_independent_historian":    _bool(row, 15),
+            "dr_independent_interpretation": _bool(row, 16),
+            "dr_external_discussion":      _bool(row, 17),
+            "dr_level_override":           dr_override,
+            "dr_level_overridden":         bool(dr_override),
+            **{field: _bool(row, 19 + i) for i, field in enumerate(risk_fields)},
+            "risk_level_override":         risk_override,
+            "risk_level_overridden":       bool(risk_override),
+            "em_code":                     _v(row, 32),   # AG
+            "em_modifier":                 _v(row, 33),   # AH
+            "dx_codes":                    dx_codes,
+            "procedure_cpts":              procedure_cpts,
+            "entered_by":                  entered_by,
+        })
+
+    return results
+
+
 # ── Results Excel export ──────────────────────────────────────────────────────
 
 def export_batch_results(batch_name: str, results: list[dict]) -> bytes:
