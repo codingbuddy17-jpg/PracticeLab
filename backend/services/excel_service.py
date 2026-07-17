@@ -860,7 +860,7 @@ def parse_em_answer_key_upload(file_bytes: bytes) -> list[dict]:
     """
     Parse a trainer-filled E/M answer key Excel (from the bulk template).
 
-    Column layout (A=0 … AQ=42):
+    Column layout (A=0 … AY=50):
       A  chart_number
       B  copa_self_limited      C  copa_stable_acute       D  copa_stable_chronic
       E  copa_acute_uncomplicated F copa_chronic_exacerbation G copa_undiagnosed_new
@@ -880,9 +880,9 @@ def parse_em_answer_key_upload(file_bytes: bytes) -> list[dict]:
       AD risk_dnr_deescalate           AE risk_parenteral_controlled
       AF risk_level_override
       AG em_code               AH em_modifier
-      AI-AL dx_codes (Primary + 3 additional)
-      AM-AP procedure_cpts (2 CPTs × code+modifier)
-      AQ entered_by
+      AI-AP dx_codes (Primary + 7 additional = 8 total)
+      AQ-AX procedure_cpts (4 CPTs × code+modifier)
+      AY entered_by
     """
     wb = load_workbook(io.BytesIO(file_bytes), data_only=False)
     ws = wb.worksheets[0]
@@ -929,18 +929,18 @@ def parse_em_answer_key_upload(file_bytes: bytes) -> list[dict]:
         ]
         risk_override = _v(row, 31)  # AF
 
-        # Dx codes (AI–AL = indices 34–37)
-        dx_codes = [_v(row, i) for i in range(34, 38) if _v(row, i)]
+        # Dx codes (AI–AP = indices 34–41, 8 total)
+        dx_codes = [_v(row, i) for i in range(34, 42) if _v(row, i)]
 
-        # Procedure CPTs (AM+AN = 38+39, AO+AP = 40+41)
+        # Procedure CPTs (AQ+AR = 42+43, AS+AT = 44+45, AU+AV = 46+47, AW+AX = 48+49)
         procedure_cpts = []
-        for base in (38, 40):
+        for base in (42, 44, 46, 48):
             code = _v(row, base)
             if code:
                 modifier = _v(row, base + 1)
                 procedure_cpts.append(f"{code}:{modifier}" if modifier else code)
 
-        entered_by = _v(row, 42)  # AQ
+        entered_by = _v(row, 50)  # AY
 
         results.append({
             "chart_number": chart_number,

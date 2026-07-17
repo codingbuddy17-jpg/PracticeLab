@@ -768,11 +768,19 @@ def download_em_template():
     hdr("AJ1", "Additional Dx 2")
     hdr("AK1", "Additional Dx 3")
     hdr("AL1", "Additional Dx 4")
-    hdr("AM1", "Procedure CPT 1")
-    hdr("AN1", "Procedure CPT 1 Modifier")
-    hdr("AO1", "Procedure CPT 2")
-    hdr("AP1", "Procedure CPT 2 Modifier")
-    hdr("AQ1", "Entered By")
+    hdr("AM1", "Additional Dx 5")
+    hdr("AN1", "Additional Dx 6")
+    hdr("AO1", "Additional Dx 7")
+    hdr("AP1", "Additional Dx 8")
+    hdr("AQ1", "Procedure CPT 1")
+    hdr("AR1", "Procedure CPT 1 Modifier")
+    hdr("AS1", "Procedure CPT 2")
+    hdr("AT1", "Procedure CPT 2 Modifier")
+    hdr("AU1", "Procedure CPT 3")
+    hdr("AV1", "Procedure CPT 3 Modifier")
+    hdr("AW1", "Procedure CPT 4")
+    hdr("AX1", "Procedure CPT 4 Modifier")
+    hdr("AY1", "Entered By")
 
     # Sample row
     ws["A2"] = "EM001"
@@ -787,7 +795,9 @@ def download_em_template():
     ws["AH2"] = ""
     ws["AI2"] = "E11.9"
     ws["AJ2"] = "I10"
-    ws["AQ2"] = "Dr. Smith"
+    ws["AK2"] = "Z79.4"
+    ws["AQ2"] = "99232"
+    ws["AY2"] = "Dr. Smith"
 
     ws.row_dimensions[1].height = 60
     for col in ws.columns:
