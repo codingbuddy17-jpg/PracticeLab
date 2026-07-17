@@ -254,12 +254,15 @@ function BatchRow({ b, onOpen, statusColor }: any) {
         </div>
       </div>
 
-      {/* Status pill */}
+      {/* Status pill — direct assignments use amber/slate instead of blue/green */}
       <span style={{
         ...s.statusPill,
-        color: statusColor(b.status),
-        borderColor: statusColor(b.status),
-        background: b.status === 'Open' ? '#eff6ff' : '#f0fdf4',
+        ...(b._direct
+          ? b.status === 'Open'
+            ? { color: '#92400e', borderColor: '#fbbf24', background: '#fffbeb' }
+            : { color: '#374151', borderColor: '#9ca3af', background: '#f9fafb' }
+          : { color: statusColor(b.status), borderColor: statusColor(b.status), background: b.status === 'Open' ? '#eff6ff' : '#f0fdf4' }
+        ),
       }}>
         {b.status}
       </span>
@@ -315,9 +318,7 @@ const s: Record<string, React.CSSProperties> = {
     borderRadius: 8, overflow: 'hidden', cursor: 'pointer',
     transition: 'border-color 0.12s, box-shadow 0.12s',
   },
-  rowDirect: {
-    border: '1px solid #c4b5fd',
-  },
+  rowDirect: {},
   accent: { width: 3, alignSelf: 'stretch', flexShrink: 0 },
   info:   { flex: 1, padding: '10px 14px', display: 'flex', flexDirection: 'column' as const, gap: 3 },
 
