@@ -481,7 +481,10 @@ interface FormProps {
 function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, saveMsg }: FormProps) {
   const [emOpenSections, setEmOpenSections] = useState({ copa: true, dr: false, risk: false, dx: false, code: false })
   function toggleSection(s: keyof typeof emOpenSections) {
-    setEmOpenSections(prev => ({ ...prev, [s]: !prev[s] }))
+    setEmOpenSections(prev => {
+      const isOpen = prev[s]
+      return { copa: false, dr: false, risk: false, dx: false, code: false, [s]: !isOpen }
+    })
   }
   const emData = entry.em_data || EMPTY_EM_DATA()
   function updateEM(patch: Partial<typeof emData>) {
@@ -537,13 +540,25 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
 
       {/* ── E/M MDM form ── */}
       {em && (<>
-        {/* Progress bar */}
+        {/* Section tabs */}
         <div style={{ display: 'flex', gap: 4, marginBottom: 20 }}>
-          {(['COPA', 'Data Review', 'Risk', 'Dx Coding', 'E/M & CPT'] as const).map((label, i) => {
-            const sectionKey = (['copa', 'dr', 'risk', 'dx', 'code'] as const)[i]
-            const active = emOpenSections[sectionKey]
+          {([
+            { label: 'COPA',        key: 'copa', color: '#7c3aed', activeBg: '#f5f3ff' },
+            { label: 'Data Review', key: 'dr',   color: '#0891b2', activeBg: '#f0f9ff' },
+            { label: 'Risk',        key: 'risk',  color: '#dc2626', activeBg: '#fff1f2' },
+            { label: 'E/M & CPT',  key: 'code',  color: '#d97706', activeBg: '#fffbeb' },
+            { label: 'Dx Coding',  key: 'dx',    color: '#059669', activeBg: '#f0fdf4' },
+          ] as const).map(({ label, key, color, activeBg }) => {
+            const active = emOpenSections[key]
             return (
-              <button key={label} onClick={() => toggleSection(sectionKey)} style={{ flex: 1, padding: '6px 4px', fontSize: 11, fontWeight: 700, borderRadius: 6, border: 'none', cursor: 'pointer', background: active ? '#7c3aed' : '#e5e7eb', color: active ? '#fff' : '#6b7280', transition: 'all 0.15s' }}>
+              <button key={key} onClick={() => toggleSection(key)} style={{
+                flex: 1, padding: '6px 4px', fontSize: 11, fontWeight: 700, borderRadius: 6,
+                border: active ? `1.5px solid ${color}` : '1.5px solid #e5e7eb',
+                cursor: 'pointer',
+                background: active ? activeBg : '#f9fafb',
+                color: active ? color : '#9ca3af',
+                transition: 'all 0.15s',
+              }}>
                 {label}
               </button>
             )
@@ -635,58 +650,18 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
           <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 8 }}>★ 2023 AMA addition · highest element present determines Risk level</div>
         </EMAccordion>
 
-        {/* ── Dx Coding ── */}
-        <EMAccordion title="Dx Coding — ICD-10-CM Diagnoses" open={emOpenSections.dx} onToggle={() => toggleSection('dx')} accent="#059669">
-          {emData.em_dx.map((row, i) => (
-            <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
-              <input
-                style={{ ...s.inputField, flex: 1, marginBottom: 0, textTransform: 'uppercase' }}
-                placeholder={i === 0 ? 'PDx — e.g. J18.9' : `Dx ${i + 1} — e.g. E11.9`}
-                value={row.code}
-                onChange={e => {
-                  const dx = [...emData.em_dx]
-                  dx[i] = { code: e.target.value.toUpperCase() }
-                  updateEM({ em_dx: dx })
-                }}
-              />
-              <button onClick={() => updateEM({ em_dx: emData.em_dx.filter((_, j) => j !== i) })} style={s.removeBtn}><X size={14} /></button>
-            </div>
-          ))}
-          <button onClick={() => updateEM({ em_dx: [...emData.em_dx, { code: '' }] })} style={s.addBtn}><Plus size={13} /> Add Diagnosis</button>
-          <div style={s.hint}>ICD-10-CM · dot optional · list principal diagnosis first</div>
-        </EMAccordion>
-
         {/* ── E/M Code & CPT ── */}
-        <EMAccordion title="E/M Code, Modifier & Procedure CPTs" open={emOpenSections.code} onToggle={() => toggleSection('code')} accent="#f59e0b">
+        <EMAccordion title="E/M Code, Modifier & Procedure CPTs" open={emOpenSections.code} onToggle={() => toggleSection('code')} accent="#d97706">
           <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 4 }}>E/M Code</div>
-              <select
-                style={{ ...s.selectField }}
+              <input
+                style={{ ...s.inputField, marginBottom: 0, fontFamily: 'monospace', letterSpacing: 0.5 }}
+                placeholder="e.g. 99214"
                 value={emData.em_code}
                 onChange={e => updateEM({ em_code: e.target.value })}
-              >
-                <option value="">Select E/M level…</option>
-                <optgroup label="Office / Outpatient (New)">
-                  <option value="99202">99202 — Straightforward MDM</option>
-                  <option value="99203">99203 — Low MDM</option>
-                  <option value="99204">99204 — Moderate MDM</option>
-                  <option value="99205">99205 — High MDM</option>
-                </optgroup>
-                <optgroup label="Office / Outpatient (Established)">
-                  <option value="99212">99212 — Straightforward MDM</option>
-                  <option value="99213">99213 — Low MDM</option>
-                  <option value="99214">99214 — Moderate MDM</option>
-                  <option value="99215">99215 — High MDM</option>
-                </optgroup>
-                <optgroup label="Emergency Department">
-                  <option value="99281">99281 — Minimal MDM</option>
-                  <option value="99282">99282 — Straightforward MDM</option>
-                  <option value="99283">99283 — Low MDM</option>
-                  <option value="99284">99284 — Moderate MDM</option>
-                  <option value="99285">99285 — High MDM</option>
-                </optgroup>
-              </select>
+                maxLength={10}
+              />
             </div>
             <div style={{ width: 120 }}>
               <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 4 }}>Modifier</div>
@@ -727,6 +702,27 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
           ))}
           <button onClick={() => updateEM({ em_cpt: [...emData.em_cpt, { code: '', modifier: '' }] })} style={s.addBtn}><Plus size={13} /> Add Procedure CPT</button>
           <div style={s.hint}>Add any procedures performed during the visit that require separate CPT coding</div>
+        </EMAccordion>
+
+        {/* ── Dx Coding (last) ── */}
+        <EMAccordion title="Dx Coding — ICD-10-CM Diagnoses" open={emOpenSections.dx} onToggle={() => toggleSection('dx')} accent="#059669">
+          {emData.em_dx.map((row, i) => (
+            <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+              <input
+                style={{ ...s.inputField, flex: 1, marginBottom: 0, textTransform: 'uppercase' }}
+                placeholder={i === 0 ? 'PDx — e.g. J18.9' : `Dx ${i + 1} — e.g. E11.9`}
+                value={row.code}
+                onChange={e => {
+                  const dx = [...emData.em_dx]
+                  dx[i] = { code: e.target.value.toUpperCase() }
+                  updateEM({ em_dx: dx })
+                }}
+              />
+              <button onClick={() => updateEM({ em_dx: emData.em_dx.filter((_, j) => j !== i) })} style={s.removeBtn}><X size={14} /></button>
+            </div>
+          ))}
+          <button onClick={() => updateEM({ em_dx: [...emData.em_dx, { code: '' }] })} style={s.addBtn}><Plus size={13} /> Add Diagnosis</button>
+          <div style={s.hint}>ICD-10-CM · dot optional · list principal diagnosis first</div>
         </EMAccordion>
       </>)}
 
