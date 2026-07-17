@@ -219,7 +219,7 @@ function BatchRow({ b, onOpen, statusColor }: any) {
   return (
     <div
       className="pl-batch-row"
-      style={s.row}
+      style={{ ...s.row, ...(b._direct ? s.rowDirect : {}) }}
       onClick={() => onOpen(b.id)}
     >
       {/* Left accent */}
@@ -314,6 +314,9 @@ const s: Record<string, React.CSSProperties> = {
     background: '#fff', border: '1px solid #f1f5f9',
     borderRadius: 8, overflow: 'hidden', cursor: 'pointer',
     transition: 'border-color 0.12s, box-shadow 0.12s',
+  },
+  rowDirect: {
+    background: '#faf5ff', border: '1px solid #ede9fe',
   },
   accent: { width: 3, alignSelf: 'stretch', flexShrink: 0 },
   info:   { flex: 1, padding: '10px 14px', display: 'flex', flexDirection: 'column' as const, gap: 3 },
