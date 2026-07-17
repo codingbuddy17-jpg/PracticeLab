@@ -96,6 +96,7 @@ export function CreateBatchView({ onCreated, scoringCfg, directMode: directModeP
 
   const isIP = ['IP-DRG'].includes(form.specialty)
   const isED = ['Edits', 'Denials'].includes(form.specialty)
+  const isEM = ['E/M', 'ED Profee'].includes(form.specialty)
   const activeCfg = scoringCfg ? (isIP ? scoringCfg.IP : scoringCfg.OP) : null
 
   return (
@@ -171,6 +172,14 @@ export function CreateBatchView({ onCreated, scoringCfg, directMode: directModeP
             <div style={{ fontSize: 13, color: '#92400e' }}>
               <strong>Manual rubric scoring applies for Edits &amp; Denials specialties.</strong>
               <div style={{ fontWeight: 400, marginTop: 2 }}>Trainer scores each case using the 5-section rubric (Review · Research · Resolution · Rationale) after coder submission.</div>
+            </div>
+          </div>
+        ) : isEM ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: '#ede9fe', border: '1px solid #c4b5fd', borderRadius: 8 }}>
+            <span style={{ fontSize: 16 }}>🩺</span>
+            <div style={{ fontSize: 13, color: '#5b21b6' }}>
+              <strong>E/M MDM scoring applies for this specialty.</strong>
+              <div style={{ fontWeight: 400, marginTop: 2 }}>Graded on: E/M level accuracy · COPA / Data Review / Risk element matching · Dx code accuracy · Procedure CPTs. Batch grading uses the MDM scoring engine — not IP/OP weighted scoring or DPO.</div>
             </div>
           </div>
         ) : (
