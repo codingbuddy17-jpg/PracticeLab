@@ -11,12 +11,11 @@ function getGroup(dateStr: string): string {
   const d    = new Date(dateStr)
   const now  = new Date()
   const diff = Math.floor((now.getTime() - d.getTime()) / 86400000)
-  const dow  = now.getDay()                    // 0 = Sun
-  const startOfWeek = diff - (dow === 0 ? 6 : dow - 1) // Monday-based
-  if (diff <= startOfWeek + 6 && diff >= startOfWeek) return 'This Week'
-  if (diff <= startOfWeek + 13)                         return 'Last Week'
-  const startOfMonth = now.getDate() - 1
-  if (diff <= startOfMonth)                             return 'This Month'
+  const dow  = now.getDay()                        // 0=Sun
+  const daysToMonday = dow === 0 ? 6 : dow - 1    // how many days ago was Monday
+  if (diff <= daysToMonday)     return 'This Week'
+  if (diff <= daysToMonday + 7) return 'Last Week'
+  if (diff <= now.getDate() - 1) return 'This Month'
   return 'Older'
 }
 
