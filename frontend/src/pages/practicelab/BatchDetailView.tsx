@@ -789,7 +789,7 @@ function PracticeTokensSection({ batchId }: { batchId: number }) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <Key size={14} color="#7c3aed" />
-          <span style={{ fontWeight: 700, fontSize: 13, color: '#374151' }}>In-Browser Practice Sessions</span>
+          <span style={{ fontWeight: 700, fontSize: 13, color: '#374151' }}>Practice Sessions</span>
           {existing.length > 0 && (
             <span style={{ fontSize: 11, background: '#ede9fe', color: '#7c3aed', borderRadius: 20, padding: '2px 8px', fontWeight: 600 }}>
               {existing.length} session{existing.length !== 1 ? 's' : ''}
