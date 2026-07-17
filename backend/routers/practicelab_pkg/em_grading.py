@@ -799,6 +799,8 @@ def download_em_template():
     ws["AQ2"] = "99232"
     ws["AY2"] = "Dr. Smith"
 
+    ws.freeze_panes = "B2"  # freeze column A (chart number) and header row
+
     ws.row_dimensions[1].height = 60
     for col in ws.columns:
         ws.column_dimensions[col[0].column_letter].width = 18
