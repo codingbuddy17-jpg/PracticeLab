@@ -59,7 +59,7 @@ export function HomeView({ batches, directAssignments, overview, loading, onOpen
   }
 
   function toggleGroup(label: string) {
-    setCollapsed(prev => ({ ...prev, [label]: prev[label] !== false }))
+    setCollapsed(prev => ({ ...prev, [label]: prev[label] === false }))
   }
 
   // Merge direct assignments into the main list with a flag
