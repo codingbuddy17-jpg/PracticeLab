@@ -684,7 +684,7 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
                 <label key={pt} style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13, color: '#374151' }}>
                   <input
                     type="radio"
-                    name={`patient_type_${chart.id}`}
+                    name={`patient_type_${chart.chart_id}`}
                     value={pt}
                     checked={emData.patient_type === pt}
                     onChange={() => updateEM({ patient_type: pt })}
