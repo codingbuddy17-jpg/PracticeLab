@@ -59,7 +59,7 @@ export function HomeView({ batches, directAssignments, overview, loading, onOpen
   }
 
   function toggleGroup(label: string) {
-    setCollapsed(prev => ({ ...prev, [label]: !prev[label] }))
+    setCollapsed(prev => ({ ...prev, [label]: prev[label] !== false }))
   }
 
   // Merge direct assignments into the main list with a flag
@@ -173,7 +173,7 @@ export function HomeView({ batches, directAssignments, overview, loading, onOpen
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {groups.map(({ label, items }) => {
-            const isCollapsed = collapsed[label]
+            const isCollapsed = collapsed[label] !== false
             return (
               <div key={label}>
                 {/* Group header */}
