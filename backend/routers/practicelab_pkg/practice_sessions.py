@@ -429,7 +429,7 @@ def submit_practice_session(session_id: int, payload: SubmitPracticeSession, db:
             "risk_emergency_major_surgery", "risk_hospitalization_escalation",
             "risk_dnr_deescalate", "risk_parenteral_controlled",
             "risk_level", "risk_level_override",
-            "em_code", "em_modifier", "dx_codes", "procedure_cpts",
+            "em_code", "em_modifier", "patient_type", "dx_codes", "procedure_cpts",
             "entered_by", "entered_at",
         ]
         for entry in payload.entries:
@@ -451,7 +451,15 @@ def submit_practice_session(session_id: int, payload: SubmitPracticeSession, db:
             )
             pf = "PASS" if total >= cfg["pass_threshold"] else "FAIL"
             # Build feedback items from scoring breakdown for results display
-            em_feedback = [
+            em_feedback = []
+            if scoring.get("patient_type_mismatch"):
+                em_feedback.append({
+                    "section": "Coding Accuracy",
+                    "issue": f"Patient Type mismatch — expected {scoring.get('ak_patient_type', '')}, submitted {scoring.get('sub_patient_type', '')}",
+                    "ak_code": scoring.get("ak_patient_type", ""),
+                    "coder_code": scoring.get("sub_patient_type", ""),
+                })
+            em_feedback += [
                 {"section": "Coding Accuracy", "issue": f"E/M Level: {scoring.get('em_level_score', 0):.1f}/{cfg['em_level_weight']:.1f} pts", "ak_code": ak.get("em_code", ""), "coder_code": em.get("em_code", "")},
                 {"section": "Coding Accuracy", "issue": f"CPT: {scoring.get('cpt_score', 0):.1f} pts", "ak_code": "", "coder_code": ""},
                 {"section": "Coding Accuracy", "issue": f"Dx: {scoring.get('dx_score', 0):.1f} pts", "ak_code": "", "coder_code": ""},

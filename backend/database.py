@@ -452,6 +452,8 @@ def _run_migrations():
     # ── Scrub "None" sentinel strings from answer key JSON arrays ─────────────
     _clean_none_in_answer_keys()
 
+    _add_col("em_answer_keys", "patient_type", "VARCHAR(20) NOT NULL DEFAULT 'NA'", "TEXT NOT NULL DEFAULT 'NA'")
+
     # ── E/M MDM answer keys ───────────────────────────────────────────────────
     _run("""CREATE TABLE IF NOT EXISTS em_answer_keys (
         id INTEGER PRIMARY KEY,

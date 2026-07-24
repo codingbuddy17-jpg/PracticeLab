@@ -880,9 +880,10 @@ def parse_em_answer_key_upload(file_bytes: bytes) -> list[dict]:
       AD risk_dnr_deescalate           AE risk_parenteral_controlled
       AF risk_level_override
       AG em_code               AH em_modifier
-      AI-AP dx_codes (Primary + 7 additional = 8 total)
-      AQ-AX procedure_cpts (4 CPTs × code+modifier)
-      AY entered_by
+      AI patient_type (New / Established / NA)
+      AJ-AQ dx_codes (Primary + 7 additional = 8 total)
+      AR-AY procedure_cpts (4 CPTs × code+modifier)
+      AZ entered_by
     """
     wb = load_workbook(io.BytesIO(file_bytes), data_only=False)
     ws = wb.worksheets[0]
@@ -929,18 +930,23 @@ def parse_em_answer_key_upload(file_bytes: bytes) -> list[dict]:
         ]
         risk_override = _v(row, 31)  # AF
 
-        # Dx codes (AI–AP = indices 34–41, 8 total)
-        dx_codes = [_v(row, i) for i in range(34, 42) if _v(row, i)]
+        # Patient type (AI = index 34)
+        patient_type = _v(row, 34).upper().strip() or "NA"
+        if patient_type not in ("NEW", "ESTABLISHED", "NA"):
+            patient_type = "NA"
 
-        # Procedure CPTs (AQ+AR = 42+43, AS+AT = 44+45, AU+AV = 46+47, AW+AX = 48+49)
+        # Dx codes (AJ–AQ = indices 35–42, 8 total)
+        dx_codes = [_v(row, i) for i in range(35, 43) if _v(row, i)]
+
+        # Procedure CPTs (AR+AS = 43+44, AT+AU = 45+46, AV+AW = 47+48, AX+AY = 49+50)
         procedure_cpts = []
-        for base in (42, 44, 46, 48):
+        for base in (43, 45, 47, 49):
             code = _v(row, base)
             if code:
                 modifier = _v(row, base + 1)
                 procedure_cpts.append(f"{code}:{modifier}" if modifier else code)
 
-        entered_by = _v(row, 50)  # AY
+        entered_by = _v(row, 51)  # AZ
 
         results.append({
             "chart_number": chart_number,
@@ -969,6 +975,7 @@ def parse_em_answer_key_upload(file_bytes: bytes) -> list[dict]:
             "risk_level_overridden":       bool(risk_override),
             "em_code":                     _v(row, 32),   # AG
             "em_modifier":                 _v(row, 33),   # AH
+            "patient_type":                patient_type,  # AI
             "dx_codes":                    dx_codes,
             "procedure_cpts":              procedure_cpts,
             "entered_by":                  entered_by,

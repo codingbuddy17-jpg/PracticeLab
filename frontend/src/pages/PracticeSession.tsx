@@ -60,9 +60,10 @@ interface CodeEntry {
     risk_hospitalization_escalation: boolean
     risk_dnr_deescalate: boolean
     risk_parenteral_controlled: boolean
-    // E/M code + Dx + CPT
+    // E/M code + patient type + Dx + CPT
     em_code: string
     em_modifier: string
+    patient_type: 'NEW' | 'ESTABLISHED' | 'NA'
     em_dx: Array<{ code: string }>
     em_cpt: Array<{ code: string; modifier: string }>
   }
@@ -113,7 +114,8 @@ const EMPTY_EM_DATA = () => ({
   risk_drug_intensive_monitoring: false, risk_elective_major_with_factors: false,
   risk_emergency_major_surgery: false, risk_hospitalization_escalation: false,
   risk_dnr_deescalate: false, risk_parenteral_controlled: false,
-  em_code: '', em_modifier: '', em_dx: [] as Array<{ code: string }>, em_cpt: [] as Array<{ code: string; modifier: string }>,
+  em_code: '', em_modifier: '', patient_type: 'NA' as 'NEW' | 'ESTABLISHED' | 'NA',
+  em_dx: [] as Array<{ code: string }>, em_cpt: [] as Array<{ code: string; modifier: string }>,
 })
 
 const EMPTY_ENTRY = (chart_id: number): CodeEntry => ({
@@ -672,6 +674,24 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
                 onChange={e => updateEM({ em_modifier: e.target.value })}
                 maxLength={10}
               />
+            </div>
+          </div>
+          {/* Patient Type */}
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Patient Type</div>
+            <div style={{ display: 'flex', gap: 16 }}>
+              {(['NEW', 'ESTABLISHED', 'NA'] as const).map(pt => (
+                <label key={pt} style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13, color: '#374151' }}>
+                  <input
+                    type="radio"
+                    name={`patient_type_${chart.id}`}
+                    value={pt}
+                    checked={emData.patient_type === pt}
+                    onChange={() => updateEM({ patient_type: pt })}
+                  />
+                  {pt === 'NA' ? 'N/A' : pt === 'NEW' ? 'New' : 'Established'}
+                </label>
+              ))}
             </div>
           </div>
           <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Procedure CPTs (if applicable)</div>

@@ -179,10 +179,14 @@ def grade_em_chart(ak: dict, sub: dict, cfg: dict, overcoding_penalty: bool = Tr
         cpt_w_adj = cpt_w
 
     # ── Coding Accuracy ───────────────────────────────────────────────────────
-    # E/M Level (binary — derived level must match AK level)
+    # E/M Level — complexity AND patient type must both match (when AK patient_type != NA)
     sub_em_level = em_code_to_level(sub.get("sub_em_code") or "")
     ak_em_level = em_code_to_level(ak.get("em_code") or "")
-    em_level_score = em_w_adj if (sub_em_level and sub_em_level == ak_em_level) else 0.0
+    ak_patient_type = (ak.get("patient_type") or "NA").upper().strip()
+    sub_patient_type = (sub.get("sub_patient_type") or "NA").upper().strip()
+    patient_type_ok = (ak_patient_type == "NA") or (sub_patient_type == ak_patient_type)
+    em_level_score = em_w_adj if (sub_em_level and sub_em_level == ak_em_level and patient_type_ok) else 0.0
+    patient_type_mismatch = (ak_patient_type != "NA") and (not patient_type_ok)
 
     # CPT (proportional, equal weight per CPT, overcoding penalty)
     cpt_score = 0.0
@@ -264,6 +268,9 @@ def grade_em_chart(ak: dict, sub: dict, cfg: dict, overcoding_penalty: bool = Tr
         "reasoning_accuracy_total": round(reasoning_accuracy_total, 2),
         "total_score": total_score,
         "pass_fail": pass_fail,
+        "patient_type_mismatch": patient_type_mismatch,
+        "ak_patient_type": ak_patient_type,
+        "sub_patient_type": sub_patient_type,
     }
 
 
@@ -307,6 +314,7 @@ class EMAnswerKeyPayload(BaseModel):
     risk_level_override: Optional[str] = None
     em_code: str
     em_modifier: Optional[str] = None
+    patient_type: Optional[str] = "NA"  # New / Established / NA
     dx_codes: list = []
     procedure_cpts: list = []
     entered_by: str
@@ -409,7 +417,7 @@ def upsert_em_answer_key(payload: EMAnswerKeyPayload, db: Session = Depends(get_
                 risk_dnr_deescalate=:risk_dnr_deescalate,
                 risk_parenteral_controlled=:risk_parenteral_controlled,
                 risk_level=:risk_level, risk_level_overridden=:risk_overridden,
-                em_code=:em_code, em_modifier=:em_modifier,
+                em_code=:em_code, em_modifier=:em_modifier, patient_type=:patient_type,
                 dx_codes=:dx_codes, procedure_cpts=:procedure_cpts,
                 entered_by=:entered_by, entered_at=CURRENT_TIMESTAMP
             WHERE chart_id=:chart_id
@@ -417,6 +425,7 @@ def upsert_em_answer_key(payload: EMAnswerKeyPayload, db: Session = Depends(get_
                "copa_level": copa_level, "copa_overridden": copa_overridden,
                "dr_level": dr_level, "dr_overridden": dr_overridden,
                "risk_level": risk_level, "risk_overridden": risk_overridden,
+               "patient_type": (payload.patient_type or "NA").upper(),
                "dx_codes": dx_codes, "procedure_cpts": procedure_cpts})
     else:
         db.execute(text("""
@@ -436,7 +445,7 @@ def upsert_em_answer_key(payload: EMAnswerKeyPayload, db: Session = Depends(get_
                 risk_emergency_major_surgery, risk_hospitalization_escalation,
                 risk_dnr_deescalate, risk_parenteral_controlled,
                 risk_level, risk_level_overridden,
-                em_code, em_modifier, dx_codes, procedure_cpts,
+                em_code, em_modifier, patient_type, dx_codes, procedure_cpts,
                 entered_by
             ) VALUES (
                 :chart_id,
@@ -454,13 +463,14 @@ def upsert_em_answer_key(payload: EMAnswerKeyPayload, db: Session = Depends(get_
                 :risk_emergency_major_surgery, :risk_hospitalization_escalation,
                 :risk_dnr_deescalate, :risk_parenteral_controlled,
                 :risk_level, :risk_overridden,
-                :em_code, :em_modifier, :dx_codes, :procedure_cpts,
+                :em_code, :em_modifier, :patient_type, :dx_codes, :procedure_cpts,
                 :entered_by
             )
         """), {**d, "chart_id": chart_id, "entered_by": entered_by,
                "copa_level": copa_level, "copa_overridden": copa_overridden,
                "dr_level": dr_level, "dr_overridden": dr_overridden,
                "risk_level": risk_level, "risk_overridden": risk_overridden,
+               "patient_type": (payload.patient_type or "NA").upper(),
                "dx_codes": dx_codes, "procedure_cpts": procedure_cpts})
     db.commit()
     return {"status": "ok", "copa_level": copa_level, "dr_level": dr_level, "risk_level": risk_level}
@@ -615,6 +625,7 @@ def upload_em_answer_keys(
             "risk_level_overridden": bool(risk_override_raw),
             "em_code": em_code,
             "em_modifier": row.get("em_modifier", "") or "",
+            "patient_type": (row.get("patient_type") or "NA").upper().strip(),
             "dx_codes": dx_codes,
             "procedure_cpts": procedure_cpts,
             "entered_by": entered_by_val,
@@ -646,7 +657,7 @@ def upload_em_answer_keys(
                     risk_hospitalization_escalation=:risk_hospitalization_escalation,
                     risk_dnr_deescalate=:risk_dnr_deescalate, risk_parenteral_controlled=:risk_parenteral_controlled,
                     risk_level=:risk_level, risk_level_overridden=:risk_level_overridden,
-                    em_code=:em_code, em_modifier=:em_modifier,
+                    em_code=:em_code, em_modifier=:em_modifier, patient_type=:patient_type,
                     dx_codes=:dx_codes, procedure_cpts=:procedure_cpts,
                     entered_by=:entered_by, entered_at=CURRENT_TIMESTAMP
                 WHERE chart_id=:chart_id
@@ -669,7 +680,7 @@ def upload_em_answer_keys(
                     risk_emergency_major_surgery, risk_hospitalization_escalation,
                     risk_dnr_deescalate, risk_parenteral_controlled,
                     risk_level, risk_level_overridden,
-                    em_code, em_modifier, dx_codes, procedure_cpts, entered_by
+                    em_code, em_modifier, patient_type, dx_codes, procedure_cpts, entered_by
                 ) VALUES (
                     :chart_id,
                     :copa_self_limited, :copa_stable_acute, :copa_stable_chronic,
@@ -685,7 +696,7 @@ def upload_em_answer_keys(
                     :risk_emergency_major_surgery, :risk_hospitalization_escalation,
                     :risk_dnr_deescalate, :risk_parenteral_controlled,
                     :risk_level, :risk_level_overridden,
-                    :em_code, :em_modifier, :dx_codes, :procedure_cpts, :entered_by
+                    :em_code, :em_modifier, :patient_type, :dx_codes, :procedure_cpts, :entered_by
                 )
             """), params)
             stored.append(chart_num)
@@ -764,23 +775,24 @@ def download_em_template():
     hdr("AF1", "Risk Level Override (leave blank to auto-derive)")
     hdr("AG1", "E/M Code")
     hdr("AH1", "E/M Modifier (e.g. 25)")
-    hdr("AI1", "Primary Dx Code")
-    hdr("AJ1", "Additional Dx 2")
-    hdr("AK1", "Additional Dx 3")
-    hdr("AL1", "Additional Dx 4")
-    hdr("AM1", "Additional Dx 5")
-    hdr("AN1", "Additional Dx 6")
-    hdr("AO1", "Additional Dx 7")
-    hdr("AP1", "Additional Dx 8")
-    hdr("AQ1", "Procedure CPT 1")
-    hdr("AR1", "Procedure CPT 1 Modifier")
-    hdr("AS1", "Procedure CPT 2")
-    hdr("AT1", "Procedure CPT 2 Modifier")
-    hdr("AU1", "Procedure CPT 3")
-    hdr("AV1", "Procedure CPT 3 Modifier")
-    hdr("AW1", "Procedure CPT 4")
-    hdr("AX1", "Procedure CPT 4 Modifier")
-    hdr("AY1", "Entered By")
+    hdr("AI1", "Patient Type (New / Established / NA)")
+    hdr("AJ1", "Primary Dx Code")
+    hdr("AK1", "Additional Dx 2")
+    hdr("AL1", "Additional Dx 3")
+    hdr("AM1", "Additional Dx 4")
+    hdr("AN1", "Additional Dx 5")
+    hdr("AO1", "Additional Dx 6")
+    hdr("AP1", "Additional Dx 7")
+    hdr("AQ1", "Additional Dx 8")
+    hdr("AR1", "Procedure CPT 1")
+    hdr("AS1", "Procedure CPT 1 Modifier")
+    hdr("AT1", "Procedure CPT 2")
+    hdr("AU1", "Procedure CPT 2 Modifier")
+    hdr("AV1", "Procedure CPT 3")
+    hdr("AW1", "Procedure CPT 3 Modifier")
+    hdr("AX1", "Procedure CPT 4")
+    hdr("AY1", "Procedure CPT 4 Modifier")
+    hdr("AZ1", "Entered By")
 
     # Sample row
     ws["A2"] = "EM001"
@@ -793,11 +805,12 @@ def download_em_template():
     ws["U2"] = "Y"
     ws["AG2"] = "99214"
     ws["AH2"] = ""
-    ws["AI2"] = "E11.9"
-    ws["AJ2"] = "I10"
-    ws["AK2"] = "Z79.4"
-    ws["AQ2"] = "99232"
-    ws["AY2"] = "Dr. Smith"
+    ws["AG2"] = "99214"
+    ws["AI2"] = "Established"
+    ws["AJ2"] = "E11.9"
+    ws["AK2"] = "I10"
+    ws["AL2"] = "Z79.4"
+    ws["AZ2"] = "Dr. Smith"
 
     ws.freeze_panes = "B2"  # freeze column A (chart number) and header row
 
