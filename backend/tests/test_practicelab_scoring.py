@@ -240,3 +240,82 @@ class TestCustomScoringConfig:
         assert total_easy == total_hard == 60
         assert pf_easy == "PASS"
         assert pf_hard == "FAIL"
+
+
+class TestDRGReviewTriggers:
+    """
+    A trainer DRG decision is only warranted when the error can actually move
+    the DRG: PDx, a CC/MCC secondary, or PCS. A secondary diagnosis that is
+    neither CC nor MCC does not change the DRG and must not queue for review.
+    """
+
+    AK = IPAnswerKey(
+        pdx_code="J18.9", pdx_poa="Y",
+        sdx=[{"code": "E11.65", "poa": "Y", "ccmcc": "CC"},
+             {"code": "I10", "poa": "Y", "ccmcc": ""}],
+        pcs=[{"code": "0BHN3BZ"}],
+    )
+
+    def test_clean_submission_does_not_flag(self):
+        sub = IPSubmission(pdx_code="J18.9", pdx_poa="Y",
+                           sdx=[{"code": "E11.65", "poa": "Y"}, {"code": "I10", "poa": "Y"}],
+                           pcs=[{"code": "0BHN3BZ"}])
+        assert grade_ip(self.AK, sub).drg_flag is False
+
+    def test_missing_non_ccmcc_secondary_does_not_flag(self):
+        """I10 carries no CC/MCC — dropping it cannot move the DRG."""
+        sub = IPSubmission(pdx_code="J18.9", pdx_poa="Y",
+                           sdx=[{"code": "E11.65", "poa": "Y"}],
+                           pcs=[{"code": "0BHN3BZ"}])
+        assert grade_ip(self.AK, sub).drg_flag is False
+
+    def test_extra_non_ccmcc_secondary_does_not_flag(self):
+        sub = IPSubmission(pdx_code="J18.9", pdx_poa="Y",
+                           sdx=[{"code": "E11.65", "poa": "Y"}, {"code": "I10", "poa": "Y"},
+                                {"code": "Z79.4", "poa": "Y"}],
+                           pcs=[{"code": "0BHN3BZ"}])
+        assert grade_ip(self.AK, sub).drg_flag is False
+
+    def test_spurious_sdx_is_not_a_default_trigger(self):
+        """
+        Previously any SDx added against an empty key flagged for review, even
+        though a non-CC/MCC secondary cannot move the DRG — and a coder-invented
+        code carries no CC/MCC flag to test against.
+        """
+        assert "spurious_sdx" not in IPScoringCfg().drg_triggers
+        ak = IPAnswerKey(pdx_code="J18.9", pdx_poa="Y", sdx=[], pcs=[])
+        sub = IPSubmission(pdx_code="J18.9", pdx_poa="Y",
+                           sdx=[{"code": "Z79.4", "poa": "Y"}], pcs=[])
+        assert grade_ip(ak, sub).drg_flag is False
+
+    # ── the three that SHOULD flag ──
+
+    def test_wrong_pdx_flags(self):
+        sub = IPSubmission(pdx_code="J96.00", pdx_poa="Y",
+                           sdx=[{"code": "E11.65", "poa": "Y"}, {"code": "I10", "poa": "Y"}],
+                           pcs=[{"code": "0BHN3BZ"}])
+        assert grade_ip(self.AK, sub).drg_flag is True
+
+    def test_pdx_poa_error_flags(self):
+        sub = IPSubmission(pdx_code="J18.9", pdx_poa="N",
+                           sdx=[{"code": "E11.65", "poa": "Y"}, {"code": "I10", "poa": "Y"}],
+                           pcs=[{"code": "0BHN3BZ"}])
+        assert grade_ip(self.AK, sub).drg_flag is True
+
+    def test_missing_ccmcc_secondary_flags(self):
+        sub = IPSubmission(pdx_code="J18.9", pdx_poa="Y",
+                           sdx=[{"code": "I10", "poa": "Y"}],
+                           pcs=[{"code": "0BHN3BZ"}])
+        assert grade_ip(self.AK, sub).drg_flag is True
+
+    def test_missing_pcs_flags(self):
+        sub = IPSubmission(pdx_code="J18.9", pdx_poa="Y",
+                           sdx=[{"code": "E11.65", "poa": "Y"}, {"code": "I10", "poa": "Y"}],
+                           pcs=[])
+        assert grade_ip(self.AK, sub).drg_flag is True
+
+    def test_extra_pcs_flags(self):
+        sub = IPSubmission(pdx_code="J18.9", pdx_poa="Y",
+                           sdx=[{"code": "E11.65", "poa": "Y"}, {"code": "I10", "poa": "Y"}],
+                           pcs=[{"code": "0BHN3BZ"}, {"code": "3E0336Z"}])
+        assert grade_ip(self.AK, sub).drg_flag is True

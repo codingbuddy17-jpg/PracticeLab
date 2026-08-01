@@ -77,7 +77,8 @@ def _build_ip_ak_headers(ws):
     ws.row_dimensions[1].height = 36
 
 
-def _build_op_ak_headers(ws, with_pointers: bool = False, single_path: bool = False):
+def _build_op_ak_headers(ws, with_pointers: bool = False, single_path: bool = False,
+                         dx_only: bool = False):
     col = 1
     _header(ws, col, 1, "Chart_Number"); col += 1
     if single_path:
@@ -87,7 +88,10 @@ def _build_op_ak_headers(ws, with_pointers: bool = False, single_path: bool = Fa
     _header(ws, col, 1, "PDx_Code"); col += 1
     for i in range(1, OP_SDX_COUNT + 1):
         _header(ws, col, 1, f"SDx_{i}"); col += 1
-    for i in range(1, OP_CPT_COUNT + 1):
+    # Ancillary/radiology is diagnosis-only in practice — CPTs are auto-coded
+    # upstream — so offering CPT columns invites trainers to fill cells that
+    # cannot score.
+    for i in range(1, 0 if dx_only else OP_CPT_COUNT + 1):
         _header(ws, col, 1, f"CPT_{i}"); col += 1
         _header(ws, col, 1, f"CPT_{i}_Modifier"); col += 1
         if with_pointers:
@@ -157,7 +161,8 @@ def parse_coder_list(file_bytes: bytes) -> list[dict]:
 
 
 def generate_answer_key_template(specialty: str, with_pointers: bool = False,
-                                 single_path: bool = False) -> bytes:
+                                 single_path: bool = False,
+                                 dx_only: bool = False) -> bytes:
     """
     Returns bytes of blank answer key Excel file.
     specialty: 'IP' for inpatient, 'OP' for outpatient.
@@ -172,9 +177,10 @@ def generate_answer_key_template(specialty: str, with_pointers: bool = False,
         _build_ip_ak_headers(ws)
         total_cols = 3 + IP_SDX_COUNT * 3 + IP_PCS_COUNT
     else:
-        _build_op_ak_headers(ws, with_pointers=with_pointers, single_path=single_path)
-        total_cols = (2 + (2 if single_path else 0) + OP_SDX_COUNT
-                      + OP_CPT_COUNT * (3 if with_pointers else 2))
+        _build_op_ak_headers(ws, with_pointers=with_pointers, single_path=single_path,
+                             dx_only=dx_only)
+        cpt_cols = 0 if dx_only else OP_CPT_COUNT * (3 if with_pointers else 2)
+        total_cols = 2 + (2 if single_path else 0) + OP_SDX_COUNT + cpt_cols
 
     # 10 blank input rows
     for r in range(2, 12):
@@ -241,28 +247,45 @@ def export_all_answer_keys(answer_keys: list) -> bytes:
     """
     Export all stored answer keys as a filled Excel workbook.
     answer_keys: list of (AnswerKey, Chart) tuples from DB query.
-    Produces one sheet per specialty group, same column layout as the upload template.
+
+    ONE SHEET PER SPECIALTY, each using that specialty's own upload layout.
+    Grouping everything into a generic "OP" sheet dropped the columns that only
+    some specialties have — Surgery lost its Dx pointers, ED Single Path lost
+    both level columns — so an export → edit → re-upload round trip silently
+    discarded them.
     """
+    from routers.practicelab_pkg.shared import (
+        _is_ip, _uses_pointers, _is_single_path, _is_dx_only,
+    )
+
     wb = Workbook()
     wb.remove(wb.active)
 
-    # Group by specialty type (IP vs OP)
-    ip_rows = [(ak, ch) for ak, ch in answer_keys if ch.specialty.value == "IP-DRG"]
-    op_rows = [(ak, ch) for ak, ch in answer_keys if ch.specialty.value != "IP-DRG"]
+    groups: dict = {}
+    for ak, ch in answer_keys:
+        groups.setdefault(ch.specialty, []).append((ak, ch))
 
-    def _fill_sheet(ws, rows, is_ip):
+    def _fill_sheet(ws, rows, spec):
+        is_ip = _is_ip(spec)
+        with_pointers = _uses_pointers(spec)
+        single_path = _is_single_path(spec)
+        dx_only = _is_dx_only(spec)
+
         if is_ip:
             _build_ip_ak_headers(ws)
         else:
-            _build_op_ak_headers(ws)
+            _build_op_ak_headers(ws, with_pointers=with_pointers,
+                                 single_path=single_path, dx_only=dx_only)
         ws.column_dimensions["A"].width = 16
         ws.column_dimensions["B"].width = 14
         ws.column_dimensions["C"].width = 14
 
-        for row_num, (ak, ch) in enumerate(sorted(rows, key=lambda x: x[1].chart_number), start=2):
+        for row_num, (ak, ch) in enumerate(
+                sorted(rows, key=lambda x: x[1].chart_number), start=2):
             col = 1
+            _input_cell(ws, col, row_num, ch.chart_number); col += 1
+
             if is_ip:
-                _input_cell(ws, col, row_num, ch.chart_number); col += 1
                 _input_cell(ws, col, row_num, ak.pdx_code or ""); col += 1
                 _input_cell(ws, col, row_num, ak.pdx_poa or ""); col += 1
                 sdx_list = ak.sdx or []
@@ -275,25 +298,33 @@ def export_all_answer_keys(answer_keys: list) -> bytes:
                 for i in range(IP_PCS_COUNT):
                     entry = pcs_list[i] if i < len(pcs_list) else {}
                     _input_cell(ws, col, row_num, entry.get("code", "")); col += 1
-            else:
-                _input_cell(ws, col, row_num, ch.chart_number); col += 1
-                _input_cell(ws, col, row_num, ak.pdx_code or ""); col += 1
-                sdx_list = ak.sdx or []
-                for i in range(OP_SDX_COUNT):
-                    entry = sdx_list[i] if i < len(sdx_list) else {}
-                    _input_cell(ws, col, row_num, entry.get("code", "")); col += 1
-                cpt_list = ak.cpt or []
-                for i in range(OP_CPT_COUNT):
-                    entry = cpt_list[i] if i < len(cpt_list) else {}
-                    _input_cell(ws, col, row_num, entry.get("code", "")); col += 1
-                    _input_cell(ws, col, row_num, entry.get("modifier", "")); col += 1
+                continue
 
-    if ip_rows:
-        ws_ip = wb.create_sheet("IP-DRG")
-        _fill_sheet(ws_ip, ip_rows, is_ip=True)
-    if op_rows:
-        ws_op = wb.create_sheet("OP")
-        _fill_sheet(ws_op, op_rows, is_ip=False)
+            if single_path:
+                _input_cell(ws, col, row_num, ak.facility_level or ""); col += 1
+                _input_cell(ws, col, row_num, ak.profee_level or ""); col += 1
+
+            _input_cell(ws, col, row_num, ak.pdx_code or ""); col += 1
+            sdx_list = ak.sdx or []
+            for i in range(OP_SDX_COUNT):
+                entry = sdx_list[i] if i < len(sdx_list) else {}
+                _input_cell(ws, col, row_num, entry.get("code", "")); col += 1
+
+            if dx_only:
+                continue
+            cpt_list = ak.cpt or []
+            for i in range(OP_CPT_COUNT):
+                entry = cpt_list[i] if i < len(cpt_list) else {}
+                _input_cell(ws, col, row_num, entry.get("code", "")); col += 1
+                _input_cell(ws, col, row_num, entry.get("modifier", "")); col += 1
+                if with_pointers:
+                    _input_cell(ws, col, row_num,
+                                ",".join(entry.get("pointers", []) or [])); col += 1
+
+    for spec in sorted(groups, key=lambda s: s.value):
+        # Sheet names cannot contain / and are capped at 31 chars
+        title = spec.value.replace("/", "-")[:31]
+        _fill_sheet(wb.create_sheet(title), groups[spec], spec)
 
     if not wb.sheetnames:
         ws = wb.create_sheet("No Data")
@@ -598,7 +629,7 @@ def generate_batch_zip(coder_files: list[tuple[str, bytes]]) -> bytes:
 # ── Answer key upload parser ──────────────────────────────────────────────────
 
 def parse_answer_key_upload(file_bytes: bytes, specialty: str, with_pointers: bool = False,
-                            single_path: bool = False) -> list[dict]:
+                            single_path: bool = False, dx_only: bool = False) -> list[dict]:
     """
     Parse a trainer-uploaded answer key Excel file.
     Returns list of dicts, one per non-empty row:
@@ -671,7 +702,7 @@ def parse_answer_key_upload(file_bytes: bytes, specialty: str, with_pointers: bo
                 col += 1
             cpt = []
             step = 3 if with_pointers else 2
-            for _ in range(OP_CPT_COUNT):
+            for _ in range(0 if dx_only else OP_CPT_COUNT):
                 code = _cell(row, col)
                 modifier = _cell(row, col + 1)
                 if code:

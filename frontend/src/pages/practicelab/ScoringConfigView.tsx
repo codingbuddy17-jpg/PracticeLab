@@ -10,7 +10,9 @@ const ALL_DRG_TRIGGERS = [
   { key: 'ccmcc_missing', label: 'CC/MCC SDx from AK missing from coder' },
   { key: 'pcs_undercoded', label: 'PCS under-coded (missed AK procedures)' },
   { key: 'pcs_overcoded', label: 'PCS over-coded (extra procedures)' },
-  { key: 'spurious_sdx', label: 'AK has no SDx but coder added SDx' },
+  // Off by default: a secondary that is not a CC/MCC cannot move the DRG, so it
+  // needs no trainer decision. Kept selectable, with the caveat stated.
+  { key: 'spurious_sdx', label: 'AK has no SDx but coder added SDx (does not affect DRG unless CC/MCC — off by default)' },
   { key: 'spurious_pcs', label: 'AK has no PCS but coder added PCS' },
 ]
 

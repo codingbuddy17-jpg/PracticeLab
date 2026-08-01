@@ -14,7 +14,7 @@ from services.excel_service import (
 from services.grading_engine import cfg_from_db, DEFAULT_IP_CFG, DEFAULT_OP_CFG
 from services.chart_service import log_audit
 from .shared import (MASTER_PASSPHRASE, _is_ip, _is_ed, ED_SPECIALTIES,
-                     _uses_pointers, _is_single_path)
+                     _uses_pointers, _is_single_path, _is_dx_only)
 
 router = APIRouter()
 
@@ -151,12 +151,19 @@ def download_answer_key_template(specialty: str = Query(...)):
     # Professional claims get a Dx-pointer column per CPT line
     try:
         _spec = Specialty(specialty)
-        with_pointers, single_path = _uses_pointers(_spec), _is_single_path(_spec)
+        with_pointers = _uses_pointers(_spec)
+        single_path = _is_single_path(_spec)
+        dx_only = _is_dx_only(_spec)
     except ValueError:
-        with_pointers, single_path = False, False
+        with_pointers = single_path = dx_only = False
     data = generate_answer_key_template("IP" if is_ip else "OP",
-                                        with_pointers=with_pointers, single_path=single_path)
-    filename = f"{'IP' if is_ip else 'OP'}_AnswerKey_Template.xlsx"
+                                        with_pointers=with_pointers,
+                                        single_path=single_path, dx_only=dx_only)
+    # Name the file after the specialty. Every non-IP template used to download
+    # as "OP_AnswerKey_Template.xlsx", so a trainer juggling Surgery, Ancillary
+    # and ED Single Path templates had four identically-named files.
+    safe = "".join(ch if ch.isalnum() else "_" for ch in specialty).strip("_") or "AnswerKey"
+    filename = f"{safe}_AnswerKey_Template.xlsx"
     return StreamingResponse(
         io.BytesIO(data),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -190,7 +197,8 @@ def upload_answer_keys(
         rows = parse_answer_key_upload(file_bytes,
                                        "IP" if _is_ip(spec_enum) else "OP",
                                        with_pointers=_uses_pointers(spec_enum),
-                                       single_path=_is_single_path(spec_enum))
+                                       single_path=_is_single_path(spec_enum),
+                                       dx_only=_is_dx_only(spec_enum))
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Could not parse file: {e}")
 
@@ -204,7 +212,11 @@ def upload_answer_keys(
             not_found.append(chart_num)
             continue
 
-        if _is_ip(chart.specialty) != is_ip_upload:
+        # Exact match, not just IP-vs-OP. Layouts differ per specialty (pointer
+        # columns, single-path levels, Dx-only), so an ED Facility file uploaded
+        # against Surgery charts would previously be accepted and silently
+        # mis-parsed.
+        if chart.specialty != spec_enum:
             wrong_specialty.append(chart_num)
             continue
 

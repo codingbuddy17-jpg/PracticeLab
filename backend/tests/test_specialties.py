@@ -189,3 +189,96 @@ class TestEDSinglePathNoCPTs:
                                      facility_level="99283", profee_level="99284")
         res = grade_ed_single_path(ak, sub, DEFAULT_EDSP_CFG)
         assert res.cpt_score == 0
+
+
+class TestAnswerKeyTemplatePerSpecialty:
+    """Each specialty's blank template must match what its grading actually uses."""
+
+    def test_dx_only_template_has_no_cpt_columns(self):
+        ws = load_workbook(io.BytesIO(
+            generate_answer_key_template("OP", dx_only=True))).worksheets[0]
+        headers = [str(c.value) for c in ws[1] if c.value]
+        assert not any(h.startswith("CPT_") for h in headers)
+        assert any(h.startswith("SDx_") for h in headers)
+
+    def test_normal_op_template_still_has_them(self):
+        ws = load_workbook(io.BytesIO(
+            generate_answer_key_template("OP"))).worksheets[0]
+        headers = [str(c.value) for c in ws[1] if c.value]
+        assert any(h.startswith("CPT_") for h in headers)
+
+    def test_dx_only_parser_ignores_trailing_cpt_cells(self):
+        data = generate_answer_key_template("OP", dx_only=True)
+        ws = load_workbook(io.BytesIO(data)).worksheets[0]
+        ws.cell(2, 1, "ANC001"); ws.cell(2, 2, "R51"); ws.cell(2, 3, "G43.909")
+        buf = io.BytesIO(); ws.parent.save(buf)
+        row = parse_answer_key_upload(buf.getvalue(), "OP", dx_only=True)[0]
+        assert row["pdx_code"] == "R51"
+        assert row["sdx"] == [{"code": "G43.909"}]
+        assert row["cpt"] == []
+
+
+class TestAnswerKeyExportRoundTrip:
+    """
+    Export used to lump every non-IP specialty into one generic OP sheet, so
+    Surgery lost its pointer columns and ED Single Path lost both level columns
+    — an export → edit → re-upload cycle silently dropped them.
+    """
+
+    class _Chart:
+        def __init__(self, number, specialty):
+            self.chart_number, self.specialty = number, specialty
+
+    class _Key:
+        def __init__(self, **kw):
+            self.pdx_code = kw.get("pdx_code", "")
+            self.pdx_poa = kw.get("pdx_poa", "")
+            self.sdx = kw.get("sdx", [])
+            self.pcs = kw.get("pcs", [])
+            self.cpt = kw.get("cpt", [])
+            self.facility_level = kw.get("facility_level")
+            self.profee_level = kw.get("profee_level")
+
+    def _export(self, pairs):
+        from services.excel_service import export_all_answer_keys
+        return load_workbook(io.BytesIO(export_all_answer_keys(pairs)))
+
+    def test_one_sheet_per_specialty(self):
+        wb = self._export([
+            (self._Key(pdx_code="J18.9"), self._Chart("IP001", Specialty.IP_DRG)),
+            (self._Key(pdx_code="M17.11"), self._Chart("SURG001", Specialty.SURGERY)),
+            (self._Key(pdx_code="R51"), self._Chart("ANC001", Specialty.ANCILLARY)),
+        ])
+        assert set(wb.sheetnames) == {"IP-DRG", "Surgery", "Ancillary"}
+
+    def test_surgery_sheet_keeps_pointer_columns_and_values(self):
+        wb = self._export([(
+            self._Key(pdx_code="M17.11", sdx=[{"code": "E11.9"}],
+                      cpt=[{"code": "27447", "modifier": "RT", "pointers": ["A", "B"]}]),
+            self._Chart("SURG001", Specialty.SURGERY))])
+        ws = wb["Surgery"]
+        headers = [str(c.value) for c in ws[1] if c.value]
+        assert "CPT_1_DxPointers" in headers
+        assert "A,B" in [str(c.value) for c in ws[2] if c.value]
+
+    def test_single_path_sheet_keeps_both_levels(self):
+        wb = self._export([(
+            self._Key(pdx_code="S61.401A", facility_level="99283", profee_level="99284"),
+            self._Chart("EDSP001", Specialty.ED_SINGLE_PATH))])
+        ws = wb["ED Single Path"]
+        headers = [str(c.value) for c in ws[1] if c.value]
+        assert headers[1] == "Facility_ED_Level" and headers[2] == "Profee_ED_Level"
+        vals = [str(c.value) for c in ws[2] if c.value]
+        assert "99283" in vals and "99284" in vals
+
+    def test_ancillary_sheet_omits_cpt_columns(self):
+        wb = self._export([(self._Key(pdx_code="R51"),
+                            self._Chart("ANC001", Specialty.ANCILLARY))])
+        headers = [str(c.value) for c in wb["Ancillary"][1] if c.value]
+        assert not any(h.startswith("CPT_") for h in headers)
+
+    def test_em_sheet_name_has_the_slash_replaced(self):
+        """'E/M' is an illegal Excel sheet title."""
+        wb = self._export([(self._Key(pdx_code="E11.9"),
+                            self._Chart("EM001", Specialty.EM))])
+        assert "E-M" in wb.sheetnames

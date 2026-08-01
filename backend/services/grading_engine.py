@@ -21,10 +21,18 @@ class IPScoringCfg:
     drg_weight: int = 40
     pass_threshold: int = 80
     overcoding_penalty: bool = True
-    # Which DRG auto-flag triggers are active
+    # Which DRG auto-flag triggers are active.
+    #
+    # Only PDx, CC/MCC and PCS errors can move the DRG, so only those warrant a
+    # trainer decision. "spurious_sdx" is deliberately NOT a default: it fired
+    # whenever the key had no secondary diagnoses and the coder added any, but a
+    # secondary that is not a CC or MCC does not change the DRG. It also could
+    # never have been accurate — coder submissions carry no CC/MCC flag, so a
+    # code the coder invents cannot be classified without a CC/MCC reference
+    # table the app does not have.
     drg_triggers: list[str] = field(default_factory=lambda: [
         "pdx_mismatch", "ccmcc_missing", "pcs_undercoded",
-        "pcs_overcoded", "spurious_sdx", "spurious_pcs",
+        "pcs_overcoded", "spurious_pcs",
     ])
 
 
@@ -441,10 +449,16 @@ def _drg_flag(ak: IPAnswerKey, sub: IPSubmission, pdx_ok: bool,
     if "pcs_overcoded" in triggers and pcs_extra > 0:
         return True
 
-    ak_sdx_cnt = len([s for s in ak.sdx if norm_dx(s.get("code", ""))])
-    cdr_sdx_cnt = len([s for s in sub.sdx if norm_dx(s.get("code", ""))])
-    if "spurious_sdx" in triggers and ak_sdx_cnt == 0 and cdr_sdx_cnt > 0:
-        return True
+    # NOTE: no spurious-SDx trigger. Adding a secondary diagnosis that is not a
+    # CC or MCC cannot change the DRG, so it needs no trainer decision — and a
+    # coder-invented code carries no CC/MCC flag to test against anyway. Left
+    # honourable only if an org explicitly re-enables it in scoring config.
+    if "spurious_sdx" in triggers:
+        ak_sdx_cnt = len([s for s in ak.sdx if norm_dx(s.get("code", ""))])
+        cdr_sdx_cnt = len([s for s in sub.sdx if norm_dx(s.get("code", ""))])
+        if ak_sdx_cnt == 0 and cdr_sdx_cnt > 0:
+            return True
+
     if "spurious_pcs" in triggers and ak_pcs_cnt == 0 and cdr_pcs_cnt > 0:
         return True
 
