@@ -647,9 +647,15 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
 
         {/* ── Risk ── */}
         <EMAccordion title="Risk — Risk of Complications, Morbidity, and/or Mortality" open={emOpenSections.risk} onToggle={() => toggleSection('risk')} accent="#dc2626">
+          {/* Minimal is the implicit floor in the AMA table — it has no element of
+              its own, it's what you get when nothing else applies. Say so, rather
+              than leaving an unexplained gap where coders expect a Minimal row. */}
+          <div style={{ marginBottom: 8, fontSize: 11, color: '#6b7280', fontStyle: 'italic' }}>
+            Minimal risk — select nothing below.
+          </div>
           <div style={{ marginBottom: 8 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: '#059669', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5 }}>Minimal Risk</div>
-            <RiskChip label="Minor/OTC medications only; lab tests; X-rays; limited ultrasound" field="risk_low" value={emData.risk_low} onChange={v => updateEM({ risk_low: v })} level="Minimal" />
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#0891b2', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5 }}>Low Risk</div>
+            <RiskChip label="Minor/OTC medications only; lab tests; X-rays; limited ultrasound" field="risk_low" value={emData.risk_low} onChange={v => updateEM({ risk_low: v })} level="Low" />
           </div>
           <div style={{ marginBottom: 8 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: '#d97706', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5 }}>Moderate Risk</div>
@@ -1019,9 +1025,9 @@ function DrToggle({ label, value, onChange, color }: { label: string; value: boo
   )
 }
 
-const RISK_LEVEL_COLORS = { Minimal: { bg: '#d1fae5', text: '#059669' }, Moderate: { bg: '#fef3c7', text: '#d97706' }, High: { bg: '#fee2e2', text: '#dc2626' } }
+const RISK_LEVEL_COLORS = { Minimal: { bg: '#d1fae5', text: '#059669' }, Low: { bg: '#cffafe', text: '#0891b2' }, Moderate: { bg: '#fef3c7', text: '#d97706' }, High: { bg: '#fee2e2', text: '#dc2626' } }
 
-function RiskChip({ label, field: _field, value, onChange, level }: { label: string; field: string; value: boolean; onChange: (v: boolean) => void; level: 'Minimal' | 'Moderate' | 'High' }) {
+function RiskChip({ label, field: _field, value, onChange, level }: { label: string; field: string; value: boolean; onChange: (v: boolean) => void; level: 'Minimal' | 'Low' | 'Moderate' | 'High' }) {
   const c = RISK_LEVEL_COLORS[level]
   return (
     <div
