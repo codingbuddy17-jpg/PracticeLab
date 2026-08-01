@@ -156,3 +156,36 @@ class TestAncillaryDxOnly:
     def test_dx_only_config_can_score_full(self):
         right = OPSubmission(pdx_code="R51", sdx=[{"code": "G43.909"}], cpt=[])
         assert grade_op(self.AK, right, self.DX_ONLY_CFG).total_score == 100
+
+
+class TestEDSinglePathNoCPTs:
+    """
+    DELIBERATE, confirmed by the product owner: when the key lists no additional
+    CPTs and the coder enters none, the CPT block scores full.
+
+    Reviewed and kept because it reads as "correctly recognised there was nothing
+    to code". It is the same rule that distorted Ancillary — but there CPT was
+    50 of 100 and created a floor nobody could fail through, whereas here it is
+    20 of 100 and the two independently-scored levels still discriminate.
+
+    This test exists to stop the behaviour being "fixed" by a later reviewer.
+    """
+
+    def test_no_cpts_either_side_scores_the_block_full(self):
+        ak = EDSinglePathAnswerKey(pdx_code="S61.401A", sdx=[], cpt=[],
+                                   facility_level="99283", profee_level="99284")
+        sub = EDSinglePathSubmission(pdx_code="S61.401A", sdx=[], cpt=[],
+                                     facility_level="99283", profee_level="99284")
+        res = grade_ed_single_path(ak, sub, DEFAULT_EDSP_CFG)
+        assert res.cpt_score == DEFAULT_EDSP_CFG.cpt_weight
+        assert res.total_score == 100
+
+    def test_but_inventing_cpts_still_costs(self):
+        """Credit is for recognising there was nothing — not for coding anyway."""
+        ak = EDSinglePathAnswerKey(pdx_code="S61.401A", sdx=[], cpt=[],
+                                   facility_level="99283", profee_level="99284")
+        sub = EDSinglePathSubmission(pdx_code="S61.401A", sdx=[],
+                                     cpt=[{"code": "12001", "modifier": ""}],
+                                     facility_level="99283", profee_level="99284")
+        res = grade_ed_single_path(ak, sub, DEFAULT_EDSP_CFG)
+        assert res.cpt_score == 0
