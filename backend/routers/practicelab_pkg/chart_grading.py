@@ -105,7 +105,6 @@ def _grade_chart_for_sp(chart, ak_rec, sub_data, ip_cfg, op_cfg, edsp_cfg=None):
         for fb in res.feedback:
             feedback_items.append({"section": fb.section, "issue": fb.issue_type,
                                    "ak_code": fb.ak_code, "coder_code": fb.coder_code})
-        dpo = compute_dpo_ip(ak, s, ip_cfg.overcoding_penalty)
         result = {
             "weighted_score": pct,
             "pass_fail": "PASS" if passed else "FAIL",
@@ -113,7 +112,13 @@ def _grade_chart_for_sp(chart, ak_rec, sub_data, ip_cfg, op_cfg, edsp_cfg=None):
             "pdx_score": res.pdx_score, "sdx_score": res.sdx_score,
             "pcs_score": res.pcs_score, "cpt_score": None,
         }
-        result.update(_dpo_fields(dpo, include_poa=True))
+        # Gated for the same reason the OP branch below is. Every specialty that
+        # reaches here is currently a DPO specialty, so this changes nothing
+        # today — but an addition to IP_SPECIALTIES that is not a DPO specialty
+        # would otherwise start emitting DPO figures silently.
+        if _uses_dpo(chart.specialty):
+            dpo = compute_dpo_ip(ak, s, ip_cfg.overcoding_penalty)
+            result.update(_dpo_fields(dpo, include_poa=True))
         return result, feedback_items
     else:
         ak = OPAnswerKey(
