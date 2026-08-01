@@ -384,16 +384,6 @@ export async function getBatchEMBreakdown(batchId: number) {
   }
 }
 
-export async function standaloneGrade(trainerName: string, files: File[]) {
-  const form = new FormData()
-  form.append('trainer_name', trainerName)
-  files.forEach(f => form.append('files', f))
-  const { data } = await api.post('/practicelab/standalone/grade', form, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  })
-  return data as { results: any[]; errors: string[] }
-}
-
 // ── In-interface answer key editing ─────────────────────────────────────────
 
 export interface AnswerKeyDetail {
