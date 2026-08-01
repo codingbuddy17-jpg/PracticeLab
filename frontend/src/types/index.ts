@@ -7,6 +7,8 @@ export type Specialty =
   | 'Denials'
   | 'Ancillary'
   | 'E/M'
+  | 'Surgery'
+  | 'ED Single Path'
 
 export type Difficulty = 'Beginner' | 'Intermediate' | 'Advanced'
 export type ChartStatus = 'Active' | 'Retired'

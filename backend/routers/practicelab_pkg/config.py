@@ -11,7 +11,7 @@ from services.excel_service import (
     generate_answer_key_template, generate_coder_list_template,
     parse_answer_key_upload, parse_coder_list, export_all_answer_keys,
 )
-from .shared import MASTER_PASSPHRASE, _is_ip, _is_ed, ED_SPECIALTIES
+from .shared import MASTER_PASSPHRASE, _is_ip, _is_ed, ED_SPECIALTIES, _uses_pointers
 
 router = APIRouter()
 
@@ -145,7 +145,12 @@ def update_scoring_config(payload: ScoringConfigUpdate, db: Session = Depends(ge
 def download_answer_key_template(specialty: str = Query(...)):
     """Download blank answer key Excel template (IP or OP)."""
     is_ip = specialty.upper() in ("IP", "IP-DRG")
-    data = generate_answer_key_template("IP" if is_ip else "OP")
+    # Professional claims get a Dx-pointer column per CPT line
+    try:
+        with_pointers = _uses_pointers(Specialty(specialty))
+    except ValueError:
+        with_pointers = False
+    data = generate_answer_key_template("IP" if is_ip else "OP", with_pointers=with_pointers)
     filename = f"{'IP' if is_ip else 'OP'}_AnswerKey_Template.xlsx"
     return StreamingResponse(
         io.BytesIO(data),
@@ -175,7 +180,8 @@ def upload_answer_keys(
 
     file_bytes = file.file.read()
     try:
-        rows = parse_answer_key_upload(file_bytes, specialty)
+        rows = parse_answer_key_upload(file_bytes, specialty,
+                                       with_pointers=_uses_pointers(spec_enum))
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Could not parse file: {e}")
 

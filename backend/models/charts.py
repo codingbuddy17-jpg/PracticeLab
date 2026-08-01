@@ -13,13 +13,17 @@ class Specialty(str, enum.Enum):
     DENIALS = "Denials"
     ANCILLARY = "Ancillary"
     EM = "E/M"
+    SURGERY = "Surgery"
+    ED_SINGLE_PATH = "ED Single Path"
 
 
 SPECIALTY_PREFIX = {
     "IP": Specialty.IP_DRG,
     "ED": Specialty.ED_FACILITY,
     "EDP": Specialty.ED_PROFEE,
+    "EDSP": Specialty.ED_SINGLE_PATH,
     "SDS": Specialty.SDS,
+    "SURG": Specialty.SURGERY,
     "EDT": Specialty.EDITS,
     "DEN": Specialty.DENIALS,
     "ANC": Specialty.ANCILLARY,

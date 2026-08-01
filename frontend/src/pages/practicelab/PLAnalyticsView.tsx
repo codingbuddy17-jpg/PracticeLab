@@ -83,7 +83,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
     setter(current.col === col ? { col, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { col, dir: 'asc' })
   }
 
-  const SPECIALTIES = ['IP-DRG', 'ED Facility', 'ED Profee', 'SDS', 'Edits', 'Denials', 'Ancillary', 'E/M']
+  const SPECIALTIES = ['IP-DRG', 'ED Facility', 'ED Profee', 'ED Single Path', 'SDS', 'Surgery', 'Edits', 'Denials', 'Ancillary', 'E/M']
   const activeFilterCount = Object.values(filters).filter(Boolean).length
 
   function applyFilters() {

@@ -57,6 +57,29 @@ def _run_migrations():
                 logger.warning("Migration DDL failed (non-fatal): %s | sql=%s", exc, sql[:200])
                 conn.rollback()
 
+    def _add_enum_value(type_name: str, value: str) -> None:
+        """
+        Add a value to a native PostgreSQL ENUM type.
+
+        SQLite stores enums as plain text, so this is a no-op there. On PG the
+        statement must not share a transaction with any use of the new value, so
+        it runs under AUTOCOMMIT. IF NOT EXISTS (PG 12+) makes it idempotent,
+        matching the additive style of the rest of these migrations.
+
+        Note: SAEnum persists the enum NAME (e.g. SURGERY), not its value
+        ("Surgery") — pass the name.
+        """
+        if is_sqlite:
+            return
+        try:
+            with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+                conn.execute(text(
+                    f"ALTER TYPE {type_name} ADD VALUE IF NOT EXISTS '{value}'"
+                ))
+        except Exception as exc:
+            logger.warning("Enum migration failed (non-fatal): %s | %s.%s",
+                           exc, type_name, value)
+
     def _add_col(table: str, col: str, pg_def: str, sqlite_def: str | None = None) -> None:
         """Add a column only if it doesn't exist — works on both dialects."""
         if _col_exists(table, col):
@@ -456,6 +479,15 @@ def _run_migrations():
     _backfill_practice_grading_results()
 
     _add_col("em_answer_keys", "patient_type", "VARCHAR(20) NOT NULL DEFAULT 'NA'", "TEXT NOT NULL DEFAULT 'NA'")
+
+    # ── New specialties: Surgery (profee surgical) + ED Single Path ───────────
+    # Must land before anything reads/writes these values. On a fresh DB
+    # create_all() already builds the type with every value; these calls cover
+    # databases created before the values existed.
+    _add_enum_value("specialty", "SURGERY")
+    _add_enum_value("specialty", "ED_SINGLE_PATH")
+    # Diagnosis-pointer errors on professional claims
+    _add_enum_value("issuetype", "WRONG_POINTER")
 
     # ── E/M MDM answer keys ───────────────────────────────────────────────────
     _run("""CREATE TABLE IF NOT EXISTS em_answer_keys (

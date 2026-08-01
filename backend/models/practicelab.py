@@ -28,6 +28,7 @@ class IssueType(str, enum.Enum):
     WRONG_CODE = "Wrong_Code"
     WRONG_POA = "Wrong_POA"
     WRONG_MODIFIER = "Wrong_Modifier"
+    WRONG_POINTER = "Wrong_Pointer"   # professional claims: CPT line linked to wrong Dx
     OVER_CODED = "Over_coded"
 
 

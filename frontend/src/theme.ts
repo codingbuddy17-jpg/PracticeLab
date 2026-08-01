@@ -9,6 +9,8 @@ export const SPECIALTY_COLORS: Record<Specialty, { bg: string; text: string; bor
   'Denials':     { bg: '#d97706', text: '#fff', border: '#d97706', light: '#fef3c7' },
   'Ancillary':   { bg: '#16a34a', text: '#fff', border: '#16a34a', light: '#dcfce7' },
   'E/M':         { bg: '#2563eb', text: '#fff', border: '#2563eb', light: '#dbeafe' },
+  'Surgery':     { bg: '#be123c', text: '#fff', border: '#be123c', light: '#ffe4e6' },
+  'ED Single Path': { bg: '#9333ea', text: '#fff', border: '#9333ea', light: '#f3e8ff' },
 }
 
 export const DIFFICULTY_COLORS = {

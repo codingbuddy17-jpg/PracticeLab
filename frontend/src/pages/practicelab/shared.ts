@@ -2,7 +2,7 @@ export function trainerName() {
   return localStorage.getItem('trainer_name') || 'Trainer'
 }
 
-export const SPECIALTIES = ['IP-DRG', 'ED Facility', 'ED Profee', 'SDS', 'Edits', 'Denials', 'Ancillary', 'E/M']
+export const SPECIALTIES = ['IP-DRG', 'ED Facility', 'ED Profee', 'ED Single Path', 'SDS', 'Surgery', 'Edits', 'Denials', 'Ancillary', 'E/M']
 export const DIFFICULTIES = ['Beginner', 'Intermediate', 'Advanced']
 
 export function round1(n: number) { return Math.round(n * 10) / 10 }

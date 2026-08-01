@@ -77,7 +77,7 @@ def _build_ip_ak_headers(ws):
     ws.row_dimensions[1].height = 36
 
 
-def _build_op_ak_headers(ws):
+def _build_op_ak_headers(ws, with_pointers: bool = False):
     col = 1
     _header(ws, col, 1, "Chart_Number"); col += 1
     _header(ws, col, 1, "PDx_Code"); col += 1
@@ -86,6 +86,10 @@ def _build_op_ak_headers(ws):
     for i in range(1, OP_CPT_COUNT + 1):
         _header(ws, col, 1, f"CPT_{i}"); col += 1
         _header(ws, col, 1, f"CPT_{i}_Modifier"); col += 1
+        if with_pointers:
+            # Professional claims (CMS-1500 Box 24E): which Dx justify this line.
+            # Letters index the Dx list — A = PDx, B = SDx_1, C = SDx_2 ...
+            _header(ws, col, 1, f"CPT_{i}_DxPointers"); col += 1
     ws.row_dimensions[1].height = 36
 
 
@@ -148,10 +152,11 @@ def parse_coder_list(file_bytes: bytes) -> list[dict]:
     return coders
 
 
-def generate_answer_key_template(specialty: str) -> bytes:
+def generate_answer_key_template(specialty: str, with_pointers: bool = False) -> bytes:
     """
     Returns bytes of blank answer key Excel file.
     specialty: 'IP' for inpatient, 'OP' for outpatient.
+    with_pointers: add a Dx-pointer column per CPT line (professional claims).
     """
     wb = Workbook()
     ws = wb.active
@@ -162,8 +167,8 @@ def generate_answer_key_template(specialty: str) -> bytes:
         _build_ip_ak_headers(ws)
         total_cols = 3 + IP_SDX_COUNT * 3 + IP_PCS_COUNT
     else:
-        _build_op_ak_headers(ws)
-        total_cols = 2 + OP_SDX_COUNT + OP_CPT_COUNT * 2
+        _build_op_ak_headers(ws, with_pointers=with_pointers)
+        total_cols = 2 + OP_SDX_COUNT + OP_CPT_COUNT * (3 if with_pointers else 2)
 
     # 10 blank input rows
     for r in range(2, 12):
@@ -682,7 +687,7 @@ def generate_batch_zip(coder_files: list[tuple[str, bytes]]) -> bytes:
 
 # ── Answer key upload parser ──────────────────────────────────────────────────
 
-def parse_answer_key_upload(file_bytes: bytes, specialty: str) -> list[dict]:
+def parse_answer_key_upload(file_bytes: bytes, specialty: str, with_pointers: bool = False) -> list[dict]:
     """
     Parse a trainer-uploaded answer key Excel file.
     Returns list of dicts, one per non-empty row:
@@ -751,12 +756,18 @@ def parse_answer_key_upload(file_bytes: bytes, specialty: str) -> list[dict]:
                     sdx.append({"code": code})
                 col += 1
             cpt = []
+            step = 3 if with_pointers else 2
             for _ in range(OP_CPT_COUNT):
                 code = _cell(row, col)
                 modifier = _cell(row, col + 1)
                 if code:
-                    cpt.append({"code": code, "modifier": modifier})
-                col += 2
+                    entry = {"code": code, "modifier": modifier}
+                    if with_pointers:
+                        raw = _cell(row, col + 2).upper()
+                        ptrs = [x.strip() for x in raw.replace(" ", ",").split(",") if x.strip()]
+                        entry["pointers"] = [x[0] for x in ptrs if x[0].isalpha()][:4]
+                    cpt.append(entry)
+                col += step
             results.append({
                 "chart_number": chart_number,
                 "pdx_code": pdx_code,

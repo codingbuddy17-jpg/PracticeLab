@@ -269,7 +269,56 @@ def _match_sdx_op(ak_sdx: list[dict], cdr_sdx: list[dict], penalty: bool):
     return matched, extra, feedback
 
 
-def _match_cpt(ak_cpt: list[dict], cdr_cpt: list[dict], penalty: bool):
+def claim_dx_list(pdx_code: str, sdx: list[dict]) -> list[str]:
+    """
+    The ordered diagnosis list a pointer letter indexes into.
+
+    On a CMS-1500, Box 21 holds up to 12 diagnoses labelled A-L; Box 24E points
+    at them by letter. Position 1 (A) is the principal diagnosis, then the
+    secondaries in order.
+    """
+    out = [pdx_code or ""]
+    out.extend((s or {}).get("code", "") for s in (sdx or []))
+    return out[:12]
+
+
+def pointer_display(pointers, dx_list: list) -> str:
+    """Readable pointer list for trainer feedback — keeps the dotted code form."""
+    out = []
+    for p in (pointers or []):
+        token = str(p).strip().upper()
+        if not token:
+            continue
+        idx = ord(token[0]) - ord("A")
+        if 0 <= idx < len(dx_list) and dx_list[idx]:
+            out.append(f"{token[0]}={dx_list[idx]}")
+    return ", ".join(out) or "(none)"
+
+
+def resolve_pointers(pointers, dx_list: list) -> set:
+    """
+    Turn pointer letters into the diagnosis codes they actually reference.
+
+    Pointers are POSITIONAL, so the same letter means different diagnoses if the
+    coder ordered their Dx list differently from the answer key. Comparing
+    letters would mark correct work wrong — always compare resolved codes.
+    """
+    resolved = set()
+    for p in (pointers or []):
+        token = str(p).strip().upper()
+        if not token:
+            continue
+        idx = ord(token[0]) - ord("A")
+        if 0 <= idx < len(dx_list):
+            code = norm_dx(dx_list[idx])
+            if code:
+                resolved.add(code)
+    return resolved
+
+
+def _match_cpt(ak_cpt: list[dict], cdr_cpt: list[dict], penalty: bool,
+               ak_dx: Optional[list] = None, cdr_dx: Optional[list] = None,
+               check_pointers: bool = False):
     ak_norm = [resolve_cpt_modifier(a.get("code", ""), a.get("modifier", "")) for a in ak_cpt]
     cdr_norm = [resolve_cpt_modifier(c.get("code", ""), c.get("modifier", "")) for c in cdr_cpt]
 
@@ -285,7 +334,24 @@ def _match_cpt(ak_cpt: list[dict], cdr_cpt: list[dict], penalty: bool):
             if ak_used[ai]:
                 continue
             if a_code == c_code and a_mod == c_mod:
-                matched += 1
+                # Code + modifier correct. On professional claims the line also
+                # has to point at the right diagnoses; a linkage error is a
+                # different (lesser) mistake than a wrong code, so it costs half
+                # the line rather than the whole thing.
+                if check_pointers:
+                    ak_ptr = resolve_pointers(ak_cpt[ai].get("pointers"), ak_dx or [])
+                    cdr_ptr = resolve_pointers(cdr_cpt[ci].get("pointers"), cdr_dx or [])
+                    if ak_ptr and ak_ptr != cdr_ptr:
+                        matched += 0.5
+                        feedback.append(FeedbackRow(
+                            "CPT", "Wrong_Pointer",
+                            ak_cpt[ai].get("code", ""), cdr_cpt[ci].get("code", ""),
+                            f"Dx pointers — key: {pointer_display(ak_cpt[ai].get('pointers'), ak_dx or [])}"
+                            f"  |  coded: {pointer_display(cdr_cpt[ci].get('pointers'), cdr_dx or [])}"))
+                    else:
+                        matched += 1
+                else:
+                    matched += 1
                 ak_used[ai] = True
                 cdr_used[ci] = True
                 break
@@ -406,7 +472,8 @@ def grade_ip(ak: IPAnswerKey, sub: IPSubmission,
 
 
 def grade_op(ak: OPAnswerKey, sub: OPSubmission,
-             cfg: OPScoringCfg = DEFAULT_OP_CFG) -> OPGradingResult:
+             cfg: OPScoringCfg = DEFAULT_OP_CFG,
+             check_pointers: bool = False) -> OPGradingResult:
     result = OPGradingResult()
     feedback = []
     penalty = cfg.overcoding_penalty
@@ -432,7 +499,12 @@ def grade_op(ak: OPAnswerKey, sub: OPSubmission,
     ak_cpt_cnt = len([c for c in ak.cpt if norm_cpt(c.get("code", ""))])
     cdr_cpt_cnt = len([c for c in sub.cpt if norm_cpt(c.get("code", ""))])
     if ak_cpt_cnt > 0:
-        cpt_matched, cpt_extra, cpt_fb = _match_cpt(ak.cpt, sub.cpt, penalty)
+        cpt_matched, cpt_extra, cpt_fb = _match_cpt(
+            ak.cpt, sub.cpt, penalty,
+            ak_dx=claim_dx_list(ak.pdx_code, ak.sdx),
+            cdr_dx=claim_dx_list(sub.pdx_code, sub.sdx),
+            check_pointers=check_pointers,
+        )
         cpt_per = cfg.cpt_weight / ak_cpt_cnt
         result.cpt_score = max(0, round((cpt_matched - cpt_extra) * cpt_per))
         feedback.extend(cpt_fb)

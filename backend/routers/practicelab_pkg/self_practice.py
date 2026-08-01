@@ -14,7 +14,7 @@ from services.grading_engine import (
     DEFAULT_IP_CFG, DEFAULT_OP_CFG,
 )
 from services.excel_service import parse_submission, generate_self_practice_template
-from .shared import IP_SPECIALTIES
+from .shared import IP_SPECIALTIES, _uses_pointers
 
 router = APIRouter()
 
@@ -75,7 +75,8 @@ def _grade_chart_for_sp(chart, ak_rec, sub_data, ip_cfg, op_cfg):
             sdx=sub_data.get("sdx", []),
             cpt=sub_data.get("cpt", []),
         )
-        res = grade_op(ak, s, op_cfg)
+        # Professional claims (Surgery, ED Profee, E/M) carry diagnosis pointers
+        res = grade_op(ak, s, op_cfg, check_pointers=_uses_pointers(chart.specialty))
         score = res.pdx_score + res.sdx_score + (res.cpt_score or 0)
         total_possible = op_cfg.pdx_weight + op_cfg.sdx_weight + op_cfg.cpt_weight
         pct = round(score / total_possible * 100) if total_possible else 0

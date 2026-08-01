@@ -19,7 +19,7 @@ interface CodeEntry {
   pdx_poa: string
   sdx: Array<{ code: string; poa: string }>
   pcs: Array<{ code: string }>
-  cpt: Array<{ code: string; modifier: string }>
+  cpt: Array<{ code: string; modifier: string; pointers?: string[] }>
   // E&D fields
   ed_review: string
   ed_research: string
@@ -65,7 +65,7 @@ interface CodeEntry {
     em_modifier: string
     patient_type: 'NEW' | 'ESTABLISHED' | 'NA'
     em_dx: Array<{ code: string }>
-    em_cpt: Array<{ code: string; modifier: string }>
+    em_cpt: Array<{ code: string; modifier: string; pointers?: string[] }>
   }
 }
 
@@ -103,6 +103,27 @@ function isEM(specialty: string) {
   return sp === 'E/M' || sp.includes('E/M') || sp === 'ED PROFEE' || sp.includes('ED_PROFEE') || sp.includes('ED PROFEE')
 }
 
+// Professional claims (CMS-1500 / 837P) carry diagnosis pointers on every
+// service line; facility claims (UB-04 / 837I) have none. Mirrors
+// POINTER_SPECIALTIES in the backend's practicelab_pkg/shared.py.
+function usesPointers(specialty: string) {
+  const sp = specialty.toUpperCase()
+  return sp.includes('SURGERY') || sp.includes('PROFEE') || sp.includes('E/M') || sp.includes('SINGLE PATH')
+}
+
+// Parse "A,B" / "a b" into ['A','B'] — max 4 per line, first is primary.
+function parsePointers(raw: string): string[] {
+  return raw.toUpperCase().replace(/[^A-L,\s]/g, '').split(/[,\s]+/).filter(Boolean).slice(0, 4)
+}
+
+// The A–L labelled Dx list a pointer refers to (Box 21 order).
+function dxLabelList(codes: string[]) {
+  return codes
+    .map((code, i) => ({ letter: String.fromCharCode(65 + i), code }))
+    .filter(d => d.code && d.code.trim())
+    .slice(0, 12)
+}
+
 const EMPTY_EM_DATA = () => ({
   copa_self_limited: 0, copa_stable_chronic: 0, copa_stable_acute: 0,
   copa_acute_uncomplicated: 0, copa_chronic_exacerbation: 0, copa_undiagnosed_new: 0,
@@ -115,7 +136,7 @@ const EMPTY_EM_DATA = () => ({
   risk_emergency_major_surgery: false, risk_hospitalization_escalation: false,
   risk_dnr_deescalate: false, risk_parenteral_controlled: false,
   em_code: '', em_modifier: '', patient_type: 'NA' as 'NEW' | 'ESTABLISHED' | 'NA',
-  em_dx: [] as Array<{ code: string }>, em_cpt: [] as Array<{ code: string; modifier: string }>,
+  em_dx: [] as Array<{ code: string }>, em_cpt: [] as Array<{ code: string; modifier: string; pointers?: string[] }>,
 })
 
 const EMPTY_ENTRY = (chart_id: number): CodeEntry => ({
@@ -517,12 +538,15 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
   function addPcs() { onChange({ pcs: [...entry.pcs, { code: '' }] }) }
   function removePcs(idx: number) { onChange({ pcs: entry.pcs.filter((_, i) => i !== idx) }) }
 
-  function updateCpt(idx: number, field: 'code' | 'modifier', val: string) {
+  const pointers = usesPointers(chart.specialty)
+  const dxLabels = dxLabelList([entry.pdx_code, ...entry.sdx.map(sx => sx.code)])
+
+  function updateCpt(idx: number, field: 'code' | 'modifier' | 'pointers', val: string) {
     const cpt = [...entry.cpt]
-    cpt[idx] = { ...cpt[idx], [field]: val }
+    cpt[idx] = { ...cpt[idx], [field]: field === 'pointers' ? parsePointers(val) : val }
     onChange({ cpt })
   }
-  function addCpt() { onChange({ cpt: [...entry.cpt, { code: '', modifier: '' }] }) }
+  function addCpt() { onChange({ cpt: [...entry.cpt, { code: '', modifier: '', pointers: [] }] }) }
   function removeCpt(idx: number) { onChange({ cpt: entry.cpt.filter((_, i) => i !== idx) }) }
 
   const pdxPOAMissing = ip && entry.pdx_code.trim() && !entry.pdx_poa
@@ -728,6 +752,18 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
             </div>
           </div>
           <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Procedure CPTs (if applicable)</div>
+          {pointers && dxLabelList(emData.em_dx.map(d => d.code)).length > 0 && (
+            <div style={{ background: '#f8fafc', border: '1px solid #e5e7eb', borderRadius: 8, padding: '8px 12px', marginBottom: 10 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>Diagnosis list (Box 21)</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {dxLabelList(emData.em_dx.map(d => d.code)).map(d => (
+                  <span key={d.letter} style={{ fontSize: 12, fontFamily: 'monospace', background: '#fff', border: '1px solid #d1d5db', borderRadius: 5, padding: '2px 7px' }}>
+                    <b>{d.letter}</b> {d.code}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
           {emData.em_cpt.map((row, i) => (
             <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
               <input
@@ -750,11 +786,27 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
                   updateEM({ em_cpt: cpt })
                 }}
               />
+              {pointers && (
+                <input
+                  style={{ ...s.inputField, width: 120, marginBottom: 0, textTransform: 'uppercase' }}
+                  placeholder="Dx ptrs A,B"
+                  title="Diagnosis pointers — which diagnoses justify this line. First one is primary."
+                  value={(row.pointers || []).join(',')}
+                  onChange={e => {
+                    const cpt = [...emData.em_cpt]
+                    cpt[i] = { ...cpt[i], pointers: parsePointers(e.target.value) }
+                    updateEM({ em_cpt: cpt })
+                  }}
+                />
+              )}
               <button onClick={() => updateEM({ em_cpt: emData.em_cpt.filter((_, j) => j !== i) })} style={s.removeBtn}><X size={14} /></button>
             </div>
           ))}
-          <button onClick={() => updateEM({ em_cpt: [...emData.em_cpt, { code: '', modifier: '' }] })} style={s.addBtn}><Plus size={13} /> Add Procedure CPT</button>
-          <div style={s.hint}>Add any procedures performed during the visit that require separate CPT coding</div>
+          <button onClick={() => updateEM({ em_cpt: [...emData.em_cpt, { code: '', modifier: '', pointers: [] }] })} style={s.addBtn}><Plus size={13} /> Add Procedure CPT</button>
+          <div style={s.hint}>
+            Add any procedures performed during the visit that require separate CPT coding
+            {pointers && ' · Dx pointers reference the diagnosis list above (A, B, C…), first is primary'}
+          </div>
         </EMAccordion>
 
         {/* ── Dx Coding (last) ── */}
@@ -904,6 +956,20 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
       {/* CPT Procedures (OP only) */}
       {!ip && (
         <Section title="CPT Procedures" type="procedure">
+          {/* Professional claims (CMS-1500) show the Dx list with its A–L labels,
+              so the coder can see what each pointer letter refers to. */}
+          {pointers && dxLabels.length > 0 && (
+            <div style={{ background: '#f8fafc', border: '1px solid #e5e7eb', borderRadius: 8, padding: '8px 12px', marginBottom: 10 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>Diagnosis list (Box 21)</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {dxLabels.map(d => (
+                  <span key={d.letter} style={{ fontSize: 12, fontFamily: 'monospace', background: '#fff', border: '1px solid #d1d5db', borderRadius: 5, padding: '2px 7px' }}>
+                    <b>{d.letter}</b> {d.code}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
           {entry.cpt.map((row, i) => (
             <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 8 }}>
               <input
@@ -918,11 +984,23 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
                 value={row.modifier}
                 onChange={e => updateCpt(i, 'modifier', e.target.value)}
               />
+              {pointers && (
+                <input
+                  style={{ ...s.inputField, width: 130, marginBottom: 0, textTransform: 'uppercase' }}
+                  placeholder="Dx ptrs A,B"
+                  title="Diagnosis pointers — which diagnoses justify this line. First one is primary."
+                  value={(row.pointers || []).join(',')}
+                  onChange={e => updateCpt(i, 'pointers', e.target.value)}
+                />
+              )}
               <button onClick={() => removeCpt(i)} style={s.removeBtn}><X size={14} /></button>
             </div>
           ))}
           <button onClick={addCpt} style={s.addBtn}><Plus size={13} /> Add CPT Code</button>
-          <div style={s.hint}>5-digit CPT · append modifiers per guidelines where applicable</div>
+          <div style={s.hint}>
+            5-digit CPT · append modifiers per guidelines where applicable
+            {pointers && ' · Dx pointers: letters from the list above, up to 4, first is primary'}
+          </div>
         </Section>
       )}
       </>}
