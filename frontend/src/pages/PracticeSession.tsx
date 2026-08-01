@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams } from 'react-router-dom'
-import { Flag, Save, ChevronRight, CheckCircle, AlertTriangle, Circle, Send, BookOpen, Plus, X, Info } from 'lucide-react'
+import { Flag, Save, ChevronRight, CheckCircle, AlertTriangle, Circle, Send, BookOpen, Plus, X, Info, Copy, Check } from 'lucide-react'
 import api from '../api/client'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -482,6 +482,15 @@ interface FormProps {
 
 function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, saveMsg }: FormProps) {
   const [emOpenSections, setEmOpenSections] = useState({ copa: true, dr: false, risk: false, dx: false, code: false })
+  // Coders work dual-screen: chart library on one, this form on the other.
+  // Copying the chart number saves re-typing it into the library search.
+  const [copied, setCopied] = useState(false)
+  function copyChartNumber() {
+    navigator.clipboard.writeText(chart.chart_number).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    })
+  }
   function toggleSection(s: keyof typeof emOpenSections) {
     setEmOpenSections(prev => {
       const isOpen = prev[s]
@@ -524,7 +533,25 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
       {/* Header card */}
       <div style={{ background: 'linear-gradient(135deg, #f0fdf4, #eff6ff)', border: '1px solid #d1fae5', borderRadius: 12, padding: '16px 20px', marginBottom: 24, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
         <div>
-          <div style={{ fontSize: 20, fontWeight: 800, color: '#111', letterSpacing: -0.3 }}>{chart.chart_number}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 20, fontWeight: 800, color: '#111', letterSpacing: -0.3 }}>{chart.chart_number}</span>
+            <button
+              onClick={copyChartNumber}
+              title="Copy chart number"
+              aria-label={`Copy chart number ${chart.chart_number}`}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 4,
+                background: copied ? '#d1fae5' : 'none',
+                border: '1px solid', borderColor: copied ? '#6ee7b7' : '#d1d5db',
+                borderRadius: 6, cursor: 'pointer',
+                color: copied ? '#065f46' : '#6b7280',
+                padding: '3px 7px', fontSize: 11, fontWeight: 600,
+                transition: 'all 0.15s',
+              }}
+            >
+              {copied ? <><Check size={12} /> Copied</> : <><Copy size={12} /> Copy</>}
+            </button>
+          </div>
           <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
             <Chip label={chart.specialty} />
             {chart.category && <Chip label={chart.category} color="#065f46" bg="#d1fae5" />}
