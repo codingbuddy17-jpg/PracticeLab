@@ -1,4 +1,5 @@
 import logging
+from typing import Optional
 
 from sqlalchemy import create_engine, inspect as sa_inspect, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker, Session
@@ -80,7 +81,7 @@ def _run_migrations():
             logger.warning("Enum migration failed (non-fatal): %s | %s.%s",
                            exc, type_name, value)
 
-    def _add_col(table: str, col: str, pg_def: str, sqlite_def: str | None = None) -> None:
+    def _add_col(table: str, col: str, pg_def: str, sqlite_def: Optional[str] = None) -> None:
         """Add a column only if it doesn't exist — works on both dialects."""
         if _col_exists(table, col):
             return

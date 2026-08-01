@@ -11,6 +11,7 @@ import os
 import sys
 import pytest
 from sqlalchemy import create_engine
+from sqlalchemy.pool import StaticPool
 from sqlalchemy.orm import sessionmaker
 from fastapi.testclient import TestClient
 
@@ -41,7 +42,13 @@ from models import (
 
 @pytest.fixture()
 def engine():
-    eng = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    # StaticPool is required: every new connection to sqlite ":memory:" gets its
+    # OWN empty database, so create_all() on one connection is invisible to the
+    # session opened on the next one ("no such table: batches"). StaticPool keeps
+    # a single shared connection for the fixture's lifetime.
+    eng = create_engine("sqlite:///:memory:",
+                        connect_args={"check_same_thread": False},
+                        poolclass=StaticPool)
     Base.metadata.create_all(eng)
     # Run additive migrations so new columns are present
     from unittest.mock import patch

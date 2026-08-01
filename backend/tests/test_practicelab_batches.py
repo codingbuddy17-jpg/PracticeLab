@@ -29,7 +29,7 @@ def create_batch_via_api(client, db, specialty="IP-DRG", coder_names=None,
         "use_dpo": False,
         "is_direct_assignment": False,
     }
-    r = client.post("/api/practicelab/batches", json=payload)
+    r = client.post("/practicelab/batches", json=payload)
     return r
 
 
@@ -58,13 +58,13 @@ class TestBatchCreation:
             "created_by": "trainer", "use_weighted": False, "use_dpo": False,
             "is_direct_assignment": False,
         }
-        r = client.post("/api/practicelab/batches", json=payload)
+        r = client.post("/practicelab/batches", json=payload)
         assert r.status_code == 400
 
     def test_batch_list_returns_created_batch(self, client, db):
         seed_charts(db, count=10)
         create_batch_via_api(client, db)
-        r = client.get("/api/practicelab/batches")
+        r = client.get("/practicelab/batches")
         assert r.status_code == 200
         assert len(r.json()) >= 1
 
@@ -79,13 +79,13 @@ class TestChartAllocation:
 
     def test_run_allocation_returns_200(self, client, db):
         batch_id, _ = self._setup(client, db)
-        r = client.post(f"/api/practicelab/batches/{batch_id}/run-allocation",
+        r = client.post(f"/practicelab/batches/{batch_id}/run-allocation",
                         json={"run_by": "trainer", "notes": "Cycle 1"})
         assert r.status_code == 200
 
     def test_allocation_assigns_correct_chart_count(self, client, db):
         batch_id, _ = self._setup(client, db, chart_count=10, charts_per_coder=3)
-        data = client.post(f"/api/practicelab/batches/{batch_id}/run-allocation",
+        data = client.post(f"/practicelab/batches/{batch_id}/run-allocation",
                            json={"run_by": "trainer"}).json()
         # Each of 3 coders gets 3 charts
         assignments = data.get("assignments", [])
@@ -94,7 +94,7 @@ class TestChartAllocation:
 
     def test_randomisation_stats_in_allocation_response(self, client, db):
         batch_id, _ = self._setup(client, db)
-        data = client.post(f"/api/practicelab/batches/{batch_id}/run-allocation",
+        data = client.post(f"/practicelab/batches/{batch_id}/run-allocation",
                            json={"run_by": "trainer"}).json()
         stats = data.get("randomisation_stats")
         assert stats is not None
@@ -103,9 +103,9 @@ class TestChartAllocation:
     def test_no_chart_repeats_per_coder_across_cycles(self, client, db):
         """Charts assigned in cycle 1 should NOT appear in cycle 2 for the same coder."""
         batch_id, _ = self._setup(client, db, chart_count=20, charts_per_coder=3)
-        cycle1 = client.post(f"/api/practicelab/batches/{batch_id}/run-allocation",
+        cycle1 = client.post(f"/practicelab/batches/{batch_id}/run-allocation",
                              json={"run_by": "trainer"}).json()
-        cycle2 = client.post(f"/api/practicelab/batches/{batch_id}/run-allocation",
+        cycle2 = client.post(f"/practicelab/batches/{batch_id}/run-allocation",
                              json={"run_by": "trainer"}).json()
 
         def chart_ids_for_coder(cycle_data, coder_name):
@@ -127,7 +127,7 @@ class TestChartAllocation:
         seed_charts(db, specialty="IP-DRG", count=2)
         r = create_batch_via_api(client, db, coder_names=["Alice"], charts_per_coder=5)
         batch_id = r.json().get("id") or r.json().get("batch_id")
-        r2 = client.post(f"/api/practicelab/batches/{batch_id}/run-allocation",
+        r2 = client.post(f"/practicelab/batches/{batch_id}/run-allocation",
                          json={"run_by": "trainer"})
         assert r2.status_code == 400
 
@@ -136,15 +136,15 @@ class TestChartAllocation:
         r = create_batch_via_api(client, db, coder_names=["Alice", "Bob"], charts_per_coder=2)
         batch_id = r.json().get("id") or r.json().get("batch_id")
         manual_ids = [charts[0].id, charts[1].id, charts[2].id, charts[3].id]
-        r2 = client.post(f"/api/practicelab/batches/{batch_id}/run-allocation",
+        r2 = client.post(f"/practicelab/batches/{batch_id}/run-allocation",
                          json={"run_by": "trainer", "manual_chart_ids": manual_ids})
         assert r2.status_code == 200
 
     def test_allocation_cycle_persisted(self, client, db):
         batch_id, _ = self._setup(client, db)
-        client.post(f"/api/practicelab/batches/{batch_id}/run-allocation",
+        client.post(f"/practicelab/batches/{batch_id}/run-allocation",
                     json={"run_by": "trainer"})
-        r = client.get(f"/api/practicelab/batches/{batch_id}")
+        r = client.get(f"/practicelab/batches/{batch_id}")
         assert r.status_code == 200
         data = r.json()
         cycles = data.get("allocation_cycles", [])
@@ -152,9 +152,9 @@ class TestChartAllocation:
 
     def test_randomisation_stats_saved_on_cycle(self, client, db):
         batch_id, _ = self._setup(client, db)
-        client.post(f"/api/practicelab/batches/{batch_id}/run-allocation",
+        client.post(f"/practicelab/batches/{batch_id}/run-allocation",
                     json={"run_by": "trainer"})
-        data = client.get(f"/api/practicelab/batches/{batch_id}").json()
+        data = client.get(f"/practicelab/batches/{batch_id}").json()
         for cycle in data.get("allocation_cycles", []):
             if "randomisation_stats" in cycle:
                 assert cycle["randomisation_stats"] is not None
@@ -167,7 +167,7 @@ class TestBatchClosure:
         seed_charts(db, count=10)
         r = create_batch_via_api(client, db)
         batch_id = r.json().get("id") or r.json().get("batch_id")
-        r2 = client.post(f"/api/practicelab/batches/{batch_id}/close",
+        r2 = client.post(f"/practicelab/batches/{batch_id}/close",
                          json={"closed_by": "trainer"})
         assert r2.status_code == 200
 
@@ -175,8 +175,8 @@ class TestBatchClosure:
         seed_charts(db, count=10)
         r = create_batch_via_api(client, db)
         batch_id = r.json().get("id") or r.json().get("batch_id")
-        client.post(f"/api/practicelab/batches/{batch_id}/close",
+        client.post(f"/practicelab/batches/{batch_id}/close",
                     json={"closed_by": "trainer"})
-        r2 = client.post(f"/api/practicelab/batches/{batch_id}/run-allocation",
+        r2 = client.post(f"/practicelab/batches/{batch_id}/run-allocation",
                          json={"run_by": "trainer"})
         assert r2.status_code == 400
