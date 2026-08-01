@@ -103,3 +103,40 @@ class TestSaveIsRefused:
         })
         assert r.status_code == 400
         assert db.query(AnswerKey).filter(AnswerKey.chart_id == c.id).first() is None
+
+
+class TestEMKeyStatusCountsTheRightTable:
+    """
+    E/M and ED Profee keys live in em_answer_keys, not answer_keys. The status
+    endpoint joined answer_keys for every specialty, so it reported
+    "0 with answer key" for E/M no matter how many existed.
+    """
+
+    def test_em_status_counts_em_answer_keys(self, client, db):
+        from sqlalchemy import text
+        c = _chart(db, "EM800", Specialty.EM)
+        db.execute(text(
+            "INSERT INTO em_answer_keys (chart_id, em_code, dx_codes, procedure_cpts, "
+            "entered_by, copa_level, dr_level, risk_level) "
+            "VALUES (:c, '99214', '[]', '[]', 'trainer', 'Moderate', 'Moderate', 'Moderate')"),
+            {"c": c.id})
+        db.commit()
+
+        body = client.get("/practicelab/answer-key/status",
+                          params={"specialty": "E/M"}).json()
+        assert body["with_answer_key"] == 1, "must count em_answer_keys, not answer_keys"
+        assert body["without_answer_key"] == 0
+        assert body["key_store"] == "em"
+
+    def test_em_chart_without_a_key_is_reported_missing(self, client, db):
+        _chart(db, "EM801", Specialty.EM)
+        body = client.get("/practicelab/answer-key/status",
+                          params={"specialty": "E/M"}).json()
+        assert body["total_charts"] >= 1
+        assert body["without_answer_key"] >= 1
+
+    def test_keyed_specialty_still_uses_the_standard_store(self, client, db):
+        _chart(db, "SDS800", Specialty.SDS)
+        body = client.get("/practicelab/answer-key/status",
+                          params={"specialty": "SDS"}).json()
+        assert body["key_store"] == "standard"

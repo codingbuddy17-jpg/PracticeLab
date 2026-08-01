@@ -13,6 +13,8 @@ from services.excel_service import (
 )
 from services.grading_engine import cfg_from_db, DEFAULT_IP_CFG, DEFAULT_OP_CFG, DEFAULT_EDSP_CFG
 from services.chart_service import log_audit
+from sqlalchemy import text
+from .em_grading import _is_em as _uses_em_keys
 from .shared import (MASTER_PASSPHRASE, _is_ip, _is_ed, ED_SPECIALTIES,
                      _uses_pointers, _is_single_path, _is_dx_only)
 
@@ -418,10 +420,25 @@ def get_answer_key_status(specialty: Optional[str] = None, db: Session = Depends
                     "with_answer_key": 0, "without_answer_key": 0,
                     "uses_answer_keys": False}
         q = q.filter(Chart.specialty == spec)
+
+    # E/M and ED Profee keys live in em_answer_keys, not answer_keys. Counting
+    # the wrong table reported "0 with key" no matter how many existed.
+    if spec is not None and _uses_em_keys(spec):
+        total = q.count()
+        with_key = db.execute(text(
+            "SELECT COUNT(*) FROM em_answer_keys k "
+            "JOIN charts c ON c.id = k.chart_id "
+            "WHERE c.specialty = :s AND c.status = :st"
+        ), {"s": spec.name, "st": ChartStatus.ACTIVE.name}).scalar() or 0
+        return {"total_charts": total, "with_answer_key": with_key,
+                "without_answer_key": max(0, total - with_key),
+                "uses_answer_keys": True, "key_store": "em"}
+
     total = q.count()
     with_key = q.join(AnswerKey, AnswerKey.chart_id == Chart.id).count()
     return {"total_charts": total, "with_answer_key": with_key,
-            "without_answer_key": total - with_key, "uses_answer_keys": True}
+            "without_answer_key": total - with_key,
+            "uses_answer_keys": True, "key_store": "standard"}
 
 
 # ── In-interface answer key editing ──────────────────────────────────────────

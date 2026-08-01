@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Download, Plus, Trash2, ChevronDown, ChevronUp, CheckCircle, Upload } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { listEMAnswerKeys, upsertEMAnswerKey, deleteEMAnswerKey, downloadEMAnswerKeyTemplate, uploadEMAnswerKeys } from '../../api'
-import { searchCharts } from '../../api'
+import { searchCharts, getAnswerKeyStatus } from '../../api'
 import { trainerName } from './shared'
 import styles from './styles'
 
@@ -94,13 +94,24 @@ export function EMAnswerKeysView() {
   const [uploadPassphrase, setUploadPassphrase] = useState('')
   const [showUploadPassphrase, setShowUploadPassphrase] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+  // Same coverage stats the IP/OP tab shows. E/M and ED Profee are both
+  // MDM-graded, so each is counted separately rather than lumped together.
+  const [statuses, setStatuses] = useState<Record<string, any>>({})
 
-  useEffect(() => { loadList() }, [])
+  useEffect(() => { loadList(); loadStatuses() }, [])
 
   async function loadList() {
     setLoading(true)
     try { setAkList(await listEMAnswerKeys()) } catch { toast.error('Could not load E/M answer keys') }
     finally { setLoading(false) }
+  }
+
+  async function loadStatuses() {
+    const out: Record<string, any> = {}
+    await Promise.all(['E/M', 'ED Profee'].map(async s => {
+      try { out[s] = await getAnswerKeyStatus(s) } catch { /* leave absent */ }
+    }))
+    setStatuses(out)
   }
 
   async function searchChartsByNumber() {
@@ -204,6 +215,41 @@ export function EMAnswerKeysView() {
 
   return (
     <div>
+      {/* Coverage stats, matching the IP/OP tab. Split by specialty because both
+          are MDM-graded but keyed and practised separately — and it makes
+          "ED Profee has no charts yet" visible instead of silent. */}
+      <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' as const }}>
+        {['E/M', 'ED Profee'].map(spec => {
+          const s = statuses[spec]
+          if (!s) return null
+          return (
+            <div key={spec} style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: '10px 14px', minWidth: 240 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' as const, letterSpacing: 0.5, marginBottom: 8 }}>
+                {spec}
+              </div>
+              {s.total_charts === 0 ? (
+                <div style={{ fontSize: 12, color: '#9ca3af' }}>No charts uploaded yet</div>
+              ) : (
+                <div style={{ display: 'flex', gap: 20 }}>
+                  <div>
+                    <div style={styles.statValue}>{s.total_charts}</div>
+                    <div style={styles.statLabel}>Total Charts</div>
+                  </div>
+                  <div>
+                    <div style={{ ...styles.statValue, color: '#16a34a' }}>{s.with_answer_key}</div>
+                    <div style={styles.statLabel}>Have Answer Key</div>
+                  </div>
+                  <div>
+                    <div style={{ ...styles.statValue, color: '#dc2626' }}>{s.without_answer_key}</div>
+                    <div style={styles.statLabel}>Missing Key</div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <div>
           <div style={{ fontSize: 14, color: '#374151' }}>

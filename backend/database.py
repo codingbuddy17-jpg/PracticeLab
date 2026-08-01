@@ -371,16 +371,24 @@ def _run_migrations():
     )""")
 
     # ── Seed assessment sample questions if table is empty ────────────────────
-    from services.assessment_seed import seed_sample_questions
-    from sqlalchemy import text as _text
-    with engine.connect() as _conn:
-        _count = _conn.execute(_text("SELECT COUNT(*) FROM assessment_questions")).fetchone()[0]
-    if _count == 0:
-        _seed_db = SessionLocal()
-        try:
-            seed_sample_questions(_seed_db)
-        finally:
-            _seed_db.close()
+    # Guarded: this block was the one piece of _run_migrations not wrapped in
+    # _run(), so anything it raised aborted the whole run and every migration
+    # BELOW it silently never happened — the E/M tables, the practice-session
+    # tables, the enum additions and all the backfills. Seeding is optional;
+    # schema is not, so a seed failure must never take the schema with it.
+    try:
+        from services.assessment_seed import seed_sample_questions
+        from sqlalchemy import text as _text
+        with engine.connect() as _conn:
+            _count = _conn.execute(_text("SELECT COUNT(*) FROM assessment_questions")).fetchone()[0]
+        if _count == 0:
+            _seed_db = SessionLocal()
+            try:
+                seed_sample_questions(_seed_db)
+            finally:
+                _seed_db.close()
+    except Exception as exc:
+        logger.warning("Assessment sample seed skipped (non-fatal): %s", exc)
 
     # ── in-browser practice sessions ─────────────────────────────────────────
     _run("""CREATE TABLE IF NOT EXISTS practice_sessions (
