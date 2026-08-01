@@ -538,6 +538,77 @@ def _upsert_ed_practice_result(db, session_id, entry, specialty):
         """), vals)
 
 
+def _sync_grading_result(db, session_id, chart_id, specialty, result_kwargs, feedback_items):
+    """
+    Mirror a graded practice result into grading_results / grading_feedback.
+
+    Practice sessions write to practice_results (raw SQL), but every analytics
+    endpoint and both PDF reports read the GradingResult ORM table. Without this
+    mirror, in-browser practice work is invisible to all reporting.
+
+    Keyed on (batch_id, coder_name, chart_id) so re-grading updates in place
+    rather than duplicating.
+    """
+    from sqlalchemy import text
+    from models.practicelab import GradingFeedback, GradingSection, IssueType, PassFail
+
+    sess = db.execute(text(
+        "SELECT batch_id, coder_name FROM practice_sessions WHERE id=:s"
+    ), {"s": session_id}).fetchone()
+    if not sess:
+        return
+    batch_id, coder_name = sess
+    if batch_id is None or not coder_name:
+        return
+
+    r = result_kwargs or {}
+    pf_raw = r.get("pass_fail")
+    pass_fail = PassFail(pf_raw) if pf_raw in ("PASS", "FAIL") else None
+
+    row = (db.query(GradingResult)
+           .filter(GradingResult.batch_id == batch_id,
+                   GradingResult.coder_name == coder_name,
+                   GradingResult.chart_id == chart_id)
+           .first())
+    if row is None:
+        row = GradingResult(batch_id=batch_id, submission_id=None,
+                            coder_name=coder_name, chart_id=chart_id,
+                            specialty=specialty)
+        db.add(row)
+
+    row.specialty = specialty
+    row.total_score = r.get("weighted_score")
+    row.pass_fail = pass_fail
+    row.drg_flag = bool(r.get("drg_flag", False))
+    for f in ("pdx_score", "sdx_score", "pcs_score", "cpt_score",
+              "dpo_dx_accuracy", "dpo_poa_accuracy", "dpo_proc_accuracy",
+              "dpo_overall_accuracy", "dpo_dx_correct", "dpo_dx_total",
+              "dpo_poa_correct", "dpo_poa_total", "dpo_proc_correct", "dpo_proc_total"):
+        if f in r:
+            setattr(row, f, r[f])
+    db.flush()
+
+    # Replace feedback rows. E/M emits free-text issue strings that don't map to
+    # the IssueType/GradingSection enums — those are skipped here and stay in
+    # practice_results.feedback + the E/M breakdown endpoint.
+    db.query(GradingFeedback).filter(GradingFeedback.result_id == row.id).delete()
+    valid_sections = {s.value for s in GradingSection}
+    valid_issues = {i.value for i in IssueType}
+    for item in (feedback_items or []):
+        section = str(item.get("section") or "")
+        issue = str(item.get("issue") or item.get("issue_type") or "")
+        if section not in valid_sections or issue not in valid_issues:
+            continue
+        db.add(GradingFeedback(
+            result_id=row.id,
+            section=GradingSection(section),
+            issue_type=IssueType(issue),
+            ak_code=(item.get("ak_code") or None),
+            coder_code=(item.get("coder_code") or None),
+            detail=(item.get("detail") or None),
+        ))
+
+
 def _upsert_practice_result(db, session_id, entry, specialty, graded=False,
                             result_kwargs=None, feedback_items=None, ak_rec=None):
     from sqlalchemy import text
@@ -599,6 +670,11 @@ def _upsert_practice_result(db, session_id, entry, specialty, graded=False,
                :pdx_sub, :pdx_ak, :pdx_ok,
                :sdx_sub, :sdx_ak, :pcs_sub, :pcs_ak, :cpt_sub, :cpt_ak)
         """), vals)
+
+    # Mirror into grading_results so analytics + PDF reports can see this work
+    if graded and result_kwargs:
+        _sync_grading_result(db, session_id, entry.chart_id, specialty,
+                             result_kwargs, feedback_items)
 
 
 def _build_coder_results(session_id: int, db) -> list:
@@ -1144,3 +1220,64 @@ def batch_em_breakdown(batch_id: int, db: Session = Depends(get_db)):
         "coders": sorted(coder_summaries, key=lambda x: x["avg_total"], reverse=True),
         "has_data": len(all_charts) > 0,
     }
+
+
+@router.get("/practice-sessions/{session_id}/coder-report.pdf")
+def practice_session_coder_report_pdf(session_id: int, db: Session = Depends(get_db)):
+    """
+    Performance report for one coder scoped to a single practice session.
+
+    Session-scoped rather than date-scoped on purpose: the analytics date filter
+    is day-granularity, so it cannot separate two sessions run on the same day.
+    """
+    import io
+    from sqlalchemy import text
+    from fastapi.responses import StreamingResponse
+    from services.pdf_report_service import generate_coder_report_pdf
+    from .analytics import build_coder_summary
+
+    sess = db.execute(text(
+        "SELECT batch_id, coder_name, specialty, submitted_at, status "
+        "FROM practice_sessions WHERE id=:s"
+    ), {"s": session_id}).fetchone()
+    if not sess:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    batch_id, coder_name, specialty_str, submitted_at, status = sess
+    if status != "submitted":
+        raise HTTPException(status_code=400, detail="Session not yet submitted")
+
+    chart_rows = db.execute(text(
+        "SELECT chart_id FROM practice_results WHERE session_id=:s"
+    ), {"s": session_id}).fetchall()
+    chart_ids = [r[0] for r in chart_rows]
+    if not chart_ids:
+        raise HTTPException(status_code=404, detail="No graded charts in this session")
+
+    results = (db.query(GradingResult)
+               .filter(GradingResult.batch_id == batch_id,
+                       GradingResult.coder_name == coder_name,
+                       GradingResult.chart_id.in_(chart_ids))
+               .all())
+    summary = build_coder_summary(results, coder_name, db)
+    if not summary:
+        raise HTTPException(status_code=404, detail="No graded results for this session")
+
+    batch = db.query(Batch).filter(Batch.id == batch_id).first()
+    scope_bits = [f"Session #{session_id}"]
+    if batch:
+        scope_bits.append(batch.name)
+    scope_bits.append(specialty_str or "")
+    scope_label = "Scope: " + "  |  ".join(b for b in scope_bits if b)
+    period_label = f"Submitted: {submitted_at}" if submitted_at else None
+
+    pdf_bytes = generate_coder_report_pdf(coder_name, summary,
+                                          period_label=period_label,
+                                          scope_label=scope_label)
+    safe_name = (coder_name or "coder").replace(" ", "_")
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition":
+                 f"attachment; filename={safe_name}_Session{session_id}_Report.pdf"},
+    )

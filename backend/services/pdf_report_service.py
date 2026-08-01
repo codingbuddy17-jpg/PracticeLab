@@ -351,14 +351,21 @@ def _batch_verdict(bs: dict, pass_threshold: int = 80):
     return ("CRITICAL", f"{pr}% pass rate{trend} indicates the majority of charts failed — immediate intervention recommended.", RED, RED_BG, RED_BORDER)
 
 
-def generate_coder_report_pdf(coder_name: str, summary: dict, team_avg_score: Optional[float] = None) -> bytes:
+def generate_coder_report_pdf(coder_name: str, summary: dict, team_avg_score: Optional[float] = None,
+                              period_label: Optional[str] = None,
+                              scope_label: Optional[str] = None) -> bytes:
     buf = io.BytesIO()
     doc = _doc(buf)
     elements = []
 
     emp_id = summary.get("emp_id")
     coder_subtitle = f"Coder: {coder_name}  |  Emp ID: {emp_id}" if emp_id else f"Coder: {coder_name}"
-    _header(elements, "Coder Performance Report", [coder_subtitle])
+    # Always state the scope — a filtered report must not be mistakable for a
+    # cumulative one once it leaves the app.
+    subtitles = [coder_subtitle, scope_label or "Scope: All practice & batch work"]
+    if period_label:
+        subtitles.append(period_label)
+    _header(elements, "Coder Performance Report", subtitles)
 
     pt = summary.get("pass_threshold", 80)
     headline, detail, color, bg, border = _coder_verdict(summary, pass_threshold=pt)

@@ -261,6 +261,10 @@ export function downloadCoderReportPdf(coderName: string, f: PLFilters = {}) {
   window.open(`${import.meta.env.VITE_API_URL || '/api'}/practicelab/analytics/coder-report.pdf?${params.toString()}`, '_blank')
 }
 
+export function downloadSessionCoderReportPdf(sessionId: number) {
+  window.open(`${import.meta.env.VITE_API_URL || '/api'}/practicelab/practice-sessions/${sessionId}/coder-report.pdf`, '_blank')
+}
+
 export function downloadBatchReportPdf(batchId: number) {
   window.open(`${import.meta.env.VITE_API_URL || '/api'}/practicelab/batches/${batchId}/insights/report.pdf`, '_blank')
 }

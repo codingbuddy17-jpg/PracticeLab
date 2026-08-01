@@ -225,7 +225,16 @@ def coder_summary(
         if spec:
             q = q.filter(GradingResult.specialty == spec)
     results = q.all()
+    return build_coder_summary(results, coder_name, db)
 
+
+def build_coder_summary(results, coder_name: str, db: Session):
+    """
+    Aggregate a list of GradingResult rows into the coder profile shape.
+
+    Split out from the endpoint so session-scoped reports can reuse the exact
+    same aggregation over a differently-filtered row set.
+    """
     if not results:
         return None
 
@@ -363,7 +372,15 @@ def coder_report_pdf(
     team_scores = [r.total_score for r in team_base.all()]
     team_avg_score = round(sum(team_scores) / len(team_scores), 1) if team_scores else None
 
-    pdf_bytes = generate_coder_report_pdf(coder_name, summary, team_avg_score=team_avg_score)
+    if from_date or to_date:
+        period_label = f"Period: {from_date or 'start'} to {to_date or 'today'}"
+    else:
+        period_label = "Period: All time"
+    if specialty:
+        period_label += f"  |  Specialty: {specialty}"
+
+    pdf_bytes = generate_coder_report_pdf(coder_name, summary, team_avg_score=team_avg_score,
+                                          period_label=period_label)
     safe_name = coder_name.replace(" ", "_")
     return StreamingResponse(
         io.BytesIO(pdf_bytes),

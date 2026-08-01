@@ -452,6 +452,9 @@ def _run_migrations():
     # ── Scrub "None" sentinel strings from answer key JSON arrays ─────────────
     _clean_none_in_answer_keys()
 
+    # ── Mirror historical practice results into grading_results ───────────────
+    _backfill_practice_grading_results()
+
     _add_col("em_answer_keys", "patient_type", "VARCHAR(20) NOT NULL DEFAULT 'NA'", "TEXT NOT NULL DEFAULT 'NA'")
 
     # ── E/M MDM answer keys ───────────────────────────────────────────────────
@@ -636,6 +639,109 @@ def _backfill_legacy_cycles() -> None:
                 "WHERE batch_id = :bid AND cycle_id IS NULL"
             ), {"cid": cycle_id, "bid": bid})
             conn.commit()
+
+
+def _backfill_practice_grading_results() -> None:
+    """
+    Mirror historical practice_results rows into grading_results.
+
+    In-browser practice sessions write to practice_results, but every analytics
+    endpoint and both PDF reports read grading_results. Sessions submitted before
+    the write-through mirror existed are invisible to reporting; this backfills
+    them once. Idempotent — skips any (batch_id, coder_name, chart_id) that
+    already has a grading_results row.
+
+    Note: practice_results has no DPO columns, so backfilled rows carry no DPO
+    figures. Re-grading a session repopulates them via the live mirror.
+    """
+    with engine.connect() as conn:
+        try:
+            rows = conn.execute(text("""
+                SELECT ps.batch_id, ps.coder_name, pr.chart_id, pr.specialty,
+                       pr.total_score, pr.pass_fail, pr.drg_flag, pr.feedback,
+                       ps.submitted_at
+                FROM practice_results pr
+                JOIN practice_sessions ps ON ps.id = pr.session_id
+                WHERE pr.total_score IS NOT NULL
+                  AND ps.batch_id IS NOT NULL
+                  AND ps.coder_name IS NOT NULL
+            """)).fetchall()
+        except Exception as exc:
+            logger.warning("_backfill_practice_grading_results skipped: %s", exc)
+            return
+
+        import json as _json
+        from models import Specialty
+        from models.practicelab import GradingSection, IssueType
+
+        created = 0
+
+        for (batch_id, coder_name, chart_id, specialty, total_score,
+             pass_fail, drg_flag, feedback, submitted_at) in rows:
+            try:
+                existing = conn.execute(text(
+                    "SELECT id FROM grading_results "
+                    "WHERE batch_id=:b AND coder_name=:n AND chart_id=:c"
+                ), {"b": batch_id, "n": coder_name, "c": chart_id}).fetchone()
+                if existing:
+                    continue
+
+                # grading_results.specialty is a SAEnum column: SQLAlchemy persists
+                # the enum NAME (IP_DRG), while practice_results stores the VALUE
+                # (IP-DRG). Insert the name or the ORM cannot read the row back.
+                try:
+                    spec_name = Specialty(specialty).name
+                except (ValueError, TypeError):
+                    logger.warning("backfill: unknown specialty %r (batch=%s chart=%s), skipping",
+                                   specialty, batch_id, chart_id)
+                    continue
+
+                conn.execute(text("""
+                    INSERT INTO grading_results
+                      (batch_id, submission_id, coder_name, chart_id, specialty,
+                       total_score, pass_fail, drg_flag, graded_at)
+                    VALUES (:b, NULL, :n, :c, :sp, :tot, :pf, :drg,
+                            COALESCE(:ts, CURRENT_TIMESTAMP))
+                """), {
+                    "b": batch_id, "n": coder_name, "c": chart_id, "sp": spec_name,
+                    "tot": total_score, "pf": pass_fail,
+                    "drg": bool(drg_flag), "ts": submitted_at,
+                })
+                new_id = conn.execute(text(
+                    "SELECT id FROM grading_results "
+                    "WHERE batch_id=:b AND coder_name=:n AND chart_id=:c"
+                ), {"b": batch_id, "n": coder_name, "c": chart_id}).fetchone()[0]
+
+                items = _json.loads(feedback) if isinstance(feedback, str) else (feedback or [])
+                for item in items:
+                    if not isinstance(item, dict):
+                        continue
+                    # Same SAEnum name-vs-value rule as above. E/M emits free-text
+                    # section/issue strings that map to neither enum — skip those.
+                    try:
+                        section_name = GradingSection(str(item.get("section") or "")).name
+                        issue_name = IssueType(
+                            str(item.get("issue") or item.get("issue_type") or "")).name
+                    except (ValueError, TypeError):
+                        continue
+                    conn.execute(text("""
+                        INSERT INTO grading_feedback
+                          (result_id, section, issue_type, ak_code, coder_code)
+                        VALUES (:r, :s, :i, :ak, :cc)
+                    """), {
+                        "r": new_id, "s": section_name, "i": issue_name,
+                        "ak": item.get("ak_code") or None,
+                        "cc": item.get("coder_code") or None,
+                    })
+                conn.commit()
+                created += 1
+            except Exception as exc:
+                logger.warning("backfill row skipped (batch=%s coder=%s chart=%s): %s",
+                               batch_id, coder_name, chart_id, exc)
+                conn.rollback()
+
+        if created:
+            logger.info("_backfill_practice_grading_results: mirrored %d practice result(s)", created)
 
 
 def _clean_none_in_answer_keys() -> None:

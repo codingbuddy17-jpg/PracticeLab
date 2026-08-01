@@ -7,6 +7,7 @@ import {
   downloadBatchResultsExcel,
   getBatchInsights, runAllocation, searchChartsForBatch, getCategories,
   addCodersToBatch, gradeEDChart, getEDGrades, EDRubricPayload,
+  downloadSessionCoderReportPdf,
 } from '../../api'
 import api from '../../api/client'
 import { SPECIALTY_COLORS } from '../../theme'
@@ -844,6 +845,13 @@ function PracticeTokensSection({ batchId }: { batchId: number }) {
                     style={{ background: 'none', border: '1px solid #e5e7eb', borderRadius: 6, cursor: 'pointer', color: '#059669', padding: '3px 8px', fontSize: 12 }}
                   >
                     ↻ Re-grade
+                  </button>
+                  <button
+                    onClick={() => downloadSessionCoderReportPdf(s.session_id)}
+                    title="Download this coder's report for this session only"
+                    style={{ background: 'none', border: '1px solid #e5e7eb', borderRadius: 6, cursor: 'pointer', color: '#4f46e5', padding: '3px 8px', fontSize: 12 }}
+                  >
+                    <Download size={12} /> Report
                   </button>
                 </>
               )}

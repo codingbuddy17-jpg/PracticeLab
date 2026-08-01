@@ -54,6 +54,15 @@ def _grade_chart_for_sp(chart, ak_rec, sub_data, ip_cfg, op_cfg):
             "dpo_poa_accuracy": dpo.poa.accuracy,
             "dpo_proc_accuracy": dpo.proc.accuracy,
             "dpo_overall_accuracy": dpo.overall_accuracy,
+            # Raw counts — needed for cumulative DPO rollups (avg-of-avgs is wrong)
+            "dpo_dx_correct": dpo.dx.opportunities - dpo.dx.defects,
+            "dpo_dx_total": dpo.dx.opportunities,
+            "dpo_poa_correct": dpo.poa.opportunities - dpo.poa.defects,
+            "dpo_poa_total": dpo.poa.opportunities,
+            "dpo_proc_correct": dpo.proc.opportunities - dpo.proc.defects,
+            "dpo_proc_total": dpo.proc.opportunities,
+            "pdx_score": res.pdx_score, "sdx_score": res.sdx_score,
+            "pcs_score": res.pcs_score, "cpt_score": None,
         }, feedback_items
     else:
         ak = OPAnswerKey(
@@ -82,6 +91,14 @@ def _grade_chart_for_sp(chart, ak_rec, sub_data, ip_cfg, op_cfg):
             "dpo_poa_accuracy": None,
             "dpo_proc_accuracy": dpo.proc.accuracy,
             "dpo_overall_accuracy": dpo.overall_accuracy,
+            # Raw counts — needed for cumulative DPO rollups (avg-of-avgs is wrong)
+            "dpo_dx_correct": dpo.dx.opportunities - dpo.dx.defects,
+            "dpo_dx_total": dpo.dx.opportunities,
+            "dpo_poa_correct": 0, "dpo_poa_total": 0,   # OP has no POA
+            "dpo_proc_correct": dpo.proc.opportunities - dpo.proc.defects,
+            "dpo_proc_total": dpo.proc.opportunities,
+            "pdx_score": res.pdx_score, "sdx_score": res.sdx_score,
+            "pcs_score": None, "cpt_score": res.cpt_score,
         }, feedback_items
 
 
