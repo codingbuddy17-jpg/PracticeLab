@@ -270,6 +270,12 @@ export function AnswerKeysView() {
         </div>
       )}
 
+      {/* Rubric specialties have no answer keys at all, so the key list and the
+          "charts without keys" section below are not just empty — they present
+          a gap that can never be closed, and the Add Key button opened an
+          OP-shaped form that could never save. */}
+      {isED ? null : <>
+
       {/* Per-chart list */}
       <div style={{ fontSize: 13, fontWeight: 700, color: '#374151', marginBottom: 8 }}>
         Charts with answer keys {akList.length > 0 && <span style={{ fontWeight: 400, color: '#9ca3af' }}>({akList.length})</span>}
@@ -370,6 +376,8 @@ export function AnswerKeysView() {
           </div>
         </div>
       )}
+      </>}
+
       </>}
 
       {editChartId !== null && (

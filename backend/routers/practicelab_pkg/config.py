@@ -385,7 +385,13 @@ def list_charts_without_keys(specialty: Optional[str] = None, db: Session = Depe
          .filter(AnswerKey.id == None))  # noqa: E711
     spec = _parse_chart_specialty(specialty)
     if spec:
+        # Edits/Denials charts are keyless permanently and by design — listing
+        # them as "missing a key" presents a gap that can never be closed.
+        if _is_ed(spec):
+            return []
         q = q.filter(Chart.specialty == spec)
+    else:
+        q = q.filter(~Chart.specialty.in_(ED_SPECIALTIES))
     charts = q.order_by(Chart.chart_number).all()
     result = []
     for c in charts:
@@ -405,10 +411,17 @@ def get_answer_key_status(specialty: Optional[str] = None, db: Session = Depends
     q = db.query(Chart).filter(Chart.status == ChartStatus.ACTIVE)
     spec = _parse_chart_specialty(specialty)
     if spec:
+        # Rubric specialties have no answer keys, so a "without key" count is
+        # noise — every chart would show as outstanding forever.
+        if _is_ed(spec):
+            return {"total_charts": q.filter(Chart.specialty == spec).count(),
+                    "with_answer_key": 0, "without_answer_key": 0,
+                    "uses_answer_keys": False}
         q = q.filter(Chart.specialty == spec)
     total = q.count()
     with_key = q.join(AnswerKey, AnswerKey.chart_id == Chart.id).count()
-    return {"total_charts": total, "with_answer_key": with_key, "without_answer_key": total - with_key}
+    return {"total_charts": total, "with_answer_key": with_key,
+            "without_answer_key": total - with_key, "uses_answer_keys": True}
 
 
 # ── In-interface answer key editing ──────────────────────────────────────────
@@ -432,6 +445,12 @@ def get_answer_key_detail(chart_id: int, db: Session = Depends(get_db)):
     chart = db.query(Chart).filter(Chart.id == chart_id).first()
     if not chart:
         raise HTTPException(status_code=404, detail="Chart not found")
+    # Edits and Denials are graded by rubric and have no answer key at all.
+    # Without this the editor opened an OP-shaped form that could never save.
+    if _is_ed(chart.specialty):
+        raise HTTPException(
+            status_code=400,
+            detail=f"{chart.specialty.value} charts are graded by rubric — they have no answer key.")
     ak = db.query(AnswerKey).filter(AnswerKey.chart_id == chart_id).first()
     return {
         "chart_id": chart_id,
