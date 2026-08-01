@@ -66,6 +66,8 @@ interface CodeEntry {
     em_code: string
     em_modifier: string
     patient_type: 'NEW' | 'ESTABLISHED' | 'NA'
+    level_method: 'MDM' | 'TIME'
+    total_time: string
     em_dx: Array<{ code: string }>
     em_cpt: Array<{ code: string; modifier: string; pointers?: string[] }>
   }
@@ -142,6 +144,7 @@ const EMPTY_EM_DATA = () => ({
   risk_emergency_major_surgery: false, risk_hospitalization_escalation: false,
   risk_dnr_deescalate: false, risk_parenteral_controlled: false,
   em_code: '', em_modifier: '', patient_type: 'NA' as 'NEW' | 'ESTABLISHED' | 'NA',
+  level_method: 'MDM' as 'MDM' | 'TIME', total_time: '',
   em_dx: [] as Array<{ code: string }>, em_cpt: [] as Array<{ code: string; modifier: string; pointers?: string[] }>,
 })
 
@@ -529,6 +532,9 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
     })
   }
   const emData = entry.em_data || EMPTY_EM_DATA()
+  // ED codes (99281-99285) cannot be levelled by time — MDM only.
+  const timeEligible = !chart.specialty.toUpperCase().includes('ED PROFEE')
+  const byTime = timeEligible && (emData.level_method || 'MDM') === 'TIME'
   function updateEM(patch: Partial<typeof emData>) {
     onChange({ em_data: { ...emData, ...patch } })
   }
@@ -629,6 +635,54 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
           })}
         </div>
 
+        {/* ── Levelling method ──
+            Since 2021 an office/outpatient visit may be levelled by MDM OR by
+            total time on the date of encounter — the coder chooses, and the two
+            can legitimately give different levels. ED codes have no time option,
+            so this control is hidden there. */}
+        {timeEligible && (
+          <div style={{ background: '#f8fafc', border: '1px solid #e5e7eb', borderRadius: 10, padding: '12px 14px', marginBottom: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 8 }}>Level by</div>
+            <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+              {(['MDM', 'TIME'] as const).map(m => (
+                <label key={m} style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13, color: '#374151' }}>
+                  <input
+                    type="radio"
+                    name={`level_method_${chart.chart_id}`}
+                    checked={(emData.level_method || 'MDM') === m}
+                    /* Switching method never clears MDM entries — a coder
+                       exploring both routes must not lose their work. */
+                    onChange={() => updateEM({ level_method: m })}
+                  />
+                  {m === 'MDM' ? 'Medical Decision Making' : 'Total Time'}
+                </label>
+              ))}
+              {byTime && (
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 4 }}>
+                  <input
+                    style={{ ...s.inputField, width: 90, marginBottom: 0 }}
+                    placeholder="e.g. 40"
+                    inputMode="numeric"
+                    value={emData.total_time || ''}
+                    onChange={e => updateEM({ total_time: e.target.value.replace(/[^0-9]/g, '') })}
+                  />
+                  <span style={{ fontSize: 12, color: '#6b7280' }}>minutes</span>
+                </span>
+              )}
+            </div>
+            {byTime && (
+              <div style={{ fontSize: 11, color: '#b45309', marginTop: 8 }}>
+                Levelling by time — the MDM sections below are not scored for this chart.
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* MDM sections are greyed rather than hidden: seeing what does not
+            apply, and why, is part of the lesson. */}
+        <div style={byTime ? { opacity: 0.45, pointerEvents: 'none' as const } : undefined}
+             aria-disabled={byTime}>
+
         {/* ── COPA ── */}
         <EMAccordion title="COPA — Number & Complexity of Problems" open={emOpenSections.copa} onToggle={() => toggleSection('copa')} accent="#7c3aed">
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
@@ -719,6 +773,8 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
           </div>
           <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 8 }}>★ 2023 AMA addition · highest element present determines Risk level</div>
         </EMAccordion>
+
+        </div>{/* end MDM greyed wrapper */}
 
         {/* ── E/M Code & CPT ── */}
         <EMAccordion title="E/M Code, Modifier & Procedure CPTs" open={emOpenSections.code} onToggle={() => toggleSection('code')} accent="#d97706">

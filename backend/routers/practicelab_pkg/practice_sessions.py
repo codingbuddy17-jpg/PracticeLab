@@ -467,6 +467,20 @@ def submit_practice_session(session_id: int, payload: SubmitPracticeSession, db:
             pf = "PASS" if total >= cfg["pass_threshold"] else "FAIL"
             # Build feedback items from scoring breakdown for results display
             em_feedback = []
+            if scoring.get("method_mismatch"):
+                em_feedback.append({
+                    "section": "Reasoning Accuracy",
+                    "issue": f"Levelling method — key used {scoring.get('ak_level_method', '')}, "
+                             f"coder used {scoring.get('sub_level_method', '')}; reasoning points not earned",
+                    "ak_code": scoring.get("ak_level_method", ""),
+                    "coder_code": scoring.get("sub_level_method", ""),
+                })
+            elif scoring.get("ak_level_method") == "TIME" and not scoring.get("time_ok"):
+                em_feedback.append({
+                    "section": "Reasoning Accuracy",
+                    "issue": "Total time does not support the documented level",
+                    "ak_code": "", "coder_code": "",
+                })
             if scoring.get("patient_type_mismatch"):
                 em_feedback.append({
                     "section": "Coding Accuracy",

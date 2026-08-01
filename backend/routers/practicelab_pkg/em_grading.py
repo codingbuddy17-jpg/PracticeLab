@@ -139,6 +139,43 @@ def _clean_codes(lst: list) -> list:
     return [str(c).strip().upper() for c in lst if c and str(c).strip().lower() not in ("", "none")]
 
 
+# ── Time-based levelling (2021+ office/outpatient E/M) ───────────────────────
+#
+# A visit may be levelled by total time on the date of encounter OR by MDM —
+# the coder chooses. ED codes (99281-99285) have no time option and are always
+# MDM, so the Time path is never offered for them.
+#
+# Total time on date of encounter, per AMA CPT.
+EM_TIME_BANDS = {
+    # New patient
+    "99202": (15, 29), "99203": (30, 44), "99204": (45, 59), "99205": (60, 74),
+    # Established patient
+    "99212": (10, 19), "99213": (20, 29), "99214": (30, 39), "99215": (40, 54),
+}
+
+
+def time_supports_code(total_time, em_code: str) -> bool:
+    """Does the documented time fall in the band supporting this code?
+
+    Graded on band rather than exact digits: coders read 'approximately 40
+    minutes' off a chart, and failing them on transcription would test the
+    wrong skill.
+    """
+    band = EM_TIME_BANDS.get((em_code or "").strip())
+    if not band or total_time in (None, ""):
+        return False
+    try:
+        mins = int(float(total_time))
+    except (TypeError, ValueError):
+        return False
+    return band[0] <= mins <= band[1]
+
+
+def code_supports_time(em_code: str) -> bool:
+    """True when the code can be levelled by time at all (office/outpatient)."""
+    return (em_code or "").strip() in EM_TIME_BANDS
+
+
 def grade_em_chart(ak: dict, sub: dict, cfg: dict, overcoding_penalty: bool = True) -> dict:
     """
     Grade one E/M chart submission against its answer key.
@@ -187,6 +224,19 @@ def grade_em_chart(ak: dict, sub: dict, cfg: dict, overcoding_penalty: bool = Tr
     patient_type_ok = (ak_patient_type == "NA") or (sub_patient_type == ak_patient_type)
     em_level_score = em_w_adj if (sub_em_level and sub_em_level == ak_em_level and patient_type_ok) else 0.0
     patient_type_mismatch = (ak_patient_type != "NA") and (not patient_type_ok)
+
+    # ── Levelling method: MDM or Time ────────────────────────────────────────
+    # Coding Accuracy is scored on the final code regardless of method — either
+    # route can legitimately reach the right answer. The method mistake costs
+    # Reasoning Accuracy instead, which is what "justify it correctly" means.
+    ak_method = (ak.get("level_method") or "MDM").upper().strip()
+    sub_method = (sub.get("sub_level_method") or "MDM").upper().strip()
+    method_ok = (ak_method == sub_method)
+    ak_is_time = (ak_method == "TIME")
+    time_ok = False
+    if ak_is_time and method_ok:
+        time_ok = time_supports_code(sub.get("sub_total_time"), ak.get("em_code") or "")
+    method_mismatch = not method_ok
 
     # CPT (proportional, equal weight per CPT, overcoding penalty)
     cpt_score = 0.0
@@ -242,13 +292,36 @@ def grade_em_chart(ak: dict, sub: dict, cfg: dict, overcoding_penalty: bool = Tr
         total_ak = sum(min(v, 1) for v in ak_vals)  # count non-zero AK elements
         if total_ak == 0:
             return weight  # no elements expected → full score
-        correct = sum(1 for a, s in zip(ak_vals, sub_vals) if (a > 0) == (s > 0) and a == s)
+        # Count only the elements the key actually expects. The previous version
+        # counted every field where AK and submission agreed — including the many
+        # both-zero fields — so `correct` ran far above `total_ak` and the score
+        # blew past its weight (COPA alone returned 100 against a weight of 10).
+        correct = sum(1 for a, s in zip(ak_vals, sub_vals) if a > 0 and a == s)
         return round((correct / total_ak) * weight, 2)
 
-    copa_element_score = _element_score(copa_fields, ak, sub, copa_w)
-    dr_element_score = _element_score(dr_fields, ak, sub, dr_w)
-    risk_element_score = _element_score(risk_fields, ak, sub, risk_w)
-    reasoning_accuracy_total = copa_element_score + dr_element_score + risk_element_score
+    if ak_is_time:
+        # Time-levelled chart: MDM elements are not the operative criteria, so
+        # they are not scored. Reasoning credit turns on picking the Time route
+        # and reading the time correctly.
+        reasoning_w = copa_w + dr_w + risk_w
+        if not method_ok:
+            reasoning_earned = 0.0          # levelled by MDM when time was the basis
+        elif time_ok:
+            reasoning_earned = reasoning_w  # right route, time in band
+        else:
+            reasoning_earned = reasoning_w / 2   # right route, wrong time
+        copa_element_score = dr_element_score = risk_element_score = 0.0
+        reasoning_accuracy_total = round(reasoning_earned, 2)
+    elif not method_ok:
+        # MDM-levelled chart but the coder levelled by time — the MDM elements
+        # they skipped are exactly what Reasoning Accuracy measures.
+        copa_element_score = dr_element_score = risk_element_score = 0.0
+        reasoning_accuracy_total = 0.0
+    else:
+        copa_element_score = _element_score(copa_fields, ak, sub, copa_w)
+        dr_element_score = _element_score(dr_fields, ak, sub, dr_w)
+        risk_element_score = _element_score(risk_fields, ak, sub, risk_w)
+        reasoning_accuracy_total = copa_element_score + dr_element_score + risk_element_score
 
     total_score = round(coding_accuracy_total + reasoning_accuracy_total, 1)
     pass_threshold = cfg.get("pass_threshold", 80.0)
@@ -258,6 +331,10 @@ def grade_em_chart(ak: dict, sub: dict, cfg: dict, overcoding_penalty: bool = Tr
         "derived_copa_level": derived_copa,
         "derived_dr_level": derived_dr,
         "derived_risk_level": derived_risk,
+        "ak_level_method": ak_method,
+        "sub_level_method": sub_method,
+        "method_mismatch": method_mismatch,
+        "time_ok": time_ok,
         "em_level_score": round(em_level_score, 2),
         "cpt_score": round(cpt_score, 2),
         "dx_score": round(dx_score, 2),
@@ -315,6 +392,8 @@ class EMAnswerKeyPayload(BaseModel):
     em_code: str
     em_modifier: Optional[str] = None
     patient_type: Optional[str] = "NA"  # New / Established / NA
+    level_method: Optional[str] = "MDM"  # MDM | TIME (office/outpatient only)
+    total_time: Optional[int] = None     # total minutes on date of encounter
     dx_codes: list = []
     procedure_cpts: list = []
     entered_by: str
@@ -418,6 +497,7 @@ def upsert_em_answer_key(payload: EMAnswerKeyPayload, db: Session = Depends(get_
                 risk_parenteral_controlled=:risk_parenteral_controlled,
                 risk_level=:risk_level, risk_level_overridden=:risk_overridden,
                 em_code=:em_code, em_modifier=:em_modifier, patient_type=:patient_type,
+                level_method=:level_method, total_time=:total_time,
                 dx_codes=:dx_codes, procedure_cpts=:procedure_cpts,
                 entered_by=:entered_by, entered_at=CURRENT_TIMESTAMP
             WHERE chart_id=:chart_id
@@ -426,6 +506,8 @@ def upsert_em_answer_key(payload: EMAnswerKeyPayload, db: Session = Depends(get_
                "dr_level": dr_level, "dr_overridden": dr_overridden,
                "risk_level": risk_level, "risk_overridden": risk_overridden,
                "patient_type": (payload.patient_type or "NA").upper(),
+               "level_method": (payload.level_method or "MDM").upper(),
+               "total_time": payload.total_time,
                "dx_codes": dx_codes, "procedure_cpts": procedure_cpts})
     else:
         db.execute(text("""
@@ -445,7 +527,7 @@ def upsert_em_answer_key(payload: EMAnswerKeyPayload, db: Session = Depends(get_
                 risk_emergency_major_surgery, risk_hospitalization_escalation,
                 risk_dnr_deescalate, risk_parenteral_controlled,
                 risk_level, risk_level_overridden,
-                em_code, em_modifier, patient_type, dx_codes, procedure_cpts,
+                em_code, em_modifier, patient_type, level_method, total_time, dx_codes, procedure_cpts,
                 entered_by
             ) VALUES (
                 :chart_id,
@@ -463,7 +545,7 @@ def upsert_em_answer_key(payload: EMAnswerKeyPayload, db: Session = Depends(get_
                 :risk_emergency_major_surgery, :risk_hospitalization_escalation,
                 :risk_dnr_deescalate, :risk_parenteral_controlled,
                 :risk_level, :risk_overridden,
-                :em_code, :em_modifier, :patient_type, :dx_codes, :procedure_cpts,
+                :em_code, :em_modifier, :patient_type, :level_method, :total_time, :dx_codes, :procedure_cpts,
                 :entered_by
             )
         """), {**d, "chart_id": chart_id, "entered_by": entered_by,
@@ -471,6 +553,8 @@ def upsert_em_answer_key(payload: EMAnswerKeyPayload, db: Session = Depends(get_
                "dr_level": dr_level, "dr_overridden": dr_overridden,
                "risk_level": risk_level, "risk_overridden": risk_overridden,
                "patient_type": (payload.patient_type or "NA").upper(),
+               "level_method": (payload.level_method or "MDM").upper(),
+               "total_time": payload.total_time,
                "dx_codes": dx_codes, "procedure_cpts": procedure_cpts})
     db.commit()
     return {"status": "ok", "copa_level": copa_level, "dr_level": dr_level, "risk_level": risk_level}
@@ -626,6 +710,8 @@ def upload_em_answer_keys(
             "em_code": em_code,
             "em_modifier": row.get("em_modifier", "") or "",
             "patient_type": (row.get("patient_type") or "NA").upper().strip(),
+            "level_method": (row.get("level_method") or "MDM").upper().strip(),
+            "total_time": row.get("total_time"),
             "dx_codes": dx_codes,
             "procedure_cpts": procedure_cpts,
             "entered_by": entered_by_val,
@@ -658,6 +744,7 @@ def upload_em_answer_keys(
                     risk_dnr_deescalate=:risk_dnr_deescalate, risk_parenteral_controlled=:risk_parenteral_controlled,
                     risk_level=:risk_level, risk_level_overridden=:risk_level_overridden,
                     em_code=:em_code, em_modifier=:em_modifier, patient_type=:patient_type,
+                level_method=:level_method, total_time=:total_time,
                     dx_codes=:dx_codes, procedure_cpts=:procedure_cpts,
                     entered_by=:entered_by, entered_at=CURRENT_TIMESTAMP
                 WHERE chart_id=:chart_id
@@ -680,7 +767,7 @@ def upload_em_answer_keys(
                     risk_emergency_major_surgery, risk_hospitalization_escalation,
                     risk_dnr_deescalate, risk_parenteral_controlled,
                     risk_level, risk_level_overridden,
-                    em_code, em_modifier, patient_type, dx_codes, procedure_cpts, entered_by
+                    em_code, em_modifier, patient_type, level_method, total_time, dx_codes, procedure_cpts, entered_by
                 ) VALUES (
                     :chart_id,
                     :copa_self_limited, :copa_stable_acute, :copa_stable_chronic,
@@ -696,7 +783,7 @@ def upload_em_answer_keys(
                     :risk_emergency_major_surgery, :risk_hospitalization_escalation,
                     :risk_dnr_deescalate, :risk_parenteral_controlled,
                     :risk_level, :risk_level_overridden,
-                    :em_code, :em_modifier, :patient_type, :dx_codes, :procedure_cpts, :entered_by
+                    :em_code, :em_modifier, :patient_type, :level_method, :total_time, :dx_codes, :procedure_cpts, :entered_by
                 )
             """), params)
             stored.append(chart_num)
@@ -793,6 +880,10 @@ def download_em_template():
     hdr("AX1", "Procedure CPT 4")
     hdr("AY1", "Procedure CPT 4 Modifier")
     hdr("AZ1", "Entered By")
+    # Appended at the END on purpose: inserting mid-table would shift every
+    # downstream parser index again (that bug cost us once already).
+    hdr("BA1", "Level By (MDM / Time)")
+    hdr("BB1", "Total Time (minutes)")
 
     # Sample row
     ws["A2"] = "EM001"
@@ -807,6 +898,7 @@ def download_em_template():
     ws["AH2"] = ""
     ws["AG2"] = "99214"
     ws["AI2"] = "Established"
+    ws["BA2"] = "MDM"
     ws["AJ2"] = "E11.9"
     ws["AK2"] = "I10"
     ws["AL2"] = "Z79.4"

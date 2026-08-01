@@ -909,6 +909,7 @@ def parse_em_answer_key_upload(file_bytes: bytes) -> list[dict]:
       AJ-AQ dx_codes (Primary + 7 additional = 8 total)
       AR-AY procedure_cpts (4 CPTs × code+modifier)
       AZ entered_by
+      BA level_method (MDM / Time)   BB total_time (minutes)
     """
     wb = load_workbook(io.BytesIO(file_bytes), data_only=False)
     ws = wb.worksheets[0]
@@ -973,6 +974,17 @@ def parse_em_answer_key_upload(file_bytes: bytes) -> list[dict]:
 
         entered_by = _v(row, 51)  # AZ
 
+        # BA / BB — levelling method and total time (2021+ office/outpatient).
+        # Appended after Entered By so existing column indices stay put.
+        level_method = (_v(row, 52) or "MDM").upper().strip()
+        if level_method not in ("MDM", "TIME"):
+            level_method = "MDM"
+        _tt = _v(row, 53)
+        try:
+            total_time = int(float(_tt)) if _tt else None
+        except (TypeError, ValueError):
+            total_time = None
+
         results.append({
             "chart_number": chart_number,
             "copa_self_limited":           _int(row, 1),
@@ -1001,6 +1013,8 @@ def parse_em_answer_key_upload(file_bytes: bytes) -> list[dict]:
             "em_code":                     _v(row, 32),   # AG
             "em_modifier":                 _v(row, 33),   # AH
             "patient_type":                patient_type,  # AI
+            "level_method":                level_method,  # BA
+            "total_time":                  total_time,    # BB
             "dx_codes":                    dx_codes,
             "procedure_cpts":              procedure_cpts,
             "entered_by":                  entered_by,
