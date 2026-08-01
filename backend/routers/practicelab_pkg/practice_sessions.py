@@ -58,6 +58,9 @@ class ChartCodeEntry(BaseModel):
     sdx: list[dict] = []
     pcs: list[dict] = []
     cpt: list[dict] = []
+    # ED Single Path — facility + professional E/M levels coded together
+    facility_level: Optional[str] = None
+    profee_level: Optional[str] = None
     # E&D fields
     ed_review: Optional[str] = None
     ed_research: Optional[str] = None
@@ -221,7 +224,8 @@ def get_practice_session(token: str, db: Session = Depends(get_db)):
         # Load any saved drafts for this session
         drafts = db.execute(text(
             "SELECT chart_id, pdx_code, pdx_poa, sdx, pcs, cpt, "
-            "ed_review, ed_research, ed_resolution, ed_rationale, flagged, coder_notes, em_data "
+            "ed_review, ed_research, ed_resolution, ed_rationale, flagged, coder_notes, em_data, "
+            "facility_level, profee_level "
             "FROM practice_chart_drafts WHERE session_id=:s"
         ), {"s": sess_id}).fetchall()
 
@@ -242,6 +246,7 @@ def get_practice_session(token: str, db: Session = Depends(get_db)):
                 "ed_resolution": d[8], "ed_rationale": d[9],
                 "flagged": bool(d[10]), "coder_notes": d[11],
                 "em_data": em_data,
+                "facility_level": d[13], "profee_level": d[14],
             }
 
         return {
@@ -288,6 +293,7 @@ def save_draft(session_id: int, payload: SaveChartDraft, db: Session = Depends(g
             db.execute(text("""
                 UPDATE practice_chart_drafts SET
                   pdx_code=:pdx, pdx_poa=:poa, sdx=:sdx, pcs=:pcs, cpt=:cpt,
+                  facility_level=:facl, profee_level=:prol,
                   ed_review=:er, ed_research=:eres, ed_resolution=:erl, ed_rationale=:era,
                   em_data=:em, flagged=:fl, coder_notes=:cn, updated_at=CURRENT_TIMESTAMP
                 WHERE session_id=:s AND chart_id=:c
@@ -295,6 +301,7 @@ def save_draft(session_id: int, payload: SaveChartDraft, db: Session = Depends(g
                 "pdx": entry.pdx_code, "poa": entry.pdx_poa,
                 "sdx": json.dumps(entry.sdx), "pcs": json.dumps(entry.pcs),
                 "cpt": json.dumps(entry.cpt),
+                "facl": entry.facility_level, "prol": entry.profee_level,
                 "er": entry.ed_review, "eres": entry.ed_research,
                 "erl": entry.ed_resolution, "era": entry.ed_rationale,
                 "em": em_json,
@@ -305,15 +312,18 @@ def save_draft(session_id: int, payload: SaveChartDraft, db: Session = Depends(g
             db.execute(text("""
                 INSERT INTO practice_chart_drafts
                   (session_id, chart_id, pdx_code, pdx_poa, sdx, pcs, cpt,
+                   facility_level, profee_level,
                    ed_review, ed_research, ed_resolution, ed_rationale,
                    em_data, flagged, coder_notes, updated_at)
                 VALUES (:s, :c, :pdx, :poa, :sdx, :pcs, :cpt,
+                        :facl, :prol,
                         :er, :eres, :erl, :era, :em, :fl, :cn, CURRENT_TIMESTAMP)
             """), {
                 "s": session_id, "c": entry.chart_id,
                 "pdx": entry.pdx_code, "poa": entry.pdx_poa,
                 "sdx": json.dumps(entry.sdx), "pcs": json.dumps(entry.pcs),
                 "cpt": json.dumps(entry.cpt),
+                "facl": entry.facility_level, "prol": entry.profee_level,
                 "er": entry.ed_review, "eres": entry.ed_research,
                 "erl": entry.ed_resolution, "era": entry.ed_rationale,
                 "em": em_json,
@@ -357,6 +367,7 @@ def submit_practice_session(session_id: int, payload: SubmitPracticeSession, db:
             db.execute(text("""
                 UPDATE practice_chart_drafts SET
                   pdx_code=:pdx, pdx_poa=:poa, sdx=:sdx, pcs=:pcs, cpt=:cpt,
+                  facility_level=:facl, profee_level=:prol,
                   ed_review=:er, ed_research=:eres, ed_resolution=:erl, ed_rationale=:era,
                   em_data=:em, flagged=:fl, coder_notes=:cn, updated_at=CURRENT_TIMESTAMP
                 WHERE session_id=:s AND chart_id=:c
@@ -364,6 +375,7 @@ def submit_practice_session(session_id: int, payload: SubmitPracticeSession, db:
                 "pdx": entry.pdx_code, "poa": entry.pdx_poa,
                 "sdx": json.dumps(entry.sdx), "pcs": json.dumps(entry.pcs),
                 "cpt": json.dumps(entry.cpt),
+                "facl": entry.facility_level, "prol": entry.profee_level,
                 "er": entry.ed_review, "eres": entry.ed_research,
                 "erl": entry.ed_resolution, "era": entry.ed_rationale,
                 "em": em_json,
@@ -374,15 +386,18 @@ def submit_practice_session(session_id: int, payload: SubmitPracticeSession, db:
             db.execute(text("""
                 INSERT INTO practice_chart_drafts
                   (session_id, chart_id, pdx_code, pdx_poa, sdx, pcs, cpt,
+                   facility_level, profee_level,
                    ed_review, ed_research, ed_resolution, ed_rationale,
                    em_data, flagged, coder_notes, updated_at)
                 VALUES (:s, :c, :pdx, :poa, :sdx, :pcs, :cpt,
+                        :facl, :prol,
                         :er, :eres, :erl, :era, :em, :fl, :cn, CURRENT_TIMESTAMP)
             """), {
                 "s": session_id, "c": entry.chart_id,
                 "pdx": entry.pdx_code, "poa": entry.pdx_poa,
                 "sdx": json.dumps(entry.sdx), "pcs": json.dumps(entry.pcs),
                 "cpt": json.dumps(entry.cpt),
+                "facl": entry.facility_level, "prol": entry.profee_level,
                 "er": entry.ed_review, "eres": entry.ed_research,
                 "erl": entry.ed_resolution, "era": entry.ed_rationale,
                 "em": em_json,
@@ -489,6 +504,8 @@ def submit_practice_session(session_id: int, payload: SubmitPracticeSession, db:
                 "pdx_code": entry.pdx_code or "",
                 "pdx_poa": entry.pdx_poa or "",
                 "sdx": entry.sdx, "pcs": entry.pcs, "cpt": entry.cpt,
+                "facility_level": entry.facility_level or "",
+                "profee_level": entry.profee_level or "",
             }
             result_kwargs, feedback_items = _grade_chart_for_sp(chart, ak_rec, sub_data, ip_cfg, op_cfg)
             _upsert_practice_result(db, session_id, entry, specialty, graded=True,

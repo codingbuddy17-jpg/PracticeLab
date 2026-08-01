@@ -1,5 +1,6 @@
 """Self-practice and standalone grading endpoints."""
 import io
+from dataclasses import replace
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
 from fastapi.responses import StreamingResponse
@@ -14,7 +15,7 @@ from services.grading_engine import (
     DEFAULT_IP_CFG, DEFAULT_OP_CFG,
 )
 from services.excel_service import parse_submission, generate_self_practice_template
-from .shared import IP_SPECIALTIES, _uses_pointers
+from .shared import IP_SPECIALTIES, _uses_pointers, _is_single_path, _is_dx_only
 
 router = APIRouter()
 
@@ -23,6 +24,38 @@ def _grade_chart_for_sp(chart, ak_rec, sub_data, ip_cfg, op_cfg):
     """Grade a single chart submission, return (result_kwargs, feedback_items)."""
     is_ip = chart.specialty in IP_SPECIALTIES
     feedback_items = []
+
+    if _is_single_path(chart.specialty):
+        from services.grading_engine import (
+            grade_ed_single_path, EDSinglePathAnswerKey, EDSinglePathSubmission,
+            DEFAULT_EDSP_CFG,
+        )
+        ak = EDSinglePathAnswerKey(
+            pdx_code=ak_rec.pdx_code or "",
+            sdx=ak_rec.sdx or [],
+            cpt=ak_rec.cpt or [],
+            facility_level=ak_rec.facility_level or "",
+            profee_level=ak_rec.profee_level or "",
+        )
+        s = EDSinglePathSubmission(
+            pdx_code=sub_data.get("pdx_code", ""),
+            sdx=sub_data.get("sdx", []),
+            cpt=sub_data.get("cpt", []),
+            facility_level=sub_data.get("facility_level", "") or "",
+            profee_level=sub_data.get("profee_level", "") or "",
+        )
+        res = grade_ed_single_path(ak, s, DEFAULT_EDSP_CFG)
+        for fb in res.feedback:
+            feedback_items.append({"section": fb.section, "issue": fb.issue_type,
+                                   "ak_code": fb.ak_code, "coder_code": fb.coder_code})
+        return {
+            "weighted_score": res.total_score,
+            "pass_fail": res.pass_fail,
+            "facility_level_ok": res.facility_level_ok,
+            "profee_level_ok": res.profee_level_ok,
+            "pdx_score": res.pdx_score, "sdx_score": res.sdx_score,
+            "cpt_score": res.cpt_score, "pcs_score": None,
+        }, feedback_items
 
     if is_ip:
         ak = IPAnswerKey(
@@ -75,6 +108,15 @@ def _grade_chart_for_sp(chart, ak_rec, sub_data, ip_cfg, op_cfg):
             sdx=sub_data.get("sdx", []),
             cpt=sub_data.get("cpt", []),
         )
+        # Diagnosis-only work (ancillary/radiology — CPTs are auto-coded upstream)
+        # must not borrow the OP config: grade_op awards the FULL cpt_weight when
+        # the key has no CPTs and the coder entered none, which would hand every
+        # chart a free 50-point floor and make the pass threshold meaningless.
+        # Renormalise onto Dx alone instead.
+        dx_only = _is_dx_only(chart.specialty)
+        if dx_only:
+            op_cfg = replace(op_cfg, pdx_weight=50, sdx_weight=50, cpt_weight=0)
+
         # Professional claims (Surgery, ED Profee, E/M) carry diagnosis pointers
         res = grade_op(ak, s, op_cfg, check_pointers=_uses_pointers(chart.specialty))
         score = res.pdx_score + res.sdx_score + (res.cpt_score or 0)

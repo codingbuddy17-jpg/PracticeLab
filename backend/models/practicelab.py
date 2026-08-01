@@ -51,6 +51,11 @@ class AnswerKey(Base):
     sdx = Column(JSON, nullable=True, default=list)
     pcs = Column(JSON, nullable=True, default=list)
     cpt = Column(JSON, nullable=True, default=list)
+    # ED Single Path only — the facility and professional E/M levels are coded
+    # together from one chart and frequently diverge, which is the point of
+    # single-path training. Null for every other specialty.
+    facility_level = Column(String(20), nullable=True)
+    profee_level = Column(String(20), nullable=True)
     entered_by = Column(String(100), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

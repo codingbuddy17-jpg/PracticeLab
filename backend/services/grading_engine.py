@@ -37,8 +37,26 @@ class OPScoringCfg:
     overcoding_penalty: bool = True
 
 
+@dataclass
+class EDSinglePathCfg:
+    """
+    ED Single Path — facility and professional levels coded from one chart.
+
+    Both levels carry real weight because getting one right and the other wrong
+    is the characteristic single-path error, and the whole point of training it.
+    """
+    pdx_weight: int = 20
+    sdx_weight: int = 20
+    facility_level_weight: int = 20
+    profee_level_weight: int = 20
+    cpt_weight: int = 20
+    pass_threshold: int = 90
+    overcoding_penalty: bool = True
+
+
 DEFAULT_IP_CFG = IPScoringCfg()
 DEFAULT_OP_CFG = OPScoringCfg()
+DEFAULT_EDSP_CFG = EDSinglePathCfg()
 
 
 # ── Input data structures ─────────────────────────────────────────────────────
@@ -71,6 +89,24 @@ class OPSubmission:
     pdx_code: str = ""
     sdx: list[dict] = field(default_factory=list)
     cpt: list[dict] = field(default_factory=list)
+
+
+@dataclass
+class EDSinglePathAnswerKey:
+    pdx_code: str = ""
+    sdx: list[dict] = field(default_factory=list)     # [{code}]
+    cpt: list[dict] = field(default_factory=list)     # [{code, modifier, pointers}]
+    facility_level: str = ""
+    profee_level: str = ""
+
+
+@dataclass
+class EDSinglePathSubmission:
+    pdx_code: str = ""
+    sdx: list[dict] = field(default_factory=list)
+    cpt: list[dict] = field(default_factory=list)
+    facility_level: str = ""
+    profee_level: str = ""
 
 
 @dataclass
@@ -715,3 +751,95 @@ def cfg_from_db(db_row) -> "IPScoringCfg | OPScoringCfg":
         pass_threshold=db_row.pass_threshold,
         overcoding_penalty=db_row.overcoding_penalty,
     )
+
+
+# ── ED Single Path grading ────────────────────────────────────────────────────
+
+@dataclass
+class EDSinglePathResult:
+    pdx_score: int = 0
+    sdx_score: int = 0
+    facility_level_score: int = 0
+    profee_level_score: int = 0
+    cpt_score: int = 0
+    total_score: int = 0
+    pass_fail: str = ""
+    facility_level_ok: bool = False
+    profee_level_ok: bool = False
+    feedback: list = field(default_factory=list)
+
+
+def grade_ed_single_path(ak, sub, cfg: EDSinglePathCfg = DEFAULT_EDSP_CFG) -> EDSinglePathResult:
+    """
+    Grade one ED Single Path chart.
+
+    Diagnoses are shared between the two claims and scored once. The facility
+    and professional levels are scored separately so the report can distinguish
+    "levelled facility correctly but not profee" from a general miss — that
+    split is the reason single-path is trained at all.
+
+    Pointers apply to the professional side, so CPT lines are pointer-checked.
+    """
+    result = EDSinglePathResult()
+    feedback = []
+    penalty = cfg.overcoding_penalty
+
+    # ── Shared diagnoses ──
+    pdx_ok = norm_dx(sub.pdx_code) == norm_dx(ak.pdx_code)
+    result.pdx_score = cfg.pdx_weight if pdx_ok else 0
+    if not pdx_ok:
+        feedback.append(FeedbackRow("PDx", "Wrong_Code", ak.pdx_code, sub.pdx_code))
+
+    ak_sdx_cnt = len([s for s in ak.sdx if norm_dx(s.get("code", ""))])
+    cdr_sdx_cnt = len([s for s in sub.sdx if norm_dx(s.get("code", ""))])
+    if ak_sdx_cnt > 0:
+        sdx_matched, sdx_extra, sdx_fb = _match_sdx_op(ak.sdx, sub.sdx, penalty)
+        sdx_per = cfg.sdx_weight / ak_sdx_cnt
+        result.sdx_score = max(0, round((sdx_matched - sdx_extra) * sdx_per))
+        feedback.extend(sdx_fb)
+    elif cdr_sdx_cnt == 0:
+        result.sdx_score = cfg.sdx_weight
+    else:
+        result.sdx_score = 0
+        feedback.append(FeedbackRow("SDx", "Over_coded", detail="AK has no SDx but codes were submitted"))
+
+    # ── The two levels, scored independently ──
+    fac_ak, fac_sub = norm_cpt(ak.facility_level), norm_cpt(sub.facility_level)
+    result.facility_level_ok = bool(fac_ak) and fac_ak == fac_sub
+    result.facility_level_score = cfg.facility_level_weight if result.facility_level_ok else 0
+    if fac_ak and not result.facility_level_ok:
+        feedback.append(FeedbackRow("CPT", "Wrong_Code", ak.facility_level or "",
+                                    sub.facility_level or "", "Facility ED level"))
+
+    pro_ak, pro_sub = norm_cpt(ak.profee_level), norm_cpt(sub.profee_level)
+    result.profee_level_ok = bool(pro_ak) and pro_ak == pro_sub
+    result.profee_level_score = cfg.profee_level_weight if result.profee_level_ok else 0
+    if pro_ak and not result.profee_level_ok:
+        feedback.append(FeedbackRow("CPT", "Wrong_Code", ak.profee_level or "",
+                                    sub.profee_level or "", "Professional ED level"))
+
+    # ── Additional CPTs (professional side -> pointer-checked) ──
+    ak_cpt_cnt = len([c for c in ak.cpt if norm_cpt(c.get("code", ""))])
+    cdr_cpt_cnt = len([c for c in sub.cpt if norm_cpt(c.get("code", ""))])
+    if ak_cpt_cnt > 0:
+        cpt_matched, cpt_extra, cpt_fb = _match_cpt(
+            ak.cpt, sub.cpt, penalty,
+            ak_dx=claim_dx_list(ak.pdx_code, ak.sdx),
+            cdr_dx=claim_dx_list(sub.pdx_code, sub.sdx),
+            check_pointers=True,
+        )
+        cpt_per = cfg.cpt_weight / ak_cpt_cnt
+        result.cpt_score = max(0, round((cpt_matched - cpt_extra) * cpt_per))
+        feedback.extend(cpt_fb)
+    elif cdr_cpt_cnt == 0:
+        result.cpt_score = cfg.cpt_weight
+    else:
+        result.cpt_score = 0
+        feedback.append(FeedbackRow("CPT", "Over_coded", detail="AK has no additional CPTs but codes were submitted"))
+
+    result.total_score = (result.pdx_score + result.sdx_score +
+                          result.facility_level_score + result.profee_level_score +
+                          result.cpt_score)
+    result.pass_fail = "PASS" if result.total_score >= cfg.pass_threshold else "FAIL"
+    result.feedback = feedback
+    return result

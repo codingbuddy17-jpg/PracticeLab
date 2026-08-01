@@ -20,6 +20,8 @@ interface CodeEntry {
   sdx: Array<{ code: string; poa: string }>
   pcs: Array<{ code: string }>
   cpt: Array<{ code: string; modifier: string; pointers?: string[] }>
+  facility_level?: string
+  profee_level?: string
   // E&D fields
   ed_review: string
   ed_research: string
@@ -106,6 +108,10 @@ function isEM(specialty: string) {
 // Professional claims (CMS-1500 / 837P) carry diagnosis pointers on every
 // service line; facility claims (UB-04 / 837I) have none. Mirrors
 // POINTER_SPECIALTIES in the backend's practicelab_pkg/shared.py.
+function isSinglePath(specialty: string) {
+  return specialty.toUpperCase().includes('SINGLE PATH')
+}
+
 function usesPointers(specialty: string) {
   const sp = specialty.toUpperCase()
   return sp.includes('SURGERY') || sp.includes('PROFEE') || sp.includes('E/M') || sp.includes('SINGLE PATH')
@@ -146,6 +152,8 @@ const EMPTY_ENTRY = (chart_id: number): CodeEntry => ({
   sdx: [],
   pcs: [],
   cpt: [],
+  facility_level: '',
+  profee_level: '',
   ed_review: '',
   ed_research: '',
   ed_resolution: '',
@@ -225,6 +233,8 @@ export function PracticeSession() {
           sdx: draft?.sdx || [],
           pcs: draft?.pcs || [],
           cpt: draft?.cpt || [],
+          facility_level: draft?.facility_level || '',
+          profee_level: draft?.profee_level || '',
           ed_review: draft?.ed_review || '',
           ed_research: draft?.ed_research || '',
           ed_resolution: draft?.ed_resolution || '',
@@ -539,6 +549,7 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
   function removePcs(idx: number) { onChange({ pcs: entry.pcs.filter((_, i) => i !== idx) }) }
 
   const pointers = usesPointers(chart.specialty)
+  const singlePath = isSinglePath(chart.specialty)
   const dxLabels = dxLabelList([entry.pdx_code, ...entry.sdx.map(sx => sx.code)])
 
   function updateCpt(idx: number, field: 'code' | 'modifier' | 'pointers', val: string) {
@@ -869,6 +880,37 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
 
       {/* ── IP / OP form ── */}
       {!ed && !em && <>
+
+      {/* ED Single Path — both levels coded from the one chart. They frequently
+          diverge, which is exactly the skill being trained, so they sit side by
+          side and are scored independently. */}
+      {singlePath && (
+        <Section title="ED Levels — Facility & Professional" required type="procedure">
+          <div style={{ display: 'flex', gap: 12 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 4 }}>Facility ED Level</div>
+              <input
+                style={{ ...s.inputField, marginBottom: 0, fontFamily: 'monospace', letterSpacing: 0.5 }}
+                placeholder="e.g. 99283"
+                value={entry.facility_level || ''}
+                onChange={e => onChange({ facility_level: e.target.value })}
+                maxLength={10}
+              />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 4 }}>Professional ED Level</div>
+              <input
+                style={{ ...s.inputField, marginBottom: 0, fontFamily: 'monospace', letterSpacing: 0.5 }}
+                placeholder="e.g. 99284"
+                value={entry.profee_level || ''}
+                onChange={e => onChange({ profee_level: e.target.value })}
+                maxLength={10}
+              />
+            </div>
+          </div>
+          <div style={s.hint}>Both levels are scored separately — they need not match</div>
+        </Section>
+      )}
 
       {/* Principal Diagnosis */}
       <Section title={ip ? "Principal Diagnosis" : "First-Listed Diagnosis"} required type="diagnosis">

@@ -489,6 +489,20 @@ def _run_migrations():
     # Diagnosis-pointer errors on professional claims
     _add_enum_value("issuetype", "WRONG_POINTER")
 
+    # ── ED Single Path: facility + professional levels coded together ─────────
+    _add_col("answer_keys", "facility_level", "VARCHAR(20)", "TEXT")
+    _add_col("answer_keys", "profee_level", "VARCHAR(20)", "TEXT")
+    _add_col("practice_chart_drafts", "facility_level", "TEXT", "TEXT")
+    _add_col("practice_chart_drafts", "profee_level", "TEXT", "TEXT")
+    _add_col("practice_results", "facility_level_submitted", "TEXT", "TEXT")
+    _add_col("practice_results", "facility_level_answer_key", "TEXT", "TEXT")
+    _add_col("practice_results", "profee_level_submitted", "TEXT", "TEXT")
+    _add_col("practice_results", "profee_level_answer_key", "TEXT", "TEXT")
+
+    # ── E/M levelling method: MDM or Time (2021+ office/outpatient rules) ─────
+    _add_col("em_answer_keys", "level_method", "VARCHAR(10) NOT NULL DEFAULT 'MDM'", "TEXT NOT NULL DEFAULT 'MDM'")
+    _add_col("em_answer_keys", "total_time", "INTEGER", "INTEGER")
+
     # ── E/M MDM answer keys ───────────────────────────────────────────────────
     _run("""CREATE TABLE IF NOT EXISTS em_answer_keys (
         id INTEGER PRIMARY KEY,

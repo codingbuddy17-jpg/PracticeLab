@@ -11,7 +11,8 @@ from services.excel_service import (
     generate_answer_key_template, generate_coder_list_template,
     parse_answer_key_upload, parse_coder_list, export_all_answer_keys,
 )
-from .shared import MASTER_PASSPHRASE, _is_ip, _is_ed, ED_SPECIALTIES, _uses_pointers
+from .shared import (MASTER_PASSPHRASE, _is_ip, _is_ed, ED_SPECIALTIES,
+                     _uses_pointers, _is_single_path)
 
 router = APIRouter()
 
@@ -147,10 +148,12 @@ def download_answer_key_template(specialty: str = Query(...)):
     is_ip = specialty.upper() in ("IP", "IP-DRG")
     # Professional claims get a Dx-pointer column per CPT line
     try:
-        with_pointers = _uses_pointers(Specialty(specialty))
+        _spec = Specialty(specialty)
+        with_pointers, single_path = _uses_pointers(_spec), _is_single_path(_spec)
     except ValueError:
-        with_pointers = False
-    data = generate_answer_key_template("IP" if is_ip else "OP", with_pointers=with_pointers)
+        with_pointers, single_path = False, False
+    data = generate_answer_key_template("IP" if is_ip else "OP",
+                                        with_pointers=with_pointers, single_path=single_path)
     filename = f"{'IP' if is_ip else 'OP'}_AnswerKey_Template.xlsx"
     return StreamingResponse(
         io.BytesIO(data),
@@ -181,7 +184,8 @@ def upload_answer_keys(
     file_bytes = file.file.read()
     try:
         rows = parse_answer_key_upload(file_bytes, specialty,
-                                       with_pointers=_uses_pointers(spec_enum))
+                                       with_pointers=_uses_pointers(spec_enum),
+                                       single_path=_is_single_path(spec_enum))
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Could not parse file: {e}")
 
@@ -207,6 +211,8 @@ def upload_answer_keys(
                 existing.sdx = row.get("sdx", [])
                 existing.pcs = row.get("pcs", [])
                 existing.cpt = row.get("cpt", [])
+                existing.facility_level = row.get("facility_level") or None
+                existing.profee_level = row.get("profee_level") or None
                 existing.entered_by = entered_by
                 replaced.append(chart_num)
             else:
@@ -221,6 +227,8 @@ def upload_answer_keys(
             sdx=row.get("sdx", []),
             pcs=row.get("pcs", []),
             cpt=row.get("cpt", []),
+            facility_level=row.get("facility_level") or None,
+            profee_level=row.get("profee_level") or None,
             entered_by=entered_by,
         )
         db.add(ak)

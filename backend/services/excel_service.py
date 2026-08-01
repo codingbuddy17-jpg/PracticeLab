@@ -77,9 +77,13 @@ def _build_ip_ak_headers(ws):
     ws.row_dimensions[1].height = 36
 
 
-def _build_op_ak_headers(ws, with_pointers: bool = False):
+def _build_op_ak_headers(ws, with_pointers: bool = False, single_path: bool = False):
     col = 1
     _header(ws, col, 1, "Chart_Number"); col += 1
+    if single_path:
+        # ED Single Path: both levels are coded from one chart and often differ
+        _header(ws, col, 1, "Facility_ED_Level"); col += 1
+        _header(ws, col, 1, "Profee_ED_Level"); col += 1
     _header(ws, col, 1, "PDx_Code"); col += 1
     for i in range(1, OP_SDX_COUNT + 1):
         _header(ws, col, 1, f"SDx_{i}"); col += 1
@@ -152,7 +156,8 @@ def parse_coder_list(file_bytes: bytes) -> list[dict]:
     return coders
 
 
-def generate_answer_key_template(specialty: str, with_pointers: bool = False) -> bytes:
+def generate_answer_key_template(specialty: str, with_pointers: bool = False,
+                                 single_path: bool = False) -> bytes:
     """
     Returns bytes of blank answer key Excel file.
     specialty: 'IP' for inpatient, 'OP' for outpatient.
@@ -167,8 +172,9 @@ def generate_answer_key_template(specialty: str, with_pointers: bool = False) ->
         _build_ip_ak_headers(ws)
         total_cols = 3 + IP_SDX_COUNT * 3 + IP_PCS_COUNT
     else:
-        _build_op_ak_headers(ws, with_pointers=with_pointers)
-        total_cols = 2 + OP_SDX_COUNT + OP_CPT_COUNT * (3 if with_pointers else 2)
+        _build_op_ak_headers(ws, with_pointers=with_pointers, single_path=single_path)
+        total_cols = (2 + (2 if single_path else 0) + OP_SDX_COUNT
+                      + OP_CPT_COUNT * (3 if with_pointers else 2))
 
     # 10 blank input rows
     for r in range(2, 12):
@@ -687,7 +693,8 @@ def generate_batch_zip(coder_files: list[tuple[str, bytes]]) -> bytes:
 
 # ── Answer key upload parser ──────────────────────────────────────────────────
 
-def parse_answer_key_upload(file_bytes: bytes, specialty: str, with_pointers: bool = False) -> list[dict]:
+def parse_answer_key_upload(file_bytes: bytes, specialty: str, with_pointers: bool = False,
+                            single_path: bool = False) -> list[dict]:
     """
     Parse a trainer-uploaded answer key Excel file.
     Returns list of dicts, one per non-empty row:
@@ -747,9 +754,12 @@ def parse_answer_key_upload(file_bytes: bytes, specialty: str, with_pointers: bo
                 "pcs": pcs,
             })
         else:
-            pdx_code = str(row[1] or "").strip()
+            base = 3 if single_path else 1
+            facility_level = str(row[1] or "").strip() if single_path else ""
+            profee_level = str(row[2] or "").strip() if single_path else ""
+            pdx_code = str(row[base] or "").strip()
             sdx = []
-            col = 2
+            col = base + 1
             for _ in range(OP_SDX_COUNT):
                 code = _cell(row, col)
                 if code:
@@ -768,12 +778,16 @@ def parse_answer_key_upload(file_bytes: bytes, specialty: str, with_pointers: bo
                         entry["pointers"] = [x[0] for x in ptrs if x[0].isalpha()][:4]
                     cpt.append(entry)
                 col += step
-            results.append({
+            row_out = {
                 "chart_number": chart_number,
                 "pdx_code": pdx_code,
                 "sdx": sdx,
                 "cpt": cpt,
-            })
+            }
+            if single_path:
+                row_out["facility_level"] = facility_level
+                row_out["profee_level"] = profee_level
+            results.append(row_out)
 
     return results
 
