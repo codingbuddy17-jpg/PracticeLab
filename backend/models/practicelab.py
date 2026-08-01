@@ -103,6 +103,10 @@ class BatchAllocationCycle(Base):
     charts_per_coder = Column(Integer, nullable=False)
     notes = Column(String(300), nullable=True)
     randomisation_stats = Column(JSON, nullable=True)
+    # Shortfall warnings raised during this allocation. Previously these were
+    # only toasts — six seconds and gone — so a trainer who stepped away had no
+    # way to discover afterwards that some coders got fewer charts than asked.
+    warnings = Column(JSON, nullable=True)
 
     batch = relationship("Batch", back_populates="allocation_cycles")
     assignments = relationship("BatchChart", back_populates="cycle")

@@ -161,6 +161,8 @@ def _run_migrations():
     )""")
 
     _add_col("batch_allocation_cycles", "randomisation_stats", "TEXT")
+    # Allocation shortfalls, kept so a partial cycle stays visible later
+    _add_col("batch_allocation_cycles", "warnings", "JSONB", "TEXT")
 
     # ── batch_charts — cycle FK (SQLite doesn't support inline FK in ALTER) ──
     _add_col("batch_charts", "cycle_id", "INTEGER REFERENCES batch_allocation_cycles(id)", "INTEGER")

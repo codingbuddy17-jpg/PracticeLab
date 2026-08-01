@@ -281,6 +281,10 @@ def run_allocation(batch_id: int, payload: AllocationRun, db: Session = Depends(
     # Compute and persist randomisation stats for this cycle
     rand_stats = compute_randomisation_stats(coder_chart_sets, len(pool))
     cycle.randomisation_stats = rand_stats
+    # Persisted, not just returned — the toasts that carried these vanish after
+    # a few seconds, leaving a short-allocated cycle indistinguishable from a
+    # clean one the next time anyone looks at the batch.
+    cycle.warnings = pool_warnings or None
 
     db.commit()
     return {
@@ -629,6 +633,7 @@ def get_batch(batch_id: int, db: Session = Depends(get_db)):
                     if a.cycle_id == c.id or (a.cycle_id is None and c.cycle_number == 1)
                 ),
                 "randomisation_stats": c.randomisation_stats,
+                "warnings": c.warnings or [],
             }
             for c in cycles
         ],

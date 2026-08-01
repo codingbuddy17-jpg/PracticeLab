@@ -16,7 +16,11 @@ PASSPHRASE = "test-passphrase"
 
 def create_batch_via_api(client, db, specialty="IP-DRG", coder_names=None,
                          charts_per_coder=3):
-    coder_names = coder_names or ["Alice", "Bob", "Charlie"]
+    # `or` would treat an explicit [] as "not supplied" and substitute the
+    # default three, so a test asking for an empty batch silently got a full
+    # one. Distinguish None (use the default) from [] (genuinely no coders).
+    if coder_names is None:
+        coder_names = ["Alice", "Bob", "Charlie"]
     payload = {
         "name": "Test Batch",
         "specialty": specialty,
@@ -44,10 +48,27 @@ class TestBatchCreation:
         data = create_batch_via_api(client, db).json()
         assert "id" in data or "batch_id" in data
 
-    def test_batch_no_coders_returns_400(self, client, db):
+    def test_batch_with_no_coders_is_rejected(self, client, db):
+        """
+        A batch needs at least one coder at creation; more can be added later
+        via /batches/{id}/coders.
+
+        This assertion was always correct but never actually ran — the helper
+        treated an explicit [] as "not supplied" and substituted three coders,
+        so the request under test was never coderless.
+        """
         seed_charts(db, count=10)
         r = create_batch_via_api(client, db, coder_names=[])
         assert r.status_code == 400
+        assert "coder" in str(r.json()["detail"]).lower()
+
+    def test_coders_can_still_be_added_after_creation(self, client, db):
+        seed_charts(db, count=10)
+        batch_id = create_batch_via_api(client, db).json().get("batch_id")
+        r = client.post(f"/practicelab/batches/{batch_id}/coders",
+                        json={"coders": [{"name": "Late Joiner", "emp_id": "E99"}]})
+        assert r.status_code == 200
+        assert "Late Joiner" in r.json()["added"]
 
     def test_both_scoring_disabled_returns_400(self, client, db):
         seed_charts(db, count=10)
@@ -154,9 +175,40 @@ class TestChartAllocation:
                 assert not overlap, \
                     f"{coder} got same charts in both cycles: {overlap}"
 
-    def test_insufficient_charts_returns_400(self, client, db):
-        """If pool has fewer charts than charts_per_coder, should return 400."""
+    def test_short_pool_allocates_what_it_can_and_warns(self, client, db):
+        """
+        A pool smaller than requested is not an error. Ten coders where three
+        get fewer charts is still a runnable batch, so allocation assigns what
+        exists and reports a per-coder warning. Failing the whole cycle would
+        be worse than the shortfall.
+        """
         seed_charts(db, specialty="IP-DRG", count=2)
+        r = create_batch_via_api(client, db, coder_names=["Alice"], charts_per_coder=5)
+        batch_id = r.json().get("id") or r.json().get("batch_id")
+        r2 = client.post(f"/practicelab/batches/{batch_id}/run-allocation",
+                         json={"run_by": "trainer"})
+        assert r2.status_code == 200
+        body = r2.json()
+        assert body["assigned"]["Alice"] == 2, "assign every chart available"
+        assert body["warnings"], "a short allocation must say so"
+        assert "Alice" in body["warnings"][0]
+
+    def test_short_allocation_warning_is_persisted_on_the_cycle(self, client, db):
+        """
+        The warning used to exist only as a toast, so a cycle that shorted
+        coders was indistinguishable from a clean one afterwards.
+        """
+        seed_charts(db, specialty="IP-DRG", count=2)
+        r = create_batch_via_api(client, db, coder_names=["Alice"], charts_per_coder=5)
+        batch_id = r.json().get("id") or r.json().get("batch_id")
+        client.post(f"/practicelab/batches/{batch_id}/run-allocation",
+                    json={"run_by": "trainer"})
+
+        cycles = client.get(f"/practicelab/batches/{batch_id}").json()["allocation_cycles"]
+        assert cycles[-1]["warnings"], "the shortfall must survive the page reload"
+
+    def test_empty_pool_is_still_an_error(self, client, db):
+        """Nothing to allocate is a genuine failure, unlike a partial pool."""
         r = create_batch_via_api(client, db, coder_names=["Alice"], charts_per_coder=5)
         batch_id = r.json().get("id") or r.json().get("batch_id")
         r2 = client.post(f"/practicelab/batches/{batch_id}/run-allocation",
