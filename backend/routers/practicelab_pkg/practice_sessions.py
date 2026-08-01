@@ -430,34 +430,38 @@ def submit_practice_session(session_id: int, payload: SubmitPracticeSession, db:
             "copa_weight": 10.0, "dr_weight": 10.0, "risk_weight": 10.0,
             "pass_threshold": 80, "overcoding_penalty": True,
         }
-        ak_keys = [
-            "id", "chart_id", "copa_self_limited", "copa_stable_chronic", "copa_stable_acute",
-            "copa_acute_uncomplicated", "copa_chronic_exacerbation", "copa_undiagnosed_new",
-            "copa_acute_systemic", "copa_acute_complicated_injury", "copa_threat_to_life",
-            "copa_chronic_severe", "copa_level", "copa_level_override",
-            "dr_prior_external_notes", "dr_review_test_results", "dr_order_tests",
-            "dr_independent_historian", "dr_independent_interpretation", "dr_external_discussion",
-            "dr_level", "dr_level_override",
-            "risk_low", "risk_prescription_drug_mgmt", "risk_minor_surgery_with_factors",
-            "risk_elective_major_no_factors", "risk_hospitalization", "risk_sdoh",
-            "risk_drug_intensive_monitoring", "risk_elective_major_with_factors",
-            "risk_emergency_major_surgery", "risk_hospitalization_escalation",
-            "risk_dnr_deescalate", "risk_parenteral_controlled",
-            "risk_level", "risk_level_override",
-            "em_code", "em_modifier", "patient_type", "dx_codes", "procedure_cpts",
-            "entered_by", "entered_at",
-        ]
         for entry in payload.entries:
             em = entry.em_data or {}
             # Build sub dict with sub_ prefix for grading engine
             sub = {f"sub_{k}": v for k, v in em.items()}
+            # The coder form stores diagnoses as em_dx and procedures as em_cpt,
+            # but grade_em_chart reads the answer-key field names. Without this
+            # bridge both arrive empty and every coder loses the full Dx + CPT
+            # weight (~47 of 100) on every E/M chart.
+            sub["sub_dx_codes"] = [
+                (d or {}).get("code", "") for d in (em.get("em_dx") or [])
+            ]
+            # AK stores procedure CPTs as "code:modifier" (bare code when no
+            # modifier) — the submission has to be formatted identically to match.
+            _sub_cpts = []
+            for c in (em.get("em_cpt") or []):
+                code = ((c or {}).get("code") or "").strip()
+                if not code:
+                    continue
+                mod = ((c or {}).get("modifier") or "").strip()
+                _sub_cpts.append(f"{code}:{mod}" if mod else code)
+            sub["sub_procedure_cpts"] = _sub_cpts
+            # .mappings() keys by real column name. A positional zip breaks the
+            # moment a migration appends a column (_add_col adds at the END, so
+            # patient_type / level_method / total_time landed after entered_at
+            # while the hand-written list had them mid-table).
             ak_row = db.execute(text(
                 "SELECT * FROM em_answer_keys WHERE chart_id=:c"
-            ), {"c": entry.chart_id}).fetchone()
+            ), {"c": entry.chart_id}).mappings().first()
             if ak_row is None:
                 _upsert_practice_result(db, session_id, entry, specialty, graded=False)
                 continue
-            ak = dict(zip(ak_keys, ak_row))
+            ak = dict(ak_row)
             scoring = grade_em_chart(ak, sub, cfg, cfg["overcoding_penalty"])
             total = round(
                 scoring["em_level_score"] + scoring["cpt_score"] + scoring["dx_score"] +
@@ -1047,14 +1051,18 @@ def drg_review_practice_chart(
     ip_cfg_row = db.query(ScoringConfig).filter(ScoringConfig.specialty_type == "IP").first()
     ip_cfg = cfg_from_db(ip_cfg_row) if ip_cfg_row else DEFAULT_IP_CFG
 
-    # Recalculate total: DRG score is either 0 (error) or full drg_weight (correct)
+    # DRG score is either 0 (error) or the full drg_weight (correct).
     drg_score = 0 if payload.drg_error else ip_cfg.drg_weight
     existing_total = result[0] or 0
 
-    # Adjust: remove old DRG contribution (we stored it without DRG — it was 0 pending review)
-    # The stored total excludes DRG (drg_flag was set, drg_flag means DRG score was 0 at grading)
-    # So new_total = existing_total (non-DRG components) + drg_score
-    new_total = min(100, existing_total + drg_score)
+    # The stored value is a PERCENTAGE of the non-DRG components only —
+    # _grade_chart_for_sp divides by (pdx + sdx + pcs), not by 100. Adding raw
+    # DRG points straight onto that percentage inflated the result: 50% + 40
+    # came out as 90 when the true weighted score is (30 + 40) = 70.
+    # Convert the percentage back to raw points before adding DRG.
+    non_drg_weight = ip_cfg.pdx_weight + ip_cfg.sdx_weight + ip_cfg.pcs_weight
+    non_drg_raw = existing_total / 100.0 * non_drg_weight
+    new_total = int(round(min(100.0, non_drg_raw + drg_score)))
     new_pf = "PASS" if new_total >= ip_cfg.pass_threshold else "FAIL"
 
     db.execute(text("""
@@ -1089,6 +1097,15 @@ def regrade_practice_session(session_id: int, db: Session = Depends(get_db)):
     specialty = Specialty(sess[1])
     if _is_ed(specialty):
         raise HTTPException(status_code=400, detail="E&D sessions use rubric scoring, not auto-regrade")
+    # E/M keys live in em_answer_keys and need grade_em_chart. _grade_chart_for_sp
+    # would silently grade them with the OP engine and produce a wrong score, so
+    # refuse rather than mis-grade. Re-submitting the session re-runs E/M correctly.
+    from .em_grading import _is_em as _is_em_spec
+    if _is_em_spec(specialty):
+        raise HTTPException(
+            status_code=400,
+            detail="E/M sessions are not supported by re-grade yet — their answer keys "
+                   "use the MDM engine. Update the E/M key and the next submission grades against it.")
 
     ip_cfg_row = db.query(ScoringConfig).filter(ScoringConfig.specialty_type == "IP").first()
     op_cfg_row = db.query(ScoringConfig).filter(ScoringConfig.specialty_type == "OP").first()
@@ -1096,7 +1113,8 @@ def regrade_practice_session(session_id: int, db: Session = Depends(get_db)):
     op_cfg = cfg_from_db(op_cfg_row) if op_cfg_row else DEFAULT_OP_CFG
 
     drafts = db.execute(text(
-        "SELECT chart_id, pdx_code, pdx_poa, sdx, pcs, cpt, flagged, coder_notes "
+        "SELECT chart_id, pdx_code, pdx_poa, sdx, pcs, cpt, flagged, coder_notes, "
+        "em_data, facility_level, profee_level "
         "FROM practice_chart_drafts WHERE session_id=:s"
     ), {"s": session_id}).fetchall()
 
@@ -1122,11 +1140,16 @@ def regrade_practice_session(session_id: int, db: Session = Depends(get_db)):
         entry.cpt = json.loads(d[5]) if isinstance(d[5], str) else (d[5] or [])
         entry.flagged = d[6]
         entry.coder_notes = d[7]
+        entry.em_data = json.loads(d[8]) if isinstance(d[8], str) else (d[8] or None)
+        entry.facility_level = d[9]
+        entry.profee_level = d[10]
 
         sub_data = {
             "pdx_code": entry.pdx_code or "",
             "pdx_poa": entry.pdx_poa or "",
             "sdx": entry.sdx, "pcs": entry.pcs, "cpt": entry.cpt,
+            "facility_level": entry.facility_level or "",
+            "profee_level": entry.profee_level or "",
         }
         result_kwargs, feedback_items = _grade_chart_for_sp(chart, ak_rec, sub_data, ip_cfg, op_cfg)
         _upsert_practice_result(db, session_id, entry, specialty, graded=True,

@@ -209,8 +209,10 @@ def regrade_chart_everywhere(db, chart_id: int, ip_cfg, op_cfg,
 
     chart = db.query(Chart).filter(Chart.id == chart_id).first()
     ak_rec = db.query(AnswerKey).filter(AnswerKey.chart_id == chart_id).first()
+    # E/M charts key off em_answer_keys and need the MDM engine, so they have no
+    # AnswerKey row and fall out here. Explicit so it reads as intent, not luck.
     if not chart or not ak_rec:
-        return {"regraded": 0, "skipped_closed": 0, "sessions": 0}
+        return {"regraded": 0, "skipped_closed": 0, "sessions": 0, "unsupported_em": True}
 
     rows = db.execute(text("""
         SELECT ps.id, ps.batch_id, ps.coder_name, ps.specialty

@@ -61,7 +61,7 @@ export function AnswerKeysView() {
     setUploading(true)
     try {
       const isIP = specialty === 'IP-DRG'
-      const res = await uploadAnswerKeys(file, isIP ? 'IP' : 'OP', trainerName(), replaceMode, pp || '')
+      const res = await uploadAnswerKeys(file, specialty, trainerName(), replaceMode, pp || '')
       if (res.stored.length) toast.success(`Saved ${res.stored.length} new key${res.stored.length !== 1 ? 's' : ''}`)
       if (res.replaced?.length) toast.success(`Replaced ${res.replaced.length} existing key${res.replaced.length !== 1 ? 's' : ''}`)
       if (res.skipped_duplicates.length) toast(`Already exist, skipped ${res.skipped_duplicates.length} (use Replace mode to overwrite)`, { icon: 'ℹ️' })
@@ -171,7 +171,7 @@ export function AnswerKeysView() {
         {/* Row 2: secondary actions + destructive toggle */}
         {!isED && (
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-            <button style={styles.outlineBtn} onClick={() => downloadAnswerKeyTemplate(isIP ? 'IP' : 'OP')}>
+            <button style={styles.outlineBtn} onClick={() => downloadAnswerKeyTemplate(specialty)}>
               <Download size={15} /> Blank Template
             </button>
             <button style={{ ...styles.outlineBtn, color: '#16a34a', borderColor: '#86efac' }} onClick={() => setShowExportPrompt(s => !s)}>

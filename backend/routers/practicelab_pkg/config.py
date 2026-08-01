@@ -185,13 +185,16 @@ def upload_answer_keys(
 
     file_bytes = file.file.read()
     try:
-        rows = parse_answer_key_upload(file_bytes, specialty,
+        # parse_answer_key_upload switches layout on the literal "IP"/"OP",
+        # so translate from the real specialty rather than trusting the caller.
+        rows = parse_answer_key_upload(file_bytes,
+                                       "IP" if _is_ip(spec_enum) else "OP",
                                        with_pointers=_uses_pointers(spec_enum),
                                        single_path=_is_single_path(spec_enum))
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Could not parse file: {e}")
 
-    is_ip_upload = specialty.upper() == "IP"
+    is_ip_upload = _is_ip(spec_enum)
     stored, replaced, skipped, not_found, wrong_specialty = [], [], [], [], []
 
     for row in rows:
