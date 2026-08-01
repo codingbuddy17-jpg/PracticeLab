@@ -14,6 +14,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.platypus import (
     SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, HRFlowable,
+    KeepInFrame,
 )
 from reportlab.graphics.shapes import Drawing, Circle, String
 from reportlab.graphics.charts.piecharts import Pie
@@ -73,6 +74,13 @@ def _coder_label(c: dict) -> str:
     return f"{c['coder_name']} ({c['emp_id']})" if c.get("emp_id") else c["coder_name"]
 
 
+def _short_label(text, max_len: int = 28) -> str:
+    text = str(text or "")
+    if len(text) <= max_len:
+        return text
+    return text[:max_len].rsplit(" ", 1)[0].rstrip(".,;: ") + "…"
+
+
 def _score_cell(score, suffix="%", pass_threshold: int = 80):
     if score is None:
         return Paragraph("—", NORMAL)
@@ -114,7 +122,7 @@ def _category_bar_chart(rows: list[dict], label_key: str, score_key: str = "avg_
     chart.width = width - label_col_w - 40
     chart.height = height - 24
     chart.data = [[r[score_key] for r in rows]]
-    chart.categoryAxis.categoryNames = [r[label_key] for r in rows]
+    chart.categoryAxis.categoryNames = [_short_label(r[label_key]) for r in rows]
     chart.categoryAxis.labels.fontSize = 8
     chart.categoryAxis.labels.fontName = "Helvetica"
     chart.valueAxis.valueMin = 0
@@ -177,32 +185,41 @@ def _draw_background(c, _doc):
 def _stat_row(stats: list[tuple[str, str]]) -> Table:
     """stats: list of (value, label) tuples rendered as evenly-sized boxed stat cards spanning the full CONTENT_W,
     with real spacer columns between cards so the gap is visible rather than just unused trailing margin."""
-    value_style = ParagraphStyle("statValue", parent=styles["Normal"], fontSize=19, fontName="Helvetica-Bold", alignment=1, textColor=R1_BLUE_DARK)
-    label_style = ParagraphStyle("statLabel", parent=styles["Normal"], fontSize=8, alignment=1, textColor=GRAY, fontName="Helvetica-Bold")
+    value_style = ParagraphStyle("statValue", parent=styles["Normal"], fontSize=18, leading=21, fontName="Helvetica-Bold", alignment=1, textColor=R1_BLUE_DARK)
+    label_style = ParagraphStyle("statLabel", parent=styles["Normal"], fontSize=7.4, leading=8.2, alignment=1, textColor=GRAY, fontName="Helvetica-Bold")
     n = len(stats)
     gap = 0.12 * inch
+    card_height = 0.74 * inch
     card_width = (CONTENT_W - gap * (n - 1)) / n
 
     row_cells, col_widths = [], []
     for i, (v, l) in enumerate(stats):
-        cell_table = Table([[Paragraph(v, value_style)], [Paragraph(l.upper(), label_style)]], colWidths=[card_width])
-        cell_table.setStyle(TableStyle([
-            ("BOX", (0, 0), (-1, -1), 0.75, BORDER),
-            ("BACKGROUND", (0, 0), (-1, -1), CREAM_PANEL),
-            ("TOPPADDING", (0, 0), (-1, -1), 9),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 9),
-        ]))
-        row_cells.append(cell_table)
+        content = KeepInFrame(
+            card_width - 10,
+            card_height - 10,
+            [Paragraph(v, value_style), Spacer(1, 2), Paragraph(l.upper(), label_style)],
+            mode="shrink",
+            hAlign="CENTER",
+            vAlign="MIDDLE",
+        )
+        row_cells.append(content)
         col_widths.append(card_width)
         if i < n - 1:
             row_cells.append("")
             col_widths.append(gap)
 
-    wrapper = Table([row_cells], colWidths=col_widths)
-    wrapper.setStyle(TableStyle([
+    wrapper = Table([row_cells], colWidths=col_widths, rowHeights=[card_height])
+    style = [
         ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
         ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-    ]))
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+    ]
+    for col in range(0, len(col_widths), 2):
+        style.extend([
+            ("BOX", (col, 0), (col, 0), 0.75, BORDER),
+            ("BACKGROUND", (col, 0), (col, 0), CREAM_PANEL),
+        ])
+    wrapper.setStyle(TableStyle(style))
     return wrapper
 
 
@@ -244,16 +261,22 @@ def _ranked_box(title: str, items: list, color, bg, border, empty_msg: str, row_
     if not items:
         rows.append([Paragraph(empty_msg, ParagraphStyle("empty", parent=NORMAL, textColor=GREEN, fontName="Helvetica-Bold"))])
     else:
-        for i, item in enumerate(items):
+        for i, item in enumerate(items[:4]):
             rows.append([row_fn(i, item)])
-    t = Table(rows, colWidths=[width])
+    while len(rows) < 5:
+        rows.append([Paragraph(" ", NORMAL)])
+    row_heights = [0.28 * inch] + [0.30 * inch] * (len(rows) - 1)
+    fixed_rows = [[KeepInFrame(width - 24, row_heights[i] - 4, [cell], mode="shrink")]
+                  for i, (cell,) in enumerate(rows)]
+    t = Table(fixed_rows, colWidths=[width], rowHeights=row_heights)
     t.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, -1), bg),
         ("BOX", (0, 0), (-1, -1), 0.75, border),
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, -1), 2),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
         ("LEFTPADDING", (0, 0), (-1, -1), 12),
         ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
     ]))
     return t
 
