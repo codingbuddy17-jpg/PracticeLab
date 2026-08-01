@@ -86,10 +86,10 @@ export function TrainerHome() {
           </Link>
         </div>
 
-        {/* ── Assessment Modules divider ───────────────────────────────── */}
+        {/* ── Practice Modules divider ─────────────────────────────────── */}
         <div style={styles.plDivider}>
           <span style={styles.plDividerLine} />
-          <span style={styles.plDividerLabel}>Assessment Modules</span>
+          <span style={styles.plDividerLabel}>Practice Modules</span>
           <span style={styles.plDividerLine} />
         </div>
 
@@ -138,8 +138,15 @@ export function TrainerHome() {
           </Link>
         </div>
 
+        {/* ── Assessment Modules divider ───────────────────────────────── */}
+        <div style={styles.plDivider}>
+          <span style={styles.plDividerLine} />
+          <span style={styles.plDividerLabel}>Assessment Modules</span>
+          <span style={styles.plDividerLine} />
+        </div>
+
         {/* Assessment Management bento */}
-        <div style={{ ...styles.bentoGrid, marginTop: 10 }}>
+        <div style={styles.bentoGrid}>
           <Link to="/trainer/assessment" style={{ ...styles.bentoCell, ...styles.bentoCellMain, background: 'linear-gradient(145deg, #7c3aed 0%, #4f46e5 100%)' }}>
             <div style={styles.bentoTag}>MCQ Assessment Engine</div>
             <div style={styles.bentoTitle}>
