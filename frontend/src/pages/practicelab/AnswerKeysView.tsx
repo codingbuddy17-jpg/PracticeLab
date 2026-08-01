@@ -8,6 +8,7 @@ import {
 } from '../../api'
 import { trainerName, SPECIALTIES } from './shared'
 import styles from './styles'
+import { AnswerKeyEditor } from './AnswerKeyEditor'
 import { EMAnswerKeysView } from './EMAnswerKeysView'
 
 interface AKRow {
@@ -29,6 +30,7 @@ export function AnswerKeysView() {
   const [akTab, setAkTab] = useState<'ip-op' | 'em'>('ip-op')
   const [status, setStatus] = useState<any>(null)
   const [specialty, setSpecialty] = useState('IP-DRG')
+  const [editChartId, setEditChartId] = useState<number | null>(null)
   const [uploading, setUploading] = useState(false)
   const [akList, setAkList] = useState<AKRow[]>([])
   const [listLoading, setListLoading] = useState(false)
@@ -270,19 +272,25 @@ export function AnswerKeysView() {
         <div style={styles.emptyState}>No answer keys for this specialty yet.</div>
       ) : (
         <div style={styles.table}>
-          <div style={{ ...styles.tableHeader, gridTemplateColumns: '130px 1fr 1fr 1fr 80px' }}>
+          <div style={{ ...styles.tableHeader, gridTemplateColumns: '130px 1fr 1fr 1fr 140px' }}>
             <span>Chart</span><span>Category</span><span>Entered By</span><span>Date</span><span></span>
           </div>
           {akList.map((row, i) => (
             <div key={row.chart_id} className={i % 2 === 1 ? 'pl-tr-alt' : 'pl-tr'}
-              style={{ ...styles.tableRow, gridTemplateColumns: '130px 1fr 1fr 1fr 80px' }}>
+              style={{ ...styles.tableRow, gridTemplateColumns: '130px 1fr 1fr 1fr 140px' }}>
               <span style={{ fontWeight: 700, fontSize: 13 }}>{row.chart_number}</span>
               <span style={{ fontSize: 12, color: '#6b7280' }}>{row.category || '—'}</span>
               <span style={{ fontSize: 12 }}>{row.entered_by}</span>
               <span style={{ fontSize: 12, color: '#9ca3af' }}>
                 {row.created_at ? new Date(row.created_at).toLocaleDateString() : '—'}
               </span>
-              <span style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <span style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
+                <button
+                  style={{ ...styles.outlineBtn, padding: '4px 10px', fontSize: 12 }}
+                  title={`Edit answer key for ${row.chart_number}`}
+                  onClick={() => setEditChartId(row.chart_id)}>
+                  Edit
+                </button>
                 <button
                   style={{ ...styles.destructiveOutlineBtn, padding: '4px 10px', fontSize: 12 }}
                   title={`Delete answer key for ${row.chart_number}`}
@@ -354,6 +362,14 @@ export function AnswerKeysView() {
         </div>
       )}
       </>}
+
+      {editChartId !== null && (
+        <AnswerKeyEditor
+          chartId={editChartId}
+          onClose={() => setEditChartId(null)}
+          onSaved={() => { loadAll() }}
+        />
+      )}
     </div>
   )
 }

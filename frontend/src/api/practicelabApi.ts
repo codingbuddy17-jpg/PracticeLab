@@ -373,3 +373,45 @@ export async function standaloneGrade(trainerName: string, files: File[]) {
   })
   return data as { results: any[]; errors: string[] }
 }
+
+// ── In-interface answer key editing ─────────────────────────────────────────
+
+export interface AnswerKeyDetail {
+  chart_id: number; chart_number: string; specialty: string; category: string
+  exists: boolean; is_ip: boolean; uses_pointers: boolean; single_path: boolean
+  pdx_code: string; pdx_poa: string
+  sdx: Array<{ code: string; poa?: string; ccmcc?: string }>
+  pcs: Array<{ code: string }>
+  cpt: Array<{ code: string; modifier?: string; pointers?: string[] }>
+  facility_level: string | null; profee_level: string | null
+  entered_by: string | null
+}
+
+export interface AnswerKeyImpact {
+  total_results: number; coders_affected: number
+  batches: Array<{ batch_id: number; name: string; status: string; results: number }>
+  closed_batches: number; drg_decisions_preserved: number
+  released_to_coders: number; blocked: boolean
+}
+
+export async function getAnswerKeyDetail(chartId: number) {
+  const { data } = await api.get(`/practicelab/answer-key/${chartId}/detail`)
+  return data as AnswerKeyDetail
+}
+
+export async function getAnswerKeyImpact(chartId: number) {
+  const { data } = await api.get(`/practicelab/answer-key/${chartId}/impact`)
+  return data as AnswerKeyImpact
+}
+
+export async function saveAnswerKeyInline(chartId: number, payload: {
+  pdx_code: string; pdx_poa?: string
+  sdx: Array<{ code: string; poa?: string; ccmcc?: string }>
+  pcs: Array<{ code: string }>
+  cpt: Array<{ code: string; modifier?: string; pointers?: string[] }>
+  facility_level?: string | null; profee_level?: string | null
+  entered_by: string; passphrase?: string; regrade_closed?: boolean
+}) {
+  const { data } = await api.put(`/practicelab/answer-key/${chartId}`, payload)
+  return data as { saved: boolean; created: boolean; regraded: number; skipped_closed: number; sessions: number }
+}

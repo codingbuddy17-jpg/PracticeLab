@@ -11,6 +11,8 @@ from services.excel_service import (
     generate_answer_key_template, generate_coder_list_template,
     parse_answer_key_upload, parse_coder_list, export_all_answer_keys,
 )
+from services.grading_engine import cfg_from_db, DEFAULT_IP_CFG, DEFAULT_OP_CFG
+from services.chart_service import log_audit
 from .shared import (MASTER_PASSPHRASE, _is_ip, _is_ed, ED_SPECIALTIES,
                      _uses_pointers, _is_single_path)
 
@@ -364,3 +366,122 @@ def get_answer_key_status(specialty: Optional[str] = None, db: Session = Depends
     total = q.count()
     with_key = q.join(AnswerKey, AnswerKey.chart_id == Chart.id).count()
     return {"total_charts": total, "with_answer_key": with_key, "without_answer_key": total - with_key}
+
+
+# ── In-interface answer key editing ──────────────────────────────────────────
+
+class AnswerKeyPayload(BaseModel):
+    pdx_code: str = ""
+    pdx_poa: Optional[str] = ""
+    sdx: list[dict] = []
+    pcs: list[dict] = []
+    cpt: list[dict] = []
+    facility_level: Optional[str] = None
+    profee_level: Optional[str] = None
+    entered_by: str
+    passphrase: str = ""
+    regrade_closed: bool = False   # closed batches are frozen unless forced
+
+
+@router.get("/answer-key/{chart_id}/detail")
+def get_answer_key_detail(chart_id: int, db: Session = Depends(get_db)):
+    """Fetch one answer key for in-interface editing."""
+    chart = db.query(Chart).filter(Chart.id == chart_id).first()
+    if not chart:
+        raise HTTPException(status_code=404, detail="Chart not found")
+    ak = db.query(AnswerKey).filter(AnswerKey.chart_id == chart_id).first()
+    return {
+        "chart_id": chart_id,
+        "chart_number": chart.chart_number,
+        "specialty": chart.specialty.value,
+        "category": chart.category,
+        "exists": ak is not None,
+        "is_ip": _is_ip(chart.specialty),
+        "uses_pointers": _uses_pointers(chart.specialty),
+        "single_path": _is_single_path(chart.specialty),
+        "pdx_code": ak.pdx_code if ak else "",
+        "pdx_poa": ak.pdx_poa if ak else "",
+        "sdx": (ak.sdx or []) if ak else [],
+        "pcs": (ak.pcs or []) if ak else [],
+        "cpt": (ak.cpt or []) if ak else [],
+        "facility_level": ak.facility_level if ak else None,
+        "profee_level": ak.profee_level if ak else None,
+        "entered_by": ak.entered_by if ak else None,
+    }
+
+
+@router.get("/answer-key/{chart_id}/impact")
+def get_answer_key_impact(chart_id: int, db: Session = Depends(get_db)):
+    """What already-graded work a key change would rewrite. Shown before saving."""
+    from .chart_grading import chart_regrade_impact
+    return chart_regrade_impact(db, chart_id)
+
+
+@router.put("/answer-key/{chart_id}")
+def upsert_answer_key_inline(chart_id: int, payload: AnswerKeyPayload,
+                             db: Session = Depends(get_db)):
+    """
+    Create or edit one answer key from the interface, then re-grade everything
+    already scored against it so reports and analytics stay consistent.
+
+    Editing an existing key requires the master passphrase — the same gate the
+    Excel `replace` path uses. Creating a new one does not, since nothing is
+    being overwritten.
+    """
+    from .chart_grading import regrade_chart_everywhere, chart_regrade_impact
+
+    chart = db.query(Chart).filter(Chart.id == chart_id).first()
+    if not chart:
+        raise HTTPException(status_code=404, detail="Chart not found")
+    if _is_ed(chart.specialty):
+        raise HTTPException(status_code=400,
+                            detail="Edits and Denials are graded by rubric — they have no answer key.")
+    if not payload.entered_by.strip():
+        raise HTTPException(status_code=400, detail="entered_by is required")
+
+    existing = db.query(AnswerKey).filter(AnswerKey.chart_id == chart_id).first()
+    if existing and payload.passphrase != MASTER_PASSPHRASE:
+        raise HTTPException(status_code=403,
+                            detail="Editing an existing answer key requires the master passphrase")
+
+    impact = chart_regrade_impact(db, chart_id) if existing else None
+    if existing and impact and impact["closed_batches"] > 0 and not payload.regrade_closed:
+        raise HTTPException(
+            status_code=409,
+            detail=(f"{impact['closed_batches']} closed batch(es) already used this key. "
+                    "Re-grading rewrites closed history — resend with regrade_closed=true to proceed."),
+        )
+
+    if existing:
+        existing.pdx_code = payload.pdx_code
+        existing.pdx_poa = payload.pdx_poa or ""
+        existing.sdx, existing.pcs, existing.cpt = payload.sdx, payload.pcs, payload.cpt
+        existing.facility_level = payload.facility_level or None
+        existing.profee_level = payload.profee_level or None
+        existing.entered_by = payload.entered_by
+    else:
+        db.add(AnswerKey(
+            chart_id=chart_id, specialty=chart.specialty,
+            pdx_code=payload.pdx_code, pdx_poa=payload.pdx_poa or "",
+            sdx=payload.sdx, pcs=payload.pcs, cpt=payload.cpt,
+            facility_level=payload.facility_level or None,
+            profee_level=payload.profee_level or None,
+            entered_by=payload.entered_by,
+        ))
+    db.commit()
+
+    ip_cfg_row = db.query(ScoringConfig).filter(ScoringConfig.specialty_type == "IP").first()
+    op_cfg_row = db.query(ScoringConfig).filter(ScoringConfig.specialty_type == "OP").first()
+    ip_cfg = cfg_from_db(ip_cfg_row) if ip_cfg_row else DEFAULT_IP_CFG
+    op_cfg = cfg_from_db(op_cfg_row) if op_cfg_row else DEFAULT_OP_CFG
+
+    regrade = regrade_chart_everywhere(db, chart_id, ip_cfg, op_cfg,
+                                       include_closed=payload.regrade_closed)
+
+    log_audit(db, chart_id=chart_id, action="answer_key_saved", actor=payload.entered_by,
+              details=(f"{'edited' if existing else 'created'} via interface; "
+                      f"re-graded {regrade['regraded']} result(s), "
+                      f"skipped {regrade['skipped_closed']} in closed batches"))
+    db.commit()
+
+    return {"saved": True, "created": not existing, **regrade}

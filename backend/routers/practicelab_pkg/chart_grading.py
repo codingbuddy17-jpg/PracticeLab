@@ -138,3 +138,142 @@ def _grade_chart_for_sp(chart, ak_rec, sub_data, ip_cfg, op_cfg):
             "pdx_score": res.pdx_score, "sdx_score": res.sdx_score,
             "pcs_score": None, "cpt_score": res.cpt_score,
         }, feedback_items
+
+
+# ── Re-grading after an answer key changes ───────────────────────────────────
+
+def chart_regrade_impact(db, chart_id: int) -> dict:
+    """
+    What would be affected if this chart's answer key changed.
+
+    Shown to the trainer BEFORE they commit an edit — discovering that a key
+    change rewrote two closed batches after the fact is much worse than being
+    told first.
+    """
+    from sqlalchemy import text
+    from models import GradingResult, Batch, BatchStatus
+
+    rows = (db.query(GradingResult, Batch)
+            .join(Batch, GradingResult.batch_id == Batch.id)
+            .filter(GradingResult.chart_id == chart_id)
+            .all())
+
+    batches, coders, closed, drg_locked = {}, set(), 0, 0
+    for gr, b in rows:
+        if b.id not in batches:
+            batches[b.id] = {"batch_id": b.id, "name": b.name,
+                             "status": b.status.value if hasattr(b.status, "value") else str(b.status),
+                             "results": 0}
+            if b.status == BatchStatus.CLOSED:
+                closed += 1
+        batches[b.id]["results"] += 1
+        coders.add(gr.coder_name)
+        # Trainer judgements are not derived from the key and must survive
+        if gr.drg_reviewed and gr.drg_override is not None:
+            drg_locked += 1
+
+    released = db.execute(text("""
+        SELECT COUNT(*) FROM practice_results pr
+        JOIN practice_sessions ps ON ps.id = pr.session_id
+        WHERE pr.chart_id = :c AND ps.show_results_to_coder = TRUE
+    """), {"c": chart_id}).fetchone()
+    released_count = (released[0] if released else 0) or 0
+
+    return {
+        "total_results": len(rows),
+        "coders_affected": len(coders),
+        "batches": list(batches.values()),
+        "closed_batches": closed,
+        "drg_decisions_preserved": drg_locked,
+        "released_to_coders": released_count,
+        "blocked": closed > 0,
+    }
+
+
+def regrade_chart_everywhere(db, chart_id: int, ip_cfg, op_cfg,
+                             include_closed: bool = False) -> dict:
+    """
+    Re-grade every submitted practice result for one chart after its key changed.
+
+    Preserves trainer decisions — DRG overrides and ED rubric scores are human
+    judgements, not derived from the answer key, so they are restored after the
+    automatic pass rather than recomputed.
+
+    Writes through practice_results, which mirrors into grading_results, so
+    analytics and both PDF reports pick the new numbers up with no extra work.
+    """
+    import json
+    from sqlalchemy import text
+    from models import Chart, AnswerKey, Batch, BatchStatus, GradingResult
+    from .practice_sessions import _upsert_practice_result
+
+    chart = db.query(Chart).filter(Chart.id == chart_id).first()
+    ak_rec = db.query(AnswerKey).filter(AnswerKey.chart_id == chart_id).first()
+    if not chart or not ak_rec:
+        return {"regraded": 0, "skipped_closed": 0, "sessions": 0}
+
+    rows = db.execute(text("""
+        SELECT ps.id, ps.batch_id, ps.coder_name, ps.specialty
+        FROM practice_results pr
+        JOIN practice_sessions ps ON ps.id = pr.session_id
+        WHERE pr.chart_id = :c AND ps.status = 'submitted'
+    """), {"c": chart_id}).fetchall()
+
+    regraded = skipped = 0
+    for session_id, batch_id, coder_name, _spec in rows:
+        batch = db.query(Batch).filter(Batch.id == batch_id).first()
+        if batch and batch.status == BatchStatus.CLOSED and not include_closed:
+            skipped += 1
+            continue
+
+        draft = db.execute(text("""
+            SELECT pdx_code, pdx_poa, sdx, pcs, cpt, flagged, coder_notes,
+                   facility_level, profee_level
+            FROM practice_chart_drafts WHERE session_id=:s AND chart_id=:c
+        """), {"s": session_id, "c": chart_id}).fetchone()
+        if not draft:
+            continue
+
+        def _j(v):
+            return json.loads(v) if isinstance(v, str) else (v or [])
+
+        class _Entry:
+            pass
+        entry = _Entry()
+        entry.chart_id = chart_id
+        entry.pdx_code, entry.pdx_poa = draft[0], draft[1]
+        entry.sdx, entry.pcs, entry.cpt = _j(draft[2]), _j(draft[3]), _j(draft[4])
+        entry.flagged, entry.coder_notes = draft[5], draft[6]
+        entry.facility_level, entry.profee_level = draft[7], draft[8]
+
+        # Snapshot the trainer's decisions before the automatic pass overwrites them
+        gr = (db.query(GradingResult)
+              .filter(GradingResult.batch_id == batch_id,
+                      GradingResult.coder_name == coder_name,
+                      GradingResult.chart_id == chart_id).first())
+        keep = None
+        if gr and gr.drg_reviewed:
+            keep = (gr.drg_reviewed, gr.drg_override, gr.drg_reviewed_by, gr.drg_reviewed_at)
+
+        sub_data = {
+            "pdx_code": entry.pdx_code or "", "pdx_poa": entry.pdx_poa or "",
+            "sdx": entry.sdx, "pcs": entry.pcs, "cpt": entry.cpt,
+            "facility_level": entry.facility_level or "",
+            "profee_level": entry.profee_level or "",
+        }
+        result_kwargs, feedback_items = _grade_chart_for_sp(chart, ak_rec, sub_data, ip_cfg, op_cfg)
+        _upsert_practice_result(db, session_id, entry, chart.specialty, graded=True,
+                                result_kwargs=result_kwargs, feedback_items=feedback_items,
+                                ak_rec=ak_rec)
+
+        if keep:
+            gr2 = (db.query(GradingResult)
+                   .filter(GradingResult.batch_id == batch_id,
+                           GradingResult.coder_name == coder_name,
+                           GradingResult.chart_id == chart_id).first())
+            if gr2:
+                gr2.drg_reviewed, gr2.drg_override, gr2.drg_reviewed_by, gr2.drg_reviewed_at = keep
+        regraded += 1
+
+    db.commit()
+    return {"regraded": regraded, "skipped_closed": skipped, "sessions": len(rows)}
