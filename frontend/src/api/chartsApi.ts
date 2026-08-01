@@ -62,12 +62,17 @@ export async function previewChartNumbers(items: { filename: string; specialty: 
   return data
 }
 
-export async function bulkUpload(files: File[], metaList: BulkUploadMeta[]): Promise<BulkUploadResult[]> {
+export async function bulkUpload(
+  files: File[],
+  metaList: BulkUploadMeta[],
+  signal?: AbortSignal,
+): Promise<BulkUploadResult[]> {
   const form = new FormData()
   files.forEach(f => form.append('files', f))
   form.append('metadata', JSON.stringify(metaList))
   const { data } = await api.post('/upload/bulk', form, {
     headers: { 'Content-Type': 'multipart/form-data' },
+    signal,
   })
   return data
 }

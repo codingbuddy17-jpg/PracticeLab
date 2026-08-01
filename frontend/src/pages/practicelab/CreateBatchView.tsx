@@ -5,7 +5,7 @@ import { getPoolPreview, parseCoderList, createBatch, downloadCoderListTemplate 
 import { trainerName, SPECIALTIES, DIFFICULTIES } from './shared'
 import styles from './styles'
 
-export function CreateBatchView({ onCreated, scoringCfg, directMode: directModeProp }: { onCreated: (id: number) => void; scoringCfg?: any; directMode?: boolean }) {
+export function CreateBatchView({ onCreated, onCancel, scoringCfg, directMode: directModeProp }: { onCreated: (id: number) => void; onCancel?: () => void; scoringCfg?: any; directMode?: boolean }) {
   const [directMode, setDirectMode] = useState(directModeProp ?? false)
   const [form, setForm] = useState({
     name: '', specialty: 'IP-DRG', categories: '', difficulties: [] as string[],
@@ -258,9 +258,20 @@ export function CreateBatchView({ onCreated, scoringCfg, directMode: directModeP
         )}
       </div>
 
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
       <button style={creating ? { ...styles.primaryBtn, opacity: 0.6 } : styles.primaryBtn} disabled={creating} onClick={handleCreate}>
         {creating ? <><Loader size={14} /> Creating...</> : directMode ? 'Create Assignment' : 'Open Batch'}
       </button>
+      {onCancel && (
+        <button
+          style={{ padding: '11px 18px', border: '1px solid #e5e7eb', background: '#fff', borderRadius: 8, cursor: creating ? 'not-allowed' : 'pointer', fontWeight: 600, fontSize: 13, color: '#6b7280', opacity: creating ? 0.5 : 1 }}
+          disabled={creating}
+          onClick={onCancel}
+        >
+          Cancel
+        </button>
+      )}
+      </div>
     </div>
   )
 }

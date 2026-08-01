@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Upload, CheckCircle, XCircle, ChevronLeft, BookOpen, AlertTriangle } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -27,6 +27,30 @@ export function TrainerUpload() {
   const [preview, setPreview] = useState<{ filename: string; specialty: string; assigned_number: string }[]>([])
   const [loadingPreview, setLoadingPreview] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const [discardOpen, setDiscardOpen] = useState(false)
+  const abortRef = useRef<AbortController | null>(null)
+
+  // Discard everything staged and return to the empty picker.
+  function startOver() {
+    abortRef.current?.abort()
+    abortRef.current = null
+    setRows([]); setPreview([]); setResults(null)
+    setUploading(false); setUploadProgress(0)
+    setConfirmOpen(false); setDiscardOpen(false)
+  }
+
+  // Aborts the in-flight request. Note this cannot guarantee the server did
+  // nothing: /upload/bulk is a single POST carrying every file, so once the
+  // body has landed the server may finish creating charts regardless. The
+  // toast says so rather than claiming a clean rollback.
+  function cancelUpload() {
+    abortRef.current?.abort()
+    abortRef.current = null
+    setUploading(false)
+    setUploadProgress(0)
+    toast('Upload cancelled — any charts already accepted by the server may still have been created. Check the chart list.',
+          { duration: 9000, icon: '⚠️' })
+  }
 
   const isRowComplete = (r: Partial<RowMeta>) => !!(r.category?.trim() && r.specialty && r.difficulty)
 
@@ -118,6 +142,11 @@ export function TrainerUpload() {
     setUploading(true)
     setUploadProgress(0)
 
+    // Declared outside the try so `finally` can always clear it — on abort the
+    // await throws and any clearInterval after it would be skipped, leaving the
+    // timer running for the life of the page.
+    let progressInterval: ReturnType<typeof setInterval> | undefined
+
     try {
       const meta: BulkUploadMeta[] = rows.map(r => ({
         uploaded_by: trainerName,
@@ -129,12 +158,13 @@ export function TrainerUpload() {
       }))
 
       // Phase 1: 0→60% while bytes are transferring (~2% every 300ms)
-      const progressInterval = setInterval(() => {
+      progressInterval = setInterval(() => {
         setUploadProgress(p => Math.min(p + 2, 60))
       }, 300)
 
-      const res = await bulkUpload(rows.map(r => r.file), meta)
-      clearInterval(progressInterval)
+      const controller = new AbortController()
+      abortRef.current = controller
+      const res = await bulkUpload(rows.map(r => r.file), meta, controller.signal)
       // Phase 2: jump to 100 once server responds
       setUploadProgress(100)
 
@@ -143,9 +173,14 @@ export function TrainerUpload() {
         const success = res.filter(r => r.status === 'success').length
         toast.success(`${success} of ${res.length} charts uploaded`)
       }, 400)
-    } catch {
-      toast.error('Upload failed. Check connection.')
+    } catch (e: any) {
+      // A user-initiated abort is not a failure — cancelUpload already messaged.
+      if (e?.name !== 'CanceledError' && e?.code !== 'ERR_CANCELED') {
+        toast.error('Upload failed. Check connection.')
+      }
     } finally {
+      if (progressInterval) clearInterval(progressInterval)
+      abortRef.current = null
       setUploading(false)
     }
   }
@@ -305,16 +340,47 @@ export function TrainerUpload() {
               </div>
             )}
 
-            <button
-              style={{ ...styles.primaryBtn, opacity: uploading ? 0.7 : 1 }}
-              disabled={uploading}
-              onClick={handleSubmitClick}
-            >
-              {uploading ? `Uploading...` : `Upload ${rows.length} Chart${rows.length !== 1 ? 's' : ''}`}
-            </button>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+              <button
+                style={{ ...styles.primaryBtn, opacity: uploading ? 0.7 : 1 }}
+                disabled={uploading}
+                onClick={handleSubmitClick}
+              >
+                {uploading ? `Uploading...` : `Upload ${rows.length} Chart${rows.length !== 1 ? 's' : ''}`}
+              </button>
+              {uploading ? (
+                <button style={styles.cancelActionBtn} onClick={cancelUpload}>
+                  Cancel upload
+                </button>
+              ) : (
+                <button
+                  style={styles.cancelActionBtn}
+                  onClick={() => setDiscardOpen(true)}
+                  title="Discard these files and start again"
+                >
+                  Start over
+                </button>
+              )}
+            </div>
           </>
         )}
       </div>
+
+      {discardOpen && (
+        <div style={styles.modalOverlay}>
+          <div style={styles.modalBox}>
+            <div style={styles.modalTitle}>Discard these files?</div>
+            <div style={styles.modalBody}>
+              {rows.length} file{rows.length !== 1 ? 's' : ''} and any details you have entered
+              will be cleared. Nothing has been uploaded yet.
+            </div>
+            <div style={styles.modalActions}>
+              <button style={styles.cancelBtn} onClick={() => setDiscardOpen(false)}>Keep editing</button>
+              <button style={styles.dangerBtn} onClick={startOver}>Discard</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {confirmOpen && (
         <div style={styles.modalOverlay}>
@@ -409,4 +475,6 @@ const styles: Record<string, React.CSSProperties> = {
   modalWarn: { display: 'flex', alignItems: 'center', gap: 6, marginTop: 10, fontSize: 13, color: '#b45309', background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 8, padding: '8px 12px' },
   modalActions: { display: 'flex', gap: 10, justifyContent: 'flex-end' },
   cancelBtn: { padding: '9px 20px', border: '1px solid #e5e7eb', background: '#fff', borderRadius: 7, cursor: 'pointer', fontWeight: 600, fontSize: 13, color: '#374151' },
+  cancelActionBtn: { padding: '11px 18px', border: '1px solid #e5e7eb', background: '#fff', borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: 13, color: '#6b7280' },
+  dangerBtn: { padding: '9px 20px', border: 'none', background: '#dc2626', color: '#fff', borderRadius: 7, cursor: 'pointer', fontWeight: 700, fontSize: 13 },
 }

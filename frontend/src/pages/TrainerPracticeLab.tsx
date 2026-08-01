@@ -162,12 +162,14 @@ export function TrainerPracticeLab() {
         {view === 'scoring-config' && <ScoringConfigView />}
         {view === 'create-batch' && (
           <CreateBatchView
+            onCancel={() => { setView('home'); loadHome() }}
             onCreated={(id: number) => { setSelectedBatchId(id); setView('batch-detail'); loadHome() }}
             scoringCfg={scoringCfg}
           />
         )}
         {view === 'create-direct' && (
           <CreateBatchView
+            onCancel={() => { setView('home'); loadHome() }}
             directMode
             onCreated={(id: number) => { setSelectedBatchId(id); setView('batch-detail'); loadHome() }}
             scoringCfg={scoringCfg}
