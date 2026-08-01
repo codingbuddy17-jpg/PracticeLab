@@ -82,7 +82,7 @@ export function CreateBatchView({ onCreated, onCancel, scoringCfg, directMode: d
         coders,
         created_by: trainerName(),
         use_weighted: form.use_weighted,
-        use_dpo: form.specialty === 'ED Single Path' ? false : form.use_dpo,
+        use_dpo: dpoAllowed ? form.use_dpo : false,
         is_direct_assignment: directMode,
       })
       if (res.warning) toast(res.warning, { icon: '⚠️', duration: 5000 })
@@ -98,6 +98,7 @@ export function CreateBatchView({ onCreated, onCancel, scoringCfg, directMode: d
   const isED = ['Edits', 'Denials'].includes(form.specialty)
   const isEM = ['E/M', 'ED Profee'].includes(form.specialty)
   const isEDSP = form.specialty === 'ED Single Path'
+  const dpoAllowed = ['IP-DRG', 'ED Facility', 'SDS', 'Surgery', 'Ancillary', 'ED Single Path'].includes(form.specialty)
   const activeCfg = scoringCfg
     ? (isIP ? scoringCfg.IP : isEDSP ? scoringCfg.EDSP : scoringCfg.OP)
     : null
@@ -182,15 +183,46 @@ export function CreateBatchView({ onCreated, onCancel, scoringCfg, directMode: d
             <span style={{ fontSize: 16 }}>🩺</span>
             <div style={{ fontSize: 13, color: '#5b21b6' }}>
               <strong>E/M MDM scoring applies for this specialty.</strong>
-              <div style={{ fontWeight: 400, marginTop: 2 }}>Graded on: E/M level accuracy · COPA / Data Review / Risk element matching · Dx code accuracy · Procedure CPTs. Batch grading uses the MDM scoring engine — not IP/OP weighted scoring or DPO.</div>
+              <div style={{ fontWeight: 400, marginTop: 2 }}>Graded on: E/M level accuracy · COPA / Data Review / Risk element matching · Dx code accuracy · Procedure CPTs. Batch grading uses the MDM scoring engine.</div>
             </div>
           </div>
         ) : isEDSP ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: '#f3e8ff', border: '1px solid #d8b4fe', borderRadius: 8 }}>
-            <span style={{ fontSize: 12, fontWeight: 800, color: '#6b21a8' }}>SP</span>
-            <div style={{ fontSize: 13, color: '#6b21a8' }}>
-              <strong>ED Single Path weighted scoring applies for this specialty.</strong>
-              <div style={{ fontWeight: 400, marginTop: 2 }}>Graded on: shared Dx · facility level · profee level · additional CPTs. DPO and diagnosis pointers are not used.</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: '#f3e8ff', border: '1px solid #d8b4fe', borderRadius: 8 }}>
+              <span style={{ fontSize: 12, fontWeight: 800, color: '#6b21a8' }}>SP</span>
+              <div style={{ fontSize: 13, color: '#6b21a8' }}>
+                <strong>ED Single Path scoring applies for this specialty.</strong>
+                <div style={{ fontWeight: 400, marginTop: 2 }}>Accuracy counts shared Dx, facility/profee levels, and additional CPTs. Diagnosis pointers are not used.</div>
+              </div>
+            </div>
+            <label style={styles.methodOption}>
+              <input type="checkbox" checked={form.use_weighted}
+                disabled={activeCfg ? activeCfg.weighted_enabled === false : false}
+                onChange={e => setForm(f => ({ ...f, use_weighted: e.target.checked }))} />
+              <div>
+                <div style={styles.methodLabel}>Weighted Scoring <span style={styles.methodBadge}>Primary · Pass/Fail</span></div>
+                <div style={styles.methodDesc}>Shared Dx, facility level, profee level, and additional CPT weights</div>
+              </div>
+            </label>
+            <label style={styles.methodOption}>
+              <input type="checkbox" checked={form.use_dpo}
+                disabled={activeCfg ? activeCfg.dpo_enabled === false : false}
+                onChange={e => setForm(f => ({ ...f, use_dpo: e.target.checked }))} />
+              <div>
+                <div style={styles.methodLabel}>Accuracy <span style={{ ...styles.methodBadge, background: '#dbeafe', color: '#1d4ed8' }}>Supplementary</span></div>
+                <div style={styles.methodDesc}>Defect rate across Dx, facility/profee levels, and CPT opportunities</div>
+              </div>
+            </label>
+            {!form.use_weighted && !form.use_dpo && (
+              <div style={{ color: '#dc2626', fontSize: 12 }}>At least one method must be selected</div>
+            )}
+          </div>
+        ) : !dpoAllowed ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8 }}>
+            <span style={{ fontSize: 12, fontWeight: 800, color: '#475569' }}>OP</span>
+            <div style={{ fontSize: 13, color: '#334155' }}>
+              <strong>Weighted scoring applies for this specialty.</strong>
+              <div style={{ fontWeight: 400, marginTop: 2 }}>Supplementary accuracy is not used for this specialty.</div>
             </div>
           </div>
         ) : (
@@ -201,7 +233,7 @@ export function CreateBatchView({ onCreated, onCancel, scoringCfg, directMode: d
                 onChange={e => setForm(f => ({ ...f, use_weighted: e.target.checked }))} />
               <div>
                 <div style={styles.methodLabel}>Weighted Scoring <span style={styles.methodBadge}>Primary · Pass/Fail</span></div>
-                <div style={styles.methodDesc}>Category importance (PDx / SDx / PCS / DRG weights) — drives the official pass/fail verdict</div>
+                <div style={styles.methodDesc}>{isIP ? 'Category importance (PDx / SDx / PCS / DRG weights)' : 'Category importance (PDx / SDx / CPT weights)'} — drives the official pass/fail verdict</div>
               </div>
             </label>
             <label style={styles.methodOption}>
@@ -209,8 +241,8 @@ export function CreateBatchView({ onCreated, onCancel, scoringCfg, directMode: d
                 disabled={activeCfg ? activeCfg.dpo_enabled === false : false}
                 onChange={e => setForm(f => ({ ...f, use_dpo: e.target.checked }))} />
               <div>
-                <div style={styles.methodLabel}>DPO Accuracy <span style={{ ...styles.methodBadge, background: '#dbeafe', color: '#1d4ed8' }}>Supplementary</span></div>
-                <div style={styles.methodDesc}>Defect rate per code opportunity — shows Dx, POA and procedure accuracy % per coder</div>
+                <div style={styles.methodLabel}>Accuracy <span style={{ ...styles.methodBadge, background: '#dbeafe', color: '#1d4ed8' }}>Supplementary</span></div>
+                <div style={styles.methodDesc}>Defect rate per code opportunity — shows Dx{isIP ? ', POA' : ''} and procedure accuracy % per coder</div>
               </div>
             </label>
             {!form.use_weighted && !form.use_dpo && (

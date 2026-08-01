@@ -316,7 +316,7 @@ def _coder_verdict(summary: dict, pass_threshold: int = 80):
     source = "weighted accuracy"
     if score is None and summary.get("cumulative_dpo"):
         score = summary["cumulative_dpo"].get("overall_accuracy")
-        source = "DPO overall accuracy"
+        source = "overall accuracy (DPO)"
     cats = summary.get("by_category") or []
     weakest = min(cats, key=lambda c: c["avg_score"]) if cats else None
     weak_note = f" Weakest area: {weakest['category']} at {weakest['avg_score']}%." if weakest and weakest["avg_score"] < pass_threshold else ""
@@ -380,7 +380,7 @@ def generate_coder_report_pdf(coder_name: str, summary: dict, team_avg_score: Op
         stats.append((f"{summary['weighted_accuracy']}%", "Weighted Accuracy"))
     dpo = summary.get("cumulative_dpo")
     if dpo and dpo.get("overall_accuracy") is not None:
-        stats.append((f"{dpo['overall_accuracy']}%", "Overall DPO"))
+        stats.append((f"{dpo['overall_accuracy']}%", "Overall accuracy (DPO)"))
     if team_avg_score is not None:
         stats.append((f"{team_avg_score}%", "Team Avg (Benchmark)"))
     elements.append(_stat_row(stats))
@@ -401,10 +401,10 @@ def generate_coder_report_pdf(coder_name: str, summary: dict, team_avg_score: Op
         _section_heading(elements, "Score Trend")
         elements.append(_trend_line_chart(trend_points))
 
-    if dpo and any(dpo.get(k) is not None for k in ("dx_accuracy", "poa_accuracy", "proc_accuracy")):
-        _section_heading(elements, "DPO Breakdown")
+    if dpo and any(dpo.get(k) is not None for k in ("dx_accuracy", "proc_accuracy", "drg_accuracy")):
+        _section_heading(elements, "Accuracy Breakdown")
         dpo_rows = []
-        for label, key in [("Diagnosis (Dx)", "dx_accuracy"), ("POA", "poa_accuracy"), ("Procedure (PCS/CPT)", "proc_accuracy")]:
+        for label, key in [("Diagnosis accuracy", "dx_accuracy"), ("Procedure accuracy", "proc_accuracy"), ("DRG accuracy", "drg_accuracy")]:
             if dpo.get(key) is not None:
                 dpo_rows.append([Paragraph(label, NORMAL), _score_cell(dpo[key], pass_threshold=pt)])
         elements.append(_data_table(["Section", "Accuracy"], dpo_rows, [3, 1]))
@@ -848,4 +848,3 @@ def generate_assessment_batch_report_pdf(data: dict) -> bytes:
     _footer_note(elements)
     doc.build(elements, onFirstPage=_draw_background, onLaterPages=_draw_background)
     return buf.getvalue()
-

@@ -24,6 +24,15 @@ DX_ONLY_SPECIALTIES = {Specialty.ANCILLARY}
 
 SINGLE_PATH_SPECIALTIES = {Specialty.ED_SINGLE_PATH}
 
+DPO_SPECIALTIES = {
+    Specialty.IP_DRG,
+    Specialty.ED_FACILITY,
+    Specialty.SDS,
+    Specialty.SURGERY,
+    Specialty.ANCILLARY,
+    Specialty.ED_SINGLE_PATH,
+}
+
 MASTER_PASSPHRASE = settings.MASTER_ADMIN_PASSPHRASE
 
 
@@ -50,3 +59,7 @@ def _is_dx_only(specialty: Specialty) -> bool:
 
 def _is_single_path(specialty: Specialty) -> bool:
     return specialty in SINGLE_PATH_SPECIALTIES
+
+
+def _uses_dpo(specialty: Specialty) -> bool:
+    return specialty in DPO_SPECIALTIES

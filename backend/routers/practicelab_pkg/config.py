@@ -95,7 +95,7 @@ def get_scoring_configs(db: Session = Depends(get_db)):
             "drg_triggers": getattr(row, "drg_triggers", None) or [],
             "overcoding_penalty": row.overcoding_penalty,
             "weighted_enabled": getattr(row, "weighted_enabled", True),
-            "dpo_enabled": getattr(row, "dpo_enabled", True),
+            "dpo_enabled": bool(getattr(row, "dpo_enabled", True)),
             "dpo_pass_threshold": getattr(row, "dpo_pass_threshold", 80.0),
             "updated_by": getattr(row, "updated_by", None),
             "updated_at": row.updated_at.isoformat() if getattr(row, "updated_at", None) else None,
@@ -160,9 +160,6 @@ def update_scoring_config(payload: ScoringConfigUpdate, db: Session = Depends(ge
     row.pass_threshold = payload.pass_threshold
     row.drg_triggers = payload.drg_triggers
     row.overcoding_penalty = payload.overcoding_penalty
-    if stype == "EDSP":
-        payload.weighted_enabled = True
-        payload.dpo_enabled = False
     if not payload.weighted_enabled and not payload.dpo_enabled:
         raise HTTPException(status_code=400, detail="At least one scoring method must be enabled")
     row.weighted_enabled = payload.weighted_enabled

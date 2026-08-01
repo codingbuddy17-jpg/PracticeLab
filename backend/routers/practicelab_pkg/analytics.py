@@ -9,6 +9,7 @@ from sqlalchemy import func, Integer
 from database import get_db
 from models import Batch, BatchCoder, BatchStatus, GradingResult, GradingFeedback, Chart, PassFail, Specialty, ScoringConfig
 from services.pdf_report_service import generate_coder_report_pdf
+from .shared import _uses_dpo
 
 router = APIRouter()
 
@@ -252,8 +253,17 @@ def build_coder_summary(results, coder_name: str, db: Session):
 
     # ── Cumulative DPO (sum counts, not avg-of-avgs) ────────────────────────
     dx_correct = dx_total = poa_correct = poa_total = proc_correct = proc_total = 0
+    drg_correct = drg_total = 0
     has_dpo = False
     for r in results:
+        batch = getattr(r, "batch", None)
+        dpo_allowed = bool(
+            batch
+            and getattr(batch, "use_dpo", False)
+            and _uses_dpo(getattr(batch, "specialty", None))
+        )
+        if not dpo_allowed:
+            continue
         if r.dpo_dx_total is not None:
             has_dpo = True
             dx_correct += r.dpo_dx_correct or 0
@@ -264,6 +274,9 @@ def build_coder_summary(results, coder_name: str, db: Session):
         if r.dpo_proc_total is not None:
             proc_correct += r.dpo_proc_correct or 0
             proc_total += r.dpo_proc_total
+        if getattr(r, "specialty", None) == Specialty.IP_DRG and r.drg_score is not None:
+            drg_correct += 1 if (r.drg_score or 0) > 0 else 0
+            drg_total += 1
 
     def _acc(c, t): return round(c / t * 100, 1) if t else None
 
@@ -271,6 +284,7 @@ def build_coder_summary(results, coder_name: str, db: Session):
         "dx_accuracy": _acc(dx_correct, dx_total),
         "poa_accuracy": _acc(poa_correct, poa_total),
         "proc_accuracy": _acc(proc_correct, proc_total),
+        "drg_accuracy": _acc(drg_correct, drg_total),
         "overall_accuracy": _acc(dx_correct + poa_correct + proc_correct, dx_total + poa_total + proc_total),
     } if has_dpo else None
 

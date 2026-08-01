@@ -16,7 +16,7 @@ from models import (
 )
 from sqlalchemy import text as _text
 from services.randomisation_stats import compute_randomisation_stats
-from .shared import MASTER_PASSPHRASE, _is_ip, _is_ed
+from .shared import MASTER_PASSPHRASE, _is_ip, _is_ed, _uses_dpo
 
 router = APIRouter()
 
@@ -74,7 +74,7 @@ def create_batch(payload: BatchCreate, db: Session = Depends(get_db)):
 
     use_weighted = payload.use_weighted
     use_dpo = payload.use_dpo
-    if specialty == Specialty.ED_SINGLE_PATH:
+    if not _uses_dpo(specialty):
         use_weighted = True
         use_dpo = False
 
@@ -562,7 +562,7 @@ def get_batch(batch_id: int, db: Session = Depends(get_db)):
         "created_by": batch.created_by,
         "created_at": batch.created_at.isoformat() if batch.created_at else None,
         "use_weighted": getattr(batch, "use_weighted", True),
-        "use_dpo": getattr(batch, "use_dpo", False),
+        "use_dpo": bool(getattr(batch, "use_dpo", False) and _uses_dpo(batch.specialty)),
         "closed_at": batch.closed_at.isoformat() if batch.closed_at else None,
         "closed_by": batch.closed_by,
         "force_closed": batch.force_closed,
@@ -593,4 +593,3 @@ def get_batch(batch_id: int, db: Session = Depends(get_db)):
                     "excel_generated": c.excel_generated_at is not None,
                     "charts": coder_map.get(c.coder_name, [])} for c in coders],
     }
-

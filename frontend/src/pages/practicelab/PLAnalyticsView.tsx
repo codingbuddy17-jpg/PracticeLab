@@ -39,6 +39,11 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
   const [coderName, setCoderName] = useState('')
   const [coderTrend, setCoderTrend] = useState<any[]>([])
   const [coderSummary, setCoderSummary] = useState<any>(null)
+  // The coder whose data is currently on screen — distinct from the text in
+  // the input box, so a filter change can re-fetch the RIGHT coder.
+  const [loadedCoder, setLoadedCoder] = useState('')
+  const [coderEmpty, setCoderEmpty] = useState(false)
+  const [coderLoading, setCoderLoading] = useState(false)
   const [categoryData, setCategoryData] = useState<{ team: any[]; coder_category: any[]; coder_scope_note?: string } | null>(null)
   const [teachingData, setTeachingData] = useState<any[]>([])
   const [matrixData, setMatrixData] = useState<{ batches: any[]; coders: string[]; coder_emp_ids?: Record<string, string>; cells: any[] } | null>(null)
@@ -126,32 +131,41 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
     }
   }, [tab, emBatchId])
 
-  async function loadCoderTrend() {
-    if (!coderName.trim()) return
-    const name = coderName.trim()
+  async function fetchCoder(name: string) {
+    if (!name) return
+    setCoderLoading(true)
     setCoderSummary(null)
     setCoderTrend([])
+    setCoderEmpty(false)
     const [summary, trend] = await Promise.all([
       getCoderSummary(name, filters).catch(() => null),
       getCoderTrend(name, filters).catch(() => null),
     ])
-    if (!summary && !trend?.length) { toast.error('No data for this coder'); return }
+    setLoadedCoder(name)
+    // An empty result under an active filter is a real answer, not a failure —
+    // show it on screen rather than leaving the previous numbers up.
+    setCoderEmpty(!summary && !trend?.length)
     if (summary) setCoderSummary(summary)
     if (trend) setCoderTrend(trend)
+    setCoderLoading(false)
   }
+
+  function loadCoderTrend() { fetchCoder(coderName.trim()) }
 
   function jumpToCoder(name: string) {
     setCoderName(name)
     setTab('coder')
-    setCoderSummary(null)
-    setCoderTrend([])
-    Promise.all([getCoderSummary(name, filters).catch(() => null), getCoderTrend(name, filters).catch(() => null)])
-      .then(([summary, trend]) => {
-        if (summary) setCoderSummary(summary)
-        if (trend) setCoderTrend(trend)
-      })
-      .catch(() => toast.error('No data for this coder'))
+    fetchCoder(name)
   }
+
+  // Re-fetch whenever the date/specialty filter changes. Without this the coder
+  // tab kept showing unfiltered totals while the PDF button sent the NEW filter,
+  // so the screen and the download disagreed — and an empty range only surfaced
+  // as a blank tab from the download.
+  useEffect(() => {
+    if (loadedCoder) fetchCoder(loadedCoder)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterVersion])
 
   async function toggleChartDetail(chartNumber: string) {
     if (expandedChart === chartNumber) { setExpandedChart(null); return }
@@ -456,15 +470,48 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
               value={coderName} onChange={e => setCoderName(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && loadCoderTrend()} />
             <datalist id="coder-suggestions">{(matrixData?.coders || []).map((n: string) => <option key={n} value={n} />)}</datalist>
-            <button style={styles.primaryBtn} onClick={loadCoderTrend}>Look Up</button>
+            <button style={styles.primaryBtn} onClick={loadCoderTrend} disabled={coderLoading}>
+              {coderLoading ? 'Loading…' : 'Look Up'}
+            </button>
+            {/* Only offered when there is something to put in the report — it used
+                to stay clickable with no data in range and opened a blank tab. */}
             {(coderSummary || coderTrend.length > 0) && (
-              <button style={styles.outlineBtn} onClick={() => downloadCoderReportPdf(coderName.trim(), filters)}>
+              <button style={styles.outlineBtn} onClick={async () => {
+                try {
+                  await downloadCoderReportPdf(loadedCoder, filters)
+                } catch {
+                  toast.error('No report could be generated for this coder in the selected range')
+                }
+              }}>
                 Download PDF Report
               </button>
             )}
+            {activeFilterCount > 0 && (coderSummary || coderTrend.length > 0) && (
+              <span style={{ fontSize: 11, color: '#6b7280' }}>
+                Figures below reflect the active filter
+              </span>
+            )}
           </div>
 
-          {!coderSummary && coderTrend.length === 0 ? (
+          {coderLoading ? (
+            <div style={styles.emptyState}><Loader size={18} /> Loading {loadedCoder || coderName}…</div>
+          ) : coderEmpty ? (
+            /* Distinct from the initial prompt: we DID look, and the filter
+               excluded everything. Saying so here is what stops the download
+               button being the first sign of it. */
+            <div style={{ ...styles.emptyState, color: '#b45309' }}>
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>
+                No results for {loadedCoder} in the selected range
+              </div>
+              <div style={{ fontSize: 12 }}>
+                {filters.from_date || filters.to_date
+                  ? `Nothing graded between ${filters.from_date || 'the beginning'} and ${filters.to_date || 'today'}`
+                  : 'This coder has no graded results'}
+                {filters.specialty ? ` for ${filters.specialty}` : ''}.
+                {activeFilterCount > 0 && ' Widen or clear the filter to see more.'}
+              </div>
+            </div>
+          ) : !coderSummary && coderTrend.length === 0 ? (
             <div style={styles.emptyState}>Enter the coder's name and press Look Up to see their full performance profile across all batches.</div>
           ) : (
             <>
@@ -496,32 +543,32 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                         <div style={{ ...styles.statValue, color: sc(coderSummary.cumulative_dpo.overall_accuracy) }}>
                           {coderSummary.cumulative_dpo.overall_accuracy}%
                         </div>
-                        <div style={styles.statLabel}>Overall DPO</div>
+                        <div style={styles.statLabel}>Overall accuracy (DPO)</div>
                       </div>
                     )}
                   </div>
 
-                  {/* DPO breakdown */}
-                  {coderSummary.cumulative_dpo && (coderSummary.cumulative_dpo.dx_accuracy != null || coderSummary.cumulative_dpo.poa_accuracy != null || coderSummary.cumulative_dpo.proc_accuracy != null) && (
+                  {/* Accuracy breakdown */}
+                  {coderSummary.cumulative_dpo && (coderSummary.cumulative_dpo.dx_accuracy != null || coderSummary.cumulative_dpo.proc_accuracy != null || coderSummary.cumulative_dpo.drg_accuracy != null) && (
                     <div style={{ background: '#f8faff', border: '1px solid #e0e7ff', borderRadius: 10, padding: '14px 18px' }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: '#6366f1', textTransform: 'uppercase' as const, letterSpacing: 0.6, marginBottom: 10 }}>DPO Cumulative (All Batches)</div>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: '#6366f1', textTransform: 'uppercase' as const, letterSpacing: 0.6, marginBottom: 10 }}>Accuracy Cumulative (All Batches)</div>
                       <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' as const }}>
                         {coderSummary.cumulative_dpo.dx_accuracy != null && (
                           <div style={{ textAlign: 'center' as const }}>
                             <div style={{ fontSize: 20, fontWeight: 800, color: sc(coderSummary.cumulative_dpo.dx_accuracy) }}>{coderSummary.cumulative_dpo.dx_accuracy}%</div>
-                            <div style={{ fontSize: 10, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.4 }}>Dx</div>
-                          </div>
-                        )}
-                        {coderSummary.cumulative_dpo.poa_accuracy != null && (
-                          <div style={{ textAlign: 'center' as const }}>
-                            <div style={{ fontSize: 20, fontWeight: 800, color: sc(coderSummary.cumulative_dpo.poa_accuracy) }}>{coderSummary.cumulative_dpo.poa_accuracy}%</div>
-                            <div style={{ fontSize: 10, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.4 }}>POA</div>
+                            <div style={{ fontSize: 10, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.4 }}>Diagnosis accuracy</div>
                           </div>
                         )}
                         {coderSummary.cumulative_dpo.proc_accuracy != null && (
                           <div style={{ textAlign: 'center' as const }}>
                             <div style={{ fontSize: 20, fontWeight: 800, color: sc(coderSummary.cumulative_dpo.proc_accuracy) }}>{coderSummary.cumulative_dpo.proc_accuracy}%</div>
-                            <div style={{ fontSize: 10, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.4 }}>PCS/CPT</div>
+                            <div style={{ fontSize: 10, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.4 }}>Procedure accuracy</div>
+                          </div>
+                        )}
+                        {coderSummary.cumulative_dpo.drg_accuracy != null && (
+                          <div style={{ textAlign: 'center' as const }}>
+                            <div style={{ fontSize: 20, fontWeight: 800, color: sc(coderSummary.cumulative_dpo.drg_accuracy) }}>{coderSummary.cumulative_dpo.drg_accuracy}%</div>
+                            <div style={{ fontSize: 10, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.4 }}>DRG accuracy</div>
                           </div>
                         )}
                       </div>

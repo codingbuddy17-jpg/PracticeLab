@@ -12,7 +12,34 @@ from services.grading_engine import (
     compute_dpo_ip, compute_dpo_op,
     IPAnswerKey, OPAnswerKey, IPSubmission, OPSubmission,
 )
-from .shared import IP_SPECIALTIES, _uses_pointers, _is_single_path, _is_dx_only
+from .shared import IP_SPECIALTIES, _uses_pointers, _uses_dpo, _is_single_path, _is_dx_only
+
+
+def _empty_dpo_fields():
+    return {
+        "dpo_dx_accuracy": None,
+        "dpo_poa_accuracy": None,
+        "dpo_proc_accuracy": None,
+        "dpo_overall_accuracy": None,
+        "dpo_dx_correct": None, "dpo_dx_total": None,
+        "dpo_poa_correct": None, "dpo_poa_total": None,
+        "dpo_proc_correct": None, "dpo_proc_total": None,
+    }
+
+
+def _dpo_fields(dpo, include_poa: bool):
+    return {
+        "dpo_dx_accuracy": dpo.dx.accuracy,
+        "dpo_poa_accuracy": dpo.poa.accuracy if include_poa else None,
+        "dpo_proc_accuracy": dpo.proc.accuracy,
+        "dpo_overall_accuracy": dpo.overall_accuracy,
+        "dpo_dx_correct": dpo.dx.opportunities - dpo.dx.defects,
+        "dpo_dx_total": dpo.dx.opportunities,
+        "dpo_poa_correct": dpo.poa.opportunities - dpo.poa.defects if include_poa else 0,
+        "dpo_poa_total": dpo.poa.opportunities if include_poa else 0,
+        "dpo_proc_correct": dpo.proc.opportunities - dpo.proc.defects,
+        "dpo_proc_total": dpo.proc.opportunities,
+    }
 
 
 def _grade_chart_for_sp(chart, ak_rec, sub_data, ip_cfg, op_cfg, edsp_cfg=None):
@@ -44,14 +71,18 @@ def _grade_chart_for_sp(chart, ak_rec, sub_data, ip_cfg, op_cfg, edsp_cfg=None):
         for fb in res.feedback:
             feedback_items.append({"section": fb.section, "issue": fb.issue_type,
                                    "ak_code": fb.ak_code, "coder_code": fb.coder_code})
-        return {
+        from services.grading_engine import compute_dpo_ed_single_path
+        dpo = compute_dpo_ed_single_path(ak, s, edsp_cfg.overcoding_penalty)
+        result = {
             "weighted_score": res.total_score,
             "pass_fail": res.pass_fail,
             "facility_level_ok": res.facility_level_ok,
             "profee_level_ok": res.profee_level_ok,
             "pdx_score": res.pdx_score, "sdx_score": res.sdx_score,
             "cpt_score": res.cpt_score, "pcs_score": None,
-        }, feedback_items
+        }
+        result.update(_dpo_fields(dpo, include_poa=False))
+        return result, feedback_items
 
     if is_ip:
         ak = IPAnswerKey(
@@ -75,24 +106,15 @@ def _grade_chart_for_sp(chart, ak_rec, sub_data, ip_cfg, op_cfg, edsp_cfg=None):
             feedback_items.append({"section": fb.section, "issue": fb.issue_type,
                                    "ak_code": fb.ak_code, "coder_code": fb.coder_code})
         dpo = compute_dpo_ip(ak, s, ip_cfg.overcoding_penalty)
-        return {
+        result = {
             "weighted_score": pct,
             "pass_fail": "PASS" if passed else "FAIL",
             "drg_flag": bool(res.drg_flag),
-            "dpo_dx_accuracy": dpo.dx.accuracy,
-            "dpo_poa_accuracy": dpo.poa.accuracy,
-            "dpo_proc_accuracy": dpo.proc.accuracy,
-            "dpo_overall_accuracy": dpo.overall_accuracy,
-            # Raw counts — needed for cumulative DPO rollups (avg-of-avgs is wrong)
-            "dpo_dx_correct": dpo.dx.opportunities - dpo.dx.defects,
-            "dpo_dx_total": dpo.dx.opportunities,
-            "dpo_poa_correct": dpo.poa.opportunities - dpo.poa.defects,
-            "dpo_poa_total": dpo.poa.opportunities,
-            "dpo_proc_correct": dpo.proc.opportunities - dpo.proc.defects,
-            "dpo_proc_total": dpo.proc.opportunities,
             "pdx_score": res.pdx_score, "sdx_score": res.sdx_score,
             "pcs_score": res.pcs_score, "cpt_score": None,
-        }, feedback_items
+        }
+        result.update(_dpo_fields(dpo, include_poa=True))
+        return result, feedback_items
     else:
         ak = OPAnswerKey(
             pdx_code=ak_rec.pdx_code or "",
@@ -122,23 +144,18 @@ def _grade_chart_for_sp(chart, ak_rec, sub_data, ip_cfg, op_cfg, edsp_cfg=None):
         for fb in res.feedback:
             feedback_items.append({"section": fb.section, "issue": fb.issue_type,
                                    "ak_code": fb.ak_code, "coder_code": fb.coder_code})
-        dpo = compute_dpo_op(ak, s, op_cfg.overcoding_penalty)
-        return {
+        result = {
             "weighted_score": pct,
             "pass_fail": "PASS" if passed else "FAIL",
-            "dpo_dx_accuracy": dpo.dx.accuracy,
-            "dpo_poa_accuracy": None,
-            "dpo_proc_accuracy": dpo.proc.accuracy,
-            "dpo_overall_accuracy": dpo.overall_accuracy,
-            # Raw counts — needed for cumulative DPO rollups (avg-of-avgs is wrong)
-            "dpo_dx_correct": dpo.dx.opportunities - dpo.dx.defects,
-            "dpo_dx_total": dpo.dx.opportunities,
-            "dpo_poa_correct": 0, "dpo_poa_total": 0,   # OP has no POA
-            "dpo_proc_correct": dpo.proc.opportunities - dpo.proc.defects,
-            "dpo_proc_total": dpo.proc.opportunities,
             "pdx_score": res.pdx_score, "sdx_score": res.sdx_score,
             "pcs_score": None, "cpt_score": res.cpt_score,
-        }, feedback_items
+        }
+        if _uses_dpo(chart.specialty):
+            dpo = compute_dpo_op(ak, s, op_cfg.overcoding_penalty)
+            result.update(_dpo_fields(dpo, include_poa=False))
+        else:
+            result.update(_empty_dpo_fields())
+        return result, feedback_items
 
 
 # ── Re-grading after an answer key changes ───────────────────────────────────

@@ -13,7 +13,8 @@ from openpyxl import load_workbook
 from models import Specialty, SPECIALTY_PREFIX, PREFIX_FOR_SPECIALTY
 from models.practicelab import IssueType
 from routers.practicelab_pkg.shared import (
-    _is_ip, _is_ed, _is_surgery, _uses_pointers, _is_dx_only, _is_single_path,
+    _is_ip, _is_ed, _is_surgery, _uses_pointers, _uses_dpo,
+    _is_dx_only, _is_single_path,
 )
 from services.chart_service import detect_specialty_from_prefix
 from services.excel_service import generate_answer_key_template, parse_answer_key_upload
@@ -63,6 +64,19 @@ class TestSpecialtyWiring:
         assert not _is_ip(Specialty.SURGERY)
         assert _is_dx_only(Specialty.ANCILLARY)
         assert _is_single_path(Specialty.ED_SINGLE_PATH)
+
+    @pytest.mark.parametrize("spec", [
+        Specialty.IP_DRG, Specialty.ED_FACILITY, Specialty.SDS,
+        Specialty.SURGERY, Specialty.ANCILLARY, Specialty.ED_SINGLE_PATH,
+    ])
+    def test_dpo_eligible_specialties(self, spec):
+        assert _uses_dpo(spec)
+
+    @pytest.mark.parametrize("spec", [
+        Specialty.ED_PROFEE, Specialty.EM, Specialty.EDITS, Specialty.DENIALS,
+    ])
+    def test_non_dpo_specialties(self, spec):
+        assert not _uses_dpo(spec)
 
 
 class TestAnswerKeyTemplates:

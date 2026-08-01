@@ -14,7 +14,7 @@ from models import (
 )
 from services.excel_service import export_batch_results
 from services.pdf_report_service import generate_batch_report_pdf
-from .shared import _is_ip
+from .shared import _is_ip, _uses_dpo
 
 router = APIRouter()
 
@@ -221,7 +221,7 @@ def get_batch_results(batch_id: int, db: Session = Depends(get_db)):
                .join(Chart).all())
 
     is_ip = _is_ip(batch.specialty)
-    use_dpo = getattr(batch, "use_dpo", False)
+    use_dpo = bool(getattr(batch, "use_dpo", False) and _uses_dpo(batch.specialty))
 
     coder_map: dict[str, dict] = {}
     for r in results:
@@ -236,6 +236,7 @@ def get_batch_results(batch_id: int, db: Session = Depends(get_db)):
                 "dpo_dx_correct": 0, "dpo_dx_total": 0,
                 "dpo_poa_correct": 0, "dpo_poa_total": 0,
                 "dpo_proc_correct": 0, "dpo_proc_total": 0,
+                "drg_correct": 0, "drg_total": 0,
             }
         d = coder_map[name]
         d["chart_count"] += 1
@@ -249,15 +250,18 @@ def get_batch_results(batch_id: int, db: Session = Depends(get_db)):
             d["total_cnt"] += 1
         if r.pass_fail and r.pass_fail.value == "PASS":
             d["pass_count"] += 1
-        if r.dpo_dx_total is not None:
+        if use_dpo and r.dpo_dx_total is not None:
             d["dpo_dx_correct"] += r.dpo_dx_correct or 0
             d["dpo_dx_total"] += r.dpo_dx_total
-        if r.dpo_poa_total is not None:
+        if use_dpo and r.dpo_poa_total is not None:
             d["dpo_poa_correct"] += r.dpo_poa_correct or 0
             d["dpo_poa_total"] += r.dpo_poa_total
-        if r.dpo_proc_total is not None:
+        if use_dpo and r.dpo_proc_total is not None:
             d["dpo_proc_correct"] += r.dpo_proc_correct or 0
             d["dpo_proc_total"] += r.dpo_proc_total
+        if use_dpo and is_ip and r.drg_score is not None:
+            d["drg_correct"] += 1 if (r.drg_score or 0) > 0 else 0
+            d["drg_total"] += 1
 
         d["charts"].append({
             "chart_number": r.chart.chart_number,
@@ -274,10 +278,10 @@ def get_batch_results(batch_id: int, db: Session = Depends(get_db)):
             "drg_reviewed": r.drg_reviewed,
             "drg_reviewed_by": r.drg_reviewed_by,
             "drg_reviewed_at": r.drg_reviewed_at.isoformat() if r.drg_reviewed_at else None,
-            "dpo_dx_accuracy": r.dpo_dx_accuracy,
-            "dpo_poa_accuracy": r.dpo_poa_accuracy,
-            "dpo_proc_accuracy": r.dpo_proc_accuracy,
-            "dpo_overall_accuracy": r.dpo_overall_accuracy,
+            "dpo_dx_accuracy": r.dpo_dx_accuracy if use_dpo else None,
+            "dpo_poa_accuracy": r.dpo_poa_accuracy if use_dpo else None,
+            "dpo_proc_accuracy": r.dpo_proc_accuracy if use_dpo else None,
+            "dpo_overall_accuracy": r.dpo_overall_accuracy if use_dpo else None,
             "feedback": [
                 {"section": f.section.value, "issue_type": f.issue_type.value,
                  "ak_code": f.ak_code, "coder_code": f.coder_code, "detail": f.detail}
@@ -300,6 +304,7 @@ def get_batch_results(batch_id: int, db: Session = Depends(get_db)):
         dx_acc = _dpo_acc(d["dpo_dx_correct"], d["dpo_dx_total"])
         poa_acc = _dpo_acc(d["dpo_poa_correct"], d["dpo_poa_total"])
         proc_acc = _dpo_acc(d["dpo_proc_correct"], d["dpo_proc_total"])
+        drg_acc = _dpo_acc(d["drg_correct"], d["drg_total"])
         total_opp = d["dpo_dx_total"] + d["dpo_poa_total"] + d["dpo_proc_total"]
         total_correct = d["dpo_dx_correct"] + d["dpo_poa_correct"] + d["dpo_proc_correct"]
         overall_acc = _dpo_acc(total_correct, total_opp)
@@ -316,10 +321,12 @@ def get_batch_results(batch_id: int, db: Session = Depends(get_db)):
                 "dx_accuracy": dx_acc,
                 "poa_accuracy": poa_acc,
                 "proc_accuracy": proc_acc,
+                "drg_accuracy": drg_acc,
                 "overall_accuracy": overall_acc,
                 "dx_correct": d["dpo_dx_correct"], "dx_total": d["dpo_dx_total"],
                 "poa_correct": d["dpo_poa_correct"], "poa_total": d["dpo_poa_total"],
                 "proc_correct": d["dpo_proc_correct"], "proc_total": d["dpo_proc_total"],
+                "drg_correct": d["drg_correct"], "drg_total": d["drg_total"],
             } if d["dpo_dx_total"] or d["dpo_proc_total"] else None,
             # Keep legacy per-chart DPO fields for existing chart-level display
             "dpo_dx_accuracy": dx_acc,

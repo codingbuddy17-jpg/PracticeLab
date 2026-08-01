@@ -118,8 +118,8 @@ export function ScoringConfigView() {
         pass_threshold: f.pass_threshold,
         drg_triggers: tab === 'IP' ? (f.drg_triggers || []) : [],
         overcoding_penalty: f.overcoding_penalty,
-        weighted_enabled: tab === 'EDSP' ? true : f.weighted_enabled ?? true,
-        dpo_enabled: tab === 'EDSP' ? false : f.dpo_enabled ?? true,
+        weighted_enabled: f.weighted_enabled ?? true,
+        dpo_enabled: f.dpo_enabled ?? true,
         dpo_pass_threshold: f.dpo_pass_threshold ?? 80,
         passphrase,
         updated_by: trainerName(),
@@ -311,7 +311,7 @@ export function ScoringConfigView() {
         </div>
       )}
 
-      {tab !== 'EDSP' ? <div style={styles.configSection}>
+      <div style={styles.configSection}>
         <div style={styles.configSectionTitle}>Scoring Method Availability
           <span style={styles.hint}> — disabled methods cannot be selected when creating a batch</span>
         </div>
@@ -322,7 +322,7 @@ export function ScoringConfigView() {
           </label>
           <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontSize: 13 }}>
             <input type="checkbox" checked={f.dpo_enabled ?? true} onChange={e => updateField(tab, 'dpo_enabled', e.target.checked)} />
-            <span><strong>DPO Accuracy</strong> enabled (supplementary, shows per-area accuracy %)</span>
+            <span><strong>Accuracy</strong> enabled (supplementary, shows per-area accuracy %)</span>
           </label>
           {!(f.weighted_enabled ?? true) && !(f.dpo_enabled ?? true) && (
             <div style={{ color: '#dc2626', fontSize: 12 }}>At least one method must remain enabled</div>
@@ -330,7 +330,7 @@ export function ScoringConfigView() {
         </div>
         <div style={{ marginTop: 14 }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 4 }}>
-            DPO Pass Threshold <span style={styles.hint}>(for supplementary reference only)</span>
+            Accuracy Pass Threshold <span style={styles.hint}>(for supplementary reference only)</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <input type="number" min={50} max={100} style={{ ...styles.input, width: 80 }}
@@ -338,14 +338,17 @@ export function ScoringConfigView() {
             <span style={styles.hint}>% accuracy — shown alongside results but does not override weighted pass/fail</span>
           </div>
         </div>
-      </div> : (
-        <div style={styles.configSection}>
-          <div style={styles.configSectionTitle}>Scoring Method Availability</div>
-          <div style={{ fontSize: 13, color: '#374151' }}>
-            ED Single Path uses weighted scoring only. DPO is not calculated for this workflow.
+        {tab === 'OP' && (
+          <div style={{ fontSize: 12, color: '#6b7280', marginTop: 8 }}>
+            OP accuracy applies to ED Facility, SDS, Surgery, and Ancillary batches. ED Profee and E/M do not use supplementary accuracy.
           </div>
-        </div>
-      )}
+        )}
+        {tab === 'EDSP' && (
+          <div style={{ fontSize: 12, color: '#6b7280', marginTop: 8 }}>
+            ED Single Path accuracy counts shared Dx, facility/profee levels, and additional CPTs. Diagnosis pointers are not used.
+          </div>
+        )}
+      </div>
 
       <div style={styles.configSection}>
         <div style={styles.configSectionTitle}>Master Admin Passphrase *</div>

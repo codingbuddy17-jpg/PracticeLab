@@ -9,10 +9,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 import pytest
 from services.grading_engine import (
     grade_ip, grade_op,
-    compute_dpo_ip, compute_dpo_op,
+    compute_dpo_ip, compute_dpo_op, compute_dpo_ed_single_path,
     finalize_ip_score,
-    IPAnswerKey, OPAnswerKey,
-    IPSubmission, OPSubmission,
+    IPAnswerKey, OPAnswerKey, EDSinglePathAnswerKey,
+    IPSubmission, OPSubmission, EDSinglePathSubmission,
     IPScoringCfg, OPScoringCfg,
     norm_dx, norm_pcs, norm_cpt,
 )
@@ -256,6 +256,25 @@ class TestDPOScoring:
         sub = OPSubmission(pdx_code="M79.3", sdx=[], cpt=[{"code": "20610", "modifier": ""}])
         result = compute_dpo_op(ak, sub, overcoding_penalty=True)
         assert result.overall_accuracy == pytest.approx(100.0, abs=0.1)
+
+    def test_dpo_ed_single_path_counts_levels_without_pointers(self):
+        ak = EDSinglePathAnswerKey(
+            pdx_code="S61.401A",
+            sdx=[],
+            cpt=[{"code": "12001", "modifier": "", "pointers": ["A"]}],
+            facility_level="99283",
+            profee_level="99284",
+        )
+        sub = EDSinglePathSubmission(
+            pdx_code="S61.401A",
+            sdx=[],
+            cpt=[{"code": "12001", "modifier": "", "pointers": ["B"]}],
+            facility_level="99283",
+            profee_level="99282",
+        )
+        result = compute_dpo_ed_single_path(ak, sub, overcoding_penalty=True)
+        assert result.proc.opportunities == 3
+        assert result.proc.defects == 1
 
     def test_dpo_result_has_sections(self):
         ak = IPAnswerKey(pdx_code="J18.9", pdx_poa="Y", sdx=[], pcs=[])

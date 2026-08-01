@@ -61,6 +61,38 @@ class TestBatchCreation:
         r = client.post("/practicelab/batches", json=payload)
         assert r.status_code == 400
 
+    def test_dpo_is_allowed_for_eligible_op_batch(self, client, db):
+        seed_charts(db, specialty="Surgery", count=2)
+        payload = {
+            "name": "OP Batch", "specialty": "Surgery",
+            "categories": [], "difficulties": [], "charts_per_coder": 1,
+            "coders": [{"name": "Alice", "emp_id": "E1"}],
+            "created_by": "trainer", "use_weighted": False, "use_dpo": True,
+            "is_direct_assignment": False,
+        }
+        r = client.post("/practicelab/batches", json=payload)
+        assert r.status_code == 200
+        batch_id = r.json().get("id") or r.json().get("batch_id")
+        created = client.get(f"/practicelab/batches/{batch_id}").json()
+        assert created["use_weighted"] is False
+        assert created["use_dpo"] is True
+
+    def test_dpo_is_forced_off_for_non_dpo_specialty(self, client, db):
+        seed_charts(db, specialty="ED Profee", count=2)
+        payload = {
+            "name": "EDP Batch", "specialty": "ED Profee",
+            "categories": [], "difficulties": [], "charts_per_coder": 1,
+            "coders": [{"name": "Alice", "emp_id": "E1"}],
+            "created_by": "trainer", "use_weighted": False, "use_dpo": True,
+            "is_direct_assignment": False,
+        }
+        r = client.post("/practicelab/batches", json=payload)
+        assert r.status_code == 200
+        batch_id = r.json().get("id") or r.json().get("batch_id")
+        created = client.get(f"/practicelab/batches/{batch_id}").json()
+        assert created["use_weighted"] is True
+        assert created["use_dpo"] is False
+
     def test_batch_list_returns_created_batch(self, client, db):
         seed_charts(db, count=10)
         create_batch_via_api(client, db)

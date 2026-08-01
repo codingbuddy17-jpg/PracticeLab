@@ -163,7 +163,7 @@ export function ResultsView({ batchId }: any) {
                     {/* Header bar */}
                     <div style={{ background: '#ede9fe', padding: '7px 18px', display: 'flex', gap: 24 }}>
                       <span style={{ fontSize: 11, fontWeight: 700, color: '#6366f1', textTransform: 'uppercase' as const, letterSpacing: 0.7 }}>Cumulative — This Batch</span>
-                      {use_dpo && c.cumulative_dpo && <span style={{ fontSize: 11, fontWeight: 700, color: '#a78bfa', textTransform: 'uppercase' as const, letterSpacing: 0.7, marginLeft: 'auto' }}>DPO Accuracy</span>}
+                      {use_dpo && c.cumulative_dpo && <span style={{ fontSize: 11, fontWeight: 700, color: '#a78bfa', textTransform: 'uppercase' as const, letterSpacing: 0.7, marginLeft: 'auto' }}>Accuracy</span>}
                     </div>
                     <div style={{ display: 'flex', alignItems: 'stretch' }}>
                       {/* Left: core stats */}
@@ -179,14 +179,14 @@ export function ResultsView({ batchId }: any) {
                           </div>
                         ))}
                       </div>
-                      {/* Right: DPO stats — same size font */}
+                      {/* Right: accuracy stats — same size font */}
                       {use_dpo && c.cumulative_dpo && (
                         <div style={{ display: 'flex', flex: 1, alignItems: 'center' }}>
                           {[
-                            c.cumulative_dpo.dx_total > 0 ? { value: `${c.cumulative_dpo.dx_accuracy}%`, label: 'Dx', color: scoreColor(c.cumulative_dpo.dx_accuracy) } : null,
-                            is_ip && c.cumulative_dpo.poa_total > 0 ? { value: `${c.cumulative_dpo.poa_accuracy}%`, label: 'POA', color: scoreColor(c.cumulative_dpo.poa_accuracy) } : null,
-                            c.cumulative_dpo.proc_total > 0 ? { value: `${c.cumulative_dpo.proc_accuracy}%`, label: is_ip ? 'PCS' : 'CPT', color: scoreColor(c.cumulative_dpo.proc_accuracy) } : null,
-                            c.cumulative_dpo.overall_accuracy != null ? { value: `${c.cumulative_dpo.overall_accuracy}%`, label: 'Overall DPO', color: scoreColor(c.cumulative_dpo.overall_accuracy), bold: true } : null,
+                            c.cumulative_dpo.overall_accuracy != null ? { value: `${c.cumulative_dpo.overall_accuracy}%`, label: 'Overall accuracy (DPO)', color: scoreColor(c.cumulative_dpo.overall_accuracy), bold: true } : null,
+                            c.cumulative_dpo.dx_total > 0 ? { value: `${c.cumulative_dpo.dx_accuracy}%`, label: 'Diagnosis accuracy', color: scoreColor(c.cumulative_dpo.dx_accuracy) } : null,
+                            c.cumulative_dpo.proc_total > 0 ? { value: `${c.cumulative_dpo.proc_accuracy}%`, label: 'Procedure accuracy', color: scoreColor(c.cumulative_dpo.proc_accuracy) } : null,
+                            is_ip && c.cumulative_dpo.drg_total > 0 ? { value: `${c.cumulative_dpo.drg_accuracy}%`, label: 'DRG accuracy', color: scoreColor(c.cumulative_dpo.drg_accuracy) } : null,
                           ].filter(Boolean).map((s: any, si, arr) => (
                             <div key={si} style={{ textAlign: 'center' as const, padding: '16px 20px', flex: 1, borderRight: si < arr.length - 1 ? '1px solid #e0e7ff' : 'none', background: s.bold ? '#f5f3ff' : undefined }}>
                               <div style={{ fontSize: 26, fontWeight: 800, color: s.color, lineHeight: 1 }}>{s.value}</div>

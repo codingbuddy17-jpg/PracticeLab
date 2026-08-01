@@ -746,6 +746,41 @@ def compute_dpo_op(ak: OPAnswerKey, sub: OPSubmission, overcoding_penalty: bool)
     )
 
 
+def compute_dpo_ed_single_path(
+    ak: EDSinglePathAnswerKey,
+    sub: EDSinglePathSubmission,
+    overcoding_penalty: bool,
+) -> DPOResult:
+    """DPO supplementary scoring for ED Single Path. Dx pointers are not used."""
+    base = compute_dpo_op(
+        OPAnswerKey(pdx_code=ak.pdx_code, sdx=ak.sdx, cpt=ak.cpt),
+        OPSubmission(pdx_code=sub.pdx_code, sdx=sub.sdx, cpt=sub.cpt),
+        overcoding_penalty=overcoding_penalty,
+    )
+
+    level_opp = 0
+    level_defects = 0
+    if _clean(ak.facility_level):
+        level_opp += 1
+        if norm_cpt(sub.facility_level) != norm_cpt(ak.facility_level):
+            level_defects += 1
+    if _clean(ak.profee_level):
+        level_opp += 1
+        if norm_cpt(sub.profee_level) != norm_cpt(ak.profee_level):
+            level_defects += 1
+
+    proc = DPOSection(
+        "Level/CPT Accuracy",
+        base.proc.opportunities + level_opp,
+        base.proc.defects + level_defects,
+    )
+    total_opp = base.dx.opportunities + proc.opportunities
+    total_def = base.dx.defects + proc.defects
+    overall = round(max(0.0, (1 - total_def / total_opp)) * 100, 1) if total_opp > 0 else 100.0
+
+    return DPOResult(dx=base.dx, poa=base.poa, proc=proc, overall_accuracy=overall)
+
+
 def cfg_from_db(db_row) -> "IPScoringCfg | OPScoringCfg | EDSinglePathCfg":
     """Convert a ScoringConfig DB row to the appropriate config dataclass."""
     if db_row.specialty_type == "IP":

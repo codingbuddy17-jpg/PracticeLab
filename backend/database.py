@@ -187,14 +187,18 @@ def _run_migrations():
     _run("""INSERT INTO scoring_configs
         (specialty_type, pdx_weight, sdx_weight, pcs_weight, drg_weight,
          cpt_weight, facility_level_weight, profee_level_weight,
-         pass_threshold, drg_triggers, overcoding_penalty)
+         pass_threshold, drg_triggers, overcoding_penalty, weighted_enabled,
+         dpo_enabled, dpo_pass_threshold)
        VALUES
         ('IP', 20, 20, 20, 40, NULL, NULL, NULL, 80,
          '["pdx_mismatch","ccmcc_missing","pcs_undercoded","pcs_overcoded","spurious_sdx","spurious_pcs"]',
-         1),
-        ('OP', 25, 25, NULL, NULL, 50, NULL, NULL, 90, '[]', 1),
-        ('EDSP', 20, 20, NULL, NULL, 20, 20, 20, 90, '[]', 1)
+         1, 1, 1, 80.0),
+        ('OP', 25, 25, NULL, NULL, 50, NULL, NULL, 90, '[]', 1, 1, 1, 80.0),
+        ('EDSP', 20, 20, NULL, NULL, 20, 20, 20, 90, '[]', 1, 1, 1, 80.0)
        ON CONFLICT (specialty_type) DO NOTHING""")
+    _run("UPDATE scoring_configs SET dpo_enabled = 1 WHERE specialty_type IN ('IP', 'OP', 'EDSP')")
+    _run("""UPDATE batches SET use_dpo = FALSE
+            WHERE specialty NOT IN ('IP-DRG', 'ED Facility', 'SDS', 'Surgery', 'Ancillary', 'ED Single Path')""")
 
     # ── self_practice tables ──────────────────────────────────────────────────
     _run("""CREATE TABLE IF NOT EXISTS self_practice_submissions (
