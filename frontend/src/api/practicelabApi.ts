@@ -257,9 +257,28 @@ export async function getCoderSummary(coderName: string, f: PLFilters = {}) {
   return data
 }
 
-export function downloadCoderReportPdf(coderName: string, f: PLFilters = {}) {
-  const params = new URLSearchParams({ coder_name: coderName, ...(fp(f) as Record<string, string>) })
-  window.open(`${import.meta.env.VITE_API_URL || '/api'}/practicelab/analytics/coder-report.pdf?${params.toString()}`, '_blank')
+/**
+ * Fetches the report as a blob rather than window.open()-ing the URL.
+ *
+ * window.open sends the browser to the endpoint directly, so a 404 (no results
+ * in the selected range) rendered the raw JSON error in a blank tab. Fetching
+ * lets the caller surface a normal message instead.
+ *
+ * Throws with the server's detail message when there is nothing to report.
+ */
+export async function downloadCoderReportPdf(coderName: string, f: PLFilters = {}) {
+  const { data } = await api.get('/practicelab/analytics/coder-report.pdf', {
+    params: { coder_name: coderName, ...fp(f) },
+    responseType: 'blob',
+  })
+  const url = URL.createObjectURL(data as Blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${coderName.replace(/\s+/g, '_')}_Performance_Report.pdf`
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
 }
 
 export function downloadSessionCoderReportPdf(sessionId: number) {
