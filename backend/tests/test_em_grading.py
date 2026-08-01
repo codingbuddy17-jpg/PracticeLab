@@ -302,3 +302,48 @@ class TestEMSubmissionCarriesPointers:
         })
         assert out["sub_procedure_cpts"] == [
             {"code": "20610", "modifier": "RT", "pointers": ["A", "B"]}]
+
+
+class TestEMModifier:
+    """
+    Graded exactly like a CPT modifier: the code+modifier PAIR must match, so a
+    missing or wrong modifier 25 costs the E/M level component outright.
+    """
+
+    def test_matching_modifier_scores(self):
+        res = grade({"em_modifier": "25"}, {"sub_em_modifier": "25"})
+        assert res["em_level_score"] > 0
+        assert not res["modifier_mismatch"]
+
+    def test_missing_modifier_loses_the_level(self):
+        res = grade({"em_modifier": "25"}, {"sub_em_modifier": ""})
+        assert res["em_level_score"] == 0
+        assert res["modifier_mismatch"]
+
+    def test_unexpected_modifier_loses_the_level(self):
+        res = grade({"em_modifier": ""}, {"sub_em_modifier": "25"})
+        assert res["em_level_score"] == 0
+        assert res["modifier_mismatch"]
+
+    def test_both_blank_is_fine(self):
+        res = grade()
+        assert res["em_level_score"] > 0
+        assert not res["modifier_mismatch"]
+
+    def test_multi_modifier_order_and_separator_independent(self):
+        """Same normalisation CPT lines get — '25,59' and '59;25' are equal."""
+        res = grade({"em_modifier": "25,59"}, {"sub_em_modifier": "59;25"})
+        assert res["em_level_score"] > 0
+
+    def test_modifier_typed_into_the_code_cell_is_recovered(self):
+        """Coders write '99214-25' with the modifier column blank."""
+        res = grade({"em_modifier": "25"},
+                    {"sub_em_code": "99214-25", "sub_em_modifier": ""})
+        assert res["em_level_score"] > 0
+
+    def test_modifier_mismatch_not_flagged_when_the_code_is_already_wrong(self):
+        """Avoid blaming the modifier when the level was lost anyway."""
+        res = grade({"em_modifier": "25"},
+                    {"sub_em_code": "99212", "sub_em_modifier": ""})
+        assert res["em_level_score"] == 0
+        assert not res["modifier_mismatch"]

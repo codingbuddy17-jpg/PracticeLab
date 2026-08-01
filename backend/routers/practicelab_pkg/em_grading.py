@@ -266,20 +266,35 @@ def grade_em_chart(ak: dict, sub: dict, cfg: dict, overcoding_penalty: bool = Tr
 
     # ── Coding Accuracy ───────────────────────────────────────────────────────
     # E/M Level — complexity AND patient type must both match (when AK patient_type != NA)
-    sub_em_level = em_code_to_level(sub.get("sub_em_code") or "")
-    ak_em_level = em_code_to_level(ak.get("em_code") or "")
+    # Resolve code + modifier through the same helper CPT lines use, so the
+    # comparison is identical: multi-modifier cells are order/separator
+    # independent, and a modifier typed into the code cell ("99213-25" with the
+    # modifier column left blank) is recovered rather than failing the match.
+    from services.grading_engine import resolve_cpt_modifier
+
+    ak_code_n, ak_mod_n = resolve_cpt_modifier(ak.get("em_code"), ak.get("em_modifier"))
+    sub_code_n, sub_mod_n = resolve_cpt_modifier(sub.get("sub_em_code"), sub.get("sub_em_modifier"))
+
+    sub_em_level = em_code_to_level(sub_code_n)
+    ak_em_level = em_code_to_level(ak_code_n)
     ak_patient_type = (ak.get("patient_type") or "NA").upper().strip()
     sub_patient_type = (sub.get("sub_patient_type") or "NA").upper().strip()
     patient_type_ok = (ak_patient_type == "NA") or (sub_patient_type == ak_patient_type)
     # 99211 (nurse visit) carries no MDM level, so em_code_to_level returns None
     # and a level comparison can never succeed — an exactly-correct 99211 scored
     # zero. Fall back to code equality for any code outside the MDM table.
-    sub_code_n = (sub.get("sub_em_code") or "").strip().upper()
-    ak_code_n = (ak.get("em_code") or "").strip().upper()
     level_match = bool(sub_em_level) and sub_em_level == ak_em_level
     code_match = bool(ak_code_n) and sub_code_n == ak_code_n
-    em_level_score = em_w_adj if ((level_match or code_match) and patient_type_ok) else 0.0
+    # Modifier is graded exactly like a CPT modifier: the code+modifier PAIR has
+    # to match, so a missing or wrong modifier 25 costs the E/M level component
+    # the same way it costs a CPT line.
+    modifier_ok = (ak_mod_n == sub_mod_n)
+    em_level_score = em_w_adj if (
+        (level_match or code_match) and patient_type_ok and modifier_ok) else 0.0
     patient_type_mismatch = (ak_patient_type != "NA") and (not patient_type_ok)
+    # Only flagged when everything else was right — so the feedback can say the
+    # modifier alone was what cost the points.
+    modifier_mismatch = (level_match or code_match) and patient_type_ok and not modifier_ok
 
     # ── Levelling method: MDM or Time ────────────────────────────────────────
     # Coding Accuracy is scored on the final code regardless of method — either
@@ -425,6 +440,9 @@ def grade_em_chart(ak: dict, sub: dict, cfg: dict, overcoding_penalty: bool = Tr
         "method_mismatch": method_mismatch,
         "time_ok": time_ok,
         "pointer_errors": pointer_errors,
+        "modifier_mismatch": modifier_mismatch,
+        "ak_em_modifier": ak_mod_n,
+        "sub_em_modifier": sub_mod_n,
         "em_level_score": round(em_level_score, 2),
         "cpt_score": round(cpt_score, 2),
         "dx_score": round(dx_score, 2),

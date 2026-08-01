@@ -162,6 +162,14 @@ def _em_feedback_items(scoring: dict, ak: dict, em: dict, cfg: dict) -> list:
             "issue": "Total time does not support the documented level",
             "ak_code": "", "coder_code": "",
         })
+    if scoring.get("modifier_mismatch"):
+        items.append({
+            "section": "Coding Accuracy",
+            "issue": f"E/M modifier mismatch — key {scoring.get('ak_em_modifier') or '(none)'}, "
+                     f"coded {scoring.get('sub_em_modifier') or '(none)'}; level points not earned",
+            "ak_code": scoring.get("ak_em_modifier", ""),
+            "coder_code": scoring.get("sub_em_modifier", ""),
+        })
     if scoring.get("patient_type_mismatch"):
         items.append({
             "section": "Coding Accuracy",
