@@ -156,17 +156,31 @@ def analytics_by_batch(
     return out
 
 
+def _coder_filter(q, coder_name: Optional[str], emp_id: Optional[str]):
+    """
+    Identify a coder by emp_id when we have one, otherwise by name.
+
+    emp_id is the stable identity — names are free text, so variants fork one
+    person's history and duplicates merge two people. Name is kept as a fallback
+    for coders enrolled without an ID.
+    """
+    if emp_id:
+        return q.filter(GradingResult.emp_id == emp_id)
+    return q.filter(GradingResult.coder_name == coder_name)
+
+
 @router.get("/analytics/coder-trend")
 def coder_trend(
     coder_name: str,
     from_date: Optional[str] = None, to_date: Optional[str] = None, specialty: Optional[str] = None,
+    emp_id: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
     q = (db.query(GradingResult)
-         .filter(GradingResult.coder_name == coder_name,
-                 GradingResult.total_score.isnot(None))
+         .filter(GradingResult.total_score.isnot(None))
          .join(Batch)
          .order_by(Batch.created_at))
+    q = _coder_filter(q, coder_name, emp_id)
     if from_date:
         q = q.filter(GradingResult.graded_at >= from_date)
     if to_date:
@@ -210,13 +224,14 @@ def coder_trend(
 def coder_summary(
     coder_name: str,
     from_date: Optional[str] = None, to_date: Optional[str] = None, specialty: Optional[str] = None,
+    emp_id: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
     """Full coder profile across all batches — cumulative weighted + DPO scores, category breakdown, batch history."""
     q = (db.query(GradingResult)
-         .filter(GradingResult.coder_name == coder_name)
          .join(Batch).join(Chart, GradingResult.chart_id == Chart.id)
          .order_by(Batch.created_at))
+    q = _coder_filter(q, coder_name, emp_id)
     if from_date:
         q = q.filter(GradingResult.graded_at >= from_date)
     if to_date:
@@ -239,11 +254,16 @@ def build_coder_summary(results, coder_name: str, db: Session):
     if not results:
         return None
 
-    emp_id_row = (db.query(BatchCoder.emp_id)
-                  .filter(BatchCoder.coder_name == coder_name, BatchCoder.emp_id.isnot(None), BatchCoder.emp_id != "")
-                  .order_by(BatchCoder.id.desc())
-                  .first())
-    emp_id = emp_id_row[0] if emp_id_row else None
+    # Prefer the id carried on the results themselves; only fall back to the
+    # roster lookup for rows written before emp_id existed on GradingResult.
+    emp_id = next((r.emp_id for r in results if r.emp_id), None)
+    if not emp_id:
+        emp_id_row = (db.query(BatchCoder.emp_id)
+                      .filter(BatchCoder.coder_name == coder_name,
+                              BatchCoder.emp_id.isnot(None), BatchCoder.emp_id != "")
+                      .order_by(BatchCoder.id.desc())
+                      .first())
+        emp_id = emp_id_row[0] if emp_id_row else None
 
     # ── Cumulative weighted ──────────────────────────────────────────────────
     scored = [r for r in results if r.total_score is not None]
@@ -376,9 +396,10 @@ def build_coder_summary(results, coder_name: str, db: Session):
 def coder_report_pdf(
     coder_name: str,
     from_date: Optional[str] = None, to_date: Optional[str] = None, specialty: Optional[str] = None,
+    emp_id: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
-    summary = coder_summary(coder_name, from_date, to_date, specialty, db)
+    summary = coder_summary(coder_name, from_date, to_date, specialty, emp_id, db)
     if not summary:
         raise HTTPException(status_code=404, detail="No data for this coder")
 
@@ -632,3 +653,73 @@ def chart_detail(chart_number: str, db: Session = Depends(get_db)):
         "chart_number": chart_number,
         "coders": sorted(coders, key=lambda x: x["total_score"] or 0),
     }
+
+
+@router.get("/coders")
+def list_coders(
+    q: Optional[str] = None,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+):
+    """
+    Searchable coder directory.
+
+    Built from BOTH the batch roster and graded results, so it includes coders
+    who only appear in open batches or direct assignments — the coder-matrix
+    endpoint the picker used before is restricted to CLOSED, non-direct batches,
+    so those people were simply unselectable.
+
+    Also far cheaper: coder-matrix computes an N x M grid of every result just to
+    yield a name list.
+    """
+    people: dict = {}
+
+    def _key(name: str, emp: Optional[str]) -> str:
+        # emp_id is the identity when present; name only as a fallback
+        return f"E:{emp}" if emp else f"N:{(name or '').strip().lower()}"
+
+    for name, emp in (db.query(BatchCoder.coder_name, BatchCoder.emp_id)
+                      .filter(BatchCoder.coder_name.isnot(None)).all()):
+        k = _key(name, emp)
+        people.setdefault(k, {"coder_name": name, "emp_id": emp or None,
+                              "result_count": 0, "last_activity": None,
+                              "name_variants": set()})
+        people[k]["name_variants"].add(name)
+
+    rows = (db.query(GradingResult.coder_name, GradingResult.emp_id,
+                     func.count(GradingResult.id).label("n"),
+                     func.max(GradingResult.graded_at).label("last"))
+            .group_by(GradingResult.coder_name, GradingResult.emp_id).all())
+    for name, emp, n, last in rows:
+        k = _key(name, emp)
+        rec = people.setdefault(k, {"coder_name": name, "emp_id": emp or None,
+                                    "result_count": 0, "last_activity": None,
+                                    "name_variants": set()})
+        rec["result_count"] += n or 0
+        rec["name_variants"].add(name)
+        if last and (rec["last_activity"] is None or last > rec["last_activity"]):
+            rec["last_activity"] = last
+        if emp and not rec["emp_id"]:
+            rec["emp_id"] = emp
+
+    out = []
+    for rec in people.values():
+        variants = sorted(v for v in rec["name_variants"] if v)
+        out.append({
+            "coder_name": rec["coder_name"],
+            "emp_id": rec["emp_id"],
+            "result_count": rec["result_count"],
+            "last_activity": rec["last_activity"].isoformat() if rec["last_activity"] else None,
+            # Surfaced so a trainer can SEE that one person is spelled two ways
+            # rather than silently getting a split history.
+            "name_variants": variants if len(variants) > 1 else [],
+        })
+
+    if q:
+        needle = q.strip().lower()
+        out = [c for c in out
+               if needle in (c["coder_name"] or "").lower()
+               or needle in (c["emp_id"] or "").lower()]
+
+    out.sort(key=lambda c: (-c["result_count"], (c["coder_name"] or "").lower()))
+    return {"coders": out[:max(1, min(limit, 500))], "total": len(out)}

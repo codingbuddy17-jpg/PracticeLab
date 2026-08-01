@@ -139,6 +139,9 @@ def _run_migrations():
     _add_col("grading_results", "dpo_proc_accuracy", "FLOAT")
     _add_col("grading_results", "dpo_overall_accuracy", "FLOAT")
     # Raw DPO counts for correct cumulative aggregation
+    # Stable coder identity — see GradingResult.emp_id
+    _add_col("grading_results", "emp_id", "VARCHAR(50)")
+
     _add_col("grading_results", "dpo_dx_correct",   "INTEGER")
     _add_col("grading_results", "dpo_dx_total",     "INTEGER")
     _add_col("grading_results", "dpo_poa_correct",  "INTEGER")
@@ -487,6 +490,9 @@ def _run_migrations():
     # ── Mirror historical practice results into grading_results ───────────────
     _backfill_practice_grading_results()
 
+    # ── Stable coder identity on results ─────────────────────────────────────
+    _backfill_grading_result_emp_ids()
+
     _add_col("em_answer_keys", "patient_type", "VARCHAR(20) NOT NULL DEFAULT 'NA'", "TEXT NOT NULL DEFAULT 'NA'")
 
     # ── New specialties: Surgery (profee surgical) + ED Single Path ───────────
@@ -797,6 +803,36 @@ def _backfill_practice_grading_results() -> None:
 
         if created:
             logger.info("_backfill_practice_grading_results: mirrored %d practice result(s)", created)
+
+
+def _backfill_grading_result_emp_ids() -> None:
+    """
+    Populate grading_results.emp_id from the batch roster.
+
+    coder_name is free text, so it is not a safe identity: spelling variants
+    fork one person's history and duplicate names merge two people. emp_id is
+    captured on batch_coders at enrolment; this copies it onto results written
+    before the column existed. Idempotent — only fills rows that are still null.
+    """
+    with engine.connect() as conn:
+        try:
+            res = conn.execute(text("""
+                UPDATE grading_results
+                SET emp_id = (
+                    SELECT bc.emp_id FROM batch_coders bc
+                    WHERE bc.batch_id = grading_results.batch_id
+                      AND bc.coder_name = grading_results.coder_name
+                      AND bc.emp_id IS NOT NULL AND bc.emp_id != ''
+                    LIMIT 1
+                )
+                WHERE emp_id IS NULL
+            """))
+            conn.commit()
+            if res.rowcount:
+                logger.info("_backfill_grading_result_emp_ids: filled %d row(s)", res.rowcount)
+        except Exception as exc:
+            logger.warning("_backfill_grading_result_emp_ids skipped: %s", exc)
+            conn.rollback()
 
 
 def _clean_none_in_answer_keys() -> None:

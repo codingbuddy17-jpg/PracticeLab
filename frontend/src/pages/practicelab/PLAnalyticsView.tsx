@@ -12,6 +12,7 @@ import {
   getBatchEMBreakdown,
   type PLFilters,
 } from '../../api'
+import { CoderPicker } from '../../components/CoderPicker'
 import { round1 } from './shared'
 import styles from './styles'
 
@@ -42,6 +43,9 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
   // The coder whose data is currently on screen — distinct from the text in
   // the input box, so a filter change can re-fetch the RIGHT coder.
   const [loadedCoder, setLoadedCoder] = useState('')
+  // emp_id is the stable identity — see GradingResult.emp_id
+  const [coderEmpId, setCoderEmpId] = useState<string | null>(null)
+  const [loadedEmpId, setLoadedEmpId] = useState<string | null>(null)
   const [coderEmpty, setCoderEmpty] = useState(false)
   const [coderLoading, setCoderLoading] = useState(false)
   const [categoryData, setCategoryData] = useState<{ team: any[]; coder_category: any[]; coder_scope_note?: string } | null>(null)
@@ -131,17 +135,18 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
     }
   }, [tab, emBatchId])
 
-  async function fetchCoder(name: string) {
-    if (!name) return
+  async function fetchCoder(name: string, empId: string | null = coderEmpId) {
+    if (!name && !empId) return
     setCoderLoading(true)
     setCoderSummary(null)
     setCoderTrend([])
     setCoderEmpty(false)
     const [summary, trend] = await Promise.all([
-      getCoderSummary(name, filters).catch(() => null),
-      getCoderTrend(name, filters).catch(() => null),
+      getCoderSummary(name, filters, empId).catch(() => null),
+      getCoderTrend(name, filters, empId).catch(() => null),
     ])
     setLoadedCoder(name)
+    setLoadedEmpId(empId)
     // An empty result under an active filter is a real answer, not a failure —
     // show it on screen rather than leaving the previous numbers up.
     setCoderEmpty(!summary && !trend?.length)
@@ -150,12 +155,13 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
     setCoderLoading(false)
   }
 
-  function loadCoderTrend() { fetchCoder(coderName.trim()) }
+  function loadCoderTrend() { fetchCoder(coderName.trim(), coderEmpId) }
 
-  function jumpToCoder(name: string) {
+  function jumpToCoder(name: string, empId: string | null = null) {
     setCoderName(name)
+    setCoderEmpId(empId)
     setTab('coder')
-    fetchCoder(name)
+    fetchCoder(name, empId)
   }
 
   // Re-fetch whenever the date/specialty filter changes. Without this the coder
@@ -163,7 +169,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
   // so the screen and the download disagreed — and an empty range only surfaced
   // as a blank tab from the download.
   useEffect(() => {
-    if (loadedCoder) fetchCoder(loadedCoder)
+    if (loadedCoder || loadedEmpId) fetchCoder(loadedCoder, loadedEmpId)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterVersion])
 
@@ -466,10 +472,16 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
       {tab === 'coder' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-            <input list="coder-suggestions" style={{ ...styles.input, width: 260 }} placeholder="Enter or select coder name"
-              value={coderName} onChange={e => setCoderName(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && loadCoderTrend()} />
-            <datalist id="coder-suggestions">{(matrixData?.coders || []).map((n: string) => <option key={n} value={n} />)}</datalist>
+            <CoderPicker
+              value={coderName}
+              empId={coderEmpId}
+              width={320}
+              onSelect={(name, empId) => {
+                setCoderName(name)
+                setCoderEmpId(empId)
+                if (name) fetchCoder(name, empId)
+              }}
+            />
             <button style={styles.primaryBtn} onClick={loadCoderTrend} disabled={coderLoading}>
               {coderLoading ? 'Loading…' : 'Look Up'}
             </button>
@@ -478,7 +490,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
             {(coderSummary || coderTrend.length > 0) && (
               <button style={styles.outlineBtn} onClick={async () => {
                 try {
-                  await downloadCoderReportPdf(loadedCoder, filters)
+                  await downloadCoderReportPdf(loadedCoder, filters, loadedEmpId)
                 } catch {
                   toast.error('No report could be generated for this coder in the selected range')
                 }

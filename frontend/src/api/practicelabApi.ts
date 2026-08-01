@@ -247,13 +247,13 @@ export async function getPLAnalyticsByBatch(f: PLFilters = {}) {
   return data
 }
 
-export async function getCoderTrend(coderName: string, f: PLFilters = {}) {
-  const { data } = await api.get('/practicelab/analytics/coder-trend', { params: { coder_name: coderName, ...fp(f) } })
+export async function getCoderTrend(coderName: string, f: PLFilters = {}, empId?: string | null) {
+  const { data } = await api.get('/practicelab/analytics/coder-trend', { params: { coder_name: coderName, emp_id: empId || undefined, ...fp(f) } })
   return data
 }
 
-export async function getCoderSummary(coderName: string, f: PLFilters = {}) {
-  const { data } = await api.get('/practicelab/analytics/coder-summary', { params: { coder_name: coderName, ...fp(f) } })
+export async function getCoderSummary(coderName: string, f: PLFilters = {}, empId?: string | null) {
+  const { data } = await api.get('/practicelab/analytics/coder-summary', { params: { coder_name: coderName, emp_id: empId || undefined, ...fp(f) } })
   return data
 }
 
@@ -266,9 +266,9 @@ export async function getCoderSummary(coderName: string, f: PLFilters = {}) {
  *
  * Throws with the server's detail message when there is nothing to report.
  */
-export async function downloadCoderReportPdf(coderName: string, f: PLFilters = {}) {
+export async function downloadCoderReportPdf(coderName: string, f: PLFilters = {}, empId?: string | null) {
   const { data } = await api.get('/practicelab/analytics/coder-report.pdf', {
-    params: { coder_name: coderName, ...fp(f) },
+    params: { coder_name: coderName, emp_id: empId || undefined, ...fp(f) },
     responseType: 'blob',
   })
   const url = URL.createObjectURL(data as Blob)
@@ -434,4 +434,20 @@ export async function saveAnswerKeyInline(chartId: number, payload: {
 }) {
   const { data } = await api.put(`/practicelab/answer-key/${chartId}`, payload)
   return data as { saved: boolean; created: boolean; regraded: number; skipped_closed: number; sessions: number }
+}
+
+// ── Coder directory ─────────────────────────────────────────────────────────
+
+export interface CoderDirectoryEntry {
+  coder_name: string
+  emp_id: string | null
+  result_count: number
+  last_activity: string | null
+  /** Populated only when one emp_id has been spelled more than one way. */
+  name_variants: string[]
+}
+
+export async function searchCoders(q?: string, limit = 50) {
+  const { data } = await api.get('/practicelab/coders', { params: { q, limit } })
+  return data as { coders: CoderDirectoryEntry[]; total: number }
 }

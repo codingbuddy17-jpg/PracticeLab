@@ -664,6 +664,14 @@ def _sync_grading_result(db, session_id, chart_id, specialty, result_kwargs, fee
     pf_raw = r.get("pass_fail")
     pass_fail = PassFail(pf_raw) if pf_raw in ("PASS", "FAIL") else None
 
+    # Stable identity comes from the batch roster, which is where emp_id is
+    # captured. Without it every report keys off a free-text name.
+    emp_id = db.execute(text(
+        "SELECT emp_id FROM batch_coders WHERE batch_id=:b AND coder_name=:n "
+        "AND emp_id IS NOT NULL AND emp_id != '' LIMIT 1"
+    ), {"b": batch_id, "n": coder_name}).fetchone()
+    emp_id = emp_id[0] if emp_id else None
+
     row = (db.query(GradingResult)
            .filter(GradingResult.batch_id == batch_id,
                    GradingResult.coder_name == coder_name,
@@ -675,6 +683,7 @@ def _sync_grading_result(db, session_id, chart_id, specialty, result_kwargs, fee
                             specialty=specialty)
         db.add(row)
 
+    row.emp_id = emp_id or row.emp_id
     row.specialty = specialty
     row.total_score = r.get("weighted_score")
     row.pass_fail = pass_fail

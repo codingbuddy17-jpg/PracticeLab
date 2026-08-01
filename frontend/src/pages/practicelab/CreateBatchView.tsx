@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Download, Upload, Loader } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { getPoolPreview, parseCoderList, createBatch, downloadCoderListTemplate } from '../../api'
+import { CoderPicker } from '../../components/CoderPicker'
 import { trainerName, SPECIALTIES, DIFFICULTIES } from './shared'
 import styles from './styles'
 
@@ -262,9 +263,18 @@ export function CreateBatchView({ onCreated, onCancel, scoringCfg, directMode: d
         </div>
         {coderMode === 'quick' && (
           <div style={styles.quickAddRow}>
-            <input style={{ ...styles.input, flex: 1 }} placeholder="Coder name"
-              value={quickRow.name} onChange={e => setQuickRow(r => ({ ...r, name: e.target.value }))}
-              onKeyDown={e => e.key === 'Enter' && addQuickCoder()} />
+            {/* Picking an existing coder carries their Emp ID across, so a new
+                spelling does not fork the history they already have. */}
+            <div style={{ flex: 1 }}>
+              <CoderPicker
+                value={quickRow.name}
+                width="100%"
+                allowFreeText
+                placeholder="Coder name — search or type a new one"
+                onSelect={(name, empId) =>
+                  setQuickRow(r => ({ ...r, name, emp_id: empId || r.emp_id }))}
+              />
+            </div>
             <input style={{ ...styles.input, width: 130 }} placeholder="Emp ID"
               value={quickRow.emp_id} onChange={e => setQuickRow(r => ({ ...r, emp_id: e.target.value }))}
               onKeyDown={e => e.key === 'Enter' && addQuickCoder()} />

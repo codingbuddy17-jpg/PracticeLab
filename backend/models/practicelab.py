@@ -161,6 +161,11 @@ class GradingResult(Base):
     batch_id = Column(Integer, ForeignKey("batches.id"), nullable=False)
     submission_id = Column(Integer, ForeignKey("submissions.id"), nullable=True)
     coder_name = Column(String(100), nullable=False)
+    # Stable identity. coder_name is free text, so "John Smith" / "john smith" /
+    # "Smith, John" fork one person's history and two real people sharing a name
+    # merge into one. Analytics prefer emp_id and fall back to the name for rows
+    # that predate it or coders enrolled without one.
+    emp_id = Column(String(50), nullable=True, index=True)
     chart_id = Column(Integer, ForeignKey("charts.id"), nullable=False)
     specialty = Column(SAEnum(Specialty), nullable=False)
     pdx_score = Column(Integer, default=0)

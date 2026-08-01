@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 from pydantic import BaseModel
 from database import get_db
 from models import (
@@ -115,10 +116,17 @@ def grade_ed_chart(batch_id: int, payload: EDRubricPayload, db: Session = Depend
             )
             db.add(rubric)
     else:
+        # Stable identity from the batch roster — see GradingResult.emp_id
+        _emp = db.execute(text(
+            "SELECT emp_id FROM batch_coders WHERE batch_id=:b AND coder_name=:n "
+            "AND emp_id IS NOT NULL AND emp_id != '' LIMIT 1"
+        ), {"b": batch_id, "n": payload.coder_name}).fetchone()
+
         result = GradingResult(
             batch_id=batch_id,
             submission_id=None,
             coder_name=payload.coder_name,
+            emp_id=_emp[0] if _emp else None,
             chart_id=payload.chart_id,
             specialty=batch.specialty,
             total_score=total_score,

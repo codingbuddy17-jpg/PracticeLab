@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Loader, Download, BarChart2, Search, CheckSquare, Square, CheckCircle, Circle, AlertCircle, ChevronDown, ChevronRight, Key, Copy, Eye } from 'lucide-react'
 import toast from 'react-hot-toast'
 import RandomisationStatsCard from '../../components/RandomisationStatsCard'
+import { CoderPicker } from '../../components/CoderPicker'
 import {
   getBatch, closeBatch, addBatchNote,
   downloadBatchResultsExcel,
@@ -632,12 +633,18 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
           <div style={{ fontSize: 13, fontWeight: 700, color: '#374151', marginBottom: 10 }}>Add coder(s) to this batch</div>
           {newCoders.map((row, i) => (
             <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
-              <input
-                style={{ ...styles.input, flex: 2, margin: 0, fontSize: 13 }}
-                placeholder="Coder name *"
-                value={row.name}
-                onChange={e => setNewCoders(prev => prev.map((r, j) => j === i ? { ...r, name: e.target.value } : r))}
-              />
+              {/* Selecting an existing coder brings their Emp ID with them, so a
+                  variant spelling does not split their record. */}
+              <div style={{ flex: 2 }}>
+                <CoderPicker
+                  value={row.name}
+                  width="100%"
+                  allowFreeText
+                  placeholder="Coder name — search or type a new one"
+                  onSelect={(name, empId) => setNewCoders(prev => prev.map((r, j) =>
+                    j === i ? { ...r, name, emp_id: empId || r.emp_id } : r))}
+                />
+              </div>
               <input
                 style={{ ...styles.input, flex: 1, margin: 0, fontSize: 13 }}
                 placeholder="Emp ID (optional)"
