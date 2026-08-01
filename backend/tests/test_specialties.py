@@ -148,6 +148,21 @@ class TestEDSinglePath:
         assert res.profee_level_ok and not res.facility_level_ok
 
     def test_pointers_are_not_enforced_for_single_path(self):
+        """
+        DELIBERATE, confirmed by the product owner: ED Single Path does not
+        score diagnosis pointers, even though its profee half is a CMS-1500
+        claim and standalone ED Profee does score them.
+
+        The single-path form already asks for two E/M levels plus shared
+        diagnoses; adding per-line pointers on top made the interface and the
+        grading harder to follow than the skill was worth. ED Profee remains the
+        place pointers are practised.
+
+        So ED_SINGLE_PATH is absent from POINTER_SPECIALTIES and
+        grade_ed_single_path passes check_pointers=False. This test exists to
+        stop a later reviewer "restoring" it — the inconsistency with ED Profee
+        is the point, not an oversight.
+        """
         res = self._grade(cpt=[{"code": "12001", "modifier": "", "pointers": ["B"]}])
         assert res.total_score == 100
         assert not any(f.issue_type == "Wrong_Pointer" for f in res.feedback)
