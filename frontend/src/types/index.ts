@@ -75,16 +75,21 @@ export interface BulkUploadMeta {
 }
 
 export const SPECIALTIES: Specialty[] = [
-  'IP-DRG', 'ED Facility', 'ED Profee', 'SDS', 'Edits', 'Denials', 'Ancillary', 'E/M'
+  'IP-DRG', 'ED Facility', 'ED Profee', 'ED Single Path', 'SDS', 'Surgery',
+  'Edits', 'Denials', 'Ancillary', 'E/M'
 ]
 
 export const DIFFICULTIES: Difficulty[] = ['Beginner', 'Intermediate', 'Advanced']
 
+// Must mirror SPECIALTY_PREFIX in backend/models/charts.py. Matching is
+// longest-prefix-first below, so EDSP / EDP / ED do not collide.
 export const SPECIALTY_PREFIX: Record<string, Specialty> = {
   'IP': 'IP-DRG',
+  'EDSP': 'ED Single Path',
   'EDP': 'ED Profee',
   'ED': 'ED Facility',
   'SDS': 'SDS',
+  'SURG': 'Surgery',
   'EDT': 'Edits',
   'DEN': 'Denials',
   'ANC': 'Ancillary',
