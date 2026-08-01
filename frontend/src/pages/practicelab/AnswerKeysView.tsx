@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Download, Upload, Loader, Trash2, X, AlertTriangle, RefreshCw } from 'lucide-react'
+import { Download, Upload, Loader, Trash2, X, AlertTriangle, RefreshCw, Plus } from 'lucide-react'
 import toast from 'react-hot-toast'
 import {
   getAnswerKeyStatus, getAnswerKeyList, getChartsMissingKeys,
@@ -7,6 +7,12 @@ import {
   downloadAnswerKeyExport,
 } from '../../api'
 import { trainerName, SPECIALTIES } from './shared'
+
+// E/M and ED Profee are graded by the MDM engine and keyed in the E/M tab —
+// their keys live in em_answer_keys with a completely different layout. Listing
+// them here let a trainer push them through the OP template and parser.
+const EM_GRADED = ['E/M', 'ED Profee']
+const IP_OP_SPECIALTIES = SPECIALTIES.filter(s => !EM_GRADED.includes(s))
 import styles from './styles'
 import { AnswerKeyEditor } from './AnswerKeyEditor'
 import { EMAnswerKeysView } from './EMAnswerKeysView'
@@ -31,6 +37,9 @@ export function AnswerKeysView() {
   const [status, setStatus] = useState<any>(null)
   const [specialty, setSpecialty] = useState('IP-DRG')
   const [editChartId, setEditChartId] = useState<number | null>(null)
+  // Bumped on save so the 'charts without keys' list drops the row that
+  // just got one, instead of waiting for a specialty change.
+  const [keysVersion, setKeysVersion] = useState(0)
   const [uploading, setUploading] = useState(false)
   const [akList, setAkList] = useState<AKRow[]>([])
   const [listLoading, setListLoading] = useState(false)
@@ -152,7 +161,7 @@ export function AnswerKeysView() {
           <div>
             <label style={styles.label}>Specialty type</label>
             <select style={styles.select} value={specialty} onChange={e => setSpecialty(e.target.value)}>
-              {SPECIALTIES.map(s => <option key={s}>{s}</option>)}
+              {IP_OP_SPECIALTIES.map(s => <option key={s}>{s}</option>)}
             </select>
           </div>
           {!isED && (
@@ -314,7 +323,7 @@ export function AnswerKeysView() {
             Charts with no answer key and no grading history can be permanently deleted (purged)
             to free up the chart number. Charts that were graded must be retired instead.
           </p>
-          <ChartsWithoutKeys specialty={specialty} onPurge={openDialog} />
+          <ChartsWithoutKeys specialty={specialty} onPurge={openDialog} onCreate={setEditChartId} refreshKey={keysVersion} />
         </div>
       )}
 
@@ -367,16 +376,18 @@ export function AnswerKeysView() {
         <AnswerKeyEditor
           chartId={editChartId}
           onClose={() => setEditChartId(null)}
-          onSaved={() => { loadAll() }}
+          onSaved={() => { loadAll(); setKeysVersion(v => v + 1) }}
         />
       )}
     </div>
   )
 }
 
-function ChartsWithoutKeys({ specialty, onPurge }: {
+function ChartsWithoutKeys({ specialty, onPurge, onCreate, refreshKey }: {
   specialty: string
   onPurge: (mode: 'purge-chart', chartId: number, chartNumber: string) => void
+  onCreate: (chartId: number) => void
+  refreshKey: number
 }) {
   const [charts, setCharts] = useState<{ chart_id: number; chart_number: string; category: string; can_purge: boolean }[]>([])
   const [loading, setLoading] = useState(true)
@@ -384,19 +395,19 @@ function ChartsWithoutKeys({ specialty, onPurge }: {
   useEffect(() => {
     setLoading(true)
     getChartsMissingKeys(specialty).then(setCharts).catch(() => {}).finally(() => setLoading(false))
-  }, [specialty])
+  }, [specialty, refreshKey])
 
   if (loading) return <div style={{ padding: '12px 0' }}><Loader size={18} /></div>
   if (charts.length === 0) return null
 
   return (
     <div style={styles.table}>
-      <div style={{ ...styles.tableHeader, gridTemplateColumns: '130px 1fr 1fr 80px' }}>
+      <div style={{ ...styles.tableHeader, gridTemplateColumns: '130px 1fr 1fr 150px' }}>
         <span>Chart</span><span>Category</span><span>Purgeable</span><span></span>
       </div>
       {charts.map((c, i) => (
         <div key={c.chart_id} className={i % 2 === 1 ? 'pl-tr-alt' : 'pl-tr'}
-          style={{ ...styles.tableRow, gridTemplateColumns: '130px 1fr 1fr 80px' }}>
+          style={{ ...styles.tableRow, gridTemplateColumns: '130px 1fr 1fr 150px' }}>
           <span style={{ fontWeight: 700, fontSize: 13 }}>{c.chart_number}</span>
           <span style={{ fontSize: 12, color: '#6b7280' }}>{c.category || '—'}</span>
           <span style={{ fontSize: 12 }}>
@@ -405,7 +416,15 @@ function ChartsWithoutKeys({ specialty, onPurge }: {
               : <span style={{ color: '#d97706' }} title="Has grading history — retire instead">Has history</span>
             }
           </span>
-          <span style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <span style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
+            {/* Bulk Excel was the only way to key these; the editor already
+                supported creation, it just had no entry point outside E/M. */}
+            <button
+              style={{ ...styles.outlineBtn, padding: '4px 10px', fontSize: 12 }}
+              title={`Create the answer key for ${c.chart_number}`}
+              onClick={() => onCreate(c.chart_id)}>
+              <Plus size={13} /> Key
+            </button>
             {c.can_purge && (
               <button
                 style={{ ...styles.destructiveOutlineBtn, padding: '4px 10px', fontSize: 12 }}
