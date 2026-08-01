@@ -1243,13 +1243,23 @@ function parseEMFeedback(feedback: ResultRow['feedback']) {
     const m = issue.match(/([\d.]+)\s*\/?\s*[\d.]*\s*pts/)
     return m ? parseFloat(m[1]) : null
   }
+  // Match on the row's label, never on position. Mismatch rows (patient type,
+  // levelling method) are prepended to their section, which used to shift every
+  // subsequent row — the patient-type row rendered as "E/M Level", E/M Level as
+  // "CPT", and Dx disappeared. Label matching also repairs already-stored results.
+  const find = (items: typeof caItems, prefix: string) =>
+    items.find(f => f.issue.trim().toUpperCase().startsWith(prefix.toUpperCase()))
+  const pick = (items: typeof caItems, prefix: string) => {
+    const f = find(items, prefix)
+    return f ? { pts: extractPts(f.issue), ak: f.ak_code, sub: f.coder_code } : null
+  }
   return {
-    em_level: caItems[0] ? { pts: extractPts(caItems[0].issue), ak: caItems[0].ak_code, sub: caItems[0].coder_code } : null,
-    cpt:      caItems[1] ? { pts: extractPts(caItems[1].issue) } : null,
-    dx:       caItems[2] ? { pts: extractPts(caItems[2].issue) } : null,
-    copa:     raItems[0] ? { pts: extractPts(raItems[0].issue), ak: raItems[0].ak_code, sub: raItems[0].coder_code } : null,
-    dr:       raItems[1] ? { pts: extractPts(raItems[1].issue), ak: raItems[1].ak_code, sub: raItems[1].coder_code } : null,
-    risk:     raItems[2] ? { pts: extractPts(raItems[2].issue), ak: raItems[2].ak_code, sub: raItems[2].coder_code } : null,
+    em_level: pick(caItems, 'E/M Level'),
+    cpt:      pick(caItems, 'CPT:'),
+    dx:       pick(caItems, 'Dx:'),
+    copa:     pick(raItems, 'COPA'),
+    dr:       pick(raItems, 'Data Review'),
+    risk:     pick(raItems, 'Risk'),
     ca_total: caItems.reduce((s, f) => s + (extractPts(f.issue) ?? 0), 0),
     ra_total: raItems.reduce((s, f) => s + (extractPts(f.issue) ?? 0), 0),
   }

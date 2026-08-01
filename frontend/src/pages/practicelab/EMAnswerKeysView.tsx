@@ -54,12 +54,16 @@ const RISK_COLORS: Record<string, { bg: string; border: string; text: string }> 
   High: { bg: '#fff1f2', border: '#fca5a5', text: '#991b1b' },
 }
 
+// Codes with a CPT total-time band. ED visit codes have none.
+const EM_TIME_ELIGIBLE = ['99202','99203','99204','99205','99212','99213','99214','99215']
 const EM_CODES = ['99202','99203','99204','99205','99211','99212','99213','99214','99215','99281','99282','99283','99284','99285']
 
 // ── Empty form state ──────────────────────────────────────────────────────────
 
 function emptyForm() {
-  const f: Record<string, any> = { em_code: '', em_modifier: '', dx_codes: [''], procedure_cpts: [{ code: '', modifier: '' }] }
+  const f: Record<string, any> = { em_code: '', em_modifier: '', patient_type: 'NA',
+    level_method: 'MDM', total_time: '',
+    dx_codes: [''], procedure_cpts: [{ code: '', modifier: '' }] }
   COPA_FIELDS.forEach(c => { f[c.key] = 0 })
   DR_CAT1_FIELDS.forEach(c => { f[c.key] = 0 })
   DR_BOOL_FIELDS.forEach(c => { f[c.key] = false })
@@ -131,6 +135,9 @@ export function EMAnswerKeysView() {
         chart_id: selectedChart.id,
         dx_codes: form.dx_codes.filter((c: string) => c.trim()),
         procedure_cpts: form.procedure_cpts.filter((c: any) => c.code.trim()).map((c: any) => `${c.code.trim()}${c.modifier ? ':' + c.modifier.trim() : ''}`),
+        // The form holds time as a string; the API expects an int or null.
+        total_time: form.level_method === 'TIME' && form.total_time
+          ? parseInt(form.total_time, 10) : null,
         entered_by: trainerName(),
       }
       const res = await upsertEMAnswerKey(payload)
@@ -476,6 +483,43 @@ export function EMAnswerKeysView() {
                   <input style={styles.input} placeholder="e.g. 25" value={form.em_modifier}
                     onChange={e => setField('em_modifier', e.target.value)} />
                 </div>
+              </div>
+
+              {/* Bulk Excel has carried these since patient type and time-based
+                  levelling landed; without them a hand-built key silently
+                  defaults to NA / MDM and cannot exercise either rule. */}
+              <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+                <div style={{ flex: 1 }}>
+                  <label style={styles.label}>Patient Type</label>
+                  <select style={styles.select} value={form.patient_type}
+                    onChange={e => setField('patient_type', e.target.value)}>
+                    <option value="NA">N/A — category has no New/Established split</option>
+                    <option value="NEW">New</option>
+                    <option value="ESTABLISHED">Established</option>
+                  </select>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={styles.label}>Level By</label>
+                  <select style={styles.select} value={form.level_method}
+                    disabled={!EM_TIME_ELIGIBLE.includes(form.em_code)}
+                    onChange={e => setField('level_method', e.target.value)}>
+                    <option value="MDM">Medical Decision Making</option>
+                    <option value="TIME">Total Time</option>
+                  </select>
+                  {!EM_TIME_ELIGIBLE.includes(form.em_code) && form.em_code && (
+                    <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>
+                      {form.em_code} cannot be levelled by time
+                    </div>
+                  )}
+                </div>
+                {form.level_method === 'TIME' && (
+                  <div style={{ width: 140 }}>
+                    <label style={styles.label}>Total Time (min)</label>
+                    <input style={styles.input} placeholder="e.g. 35" inputMode="numeric"
+                      value={form.total_time}
+                      onChange={e => setField('total_time', e.target.value.replace(/[^0-9]/g, ''))} />
+                  </div>
+                )}
               </div>
 
               <div style={{ fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 8 }}>

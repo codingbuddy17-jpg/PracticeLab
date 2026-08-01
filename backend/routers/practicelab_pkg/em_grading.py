@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -176,6 +177,18 @@ def code_supports_time(em_code: str) -> bool:
     return (em_code or "").strip() in EM_TIME_BANDS
 
 
+def _sanitise_level_method(method, em_code) -> str:
+    """
+    Normalise the levelling method, forcing MDM for codes that cannot be
+    levelled by time. ED visit codes have no typical times in CPT, and the coder
+    form hides the Time control for them — a TIME key would be unanswerable.
+    """
+    m = (method or "MDM").upper().strip()
+    if m != "TIME":
+        return "MDM"
+    return "TIME" if code_supports_time(em_code) else "MDM"
+
+
 def grade_em_chart(ak: dict, sub: dict, cfg: dict, overcoding_penalty: bool = True) -> dict:
     """
     Grade one E/M chart submission against its answer key.
@@ -222,7 +235,14 @@ def grade_em_chart(ak: dict, sub: dict, cfg: dict, overcoding_penalty: bool = Tr
     ak_patient_type = (ak.get("patient_type") or "NA").upper().strip()
     sub_patient_type = (sub.get("sub_patient_type") or "NA").upper().strip()
     patient_type_ok = (ak_patient_type == "NA") or (sub_patient_type == ak_patient_type)
-    em_level_score = em_w_adj if (sub_em_level and sub_em_level == ak_em_level and patient_type_ok) else 0.0
+    # 99211 (nurse visit) carries no MDM level, so em_code_to_level returns None
+    # and a level comparison can never succeed — an exactly-correct 99211 scored
+    # zero. Fall back to code equality for any code outside the MDM table.
+    sub_code_n = (sub.get("sub_em_code") or "").strip().upper()
+    ak_code_n = (ak.get("em_code") or "").strip().upper()
+    level_match = bool(sub_em_level) and sub_em_level == ak_em_level
+    code_match = bool(ak_code_n) and sub_code_n == ak_code_n
+    em_level_score = em_w_adj if ((level_match or code_match) and patient_type_ok) else 0.0
     patient_type_mismatch = (ak_patient_type != "NA") and (not patient_type_ok)
 
     # ── Levelling method: MDM or Time ────────────────────────────────────────
@@ -506,7 +526,7 @@ def upsert_em_answer_key(payload: EMAnswerKeyPayload, db: Session = Depends(get_
                "dr_level": dr_level, "dr_overridden": dr_overridden,
                "risk_level": risk_level, "risk_overridden": risk_overridden,
                "patient_type": (payload.patient_type or "NA").upper(),
-               "level_method": (payload.level_method or "MDM").upper(),
+               "level_method": _sanitise_level_method(payload.level_method, payload.em_code),
                "total_time": payload.total_time,
                "dx_codes": dx_codes, "procedure_cpts": procedure_cpts})
     else:
@@ -553,7 +573,7 @@ def upsert_em_answer_key(payload: EMAnswerKeyPayload, db: Session = Depends(get_
                "dr_level": dr_level, "dr_overridden": dr_overridden,
                "risk_level": risk_level, "risk_overridden": risk_overridden,
                "patient_type": (payload.patient_type or "NA").upper(),
-               "level_method": (payload.level_method or "MDM").upper(),
+               "level_method": _sanitise_level_method(payload.level_method, payload.em_code),
                "total_time": payload.total_time,
                "dx_codes": dx_codes, "procedure_cpts": procedure_cpts})
     db.commit()
@@ -710,7 +730,10 @@ def upload_em_answer_keys(
             "em_code": em_code,
             "em_modifier": row.get("em_modifier", "") or "",
             "patient_type": (row.get("patient_type") or "NA").upper().strip(),
-            "level_method": (row.get("level_method") or "MDM").upper().strip(),
+            # ED codes (99281-99285) have no time-based option, so a TIME key
+            # would be unanswerable — the coder form correctly hides Time there.
+            "level_method": _sanitise_level_method(
+                row.get("level_method"), row.get("em_code")),
             "total_time": row.get("total_time"),
             "dx_codes": dx_codes,
             "procedure_cpts": procedure_cpts,
@@ -801,8 +824,7 @@ def upload_em_answer_keys(
 
 @router.get("/em/answer-key/template")
 def download_em_template():
-    """Return E/M answer key Excel template as base64."""
-    import base64
+    """Download the E/M answer key Excel template."""
     from io import BytesIO
     import openpyxl
     from openpyxl.styles import Font, PatternFill, Alignment
@@ -913,5 +935,11 @@ def download_em_template():
     buf = BytesIO()
     wb.save(buf)
     buf.seek(0)
-    encoded = base64.b64encode(buf.read()).decode()
-    return {"filename": "em_answer_key_template.xlsx", "content": encoded}
+    # Stream it like every other template. Returning {filename, content:base64}
+    # meant the frontend's window.open() rendered raw JSON in a tab instead of
+    # downloading a workbook.
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=EM_AnswerKey_Template.xlsx"},
+    )

@@ -1265,15 +1265,29 @@ def batch_em_breakdown(batch_id: int, db: Session = Depends(get_db)):
         ca_total = sum(_extract_pts(f["issue"]) for f in ca_items)
         ra_total = sum(_extract_pts(f["issue"]) for f in ra_items)
 
-        copa_pts = _extract_pts(ra_items[0]["issue"]) if len(ra_items) > 0 else 0.0
-        dr_pts   = _extract_pts(ra_items[1]["issue"]) if len(ra_items) > 1 else 0.0
-        risk_pts = _extract_pts(ra_items[2]["issue"]) if len(ra_items) > 2 else 0.0
+        # Match on the row label, never on position: mismatch rows (patient type,
+        # levelling method) are prepended to their section and would otherwise
+        # shift COPA/DR/Risk by one. Label matching also repairs stored results.
+        def _row(items, prefix):
+            for f in items:
+                if str(f.get("issue", "")).strip().upper().startswith(prefix.upper()):
+                    return f
+            return None
+
+        copa_row, dr_row, risk_row = (_row(ra_items, "COPA"),
+                                      _row(ra_items, "Data Review"),
+                                      _row(ra_items, "Risk"))
+        em_row = _row(ca_items, "E/M Level")
+        copa_pts = _extract_pts(copa_row["issue"]) if copa_row else 0.0
+        dr_pts   = _extract_pts(dr_row["issue"]) if dr_row else 0.0
+        risk_pts = _extract_pts(risk_row["issue"]) if risk_row else 0.0
 
         # Derive level matches from ak_code vs coder_code
-        copa_match = ra_items[0].get("ak_code") == ra_items[0].get("coder_code") and bool(ra_items[0].get("ak_code")) if ra_items else False
-        dr_match   = ra_items[1].get("ak_code") == ra_items[1].get("coder_code") and bool(ra_items[1].get("ak_code")) if len(ra_items) > 1 else False
-        risk_match = ra_items[2].get("ak_code") == ra_items[2].get("coder_code") and bool(ra_items[2].get("ak_code")) if len(ra_items) > 2 else False
-        em_level_match = ca_items[0].get("ak_code") == ca_items[0].get("coder_code") and bool(ca_items[0].get("ak_code")) if ca_items else False
+        def _matched(row):
+            return bool(row) and bool(row.get("ak_code")) and row.get("ak_code") == row.get("coder_code")
+
+        copa_match, dr_match, risk_match = _matched(copa_row), _matched(dr_row), _matched(risk_row)
+        em_level_match = _matched(em_row)
 
         # "Right level, wrong reasoning" = E/M code correct but RA < threshold
         right_code_wrong_reasoning = em_level_match and ra_total < 15  # rough threshold: 50% of 30 pts

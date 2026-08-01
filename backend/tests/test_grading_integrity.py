@@ -115,3 +115,47 @@ class TestRegradeCompleteness:
     def test_em_submission_bridge_is_shared_by_submit_and_regrade(self):
         """One implementation, so the two paths cannot drift apart."""
         assert self._source.count("_em_submission_dict(") >= 2
+
+
+class TestFeedbackIsReadByLabelNotPosition:
+    """
+    _em_feedback_items PREPENDS mismatch rows (patient type -> Coding Accuracy,
+    levelling method -> Reasoning Accuracy). Consumers that indexed positionally
+    then showed the mismatch row as "E/M Level" and dropped Dx entirely.
+    Label matching also repairs results already stored with the old ordering.
+    """
+
+    def test_backend_analytics_matches_by_label(self):
+        src = (SRC / "practice_sessions.py").read_text()
+        assert 'startswith(prefix.upper())' in src
+        assert "ra_items[0][" not in src
+        assert "ra_items[1][" not in src
+        assert "ca_items[0].get" not in src
+
+    def test_frontend_matches_by_label(self):
+        fe = (SRC.parent.parent.parent / "frontend" / "src" / "pages" / "PracticeSession.tsx")
+        src = fe.read_text()
+        assert "pick(caItems, 'E/M Level')" in src
+        assert "caItems[0] ?" not in src
+
+    def test_mismatch_rows_do_not_displace_the_scored_rows(self):
+        from routers.practicelab_pkg.practice_sessions import _em_feedback_items
+        scoring = {
+            "method_mismatch": True, "ak_level_method": "TIME", "sub_level_method": "MDM",
+            "patient_type_mismatch": True, "ak_patient_type": "NEW", "sub_patient_type": "ESTABLISHED",
+            "em_level_score": 23.33, "cpt_score": 10.0, "dx_score": 5.0,
+            "copa_element_score": 0.0, "dr_element_score": 0.0, "risk_element_score": 0.0,
+            "derived_copa_level": "Low", "derived_dr_level": "Low", "derived_risk_level": "Low",
+        }
+        items = _em_feedback_items(scoring, {"em_code": "99214"}, {"em_code": "99213"},
+                                   {"em_level_weight": 23.33})
+        ca = [i for i in items if i["section"] == "Coding Accuracy"]
+        ra = [i for i in items if i["section"] == "Reasoning Accuracy"]
+        # the mismatch rows really are first — that is why position cannot be trusted
+        assert ca[0]["issue"].startswith("Patient Type mismatch")
+        assert ra[0]["issue"].startswith("Levelling method")
+        # ...and the scored rows are still present, findable by label
+        assert any(i["issue"].startswith("E/M Level") for i in ca)
+        assert any(i["issue"].startswith("Dx:") for i in ca)
+        assert any(i["issue"].startswith("COPA") for i in ra)
+        assert any(i["issue"].startswith("Risk") for i in ra)

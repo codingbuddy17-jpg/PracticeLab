@@ -177,3 +177,45 @@ class TestSubmissionDictHelper:
         from routers.practicelab_pkg.practice_sessions import _em_submission_dict
         out = _em_submission_dict(None)
         assert out["sub_dx_codes"] == [] and out["sub_procedure_cpts"] == []
+
+
+class TestCodesWithoutAnMDMLevel:
+    """
+    99211 is the nurse-visit code — no MDM requirement, so it has no entry in
+    the MDM table and em_code_to_level returns None. A level comparison could
+    never succeed, so an exactly-correct 99211 used to score zero.
+    """
+
+    def test_99211_has_no_mdm_level(self):
+        from routers.practicelab_pkg.em_grading import em_code_to_level
+        assert em_code_to_level("99211") is None
+
+    def test_exact_99211_match_still_earns_the_level(self):
+        res = grade({"em_code": "99211"}, {"sub_em_code": "99211"})
+        assert res["em_level_score"] > 0
+
+    def test_99211_against_a_different_code_does_not(self):
+        res = grade({"em_code": "99211"}, {"sub_em_code": "99212"})
+        assert res["em_level_score"] == 0
+
+    def test_patient_type_still_gates_it(self):
+        res = grade({"em_code": "99211", "patient_type": "ESTABLISHED"},
+                    {"sub_em_code": "99211", "sub_patient_type": "NEW"})
+        assert res["em_level_score"] == 0
+
+
+class TestLevelMethodSanitising:
+    """ED visit codes have no CPT time band, so a TIME key is unanswerable."""
+
+    def test_ed_code_forced_to_mdm(self):
+        from routers.practicelab_pkg.em_grading import _sanitise_level_method
+        assert _sanitise_level_method("TIME", "99283") == "MDM"
+
+    def test_office_code_keeps_time(self):
+        from routers.practicelab_pkg.em_grading import _sanitise_level_method
+        assert _sanitise_level_method("TIME", "99214") == "TIME"
+
+    def test_anything_unrecognised_falls_back_to_mdm(self):
+        from routers.practicelab_pkg.em_grading import _sanitise_level_method
+        assert _sanitise_level_method(None, "99214") == "MDM"
+        assert _sanitise_level_method("nonsense", "99214") == "MDM"
