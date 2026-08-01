@@ -177,6 +177,42 @@ def code_supports_time(em_code: str) -> bool:
     return (em_code or "").strip() in EM_TIME_BANDS
 
 
+def normalise_cpts(raw) -> list:
+    """
+    Normalise procedure CPTs to [{code, modifier, pointers}].
+
+    Accepts both shapes so no migration is needed: legacy keys stored
+    "code:modifier" strings inside the JSON column, newer ones store dicts
+    carrying diagnosis pointers.
+    """
+    out = []
+    for item in _j(raw):
+        if isinstance(item, dict):
+            code = str(item.get("code") or "").strip().upper()
+            if not code:
+                continue
+            out.append({
+                "code": code,
+                "modifier": str(item.get("modifier") or "").strip().upper(),
+                "pointers": [str(p).strip().upper()[:1]
+                             for p in (item.get("pointers") or []) if str(p).strip()],
+            })
+            continue
+        s = str(item).strip().upper()
+        if not s or s == "NONE":
+            continue
+        parts = s.split(":")
+        ptrs = []
+        if len(parts) > 2 and parts[2].strip():
+            ptrs = [x.strip()[:1] for x in parts[2].split(",") if x.strip()]
+        out.append({
+            "code": parts[0].strip(),
+            "modifier": parts[1].strip() if len(parts) > 1 else "",
+            "pointers": ptrs,
+        })
+    return out
+
+
 def _sanitise_level_method(method, em_code) -> str:
     """
     Normalise the levelling method, forcing MDM for codes that cannot be
@@ -258,17 +294,50 @@ def grade_em_chart(ak: dict, sub: dict, cfg: dict, overcoding_penalty: bool = Tr
         time_ok = time_supports_code(sub.get("sub_total_time"), ak.get("em_code") or "")
     method_mismatch = not method_ok
 
-    # CPT (proportional, equal weight per CPT, overcoding penalty)
+    # ── Procedure CPTs, with diagnosis pointers on professional claims ───────
+    # ED Profee and office E/M both bill on a CMS-1500, so each procedure line
+    # points at the diagnoses justifying it. Pointers are checked exactly when
+    # the answer key carries them, so a key without pointers grades as before.
+    from services.grading_engine import resolve_pointers
+
+    ak_cpt_rows = normalise_cpts(ak.get("procedure_cpts", "[]"))
+    sub_cpt_rows = normalise_cpts(sub.get("sub_procedure_cpts", "[]"))
+    ak_dx_ordered = _clean_codes(_j(ak.get("dx_codes", "[]")))
+    sub_dx_ordered = _clean_codes(_j(sub.get("sub_dx_codes", "[]")))
+
     cpt_score = 0.0
-    if ak_cpts and cpt_w_adj > 0:
-        sub_cpts = _clean_codes(_j(sub.get("sub_procedure_cpts", "[]")))
-        per_cpt = cpt_w_adj / len(ak_cpts)
-        matched = sum(1 for c in ak_cpts if c in sub_cpts)
+    pointer_errors = []
+    if ak_cpt_rows and cpt_w_adj > 0:
+        per_cpt = cpt_w_adj / len(ak_cpt_rows)
+        used = [False] * len(sub_cpt_rows)
+        matched = 0.0
+        for a in ak_cpt_rows:
+            for i, s in enumerate(sub_cpt_rows):
+                if used[i] or a["code"] != s["code"] or a["modifier"] != s["modifier"]:
+                    continue
+                used[i] = True
+                if a["pointers"]:
+                    # Pointers are positional, so compare the diagnosis CODES
+                    # they resolve to — never the letters themselves.
+                    if (resolve_pointers(a["pointers"], ak_dx_ordered)
+                            == resolve_pointers(s["pointers"], sub_dx_ordered)):
+                        matched += 1
+                    else:
+                        # A linkage error is a lesser mistake than a wrong code,
+                        # so it costs half the line — same rule as OP/Surgery.
+                        matched += 0.5
+                        pointer_errors.append({
+                            "code": a["code"],
+                            "ak": ",".join(a["pointers"]),
+                            "sub": ",".join(s["pointers"]) or "(none)",
+                        })
+                else:
+                    matched += 1
+                break
         cpt_score = matched * per_cpt
         if overcoding_penalty:
-            over = max(0, len(sub_cpts) - len(ak_cpts))
-            penalty = over * per_cpt
-            cpt_score = max(0.0, cpt_score - penalty)
+            over = max(0, len(sub_cpt_rows) - len(ak_cpt_rows))
+            cpt_score = max(0.0, cpt_score - over * per_cpt)
 
     # Dx (proportional, overcoding penalty)
     ak_dx = _clean_codes(_j(ak.get("dx_codes", "[]")))
@@ -355,6 +424,7 @@ def grade_em_chart(ak: dict, sub: dict, cfg: dict, overcoding_penalty: bool = Tr
         "sub_level_method": sub_method,
         "method_mismatch": method_mismatch,
         "time_ok": time_ok,
+        "pointer_errors": pointer_errors,
         "em_level_score": round(em_level_score, 2),
         "cpt_score": round(cpt_score, 2),
         "dx_score": round(dx_score, 2),
@@ -449,6 +519,137 @@ def list_em_answer_keys(db: Session = Depends(get_db)):
     """)).mappings().fetchall()
     return [dict(r) for r in rows]
 
+
+# NOTE: every STATIC /em/answer-key/... path must be registered before the
+# parameterised /{chart_id} route below — FastAPI matches in registration
+# order, so /template was being parsed as a chart_id and 422'd.
+@router.get("/em/answer-key/template")
+def download_em_template():
+    """Download the E/M answer key Excel template."""
+    from io import BytesIO
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "EM Answer Key"  # "/" is illegal in an Excel sheet title
+
+    hdr_font = Font(bold=True, color="FFFFFF")
+    hdr_fill = PatternFill("solid", fgColor="1e3a5f")
+    section_fill = PatternFill("solid", fgColor="dbeafe")
+    section_font = Font(bold=True, color="1e3a5f")
+
+    def hdr(cell, val):
+        ws[cell] = val
+        ws[cell].font = hdr_font
+        ws[cell].fill = hdr_fill
+        ws[cell].alignment = Alignment(horizontal="center", wrap_text=True)
+
+    def sec(cell, val):
+        ws[cell] = val
+        ws[cell].font = section_font
+        ws[cell].fill = section_fill
+
+    # Column headers
+    hdr("A1", "Chart Number")
+    hdr("B1", "COPA: Self-limited/Minor Problems (count)")
+    hdr("C1", "COPA: Stable Acute Illness (count)")
+    hdr("D1", "COPA: Stable Chronic Illness (count)")
+    hdr("E1", "COPA: Acute Uncomplicated (count)")
+    hdr("F1", "COPA: Chronic Exacerbation (count)")
+    hdr("G1", "COPA: Undiagnosed New Problem (count)")
+    hdr("H1", "COPA: Acute w/ Systemic Symptoms (count)")
+    hdr("I1", "COPA: Acute Complicated Injury (count)")
+    hdr("J1", "COPA: Chronic Severe Exacerbation (count)")
+    hdr("K1", "COPA: Threat to Life/Function (0 or 1)")
+    hdr("L1", "COPA Level Override (leave blank to auto-derive)")
+    hdr("M1", "DR: Prior External Notes (count)")
+    hdr("N1", "DR: Review Test Results (count)")
+    hdr("O1", "DR: Order Tests (count)")
+    hdr("P1", "DR: Independent Historian (Y/N)")
+    hdr("Q1", "DR: Independent Interpretation (Y/N)")
+    hdr("R1", "DR: External Discussion (Y/N)")
+    hdr("S1", "DR Level Override (leave blank to auto-derive)")
+    hdr("T1", "Risk: Low (Y/N)")
+    hdr("U1", "Risk: Prescription Drug Mgmt (Y/N)")
+    hdr("V1", "Risk: Minor Surgery w/ Risk Factors (Y/N)")
+    hdr("W1", "Risk: Elective Major - No Risk Factors (Y/N)")
+    hdr("X1", "Risk: Hospitalization (Y/N)")
+    hdr("Y1", "Risk: SDOH Limitation (Y/N)")
+    hdr("Z1", "Risk: Drug Intensive Toxicity Monitoring (Y/N)")
+    hdr("AA1", "Risk: Elective Major w/ Risk Factors (Y/N)")
+    hdr("AB1", "Risk: Emergency Major Surgery (Y/N)")
+    hdr("AC1", "Risk: Hospitalization/Escalation (Y/N)")
+    hdr("AD1", "Risk: DNR / De-escalate (Y/N)")
+    hdr("AE1", "Risk: Parenteral Controlled Substance (Y/N)")
+    hdr("AF1", "Risk Level Override (leave blank to auto-derive)")
+    hdr("AG1", "E/M Code")
+    hdr("AH1", "E/M Modifier (e.g. 25)")
+    hdr("AI1", "Patient Type (New / Established / NA)")
+    hdr("AJ1", "Primary Dx Code")
+    hdr("AK1", "Additional Dx 2")
+    hdr("AL1", "Additional Dx 3")
+    hdr("AM1", "Additional Dx 4")
+    hdr("AN1", "Additional Dx 5")
+    hdr("AO1", "Additional Dx 6")
+    hdr("AP1", "Additional Dx 7")
+    hdr("AQ1", "Additional Dx 8")
+    hdr("AR1", "Procedure CPT 1")
+    hdr("AS1", "Procedure CPT 1 Modifier")
+    hdr("AT1", "Procedure CPT 2")
+    hdr("AU1", "Procedure CPT 2 Modifier")
+    hdr("AV1", "Procedure CPT 3")
+    hdr("AW1", "Procedure CPT 3 Modifier")
+    hdr("AX1", "Procedure CPT 4")
+    hdr("AY1", "Procedure CPT 4 Modifier")
+    hdr("AZ1", "Entered By")
+    # Appended at the END on purpose: inserting mid-table would shift every
+    # downstream parser index again (that bug cost us once already).
+    hdr("BA1", "Level By (MDM / Time)")
+    hdr("BB1", "Total Time (minutes)")
+    # Diagnosis pointers per procedure line (CMS-1500 Box 24E). Appended at the
+    # END for the same reason as BA/BB — inserting beside the CPT columns would
+    # shift every downstream parser index.
+    for i, col in enumerate(("BC", "BD", "BE", "BF"), start=1):
+        hdr(f"{col}1", f"CPT {i} Dx Pointers (e.g. A,B)")
+
+    # Sample row
+    ws["A2"] = "EM001"
+    ws["B2"] = 0
+    ws["D2"] = 2
+    ws["L2"] = ""
+    ws["N2"] = 1
+    ws["O2"] = 1
+    ws["Q2"] = "Y"
+    ws["U2"] = "Y"
+    ws["AG2"] = "99214"
+    ws["AH2"] = ""
+    ws["AG2"] = "99214"
+    ws["AI2"] = "Established"
+    ws["BA2"] = "MDM"
+    ws["BC2"] = "A"
+    ws["AJ2"] = "E11.9"
+    ws["AK2"] = "I10"
+    ws["AL2"] = "Z79.4"
+    ws["AZ2"] = "Dr. Smith"
+
+    ws.freeze_panes = "B2"  # freeze column A (chart number) and header row
+
+    ws.row_dimensions[1].height = 60
+    for col in ws.columns:
+        ws.column_dimensions[col[0].column_letter].width = 18
+
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    # Stream it like every other template. Returning {filename, content:base64}
+    # meant the frontend's window.open() rendered raw JSON in a tab instead of
+    # downloading a workbook.
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=EM_AnswerKey_Template.xlsx"},
+    )
 
 @router.get("/em/answer-key/{chart_id}")
 def get_em_answer_key(chart_id: int, db: Session = Depends(get_db)):
@@ -822,124 +1023,3 @@ def upload_em_answer_keys(
 
 # ── Excel template download ───────────────────────────────────────────────────
 
-@router.get("/em/answer-key/template")
-def download_em_template():
-    """Download the E/M answer key Excel template."""
-    from io import BytesIO
-    import openpyxl
-    from openpyxl.styles import Font, PatternFill, Alignment
-
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "E/M Answer Key"
-
-    hdr_font = Font(bold=True, color="FFFFFF")
-    hdr_fill = PatternFill("solid", fgColor="1e3a5f")
-    section_fill = PatternFill("solid", fgColor="dbeafe")
-    section_font = Font(bold=True, color="1e3a5f")
-
-    def hdr(cell, val):
-        ws[cell] = val
-        ws[cell].font = hdr_font
-        ws[cell].fill = hdr_fill
-        ws[cell].alignment = Alignment(horizontal="center", wrap_text=True)
-
-    def sec(cell, val):
-        ws[cell] = val
-        ws[cell].font = section_font
-        ws[cell].fill = section_fill
-
-    # Column headers
-    hdr("A1", "Chart Number")
-    hdr("B1", "COPA: Self-limited/Minor Problems (count)")
-    hdr("C1", "COPA: Stable Acute Illness (count)")
-    hdr("D1", "COPA: Stable Chronic Illness (count)")
-    hdr("E1", "COPA: Acute Uncomplicated (count)")
-    hdr("F1", "COPA: Chronic Exacerbation (count)")
-    hdr("G1", "COPA: Undiagnosed New Problem (count)")
-    hdr("H1", "COPA: Acute w/ Systemic Symptoms (count)")
-    hdr("I1", "COPA: Acute Complicated Injury (count)")
-    hdr("J1", "COPA: Chronic Severe Exacerbation (count)")
-    hdr("K1", "COPA: Threat to Life/Function (0 or 1)")
-    hdr("L1", "COPA Level Override (leave blank to auto-derive)")
-    hdr("M1", "DR: Prior External Notes (count)")
-    hdr("N1", "DR: Review Test Results (count)")
-    hdr("O1", "DR: Order Tests (count)")
-    hdr("P1", "DR: Independent Historian (Y/N)")
-    hdr("Q1", "DR: Independent Interpretation (Y/N)")
-    hdr("R1", "DR: External Discussion (Y/N)")
-    hdr("S1", "DR Level Override (leave blank to auto-derive)")
-    hdr("T1", "Risk: Low (Y/N)")
-    hdr("U1", "Risk: Prescription Drug Mgmt (Y/N)")
-    hdr("V1", "Risk: Minor Surgery w/ Risk Factors (Y/N)")
-    hdr("W1", "Risk: Elective Major - No Risk Factors (Y/N)")
-    hdr("X1", "Risk: Hospitalization (Y/N)")
-    hdr("Y1", "Risk: SDOH Limitation (Y/N)")
-    hdr("Z1", "Risk: Drug Intensive Toxicity Monitoring (Y/N)")
-    hdr("AA1", "Risk: Elective Major w/ Risk Factors (Y/N)")
-    hdr("AB1", "Risk: Emergency Major Surgery (Y/N)")
-    hdr("AC1", "Risk: Hospitalization/Escalation (Y/N)")
-    hdr("AD1", "Risk: DNR / De-escalate (Y/N)")
-    hdr("AE1", "Risk: Parenteral Controlled Substance (Y/N)")
-    hdr("AF1", "Risk Level Override (leave blank to auto-derive)")
-    hdr("AG1", "E/M Code")
-    hdr("AH1", "E/M Modifier (e.g. 25)")
-    hdr("AI1", "Patient Type (New / Established / NA)")
-    hdr("AJ1", "Primary Dx Code")
-    hdr("AK1", "Additional Dx 2")
-    hdr("AL1", "Additional Dx 3")
-    hdr("AM1", "Additional Dx 4")
-    hdr("AN1", "Additional Dx 5")
-    hdr("AO1", "Additional Dx 6")
-    hdr("AP1", "Additional Dx 7")
-    hdr("AQ1", "Additional Dx 8")
-    hdr("AR1", "Procedure CPT 1")
-    hdr("AS1", "Procedure CPT 1 Modifier")
-    hdr("AT1", "Procedure CPT 2")
-    hdr("AU1", "Procedure CPT 2 Modifier")
-    hdr("AV1", "Procedure CPT 3")
-    hdr("AW1", "Procedure CPT 3 Modifier")
-    hdr("AX1", "Procedure CPT 4")
-    hdr("AY1", "Procedure CPT 4 Modifier")
-    hdr("AZ1", "Entered By")
-    # Appended at the END on purpose: inserting mid-table would shift every
-    # downstream parser index again (that bug cost us once already).
-    hdr("BA1", "Level By (MDM / Time)")
-    hdr("BB1", "Total Time (minutes)")
-
-    # Sample row
-    ws["A2"] = "EM001"
-    ws["B2"] = 0
-    ws["D2"] = 2
-    ws["L2"] = ""
-    ws["N2"] = 1
-    ws["O2"] = 1
-    ws["Q2"] = "Y"
-    ws["U2"] = "Y"
-    ws["AG2"] = "99214"
-    ws["AH2"] = ""
-    ws["AG2"] = "99214"
-    ws["AI2"] = "Established"
-    ws["BA2"] = "MDM"
-    ws["AJ2"] = "E11.9"
-    ws["AK2"] = "I10"
-    ws["AL2"] = "Z79.4"
-    ws["AZ2"] = "Dr. Smith"
-
-    ws.freeze_panes = "B2"  # freeze column A (chart number) and header row
-
-    ws.row_dimensions[1].height = 60
-    for col in ws.columns:
-        ws.column_dimensions[col[0].column_letter].width = 18
-
-    buf = BytesIO()
-    wb.save(buf)
-    buf.seek(0)
-    # Stream it like every other template. Returning {filename, content:base64}
-    # meant the frontend's window.open() rendered raw JSON in a tab instead of
-    # downloading a workbook.
-    return StreamingResponse(
-        buf,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": "attachment; filename=EM_AnswerKey_Template.xlsx"},
-    )

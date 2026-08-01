@@ -112,15 +112,20 @@ def _em_submission_dict(em_data: dict) -> dict:
     em = em_data or {}
     sub = {f"sub_{k}": v for k, v in em.items()}
     sub["sub_dx_codes"] = [(d or {}).get("code", "") for d in (em.get("em_dx") or [])]
-    # AK stores procedure CPTs as "code:modifier" (bare code when no modifier) —
-    # the submission has to be formatted identically to match.
+    # Emitted as dicts so diagnosis pointers survive — ED Profee and office E/M
+    # bill on a CMS-1500, where each procedure line points at the diagnoses
+    # justifying it. normalise_cpts() on the grading side accepts both this and
+    # the legacy "code:modifier" string form.
     cpts = []
     for c in (em.get("em_cpt") or []):
         code = ((c or {}).get("code") or "").strip()
         if not code:
             continue
-        mod = ((c or {}).get("modifier") or "").strip()
-        cpts.append(f"{code}:{mod}" if mod else code)
+        cpts.append({
+            "code": code,
+            "modifier": ((c or {}).get("modifier") or "").strip(),
+            "pointers": [str(p).strip() for p in ((c or {}).get("pointers") or []) if str(p).strip()],
+        })
     sub["sub_procedure_cpts"] = cpts
     return sub
 
@@ -164,6 +169,12 @@ def _em_feedback_items(scoring: dict, ak: dict, em: dict, cfg: dict) -> list:
                      f"submitted {scoring.get('sub_patient_type', '')}",
             "ak_code": scoring.get("ak_patient_type", ""),
             "coder_code": scoring.get("sub_patient_type", ""),
+        })
+    for pe in scoring.get("pointer_errors", []):
+        items.append({
+            "section": "Coding Accuracy",
+            "issue": f"Dx pointers on CPT {pe['code']} — key {pe['ak']}, coded {pe['sub']}",
+            "ak_code": pe["ak"], "coder_code": pe["sub"],
         })
     items += [
         {"section": "Coding Accuracy", "issue": f"E/M Level: {scoring.get('em_level_score', 0):.1f}/{cfg['em_level_weight']:.1f} pts", "ak_code": ak.get("em_code", ""), "coder_code": em.get("em_code", "")},

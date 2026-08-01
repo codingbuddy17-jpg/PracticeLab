@@ -814,6 +814,7 @@ def parse_em_answer_key_upload(file_bytes: bytes) -> list[dict]:
       AR-AY procedure_cpts (4 CPTs × code+modifier)
       AZ entered_by
       BA level_method (MDM / Time)   BB total_time (minutes)
+      BC-BF procedure CPT Dx pointers (one cell per CPT, e.g. "A,B")
     """
     wb = load_workbook(io.BytesIO(file_bytes), data_only=False)
     ws = wb.worksheets[0]
@@ -869,12 +870,21 @@ def parse_em_answer_key_upload(file_bytes: bytes) -> list[dict]:
         dx_codes = [_v(row, i) for i in range(35, 43) if _v(row, i)]
 
         # Procedure CPTs (AR+AS = 43+44, AT+AU = 45+46, AV+AW = 47+48, AX+AY = 49+50)
+        # with diagnosis pointers appended at BC-BF (54-57). Emitted as dicts so
+        # pointers survive; the grader also accepts the legacy string form.
         procedure_cpts = []
-        for base in (43, 45, 47, 49):
+        for slot, base in enumerate((43, 45, 47, 49)):
             code = _v(row, base)
-            if code:
-                modifier = _v(row, base + 1)
-                procedure_cpts.append(f"{code}:{modifier}" if modifier else code)
+            if not code:
+                continue
+            raw_ptr = (_v(row, 54 + slot) or "").upper()
+            pointers = [x.strip()[:1] for x in raw_ptr.replace(" ", ",").split(",")
+                        if x.strip() and x.strip()[0].isalpha()][:4]
+            procedure_cpts.append({
+                "code": code,
+                "modifier": _v(row, base + 1),
+                "pointers": pointers,
+            })
 
         entered_by = _v(row, 51)  # AZ
 

@@ -159,3 +159,43 @@ class TestFeedbackIsReadByLabelNotPosition:
         assert any(i["issue"].startswith("Dx:") for i in ca)
         assert any(i["issue"].startswith("COPA") for i in ra)
         assert any(i["issue"].startswith("Risk") for i in ra)
+
+
+class TestEMTemplateEndpoint:
+    """
+    The E/M template download was broken two ways at once: the route sat AFTER
+    /em/answer-key/{chart_id}, so "template" was parsed as a chart id and 422'd,
+    and the handler set a sheet title containing "/", which openpyxl rejects.
+    It had therefore never produced a workbook.
+    """
+
+    def _client(self):
+        from fastapi.testclient import TestClient
+        import main
+        return TestClient(main.app)
+
+    def test_route_is_not_shadowed_by_the_chart_id_route(self):
+        r = self._client().get("/practicelab/em/answer-key/template")
+        assert r.status_code == 200, f"got {r.status_code}: {r.text[:200]}"
+
+    def test_returns_a_real_workbook_not_json(self):
+        r = self._client().get("/practicelab/em/answer-key/template")
+        assert "spreadsheetml" in r.headers.get("content-type", "")
+        assert "attachment" in r.headers.get("content-disposition", "")
+        import io
+        from openpyxl import load_workbook
+        load_workbook(io.BytesIO(r.content))   # raises if it is not a workbook
+
+    def test_template_carries_a_pointer_column_per_cpt(self):
+        import io
+        from openpyxl import load_workbook
+        r = self._client().get("/practicelab/em/answer-key/template")
+        ws = load_workbook(io.BytesIO(r.content)).worksheets[0]
+        headers = [c.value for c in ws[1] if c.value]
+        assert len([h for h in headers if "Dx Pointers" in str(h)]) == 4
+
+    def test_static_paths_precede_the_parameterised_one(self):
+        """Registration order is what makes the above work — pin it."""
+        src = (SRC / "em_grading.py").read_text()
+        assert src.index('"/em/answer-key/template"') < src.index('"/em/answer-key/{chart_id}"')
+        assert src.index('"/em/answer-key/list"') < src.index('"/em/answer-key/{chart_id}"')

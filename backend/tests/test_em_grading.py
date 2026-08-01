@@ -163,8 +163,12 @@ class TestSubmissionDictHelper:
             "em_cpt": [{"code": "20610", "modifier": "RT"}, {"code": "93000", "modifier": ""}],
         })
         assert out["sub_dx_codes"] == ["E11.9", "I10"]
-        # AK stores "code:modifier"; bare code when there is no modifier
-        assert out["sub_procedure_cpts"] == ["20610:RT", "93000"]
+        # Dicts, so diagnosis pointers survive the trip to the grader.
+        # normalise_cpts() still accepts the legacy "code:modifier" string form.
+        assert out["sub_procedure_cpts"] == [
+            {"code": "20610", "modifier": "RT", "pointers": []},
+            {"code": "93000", "modifier": "", "pointers": []},
+        ]
         assert out["sub_em_code"] == "99214"
 
     def test_handles_empty_and_junk(self):
@@ -219,3 +223,82 @@ class TestLevelMethodSanitising:
         from routers.practicelab_pkg.em_grading import _sanitise_level_method
         assert _sanitise_level_method(None, "99214") == "MDM"
         assert _sanitise_level_method("nonsense", "99214") == "MDM"
+
+
+class TestEMProcedurePointers:
+    """
+    ED Profee and office E/M bill on a CMS-1500, so each procedure line points
+    at the diagnoses justifying it. Checked only when the KEY carries pointers,
+    so keys written before this exist keep grading exactly as before.
+    """
+
+    AK = {"dx_codes": '["E11.9","I10","J45.909"]',
+          "procedure_cpts": '[{"code":"20610","modifier":"RT","pointers":["A"]}]'}
+
+    def _sub(self, pointers, dx='["E11.9","I10","J45.909"]'):
+        return {"sub_dx_codes": dx,
+                "sub_procedure_cpts": [{"code": "20610", "modifier": "RT",
+                                        "pointers": pointers}]}
+
+    def test_matching_pointers_score_the_line_in_full(self):
+        res = grade(self.AK, self._sub(["A"]))
+        assert res["cpt_score"] > 23
+        assert res["pointer_errors"] == []
+
+    def test_wrong_pointer_costs_half_the_line(self):
+        full = grade(self.AK, self._sub(["A"]))["cpt_score"]
+        half = grade(self.AK, self._sub(["B"]))["cpt_score"]
+        assert half == pytest.approx(full / 2, abs=0.01)
+
+    def test_wrong_pointer_is_reported(self):
+        res = grade(self.AK, self._sub(["B"]))
+        assert len(res["pointer_errors"]) == 1
+        assert res["pointer_errors"][0]["code"] == "20610"
+
+    def test_different_letter_same_diagnosis_is_correct(self):
+        """
+        Key points A -> E11.9. Coder reordered their diagnoses so E11.9 is
+        third and points C. Same diagnosis: must earn full credit.
+        """
+        res = grade(self.AK, self._sub(["C"], dx='["I10","J45.909","E11.9"]'))
+        assert res["pointer_errors"] == []
+        assert res["cpt_score"] > 23
+
+    def test_key_without_pointers_grades_as_before(self):
+        ak = {"dx_codes": '["E11.9"]',
+              "procedure_cpts": '[{"code":"20610","modifier":"RT","pointers":[]}]'}
+        res = grade(ak, {"sub_dx_codes": '["E11.9"]',
+                         "sub_procedure_cpts": [{"code": "20610", "modifier": "RT",
+                                                 "pointers": ["Z"]}]})
+        assert res["pointer_errors"] == []
+        assert res["cpt_score"] > 23
+
+    def test_legacy_string_keys_still_parse(self):
+        """Older keys stored "code:modifier" strings — no migration was run."""
+        from routers.practicelab_pkg.em_grading import normalise_cpts
+        assert normalise_cpts('["20610:RT","93000"]') == [
+            {"code": "20610", "modifier": "RT", "pointers": []},
+            {"code": "93000", "modifier": "", "pointers": []},
+        ]
+
+    def test_string_form_can_also_carry_pointers(self):
+        from routers.practicelab_pkg.em_grading import normalise_cpts
+        assert normalise_cpts('["20610:RT:A,B"]') == [
+            {"code": "20610", "modifier": "RT", "pointers": ["A", "B"]}]
+
+    def test_wrong_code_loses_the_line_regardless_of_pointers(self):
+        res = grade(self.AK, {"sub_dx_codes": '["E11.9"]',
+                              "sub_procedure_cpts": [{"code": "99999", "modifier": "RT",
+                                                      "pointers": ["A"]}]})
+        assert res["cpt_score"] == 0
+
+
+class TestEMSubmissionCarriesPointers:
+    def test_bridge_emits_dicts_with_pointers(self):
+        from routers.practicelab_pkg.practice_sessions import _em_submission_dict
+        out = _em_submission_dict({
+            "em_cpt": [{"code": "20610", "modifier": "RT", "pointers": ["A", "B"]}],
+            "em_dx": [{"code": "E11.9"}],
+        })
+        assert out["sub_procedure_cpts"] == [
+            {"code": "20610", "modifier": "RT", "pointers": ["A", "B"]}]

@@ -63,7 +63,7 @@ const EM_CODES = ['99202','99203','99204','99205','99211','99212','99213','99214
 function emptyForm() {
   const f: Record<string, any> = { em_code: '', em_modifier: '', patient_type: 'NA',
     level_method: 'MDM', total_time: '',
-    dx_codes: [''], procedure_cpts: [{ code: '', modifier: '' }] }
+    dx_codes: [''], procedure_cpts: [{ code: '', modifier: '', pointers: [] }] }
   COPA_FIELDS.forEach(c => { f[c.key] = 0 })
   DR_CAT1_FIELDS.forEach(c => { f[c.key] = 0 })
   DR_BOOL_FIELDS.forEach(c => { f[c.key] = false })
@@ -119,9 +119,9 @@ export function EMAnswerKeysView() {
   function removeDx(i: number) { setForm(f => ({ ...f, dx_codes: f.dx_codes.filter((_: any, idx: number) => idx !== i) })) }
   function setDx(i: number, val: string) { setForm(f => { const a = [...f.dx_codes]; a[i] = val; return { ...f, dx_codes: a } }) }
 
-  function addCpt() { setForm(f => ({ ...f, procedure_cpts: [...f.procedure_cpts, { code: '', modifier: '' }] })) }
+  function addCpt() { setForm(f => ({ ...f, procedure_cpts: [...f.procedure_cpts, { code: '', modifier: '', pointers: [] }] })) }
   function removeCpt(i: number) { setForm(f => ({ ...f, procedure_cpts: f.procedure_cpts.filter((_: any, idx: number) => idx !== i) })) }
-  function setCpt(i: number, field: 'code' | 'modifier', val: string) {
+  function setCpt(i: number, field: 'code' | 'modifier' | 'pointers', val: any) {
     setForm(f => { const a = [...f.procedure_cpts]; a[i] = { ...a[i], [field]: val }; return { ...f, procedure_cpts: a } })
   }
 
@@ -134,7 +134,14 @@ export function EMAnswerKeysView() {
         ...form,
         chart_id: selectedChart.id,
         dx_codes: form.dx_codes.filter((c: string) => c.trim()),
-        procedure_cpts: form.procedure_cpts.filter((c: any) => c.code.trim()).map((c: any) => `${c.code.trim()}${c.modifier ? ':' + c.modifier.trim() : ''}`),
+        // Dicts so pointers survive; the grader also accepts the legacy string form.
+        procedure_cpts: form.procedure_cpts
+          .filter((c: any) => c.code.trim())
+          .map((c: any) => ({
+            code: c.code.trim(),
+            modifier: (c.modifier || '').trim(),
+            pointers: c.pointers || [],
+          })),
         // The form holds time as a string; the API expects an int or null.
         total_time: form.level_method === 'TIME' && form.total_time
           ? parseInt(form.total_time, 10) : null,
@@ -531,10 +538,21 @@ export function EMAnswerKeysView() {
                     value={cpt.code} onChange={e => setCpt(i, 'code', e.target.value)} />
                   <input style={{ ...styles.input, flex: 1 }} placeholder="Modifier"
                     value={cpt.modifier} onChange={e => setCpt(i, 'modifier', e.target.value)} />
+                  <input style={{ ...styles.input, flex: 1, textTransform: 'uppercase' }} placeholder="Dx ptrs A,B"
+                    title="Which diagnoses justify this line. First is primary."
+                    value={(cpt.pointers || []).join(',')}
+                    onChange={e => setCpt(i, 'pointers', e.target.value.toUpperCase()
+                      .replace(/[^A-L,\s]/g, '').split(/[,\s]+/).filter(Boolean).slice(0, 4) as any)} />
                   <button style={{ ...styles.outlineBtn, color: '#dc2626', borderColor: '#fca5a5', padding: '6px 10px' }}
                     onClick={() => removeCpt(i)}><Trash2 size={13} /></button>
                 </div>
               ))}
+              {/* ED Profee and office E/M bill on a CMS-1500, so each line points
+                  at the diagnoses justifying it. Letters index the Dx list above. */}
+              <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4, marginBottom: 8 }}>
+                Dx pointers: A = first diagnosis above, B = second, C = third… up to 4 per line, first is primary.
+                Leave blank to skip pointer scoring for that line.
+              </div>
               <button style={{ ...styles.outlineBtn, fontSize: 12 }} onClick={addCpt}>+ Add Procedure CPT</button>
             </div>
           )}
