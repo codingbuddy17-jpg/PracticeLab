@@ -1007,7 +1007,7 @@ def export_batch_results(batch_name: str, results: list[dict]) -> bytes:
     bs["A4"] = "Passed"; bs["B4"] = passed
     bs["A5"] = "Failed"; bs["B5"] = total_coders - passed
     bs["A6"] = "Pass Rate"; bs["B6"] = f"{round(passed/total_coders*100, 1)}%" if total_coders else "N/A"
-    bs["A7"] = "Avg Score"; bs["B7"] = f"{avg}%"
+    bs["A7"] = "Avg Grading Score"; bs["B7"] = f"{avg}%"
     for r in range(3, 8):
         bs.cell(r, 1).font = Font(bold=True)
     bs.column_dimensions["A"].width = 20

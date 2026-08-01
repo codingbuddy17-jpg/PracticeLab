@@ -318,7 +318,7 @@ export function ScoringConfigView() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontSize: 13 }}>
             <input type="checkbox" checked={f.weighted_enabled ?? true} onChange={e => updateField(tab, 'weighted_enabled', e.target.checked)} />
-            <span><strong>Weighted Scoring</strong> enabled (primary method, drives pass/fail)</span>
+            <span><strong>Grading Score</strong> enabled (primary method, drives pass/fail)</span>
           </label>
           <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontSize: 13 }}>
             <input type="checkbox" checked={f.dpo_enabled ?? true} onChange={e => updateField(tab, 'dpo_enabled', e.target.checked)} />

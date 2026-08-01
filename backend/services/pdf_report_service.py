@@ -313,7 +313,7 @@ def _doc(buf):
 
 def _coder_verdict(summary: dict, pass_threshold: int = 80):
     score = summary.get("weighted_accuracy")
-    source = "weighted accuracy"
+    source = "grading score"
     if score is None and summary.get("cumulative_dpo"):
         score = summary["cumulative_dpo"].get("overall_accuracy")
         source = "overall accuracy (DPO)"
@@ -377,7 +377,7 @@ def generate_coder_report_pdf(coder_name: str, summary: dict, team_avg_score: Op
         (str(summary.get("charts_passed", 0)), "Charts Passed"),
     ]
     if summary.get("weighted_accuracy") is not None:
-        stats.append((f"{summary['weighted_accuracy']}%", "Weighted Accuracy"))
+        stats.append((f"{summary['weighted_accuracy']}%", "Grading Score"))
     dpo = summary.get("cumulative_dpo")
     if dpo and dpo.get("overall_accuracy") is not None:
         stats.append((f"{dpo['overall_accuracy']}%", "Overall accuracy (DPO)"))
@@ -398,7 +398,7 @@ def generate_coder_report_pdf(coder_name: str, summary: dict, team_avg_score: Op
     batches = summary.get("batches") or []
     trend_points = [(b["created_at"][:10] if b.get("created_at") else b["batch_name"], b["avg_score"]) for b in batches if b.get("avg_score") is not None]
     if len(trend_points) >= 2:
-        _section_heading(elements, "Score Trend")
+        _section_heading(elements, "Grading Score Trend")
         elements.append(_trend_line_chart(trend_points))
 
     if dpo and any(dpo.get(k) is not None for k in ("dx_accuracy", "proc_accuracy", "drg_accuracy")):
@@ -427,7 +427,7 @@ def generate_coder_report_pdf(coder_name: str, summary: dict, team_avg_score: Op
         elements.append(_category_bar_chart(sorted(cats, key=lambda c: c["avg_score"]), label_key="category"))
         elements.append(Spacer(1, 6))
         cat_rows = [[Paragraph(c["category"], NORMAL), Paragraph(str(c["charts"]), NORMAL), _score_cell(c["avg_score"], pass_threshold=pt)] for c in cats]
-        elements.append(_data_table(["Category", "Charts", "Avg Score"], cat_rows, [3, 1, 1]))
+        elements.append(_data_table(["Category", "Charts", "Avg Grading Score"], cat_rows, [3, 1, 1]))
 
         weak = [c for c in cats if c["avg_score"] < pt]
         strong = [c for c in cats if c["avg_score"] >= pt]
@@ -453,7 +453,7 @@ def generate_coder_report_pdf(coder_name: str, summary: dict, team_avg_score: Op
                 _score_cell(b.get("avg_score"), pass_threshold=pt), Paragraph(passed_str, NORMAL),
             ])
         elements.append(_data_table(
-            ["Batch", "Specialty", "Date", "Charts", "Avg Score", "Passed"],
+            ["Batch", "Specialty", "Date", "Charts", "Avg Grading Score", "Passed"],
             b_rows, [2.2, 1.3, 1.1, 0.8, 1.1, 0.9],
         ))
 
@@ -481,7 +481,7 @@ def generate_batch_report_pdf(insights: dict) -> bytes:
         (str(bs["n_coders"]), "Coders"),
         (str(bs["total_graded"]), "Total Charts Coded"),
         (f"{bs['pass_rate']}%", "Pass Rate"),
-        (f"{bs['avg_score']}%", "Avg Score"),
+        (f"{bs['avg_score']}%", "Avg Grading Score"),
         (str(bs["passed"]), "Passed"),
         (str(bs["failed"]), "Failed"),
     ]
@@ -637,7 +637,7 @@ def generate_assessment_coder_report_pdf(coder_name: str, data: dict) -> bytes:
 
     stats = [
         (str(total), "Assessments Taken"),
-        (f"{avg_score}%", "Avg Score"),
+        (f"{avg_score}%", "Avg Grading Score"),
         (f"{pass_rate}%", "Pass Rate"),
         (f"{data.get('best_score', 0)}%", "Best Score"),
         (f"{data.get('worst_score', 0)}%", "Worst Score"),
@@ -648,7 +648,7 @@ def generate_assessment_coder_report_pdf(coder_name: str, data: dict) -> bytes:
 
     score_trend = data.get("score_trend") or []
     if len(score_trend) >= 2:
-        _section_heading(elements, "Score Trend")
+        _section_heading(elements, "Grading Score Trend")
         trend_points = [
             (st["submitted_at"][:10] if st.get("submitted_at") else "", st["score_pct"])
             for st in score_trend
@@ -765,7 +765,7 @@ def generate_assessment_batch_report_pdf(data: dict) -> bytes:
         (str(total_coders), "Coders"),
         (str(submitted_count), "Submitted"),
         (f"{pass_rate}%", "Pass Rate"),
-        (f"{avg_score}%", "Avg Score"),
+        (f"{avg_score}%", "Avg Grading Score"),
     ]
     elements.append(_stat_row(stats))
     elements.append(Spacer(1, 12))

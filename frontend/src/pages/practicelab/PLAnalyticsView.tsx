@@ -320,14 +320,14 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
           {bySpecialty.length === 0 ? <div style={styles.emptyState}>No specialty data yet — upload and grade at least one batch to see a breakdown here.</div> : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '18px 16px' }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 16 }}>Avg Score & Pass Rate by Specialty</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 16 }}>Avg Grading Score & Pass Rate by Specialty</div>
                 <ResponsiveContainer width="100%" height={Math.max(200, bySpecialty.length * 56)}>
                   <BarChart data={bySpecialty} layout="vertical" margin={{ left: 20, right: 50, top: 4, bottom: 4 }}>
                     <CartesianGrid strokeDasharray="3 3" horizontal={false} />
                     <XAxis type="number" domain={[0, 100]} tickFormatter={v => `${v}%`} tick={{ fontSize: 11 }} />
                     <YAxis type="category" dataKey="specialty" width={110} tick={{ fontSize: 12, fontWeight: 600 }} />
-                    <Tooltip formatter={(v: any, name: any) => [`${v}%`, name === 'avg_score' ? 'Avg Score' : 'Pass Rate']} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
-                    <Legend formatter={n => n === 'avg_score' ? 'Avg Score' : 'Pass Rate'} />
+                    <Tooltip formatter={(v: any, name: any) => [`${v}%`, name === 'avg_score' ? 'Avg Grading Score' : 'Pass Rate']} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                    <Legend formatter={n => n === 'avg_score' ? 'Avg Grading Score' : 'Pass Rate'} />
                     <Bar dataKey="avg_score" name="avg_score" radius={[0, 4, 4, 0]} fill="#4f46e5" fillOpacity={0.85} />
                     <Bar dataKey="pass_rate" name="pass_rate" radius={[0, 4, 4, 0]} fill="#16a34a" fillOpacity={0.85} />
                   </BarChart>
@@ -335,7 +335,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
               </div>
               <div style={styles.table}>
                 <div style={{ ...styles.tableHeader, gridTemplateColumns: '2fr 1fr 1fr 1fr' }}>
-                  <span>Specialty</span><span>Graded</span><span>Avg Score</span><span>Pass Rate</span>
+                  <span>Specialty</span><span>Graded</span><span>Avg Grading Score</span><span>Pass Rate</span>
                 </div>
                 {bySpecialty.map((r: any, i: number) => (
                   <div key={r.specialty} className={i % 2 === 1 ? 'pl-tr-alt' : 'pl-tr'} style={{ ...styles.tableRow, gridTemplateColumns: '2fr 1fr 1fr 1fr' }}>
@@ -358,7 +358,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
               <div style={{ ...styles.tableHeader, gridTemplateColumns: '120px 1fr 1fr 80px 90px' }}>
                 <span>Chart</span><span>Category</span><span>Specialty</span>
                 <span style={{ textAlign: 'center' as const }}>Attempts</span>
-                <span style={{ textAlign: 'center' as const }}>Avg Score</span>
+                <span style={{ textAlign: 'center' as const }}>Avg Grading Score</span>
               </div>
               {byChart.map((r: any, i: number) => (
                 <div key={r.chart_number} style={{ borderBottom: '1px solid #f3f4f6', background: expandedChart === r.chart_number ? '#f5f3ff' : i % 2 === 1 ? '#f9fafb' : '#fff' }}>
@@ -425,14 +425,14 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
           {byBatch.length === 0 ? <div style={styles.emptyState}>No batch results yet — close a batch after grading to see trends over time.</div> : (
             <>
               <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '18px 16px' }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 16 }}>Pass Rate & Avg Score Over Batches</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 16 }}>Pass Rate & Avg Grading Score Over Batches</div>
                 <ResponsiveContainer width="100%" height={240}>
                   <LineChart data={byBatch.map(b => ({ ...b, label: b.batch_name.length > 16 ? b.batch_name.slice(0, 16) + '…' : b.batch_name }))} margin={{ left: 10, right: 20, top: 8, bottom: 8 }}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="label" tick={{ fontSize: 11 }} />
                     <YAxis domain={[0, 100]} tickFormatter={v => `${v}%`} tick={{ fontSize: 11 }} />
-                    <Tooltip formatter={(v: any, name: any) => [`${v}%`, name === 'pass_rate' ? 'Pass Rate' : 'Avg Score']} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
-                    <Legend formatter={n => n === 'pass_rate' ? 'Pass Rate' : 'Avg Score'} />
+                    <Tooltip formatter={(v: any, name: any) => [`${v}%`, name === 'pass_rate' ? 'Pass Rate' : 'Avg Grading Score']} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                    <Legend formatter={n => n === 'pass_rate' ? 'Pass Rate' : 'Avg Grading Score'} />
                     <Line type="monotone" dataKey="pass_rate" stroke="#16a34a" strokeWidth={2.5} dot={{ r: 5, fill: '#16a34a' }} activeDot={{ r: 7 }} />
                     <Line type="monotone" dataKey="avg_score" stroke="#4f46e5" strokeWidth={2.5} dot={{ r: 5, fill: '#4f46e5' }} activeDot={{ r: 7 }} />
                   </LineChart>
@@ -440,7 +440,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
               </div>
               <div style={styles.table}>
                 <div style={{ ...styles.tableHeader, gridTemplateColumns: '2fr 100px 80px 80px 80px 90px' }}>
-                  <span>Batch</span><span>Specialty</span><span>Coders</span><span>Avg Score</span><span>Pass Rate</span><span></span>
+                  <span>Batch</span><span>Specialty</span><span>Coders</span><span>Avg Grading Score</span><span>Pass Rate</span><span></span>
                 </div>
                 {byBatch.map((r: any, i: number) => (
                   <div key={r.batch_id} className={i % 2 === 1 ? 'pl-tr-alt' : 'pl-tr'} style={{ ...styles.tableRow, gridTemplateColumns: '2fr 100px 80px 80px 80px 90px', alignItems: 'center' }}>
@@ -531,15 +531,15 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                       <div style={styles.statLabel}>Charts Passed</div>
                     </div>
                     {coderSummary.weighted_accuracy != null && (
-                      <div style={styles.statCard}>
+                      <div style={{ ...styles.statCard, background: '#fffbeb', borderLeft: '3px solid #f59e0b' }}>
                         <div style={{ ...styles.statValue, color: sc(coderSummary.weighted_accuracy) }}>
                           {coderSummary.weighted_accuracy}%
                         </div>
-                        <div style={styles.statLabel}>Weighted Accuracy</div>
+                        <div style={styles.statLabel}>Grading Score</div>
                       </div>
                     )}
                     {coderSummary.cumulative_dpo?.overall_accuracy != null && (
-                      <div style={styles.statCard}>
+                      <div style={{ ...styles.statCard, background: '#eef2ff', borderLeft: '3px solid #6366f1' }}>
                         <div style={{ ...styles.statValue, color: sc(coderSummary.cumulative_dpo.overall_accuracy) }}>
                           {coderSummary.cumulative_dpo.overall_accuracy}%
                         </div>
@@ -620,14 +620,14 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
               {/* Score trend chart */}
               {coderTrend.length > 1 && (
                 <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '18px 16px' }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 16 }}>Score Trend — {coderName}</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 16 }}>Grading Score Trend — {coderName}</div>
                   <ResponsiveContainer width="100%" height={200}>
                     <LineChart data={coderTrend.map(r => ({ ...r, label: r.batch_name.length > 14 ? r.batch_name.slice(0, 14) + '…' : r.batch_name }))} margin={{ left: 10, right: 20, top: 8, bottom: 8 }}>
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="label" tick={{ fontSize: 11 }} />
                       <YAxis domain={[0, 100]} tickFormatter={v => `${v}%`} tick={{ fontSize: 11 }} />
-                      <Tooltip formatter={(v: any) => [`${v}%`, 'Avg Score']} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
-                      <Line type="monotone" dataKey="avg_score" stroke="#4f46e5" strokeWidth={2.5} dot={{ r: 6, fill: '#4f46e5' }} activeDot={{ r: 8 }} name="Avg Score" />
+                      <Tooltip formatter={(v: any) => [`${v}%`, 'Avg Grading Score']} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                      <Line type="monotone" dataKey="avg_score" stroke="#4f46e5" strokeWidth={2.5} dot={{ r: 6, fill: '#4f46e5' }} activeDot={{ r: 8 }} name="Avg Grading Score" />
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
@@ -639,7 +639,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                 return (
                   <div style={styles.table}>
                     <div style={{ ...styles.tableHeader, gridTemplateColumns: '2fr 100px 100px 80px 80px 80px' }}>
-                      <span>Batch</span><span>Specialty</span><span>Date</span><span>Charts</span><span>Avg Score</span><span>Passed</span>
+                      <span>Batch</span><span>Specialty</span><span>Date</span><span>Charts</span><span>Avg Grading Score</span><span>Passed</span>
                     </div>
                     {rows.map((r: any, i: number) => {
                       const prev = rows[i - 1]
@@ -674,14 +674,14 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
           ) : (
             <>
               <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '18px 16px' }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 16 }}>Team Avg Score by Category</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 16 }}>Team Avg Grading Score by Category</div>
                 <ResponsiveContainer width="100%" height={Math.max(180, categoryData.team.length * 48)}>
                   <BarChart data={categoryData.team} layout="vertical" margin={{ left: 10, right: 40, top: 4, bottom: 4 }}>
                     <CartesianGrid strokeDasharray="3 3" horizontal={false} />
                     <XAxis type="number" domain={[0, 100]} tickFormatter={v => `${v}%`} tick={{ fontSize: 11 }} />
                     <YAxis type="category" dataKey="category" tick={{ fontSize: 11 }} width={140} />
                     <Tooltip formatter={(v: any) => [`${v}%`]} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
-                    <Bar dataKey="avg_score" name="Avg Score" radius={[0, 4, 4, 0]}>
+                    <Bar dataKey="avg_score" name="Avg Grading Score" radius={[0, 4, 4, 0]}>
                       {categoryData.team.map((entry: any, i: number) => (
                         <Cell key={i} fill={sc(entry.avg_score) === '#16a34a' ? '#22c55e' : sc(entry.avg_score) === '#d97706' ? '#f59e0b' : '#ef4444'} />
                       ))}
@@ -692,7 +692,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
               {/* Clickable category rows with drill-through */}
               <div style={styles.table}>
                 <div style={{ ...styles.tableHeader, gridTemplateColumns: '2fr 70px 80px' }}>
-                  <span>Category</span><span>Attempts</span><span>Avg Score</span>
+                  <span>Category</span><span>Attempts</span><span>Avg Grading Score</span>
                 </div>
                 {categoryData.team.map((cat: any, i: number) => {
                   const isExp = expandedCategory === cat.category

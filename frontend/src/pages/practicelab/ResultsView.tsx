@@ -27,7 +27,7 @@ export function ResultsView({ batchId }: any) {
     const lines = [
       `Batch: ${data.batch_name}`,
       `Coders: ${bs.total_coders}  Passed: ${bs.passed}  Failed: ${bs.failed}`,
-      `Pass Rate: ${bs.pass_rate}%  Avg Score: ${bs.avg_score}%`,
+      `Pass Rate: ${bs.pass_rate}%  Avg Grading Score: ${bs.avg_score}%`,
     ]
     if (bs.top_missed_codes?.length) {
       lines.push(`Top Missed: ${bs.top_missed_codes.map((m: any) => `${m.code} (${m.count}×)`).join(', ')}`)
@@ -50,6 +50,14 @@ export function ResultsView({ batchId }: any) {
   }
 
   const scoreColor = (v: number) => v >= 90 ? '#16a34a' : v >= 80 ? '#d97706' : '#dc2626'
+  const gradingMetricStyle = {
+    background: '#fffbeb',
+    borderLeft: '3px solid #f59e0b',
+  }
+  const accuracyMetricStyle = {
+    background: '#eef2ff',
+    borderLeft: '3px solid #6366f1',
+  }
 
   function pfBadge(pf: string | null | undefined) {
     if (!pf || pf === 'PENDING') return { label: pf || '—', color: '#6b7280', bg: '#f3f4f6' }
@@ -84,7 +92,7 @@ export function ResultsView({ batchId }: any) {
         <div style={styles.statCard}><div style={{ ...styles.statValue, color: '#16a34a' }}>{bs.passed}</div><div style={styles.statLabel}>Passed</div></div>
         <div style={styles.statCard}><div style={{ ...styles.statValue, color: '#dc2626' }}>{bs.failed}</div><div style={styles.statLabel}>Failed</div></div>
         <div style={styles.statCard}><div style={styles.statValue}>{bs.pass_rate}%</div><div style={styles.statLabel}>Coder Pass Rate</div></div>
-        <div style={styles.statCard}><div style={styles.statValue}>{bs.avg_score}%</div><div style={styles.statLabel}>Avg Score</div></div>
+        <div style={{ ...styles.statCard, background: '#fffbeb', borderLeft: '3px solid #f59e0b' }}><div style={styles.statValue}>{bs.avg_score}%</div><div style={styles.statLabel}>Avg Grading Score</div></div>
       </div>
 
       {/* Error breakdown panel */}
@@ -130,7 +138,7 @@ export function ResultsView({ batchId }: any) {
         <div style={{ ...styles.tableHeader, gridTemplateColumns: '2fr 80px 120px 80px' }}>
           <span>Coder</span>
           <span style={{ textAlign: 'center' }}>Charts</span>
-          <span style={{ textAlign: 'center' }}>Avg Accuracy</span>
+          <span style={{ textAlign: 'center' }}>Avg Grading Score</span>
           <span style={{ textAlign: 'center' }}>Result</span>
         </div>
 
@@ -170,10 +178,10 @@ export function ResultsView({ batchId }: any) {
                       <div style={{ display: 'flex', gap: 0, flex: '0 0 auto' }}>
                         {[
                           { value: String(c.charts_scored ?? c.chart_count), label: 'Charts Graded', color: '#374151' },
-                          { value: `${c.avg_total}%`, label: 'Weighted Accuracy', color: scoreColor(c.avg_total) },
+                          { value: `${c.avg_total}%`, label: 'Grading Score', color: scoreColor(c.avg_total), kind: 'grading' },
                           { value: `${c.charts_passed ?? 0}/${c.charts_scored ?? c.chart_count}`, label: 'Charts Passed', color: pfBadge(c.pass_fail).color },
                         ].map((s, si) => (
-                          <div key={si} style={{ textAlign: 'center' as const, padding: '16px 24px', borderRight: '1px solid #e0e7ff' }}>
+                          <div key={si} style={{ textAlign: 'center' as const, padding: '16px 24px', borderRight: '1px solid #e0e7ff', ...(s.kind === 'grading' ? gradingMetricStyle : {}) }}>
                             <div style={{ fontSize: 26, fontWeight: 800, color: s.color, lineHeight: 1 }}>{s.value}</div>
                             <div style={{ fontSize: 11, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.5, marginTop: 6 }}>{s.label}</div>
                           </div>
@@ -188,7 +196,7 @@ export function ResultsView({ batchId }: any) {
                             c.cumulative_dpo.proc_total > 0 ? { value: `${c.cumulative_dpo.proc_accuracy}%`, label: 'Procedure accuracy', color: scoreColor(c.cumulative_dpo.proc_accuracy) } : null,
                             is_ip && c.cumulative_dpo.drg_total > 0 ? { value: `${c.cumulative_dpo.drg_accuracy}%`, label: 'DRG accuracy', color: scoreColor(c.cumulative_dpo.drg_accuracy) } : null,
                           ].filter(Boolean).map((s: any, si, arr) => (
-                            <div key={si} style={{ textAlign: 'center' as const, padding: '16px 20px', flex: 1, borderRight: si < arr.length - 1 ? '1px solid #e0e7ff' : 'none', background: s.bold ? '#f5f3ff' : undefined }}>
+                            <div key={si} style={{ textAlign: 'center' as const, padding: '16px 20px', flex: 1, borderRight: si < arr.length - 1 ? '1px solid #e0e7ff' : 'none', ...accuracyMetricStyle }}>
                               <div style={{ fontSize: 26, fontWeight: 800, color: s.color, lineHeight: 1 }}>{s.value}</div>
                               <div style={{ fontSize: 11, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.5, marginTop: 6 }}>{s.label}</div>
                             </div>

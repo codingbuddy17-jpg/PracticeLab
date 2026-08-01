@@ -24,7 +24,7 @@ export function InsightsPanel({ insights, batchId, onClose }: { insights: any; b
       'SUMMARY',
       `Coders: ${bs.n_coders}  |  Total Charts Coded: ${bs.total_graded}`,
       `Pass Rate: ${bs.pass_rate}% (${bs.passed}/${bs.total_graded} passed)${bs.pass_rate_delta != null ? `  vs prior batch: ${bs.pass_rate_delta > 0 ? '+' : ''}${bs.pass_rate_delta}%` : ''}`,
-      `Avg Score: ${bs.avg_score}%`,
+      `Avg Grading Score: ${bs.avg_score}%`,
       '',
     ]
     if (scoreDist?.length) {
@@ -125,7 +125,7 @@ export function InsightsPanel({ insights, batchId, onClose }: { insights: any; b
           { label: 'Coders', value: bs.n_coders, color: '#111' },
           { label: 'Total Charts Coded', value: bs.total_graded, color: '#111' },
           { label: 'Chart Pass Rate', value: `${bs.pass_rate}%`, color: bs.pass_rate >= 80 ? '#16a34a' : bs.pass_rate >= 60 ? '#d97706' : '#dc2626' },
-          { label: 'Avg Score', value: `${bs.avg_score}%`, color: '#111' },
+          { label: 'Avg Grading Score', value: `${bs.avg_score}%`, color: '#111' },
           { label: 'Passed', value: bs.passed, color: '#16a34a' },
           { label: 'Failed', value: bs.failed, color: '#dc2626' },
         ].map(s => (
@@ -308,7 +308,7 @@ export function InsightsPanel({ insights, batchId, onClose }: { insights: any; b
               <BarChart data={cp} layout="vertical" margin={{ left: 8, right: 40, top: 2, bottom: 2 }}>
                 <XAxis type="number" domain={[0, 100]} tickFormatter={v => `${v}%`} tick={{ fontSize: 10 }} />
                 <YAxis type="category" dataKey="category" width={100} tick={{ fontSize: 11, fontWeight: 600 }} />
-                <Tooltip formatter={(v: any, _name: any, p: any) => [`${v}% avg · ${p.payload.pass_rate}% pass rate · ${p.payload.attempt_count} attempts`, 'Avg Score']} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                <Tooltip formatter={(v: any, _name: any, p: any) => [`${v}% avg · ${p.payload.pass_rate}% pass rate · ${p.payload.attempt_count} attempts`, 'Avg Grading Score']} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
                 <Bar dataKey="avg_score" radius={[0, 6, 6, 0]}>
                   {cp.map((c: any) => <Cell key={c.category} fill={c.avg_score < 60 ? '#dc2626' : c.avg_score < 80 ? '#d97706' : '#16a34a'} />)}
                 </Bar>

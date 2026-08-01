@@ -200,7 +200,7 @@ export function CreateBatchView({ onCreated, onCancel, scoringCfg, directMode: d
                 disabled={activeCfg ? activeCfg.weighted_enabled === false : false}
                 onChange={e => setForm(f => ({ ...f, use_weighted: e.target.checked }))} />
               <div>
-                <div style={styles.methodLabel}>Weighted Scoring <span style={styles.methodBadge}>Primary · Pass/Fail</span></div>
+                <div style={styles.methodLabel}>Grading Score <span style={styles.methodBadge}>Primary · Pass/Fail</span></div>
                 <div style={styles.methodDesc}>Shared Dx, facility level, profee level, and additional CPT weights</div>
               </div>
             </label>
@@ -221,7 +221,7 @@ export function CreateBatchView({ onCreated, onCancel, scoringCfg, directMode: d
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8 }}>
             <span style={{ fontSize: 12, fontWeight: 800, color: '#475569' }}>OP</span>
             <div style={{ fontSize: 13, color: '#334155' }}>
-              <strong>Weighted scoring applies for this specialty.</strong>
+              <strong>Grading Score applies for this specialty.</strong>
               <div style={{ fontWeight: 400, marginTop: 2 }}>Supplementary accuracy is not used for this specialty.</div>
             </div>
           </div>
@@ -232,7 +232,7 @@ export function CreateBatchView({ onCreated, onCancel, scoringCfg, directMode: d
                 disabled={activeCfg ? activeCfg.weighted_enabled === false : false}
                 onChange={e => setForm(f => ({ ...f, use_weighted: e.target.checked }))} />
               <div>
-                <div style={styles.methodLabel}>Weighted Scoring <span style={styles.methodBadge}>Primary · Pass/Fail</span></div>
+                <div style={styles.methodLabel}>Grading Score <span style={styles.methodBadge}>Primary · Pass/Fail</span></div>
                 <div style={styles.methodDesc}>{isIP ? 'Category importance (PDx / SDx / PCS / DRG weights)' : 'Category importance (PDx / SDx / CPT weights)'} — drives the official pass/fail verdict</div>
               </div>
             </label>
