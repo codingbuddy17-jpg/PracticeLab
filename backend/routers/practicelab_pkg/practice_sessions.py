@@ -81,6 +81,101 @@ class SubmitPracticeSession(BaseModel):
     entries: list[ChartCodeEntry]
 
 
+def _em_scoring_cfg(db):
+    """Load the E/M scoring config, falling back to defaults."""
+    from sqlalchemy import text
+    row = db.execute(text(
+        "SELECT line1_weight, line2_weight, em_level_weight, cpt_weight, dx_weight, "
+        "copa_weight, dr_weight, risk_weight, pass_threshold, overcoding_penalty "
+        "FROM em_scoring_configs WHERE id=1"
+    )).fetchone()
+    if not row:
+        return {"line1_weight": 70.0, "line2_weight": 30.0,
+                "em_level_weight": 23.33, "cpt_weight": 23.33, "dx_weight": 23.34,
+                "copa_weight": 10.0, "dr_weight": 10.0, "risk_weight": 10.0,
+                "pass_threshold": 80.0, "overcoding_penalty": True}
+    return {"line1_weight": row[0], "line2_weight": row[1],
+            "em_level_weight": row[2], "cpt_weight": row[3], "dx_weight": row[4],
+            "copa_weight": row[5], "dr_weight": row[6], "risk_weight": row[7],
+            "pass_threshold": row[8], "overcoding_penalty": bool(row[9])}
+
+
+def _em_submission_dict(em_data: dict) -> dict:
+    """
+    Build the grader's submission dict from the coder form's em_data blob.
+
+    The form stores diagnoses as em_dx and procedures as em_cpt, but
+    grade_em_chart reads the answer-key field names (sub_dx_codes /
+    sub_procedure_cpts). Without this bridge both arrive empty and the coder
+    silently loses the whole Dx + CPT weight.
+    """
+    em = em_data or {}
+    sub = {f"sub_{k}": v for k, v in em.items()}
+    sub["sub_dx_codes"] = [(d or {}).get("code", "") for d in (em.get("em_dx") or [])]
+    # AK stores procedure CPTs as "code:modifier" (bare code when no modifier) —
+    # the submission has to be formatted identically to match.
+    cpts = []
+    for c in (em.get("em_cpt") or []):
+        code = ((c or {}).get("code") or "").strip()
+        if not code:
+            continue
+        mod = ((c or {}).get("modifier") or "").strip()
+        cpts.append(f"{code}:{mod}" if mod else code)
+    sub["sub_procedure_cpts"] = cpts
+    return sub
+
+
+def _em_answer_key(db, chart_id: int):
+    """
+    Fetch an E/M answer key keyed by real column name.
+
+    .mappings() rather than a positional zip: _add_col appends columns at the
+    END of the table, so any hand-maintained ordering silently drifts as
+    migrations land.
+    """
+    from sqlalchemy import text
+    row = db.execute(text(
+        "SELECT * FROM em_answer_keys WHERE chart_id=:c"
+    ), {"c": chart_id}).mappings().first()
+    return dict(row) if row else None
+
+
+def _em_feedback_items(scoring: dict, ak: dict, em: dict, cfg: dict) -> list:
+    """Per-chart E/M feedback rows. Shared by submit and re-grade."""
+    items = []
+    if scoring.get("method_mismatch"):
+        items.append({
+            "section": "Reasoning Accuracy",
+            "issue": f"Levelling method — key used {scoring.get('ak_level_method', '')}, "
+                     f"coder used {scoring.get('sub_level_method', '')}; reasoning points not earned",
+            "ak_code": scoring.get("ak_level_method", ""),
+            "coder_code": scoring.get("sub_level_method", ""),
+        })
+    elif scoring.get("ak_level_method") == "TIME" and not scoring.get("time_ok"):
+        items.append({
+            "section": "Reasoning Accuracy",
+            "issue": "Total time does not support the documented level",
+            "ak_code": "", "coder_code": "",
+        })
+    if scoring.get("patient_type_mismatch"):
+        items.append({
+            "section": "Coding Accuracy",
+            "issue": f"Patient Type mismatch — expected {scoring.get('ak_patient_type', '')}, "
+                     f"submitted {scoring.get('sub_patient_type', '')}",
+            "ak_code": scoring.get("ak_patient_type", ""),
+            "coder_code": scoring.get("sub_patient_type", ""),
+        })
+    items += [
+        {"section": "Coding Accuracy", "issue": f"E/M Level: {scoring.get('em_level_score', 0):.1f}/{cfg['em_level_weight']:.1f} pts", "ak_code": ak.get("em_code", ""), "coder_code": em.get("em_code", "")},
+        {"section": "Coding Accuracy", "issue": f"CPT: {scoring.get('cpt_score', 0):.1f} pts", "ak_code": "", "coder_code": ""},
+        {"section": "Coding Accuracy", "issue": f"Dx: {scoring.get('dx_score', 0):.1f} pts", "ak_code": "", "coder_code": ""},
+        {"section": "Reasoning Accuracy", "issue": f"COPA ({scoring.get('derived_copa_level', '')}) — {scoring.get('copa_element_score', 0):.1f} pts", "ak_code": ak.get("copa_level", ""), "coder_code": scoring.get("derived_copa_level", "")},
+        {"section": "Reasoning Accuracy", "issue": f"Data Review ({scoring.get('derived_dr_level', '')}) — {scoring.get('dr_element_score', 0):.1f} pts", "ak_code": ak.get("dr_level", ""), "coder_code": scoring.get("derived_dr_level", "")},
+        {"section": "Reasoning Accuracy", "issue": f"Risk ({scoring.get('derived_risk_level', '')}) — {scoring.get('risk_element_score', 0):.1f} pts", "ak_code": ak.get("risk_level", ""), "coder_code": scoring.get("derived_risk_level", "")},
+    ]
+    return items
+
+
 # ── Token generation (trainer) ────────────────────────────────────────────────
 
 @router.post("/practice-sessions/generate-tokens")
@@ -433,35 +528,11 @@ def submit_practice_session(session_id: int, payload: SubmitPracticeSession, db:
         for entry in payload.entries:
             em = entry.em_data or {}
             # Build sub dict with sub_ prefix for grading engine
-            sub = {f"sub_{k}": v for k, v in em.items()}
-            # The coder form stores diagnoses as em_dx and procedures as em_cpt,
-            # but grade_em_chart reads the answer-key field names. Without this
-            # bridge both arrive empty and every coder loses the full Dx + CPT
-            # weight (~47 of 100) on every E/M chart.
-            sub["sub_dx_codes"] = [
-                (d or {}).get("code", "") for d in (em.get("em_dx") or [])
-            ]
-            # AK stores procedure CPTs as "code:modifier" (bare code when no
-            # modifier) — the submission has to be formatted identically to match.
-            _sub_cpts = []
-            for c in (em.get("em_cpt") or []):
-                code = ((c or {}).get("code") or "").strip()
-                if not code:
-                    continue
-                mod = ((c or {}).get("modifier") or "").strip()
-                _sub_cpts.append(f"{code}:{mod}" if mod else code)
-            sub["sub_procedure_cpts"] = _sub_cpts
-            # .mappings() keys by real column name. A positional zip breaks the
-            # moment a migration appends a column (_add_col adds at the END, so
-            # patient_type / level_method / total_time landed after entered_at
-            # while the hand-written list had them mid-table).
-            ak_row = db.execute(text(
-                "SELECT * FROM em_answer_keys WHERE chart_id=:c"
-            ), {"c": entry.chart_id}).mappings().first()
-            if ak_row is None:
+            sub = _em_submission_dict(em)
+            ak = _em_answer_key(db, entry.chart_id)
+            if ak is None:
                 _upsert_practice_result(db, session_id, entry, specialty, graded=False)
                 continue
-            ak = dict(ak_row)
             scoring = grade_em_chart(ak, sub, cfg, cfg["overcoding_penalty"])
             total = round(
                 scoring["em_level_score"] + scoring["cpt_score"] + scoring["dx_score"] +
@@ -470,36 +541,7 @@ def submit_practice_session(session_id: int, payload: SubmitPracticeSession, db:
             )
             pf = "PASS" if total >= cfg["pass_threshold"] else "FAIL"
             # Build feedback items from scoring breakdown for results display
-            em_feedback = []
-            if scoring.get("method_mismatch"):
-                em_feedback.append({
-                    "section": "Reasoning Accuracy",
-                    "issue": f"Levelling method — key used {scoring.get('ak_level_method', '')}, "
-                             f"coder used {scoring.get('sub_level_method', '')}; reasoning points not earned",
-                    "ak_code": scoring.get("ak_level_method", ""),
-                    "coder_code": scoring.get("sub_level_method", ""),
-                })
-            elif scoring.get("ak_level_method") == "TIME" and not scoring.get("time_ok"):
-                em_feedback.append({
-                    "section": "Reasoning Accuracy",
-                    "issue": "Total time does not support the documented level",
-                    "ak_code": "", "coder_code": "",
-                })
-            if scoring.get("patient_type_mismatch"):
-                em_feedback.append({
-                    "section": "Coding Accuracy",
-                    "issue": f"Patient Type mismatch — expected {scoring.get('ak_patient_type', '')}, submitted {scoring.get('sub_patient_type', '')}",
-                    "ak_code": scoring.get("ak_patient_type", ""),
-                    "coder_code": scoring.get("sub_patient_type", ""),
-                })
-            em_feedback += [
-                {"section": "Coding Accuracy", "issue": f"E/M Level: {scoring.get('em_level_score', 0):.1f}/{cfg['em_level_weight']:.1f} pts", "ak_code": ak.get("em_code", ""), "coder_code": em.get("em_code", "")},
-                {"section": "Coding Accuracy", "issue": f"CPT: {scoring.get('cpt_score', 0):.1f} pts", "ak_code": "", "coder_code": ""},
-                {"section": "Coding Accuracy", "issue": f"Dx: {scoring.get('dx_score', 0):.1f} pts", "ak_code": "", "coder_code": ""},
-                {"section": "Reasoning Accuracy", "issue": f"COPA ({scoring.get('derived_copa_level', '')}) — {scoring.get('copa_element_score', 0):.1f} pts", "ak_code": ak.get("copa_level", ""), "coder_code": scoring.get("derived_copa_level", "")},
-                {"section": "Reasoning Accuracy", "issue": f"Data Review ({scoring.get('derived_dr_level', '')}) — {scoring.get('dr_element_score', 0):.1f} pts", "ak_code": ak.get("dr_level", ""), "coder_code": scoring.get("derived_dr_level", "")},
-                {"section": "Reasoning Accuracy", "issue": f"Risk ({scoring.get('derived_risk_level', '')}) — {scoring.get('risk_element_score', 0):.1f} pts", "ak_code": ak.get("risk_level", ""), "coder_code": scoring.get("derived_risk_level", "")},
-            ]
+            em_feedback = _em_feedback_items(scoring, ak, em, cfg)
             _upsert_practice_result(db, session_id, entry, specialty, graded=True,
                                     result_kwargs={"weighted_score": total, "pass_fail": pf, "drg_flag": False},
                                     feedback_items=em_feedback, ak_rec=None)
@@ -1097,15 +1139,8 @@ def regrade_practice_session(session_id: int, db: Session = Depends(get_db)):
     specialty = Specialty(sess[1])
     if _is_ed(specialty):
         raise HTTPException(status_code=400, detail="E&D sessions use rubric scoring, not auto-regrade")
-    # E/M keys live in em_answer_keys and need grade_em_chart. _grade_chart_for_sp
-    # would silently grade them with the OP engine and produce a wrong score, so
-    # refuse rather than mis-grade. Re-submitting the session re-runs E/M correctly.
-    from .em_grading import _is_em as _is_em_spec
-    if _is_em_spec(specialty):
-        raise HTTPException(
-            status_code=400,
-            detail="E/M sessions are not supported by re-grade yet — their answer keys "
-                   "use the MDM engine. Update the E/M key and the next submission grades against it.")
+    from .em_grading import _is_em as _is_em_spec, grade_em_chart
+    is_em_session = _is_em_spec(specialty)
 
     ip_cfg_row = db.query(ScoringConfig).filter(ScoringConfig.specialty_type == "IP").first()
     op_cfg_row = db.query(ScoringConfig).filter(ScoringConfig.specialty_type == "OP").first()
@@ -1125,8 +1160,10 @@ def regrade_practice_session(session_id: int, db: Session = Depends(get_db)):
         chart = db.query(Chart).filter(Chart.id == chart_id).first()
         if not chart:
             continue
-        ak_rec = db.query(AnswerKey).filter(AnswerKey.chart_id == chart_id).first()
-        if not ak_rec:
+        # E/M keys live in em_answer_keys, not answer_keys
+        ak_rec = None if is_em_session else \
+            db.query(AnswerKey).filter(AnswerKey.chart_id == chart_id).first()
+        if not is_em_session and not ak_rec:
             continue
 
         class _Entry:
@@ -1151,7 +1188,26 @@ def regrade_practice_session(session_id: int, db: Session = Depends(get_db)):
             "facility_level": entry.facility_level or "",
             "profee_level": entry.profee_level or "",
         }
-        result_kwargs, feedback_items = _grade_chart_for_sp(chart, ak_rec, sub_data, ip_cfg, op_cfg)
+        if is_em_session:
+            em_ak = _em_answer_key(db, chart_id)
+            if not em_ak:
+                continue
+            em_cfg = _em_scoring_cfg(db)
+            scoring = grade_em_chart(em_ak, _em_submission_dict(entry.em_data),
+                                     em_cfg, em_cfg["overcoding_penalty"])
+            total = round(
+                scoring["em_level_score"] + scoring["cpt_score"] + scoring["dx_score"] +
+                scoring["copa_element_score"] + scoring["dr_element_score"] +
+                scoring["risk_element_score"], 1)
+            result_kwargs = {
+                "weighted_score": total,
+                "pass_fail": "PASS" if total >= em_cfg["pass_threshold"] else "FAIL",
+                "drg_flag": False,
+            }
+            feedback_items = _em_feedback_items(scoring, em_ak, entry.em_data or {}, em_cfg)
+        else:
+            result_kwargs, feedback_items = _grade_chart_for_sp(
+                chart, ak_rec, sub_data, ip_cfg, op_cfg)
         _upsert_practice_result(db, session_id, entry, specialty, graded=True,
                                 result_kwargs=result_kwargs, feedback_items=feedback_items,
                                 ak_rec=ak_rec)
