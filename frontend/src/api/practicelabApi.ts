@@ -73,6 +73,7 @@ export async function getScoringConfigs() {
 export async function updateScoringConfig(payload: {
   specialty_type: string; pdx_weight: number; sdx_weight: number;
   pcs_weight?: number; drg_weight?: number; cpt_weight?: number;
+  facility_level_weight?: number; profee_level_weight?: number;
   pass_threshold: number; drg_triggers: string[];
   overcoding_penalty: boolean;
   weighted_enabled: boolean; dpo_enabled: boolean; dpo_pass_threshold: number;

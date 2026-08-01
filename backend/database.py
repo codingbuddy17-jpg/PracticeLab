@@ -180,16 +180,20 @@ def _run_migrations():
     _add_col("scoring_configs", "weighted_enabled",   "BOOLEAN NOT NULL DEFAULT TRUE",  "INTEGER NOT NULL DEFAULT 1")
     _add_col("scoring_configs", "dpo_enabled",        "BOOLEAN NOT NULL DEFAULT TRUE",  "INTEGER NOT NULL DEFAULT 1")
     _add_col("scoring_configs", "dpo_pass_threshold", "FLOAT NOT NULL DEFAULT 80.0", "REAL NOT NULL DEFAULT 80.0")
+    _add_col("scoring_configs", "facility_level_weight", "INTEGER", "INTEGER")
+    _add_col("scoring_configs", "profee_level_weight", "INTEGER", "INTEGER")
 
     # Seed default scoring configs (ON CONFLICT works on both PG and SQLite ≥3.24)
     _run("""INSERT INTO scoring_configs
         (specialty_type, pdx_weight, sdx_weight, pcs_weight, drg_weight,
-         cpt_weight, pass_threshold, drg_triggers, overcoding_penalty)
+         cpt_weight, facility_level_weight, profee_level_weight,
+         pass_threshold, drg_triggers, overcoding_penalty)
        VALUES
-        ('IP', 20, 20, 20, 40, NULL, 80,
+        ('IP', 20, 20, 20, 40, NULL, NULL, NULL, 80,
          '["pdx_mismatch","ccmcc_missing","pcs_undercoded","pcs_overcoded","spurious_sdx","spurious_pcs"]',
          1),
-        ('OP', 25, 25, NULL, NULL, 50, 90, '[]', 1)
+        ('OP', 25, 25, NULL, NULL, 50, NULL, NULL, 90, '[]', 1),
+        ('EDSP', 20, 20, NULL, NULL, 20, 20, 20, 90, '[]', 1)
        ON CONFLICT (specialty_type) DO NOTHING""")
 
     # ── self_practice tables ──────────────────────────────────────────────────

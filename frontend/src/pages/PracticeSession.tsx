@@ -116,7 +116,7 @@ function isSinglePath(specialty: string) {
 
 function usesPointers(specialty: string) {
   const sp = specialty.toUpperCase()
-  return sp.includes('SURGERY') || sp.includes('PROFEE') || sp.includes('E/M') || sp.includes('SINGLE PATH')
+  return sp.includes('SURGERY') || sp.includes('PROFEE') || sp.includes('E/M')
 }
 
 // Parse "A,B" / "a b" into ['A','B'] — max 4 per line, first is primary.

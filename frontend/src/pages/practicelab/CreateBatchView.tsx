@@ -82,7 +82,7 @@ export function CreateBatchView({ onCreated, onCancel, scoringCfg, directMode: d
         coders,
         created_by: trainerName(),
         use_weighted: form.use_weighted,
-        use_dpo: form.use_dpo,
+        use_dpo: form.specialty === 'ED Single Path' ? false : form.use_dpo,
         is_direct_assignment: directMode,
       })
       if (res.warning) toast(res.warning, { icon: '⚠️', duration: 5000 })
@@ -97,7 +97,10 @@ export function CreateBatchView({ onCreated, onCancel, scoringCfg, directMode: d
   const isIP = ['IP-DRG'].includes(form.specialty)
   const isED = ['Edits', 'Denials'].includes(form.specialty)
   const isEM = ['E/M', 'ED Profee'].includes(form.specialty)
-  const activeCfg = scoringCfg ? (isIP ? scoringCfg.IP : scoringCfg.OP) : null
+  const isEDSP = form.specialty === 'ED Single Path'
+  const activeCfg = scoringCfg
+    ? (isIP ? scoringCfg.IP : isEDSP ? scoringCfg.EDSP : scoringCfg.OP)
+    : null
 
   return (
     <div style={styles.section}>
@@ -180,6 +183,14 @@ export function CreateBatchView({ onCreated, onCancel, scoringCfg, directMode: d
             <div style={{ fontSize: 13, color: '#5b21b6' }}>
               <strong>E/M MDM scoring applies for this specialty.</strong>
               <div style={{ fontWeight: 400, marginTop: 2 }}>Graded on: E/M level accuracy · COPA / Data Review / Risk element matching · Dx code accuracy · Procedure CPTs. Batch grading uses the MDM scoring engine — not IP/OP weighted scoring or DPO.</div>
+            </div>
+          </div>
+        ) : isEDSP ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: '#f3e8ff', border: '1px solid #d8b4fe', borderRadius: 8 }}>
+            <span style={{ fontSize: 12, fontWeight: 800, color: '#6b21a8' }}>SP</span>
+            <div style={{ fontSize: 13, color: '#6b21a8' }}>
+              <strong>ED Single Path weighted scoring applies for this specialty.</strong>
+              <div style={{ fontWeight: 400, marginTop: 2 }}>Graded on: shared Dx · facility level · profee level · additional CPTs. DPO and diagnosis pointers are not used.</div>
             </div>
           </div>
         ) : (

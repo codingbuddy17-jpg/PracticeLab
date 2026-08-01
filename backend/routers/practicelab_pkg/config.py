@@ -11,7 +11,7 @@ from services.excel_service import (
     generate_answer_key_template, generate_coder_list_template,
     parse_answer_key_upload, parse_coder_list, export_all_answer_keys,
 )
-from services.grading_engine import cfg_from_db, DEFAULT_IP_CFG, DEFAULT_OP_CFG
+from services.grading_engine import cfg_from_db, DEFAULT_IP_CFG, DEFAULT_OP_CFG, DEFAULT_EDSP_CFG
 from services.chart_service import log_audit
 from .shared import (MASTER_PASSPHRASE, _is_ip, _is_ed, ED_SPECIALTIES,
                      _uses_pointers, _is_single_path, _is_dx_only)
@@ -62,28 +62,47 @@ def _get_or_default(db: Session, specialty_type: str):
 def get_scoring_configs(db: Session = Depends(get_db)):
     ip = _get_or_default(db, "IP")
     op = _get_or_default(db, "OP")
+    edsp = _get_or_default(db, "EDSP")
 
     def _serialize(row, stype):
         if not row:
-            return None
+            if stype == "IP":
+                row = DEFAULT_IP_CFG
+            elif stype == "EDSP":
+                row = DEFAULT_EDSP_CFG
+            else:
+                row = DEFAULT_OP_CFG
         return {
             "specialty_type": stype,
             "pdx_weight": row.pdx_weight,
             "sdx_weight": row.sdx_weight,
-            "pcs_weight": row.pcs_weight,
-            "drg_weight": row.drg_weight,
-            "cpt_weight": row.cpt_weight,
+            "pcs_weight": getattr(row, "pcs_weight", None),
+            "drg_weight": getattr(row, "drg_weight", None),
+            "cpt_weight": (getattr(row, "cpt_weight", None)
+                           if getattr(row, "cpt_weight", None) is not None
+                           else (DEFAULT_EDSP_CFG.cpt_weight if stype == "EDSP" else None)),
+            "facility_level_weight": (
+                getattr(row, "facility_level_weight", None)
+                if getattr(row, "facility_level_weight", None) is not None
+                else (DEFAULT_EDSP_CFG.facility_level_weight if stype == "EDSP" else None)
+            ),
+            "profee_level_weight": (
+                getattr(row, "profee_level_weight", None)
+                if getattr(row, "profee_level_weight", None) is not None
+                else (DEFAULT_EDSP_CFG.profee_level_weight if stype == "EDSP" else None)
+            ),
             "pass_threshold": row.pass_threshold,
-            "drg_triggers": row.drg_triggers or [],
+            "drg_triggers": getattr(row, "drg_triggers", None) or [],
             "overcoding_penalty": row.overcoding_penalty,
             "weighted_enabled": getattr(row, "weighted_enabled", True),
             "dpo_enabled": getattr(row, "dpo_enabled", True),
             "dpo_pass_threshold": getattr(row, "dpo_pass_threshold", 80.0),
-            "updated_by": row.updated_by,
-            "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+            "updated_by": getattr(row, "updated_by", None),
+            "updated_at": row.updated_at.isoformat() if getattr(row, "updated_at", None) else None,
         }
 
-    return {"IP": _serialize(ip, "IP"), "OP": _serialize(op, "OP")}
+    return {"IP": _serialize(ip, "IP"), "OP": _serialize(op, "OP"),
+            "EDSP": _serialize(edsp, "EDSP")}
 
 
 class ScoringConfigUpdate(BaseModel):
@@ -93,6 +112,8 @@ class ScoringConfigUpdate(BaseModel):
     pcs_weight: Optional[int] = None
     drg_weight: Optional[int] = None
     cpt_weight: Optional[int] = None
+    facility_level_weight: Optional[int] = None
+    profee_level_weight: Optional[int] = None
     pass_threshold: int
     drg_triggers: list[str] = []
     overcoding_penalty: bool = True
@@ -109,11 +130,16 @@ def update_scoring_config(payload: ScoringConfigUpdate, db: Session = Depends(ge
         raise HTTPException(status_code=403, detail="Invalid passphrase")
 
     stype = payload.specialty_type.upper()
-    if stype not in ("IP", "OP"):
-        raise HTTPException(status_code=400, detail="specialty_type must be IP or OP")
+    if stype not in ("IP", "OP", "EDSP"):
+        raise HTTPException(status_code=400, detail="specialty_type must be IP, OP, or EDSP")
 
     if stype == "IP":
         total = payload.pdx_weight + payload.sdx_weight + (payload.pcs_weight or 0) + (payload.drg_weight or 0)
+    elif stype == "EDSP":
+        total = (payload.pdx_weight + payload.sdx_weight +
+                 (payload.facility_level_weight or 0) +
+                 (payload.profee_level_weight or 0) +
+                 (payload.cpt_weight or 0))
     else:
         total = payload.pdx_weight + payload.sdx_weight + (payload.cpt_weight or 0)
     if total != 100:
@@ -129,9 +155,14 @@ def update_scoring_config(payload: ScoringConfigUpdate, db: Session = Depends(ge
     row.pcs_weight = payload.pcs_weight
     row.drg_weight = payload.drg_weight
     row.cpt_weight = payload.cpt_weight
+    row.facility_level_weight = payload.facility_level_weight
+    row.profee_level_weight = payload.profee_level_weight
     row.pass_threshold = payload.pass_threshold
     row.drg_triggers = payload.drg_triggers
     row.overcoding_penalty = payload.overcoding_penalty
+    if stype == "EDSP":
+        payload.weighted_enabled = True
+        payload.dpo_enabled = False
     if not payload.weighted_enabled and not payload.dpo_enabled:
         raise HTTPException(status_code=400, detail="At least one scoring method must be enabled")
     row.weighted_enabled = payload.weighted_enabled
@@ -487,10 +518,12 @@ def upsert_answer_key_inline(chart_id: int, payload: AnswerKeyPayload,
 
     ip_cfg_row = db.query(ScoringConfig).filter(ScoringConfig.specialty_type == "IP").first()
     op_cfg_row = db.query(ScoringConfig).filter(ScoringConfig.specialty_type == "OP").first()
+    edsp_cfg_row = db.query(ScoringConfig).filter(ScoringConfig.specialty_type == "EDSP").first()
     ip_cfg = cfg_from_db(ip_cfg_row) if ip_cfg_row else DEFAULT_IP_CFG
     op_cfg = cfg_from_db(op_cfg_row) if op_cfg_row else DEFAULT_OP_CFG
+    edsp_cfg = cfg_from_db(edsp_cfg_row) if edsp_cfg_row else DEFAULT_EDSP_CFG
 
-    regrade = regrade_chart_everywhere(db, chart_id, ip_cfg, op_cfg,
+    regrade = regrade_chart_everywhere(db, chart_id, ip_cfg, op_cfg, edsp_cfg,
                                        include_closed=payload.regrade_closed)
 
     log_audit(db, chart_id=chart_id, action="answer_key_saved", actor=payload.entered_by,

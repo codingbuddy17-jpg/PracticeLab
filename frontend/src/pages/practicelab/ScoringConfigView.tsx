@@ -28,7 +28,7 @@ function WeightField({ label, value, onChange }: { label: string; value: number;
 
 export function ScoringConfigView() {
   const [configs, setConfigs] = useState<any>(null)
-  const [tab, setTab] = useState<'IP' | 'OP' | 'EM'>('IP')
+  const [tab, setTab] = useState<'IP' | 'OP' | 'EDSP' | 'EM'>('IP')
   const [form, setForm] = useState<any>({})
   const [emForm, setEmForm] = useState<any>(null)
   const [passphrase, setPassphrase] = useState('')
@@ -41,7 +41,7 @@ export function ScoringConfigView() {
     try {
       const [data, emData] = await Promise.all([getScoringConfigs(), getEMScoringConfig()])
       setConfigs(data)
-      setForm({ IP: { ...data.IP }, OP: { ...data.OP } })
+      setForm({ IP: { ...data.IP }, OP: { ...data.OP }, EDSP: { ...data.EDSP } })
       setEmForm({ ...emData })
     } catch { toast.error('Failed to load scoring config') }
   }
@@ -94,6 +94,7 @@ export function ScoringConfigView() {
   function weightSum(stype: string) {
     const f = form[stype] || {}
     if (stype === 'IP') return (f.pdx_weight || 0) + (f.sdx_weight || 0) + (f.pcs_weight || 0) + (f.drg_weight || 0)
+    if (stype === 'EDSP') return (f.pdx_weight || 0) + (f.sdx_weight || 0) + (f.facility_level_weight || 0) + (f.profee_level_weight || 0) + (f.cpt_weight || 0)
     return (f.pdx_weight || 0) + (f.sdx_weight || 0) + (f.cpt_weight || 0)
   }
 
@@ -111,12 +112,14 @@ export function ScoringConfigView() {
         sdx_weight: f.sdx_weight,
         pcs_weight: tab === 'IP' ? f.pcs_weight : undefined,
         drg_weight: tab === 'IP' ? f.drg_weight : undefined,
-        cpt_weight: tab === 'OP' ? f.cpt_weight : undefined,
+        cpt_weight: tab === 'OP' || tab === 'EDSP' ? f.cpt_weight : undefined,
+        facility_level_weight: tab === 'EDSP' ? f.facility_level_weight : undefined,
+        profee_level_weight: tab === 'EDSP' ? f.profee_level_weight : undefined,
         pass_threshold: f.pass_threshold,
         drg_triggers: tab === 'IP' ? (f.drg_triggers || []) : [],
         overcoding_penalty: f.overcoding_penalty,
-        weighted_enabled: f.weighted_enabled ?? true,
-        dpo_enabled: f.dpo_enabled ?? true,
+        weighted_enabled: tab === 'EDSP' ? true : f.weighted_enabled ?? true,
+        dpo_enabled: tab === 'EDSP' ? false : f.dpo_enabled ?? true,
         dpo_pass_threshold: f.dpo_pass_threshold ?? 80,
         passphrase,
         updated_by: trainerName(),
@@ -129,7 +132,7 @@ export function ScoringConfigView() {
     } finally { setSaving(false) }
   }
 
-  if (!form.IP || !form.OP || !emForm) return <div style={styles.center}><Loader size={24} /></div>
+  if (!form.IP || !form.OP || !form.EDSP || !emForm) return <div style={styles.center}><Loader size={24} /></div>
 
   const f = form[tab]
   const sum = weightSum(tab)
@@ -143,9 +146,9 @@ export function ScoringConfigView() {
       </div>
 
       <div style={styles.chipRow}>
-        {(['IP', 'OP', 'EM'] as const).map(t => (
+        {(['IP', 'OP', 'EDSP', 'EM'] as const).map(t => (
           <button key={t} style={tab === t ? styles.chipActive : styles.chip} onClick={() => { setTab(t); setPassphrase('') }}>
-            {t === 'IP' ? 'IP-DRG' : t === 'OP' ? 'Outpatient (OP)' : 'E/M (MDM-based)'}
+            {t === 'IP' ? 'IP-DRG' : t === 'OP' ? 'Outpatient (OP)' : t === 'EDSP' ? 'ED Single Path' : 'E/M (MDM-based)'}
           </button>
         ))}
       </div>
@@ -263,7 +266,14 @@ export function ScoringConfigView() {
             <WeightField label="PCS" value={f.pcs_weight} onChange={v => updateField(tab, 'pcs_weight', v)} />
             <WeightField label="DRG" value={f.drg_weight} onChange={v => updateField(tab, 'drg_weight', v)} />
           </>}
+          {tab === 'EDSP' && <>
+            <WeightField label="Facility Level" value={f.facility_level_weight}
+              onChange={v => updateField(tab, 'facility_level_weight', v)} />
+            <WeightField label="Profee Level" value={f.profee_level_weight}
+              onChange={v => updateField(tab, 'profee_level_weight', v)} />
+          </>}
           {tab === 'OP' && <WeightField label="CPT" value={f.cpt_weight} onChange={v => updateField(tab, 'cpt_weight', v)} />}
+          {tab === 'EDSP' && <WeightField label="CPT" value={f.cpt_weight} onChange={v => updateField(tab, 'cpt_weight', v)} />}
         </div>
         <div style={{ fontSize: 13, fontWeight: 700, color: sum === 100 ? '#16a34a' : '#dc2626', marginTop: 6 }}>
           Total: {sum} / 100 {sum === 100 ? '✓' : '⚠ Must equal 100'}
@@ -301,7 +311,7 @@ export function ScoringConfigView() {
         </div>
       )}
 
-      <div style={styles.configSection}>
+      {tab !== 'EDSP' ? <div style={styles.configSection}>
         <div style={styles.configSectionTitle}>Scoring Method Availability
           <span style={styles.hint}> — disabled methods cannot be selected when creating a batch</span>
         </div>
@@ -328,7 +338,14 @@ export function ScoringConfigView() {
             <span style={styles.hint}>% accuracy — shown alongside results but does not override weighted pass/fail</span>
           </div>
         </div>
-      </div>
+      </div> : (
+        <div style={styles.configSection}>
+          <div style={styles.configSectionTitle}>Scoring Method Availability</div>
+          <div style={{ fontSize: 13, color: '#374151' }}>
+            ED Single Path uses weighted scoring only. DPO is not calculated for this workflow.
+          </div>
+        </div>
+      )}
 
       <div style={styles.configSection}>
         <div style={styles.configSectionTitle}>Master Admin Passphrase *</div>

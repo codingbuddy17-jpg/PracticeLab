@@ -15,7 +15,7 @@ from services.grading_engine import (
 from .shared import IP_SPECIALTIES, _uses_pointers, _is_single_path, _is_dx_only
 
 
-def _grade_chart_for_sp(chart, ak_rec, sub_data, ip_cfg, op_cfg):
+def _grade_chart_for_sp(chart, ak_rec, sub_data, ip_cfg, op_cfg, edsp_cfg=None):
     """Grade a single chart submission, return (result_kwargs, feedback_items)."""
     is_ip = chart.specialty in IP_SPECIALTIES
     feedback_items = []
@@ -25,6 +25,7 @@ def _grade_chart_for_sp(chart, ak_rec, sub_data, ip_cfg, op_cfg):
             grade_ed_single_path, EDSinglePathAnswerKey, EDSinglePathSubmission,
             DEFAULT_EDSP_CFG,
         )
+        edsp_cfg = edsp_cfg or DEFAULT_EDSP_CFG
         ak = EDSinglePathAnswerKey(
             pdx_code=ak_rec.pdx_code or "",
             sdx=ak_rec.sdx or [],
@@ -39,7 +40,7 @@ def _grade_chart_for_sp(chart, ak_rec, sub_data, ip_cfg, op_cfg):
             facility_level=sub_data.get("facility_level", "") or "",
             profee_level=sub_data.get("profee_level", "") or "",
         )
-        res = grade_ed_single_path(ak, s, DEFAULT_EDSP_CFG)
+        res = grade_ed_single_path(ak, s, edsp_cfg)
         for fb in res.feedback:
             feedback_items.append({"section": fb.section, "issue": fb.issue_type,
                                    "ak_code": fb.ak_code, "coder_code": fb.coder_code})
@@ -190,7 +191,7 @@ def chart_regrade_impact(db, chart_id: int) -> dict:
     }
 
 
-def regrade_chart_everywhere(db, chart_id: int, ip_cfg, op_cfg,
+def regrade_chart_everywhere(db, chart_id: int, ip_cfg, op_cfg, edsp_cfg=None,
                              include_closed: bool = False) -> dict:
     """
     Re-grade every submitted practice result for one chart after its key changed.
@@ -263,7 +264,8 @@ def regrade_chart_everywhere(db, chart_id: int, ip_cfg, op_cfg,
             "facility_level": entry.facility_level or "",
             "profee_level": entry.profee_level or "",
         }
-        result_kwargs, feedback_items = _grade_chart_for_sp(chart, ak_rec, sub_data, ip_cfg, op_cfg)
+        result_kwargs, feedback_items = _grade_chart_for_sp(
+            chart, ak_rec, sub_data, ip_cfg, op_cfg, edsp_cfg)
         _upsert_practice_result(db, session_id, entry, chart.specialty, graded=True,
                                 result_kwargs=result_kwargs, feedback_items=feedback_items,
                                 ak_rec=ak_rec)

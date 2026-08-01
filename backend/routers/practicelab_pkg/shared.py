@@ -15,7 +15,6 @@ POINTER_SPECIALTIES = {
     Specialty.SURGERY,
     Specialty.ED_PROFEE,
     Specialty.EM,
-    Specialty.ED_SINGLE_PATH,   # profee half of the single-path chart
 }
 
 # Diagnosis-only work — CPTs are auto-coded upstream in most orgs, so the coder

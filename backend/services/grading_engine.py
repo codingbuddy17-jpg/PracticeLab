@@ -746,7 +746,7 @@ def compute_dpo_op(ak: OPAnswerKey, sub: OPSubmission, overcoding_penalty: bool)
     )
 
 
-def cfg_from_db(db_row) -> "IPScoringCfg | OPScoringCfg":
+def cfg_from_db(db_row) -> "IPScoringCfg | OPScoringCfg | EDSinglePathCfg":
     """Convert a ScoringConfig DB row to the appropriate config dataclass."""
     if db_row.specialty_type == "IP":
         return IPScoringCfg(
@@ -757,6 +757,16 @@ def cfg_from_db(db_row) -> "IPScoringCfg | OPScoringCfg":
             pass_threshold=db_row.pass_threshold,
             overcoding_penalty=db_row.overcoding_penalty,
             drg_triggers=db_row.drg_triggers or [],
+        )
+    if db_row.specialty_type == "EDSP":
+        return EDSinglePathCfg(
+            pdx_weight=db_row.pdx_weight,
+            sdx_weight=db_row.sdx_weight,
+            facility_level_weight=getattr(db_row, "facility_level_weight", None) or 20,
+            profee_level_weight=getattr(db_row, "profee_level_weight", None) or 20,
+            cpt_weight=db_row.cpt_weight or 20,
+            pass_threshold=db_row.pass_threshold,
+            overcoding_penalty=db_row.overcoding_penalty,
         )
     return OPScoringCfg(
         pdx_weight=db_row.pdx_weight,
@@ -792,7 +802,9 @@ def grade_ed_single_path(ak, sub, cfg: EDSinglePathCfg = DEFAULT_EDSP_CFG) -> ED
     "levelled facility correctly but not profee" from a general miss — that
     split is the reason single-path is trained at all.
 
-    Pointers apply to the professional side, so CPT lines are pointer-checked.
+    Diagnosis pointers are intentionally not enforced here. In single-path
+    practice, the facility/profee split is already the learning target and
+    pointer segregation is too ambiguous for reliable automated scoring.
     """
     result = EDSinglePathResult()
     feedback = []
@@ -840,7 +852,7 @@ def grade_ed_single_path(ak, sub, cfg: EDSinglePathCfg = DEFAULT_EDSP_CFG) -> ED
             ak.cpt, sub.cpt, penalty,
             ak_dx=claim_dx_list(ak.pdx_code, ak.sdx),
             cdr_dx=claim_dx_list(sub.pdx_code, sub.sdx),
-            check_pointers=True,
+            check_pointers=False,
         )
         cpt_per = cfg.cpt_weight / ak_cpt_cnt
         result.cpt_score = max(0, round((cpt_matched - cpt_extra) * cpt_per))

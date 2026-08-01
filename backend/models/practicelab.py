@@ -276,6 +276,8 @@ class ScoringConfig(Base):
     pcs_weight = Column(Integer, nullable=True)
     drg_weight = Column(Integer, nullable=True)
     cpt_weight = Column(Integer, nullable=True)
+    facility_level_weight = Column(Integer, nullable=True)
+    profee_level_weight = Column(Integer, nullable=True)
     pass_threshold = Column(Integer, nullable=False, default=80)
     drg_triggers = Column(JSON, nullable=True, default=list)
     overcoding_penalty = Column(Boolean, nullable=False, default=True)

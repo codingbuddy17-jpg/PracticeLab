@@ -19,7 +19,8 @@ from services.chart_service import detect_specialty_from_prefix
 from services.excel_service import generate_answer_key_template, parse_answer_key_upload
 from services.grading_engine import (
     grade_ed_single_path, EDSinglePathAnswerKey, EDSinglePathSubmission,
-    DEFAULT_EDSP_CFG, grade_op, OPAnswerKey, OPSubmission, DEFAULT_OP_CFG,
+    DEFAULT_EDSP_CFG, EDSinglePathCfg, cfg_from_db,
+    grade_op, OPAnswerKey, OPSubmission, DEFAULT_OP_CFG,
 )
 
 
@@ -44,13 +45,14 @@ class TestSpecialtyWiring:
         assert detect_specialty_from_prefix(filename) == expected
 
     @pytest.mark.parametrize("spec", [
-        Specialty.SURGERY, Specialty.ED_PROFEE, Specialty.EM, Specialty.ED_SINGLE_PATH,
+        Specialty.SURGERY, Specialty.ED_PROFEE, Specialty.EM,
     ])
     def test_professional_specialties_use_pointers(self, spec):
         assert _uses_pointers(spec)
 
     @pytest.mark.parametrize("spec", [
         Specialty.SDS, Specialty.ED_FACILITY, Specialty.IP_DRG, Specialty.ANCILLARY,
+        Specialty.ED_SINGLE_PATH,
     ])
     def test_facility_specialties_do_not(self, spec):
         assert not _uses_pointers(spec)
@@ -79,27 +81,28 @@ class TestAnswerKeyTemplates:
 
     def test_single_path_template_leads_with_both_levels(self):
         ws = load_workbook(io.BytesIO(generate_answer_key_template(
-            "OP", with_pointers=True, single_path=True))).worksheets[0]
+            "OP", with_pointers=False, single_path=True))).worksheets[0]
         headers = [c.value for c in ws[1] if c.value]
         assert headers[1] == "Facility_ED_Level"
         assert headers[2] == "Profee_ED_Level"
         assert headers[3] == "PDx_Code"
+        assert not any("DxPointer" in str(h) for h in headers)
 
     def test_single_path_round_trip(self):
-        data = generate_answer_key_template("OP", with_pointers=True, single_path=True)
+        data = generate_answer_key_template("OP", with_pointers=False, single_path=True)
         ws = load_workbook(io.BytesIO(data)).worksheets[0]
         ws.cell(2, 1, "EDSP001"); ws.cell(2, 2, "99283"); ws.cell(2, 3, "99284")
         ws.cell(2, 4, "S61.401A"); ws.cell(2, 5, "W26.0XXA")
         cpt_col = 4 + 20 + 1
-        ws.cell(2, cpt_col, "12001"); ws.cell(2, cpt_col + 2, "A")
+        ws.cell(2, cpt_col, "12001")
         buf = io.BytesIO(); ws.parent.save(buf)
 
         row = parse_answer_key_upload(buf.getvalue(), "OP",
-                                      with_pointers=True, single_path=True)[0]
+                                      with_pointers=False, single_path=True)[0]
         assert row["facility_level"] == "99283"
         assert row["profee_level"] == "99284"
         assert row["pdx_code"] == "S61.401A"
-        assert row["cpt"] == [{"code": "12001", "modifier": "", "pointers": ["A"]}]
+        assert row["cpt"] == [{"code": "12001", "modifier": ""}]
 
 
 class TestEDSinglePath:
@@ -130,10 +133,44 @@ class TestEDSinglePath:
         assert res.total_score == 80
         assert res.profee_level_ok and not res.facility_level_ok
 
-    def test_pointers_still_enforced_on_the_professional_side(self):
+    def test_pointers_are_not_enforced_for_single_path(self):
         res = self._grade(cpt=[{"code": "12001", "modifier": "", "pointers": ["B"]}])
-        assert res.total_score == 90
-        assert any(f.issue_type == "Wrong_Pointer" for f in res.feedback)
+        assert res.total_score == 100
+        assert not any(f.issue_type == "Wrong_Pointer" for f in res.feedback)
+
+    def test_custom_config_changes_single_path_weights(self):
+        cfg = EDSinglePathCfg(pdx_weight=10, sdx_weight=10,
+                              facility_level_weight=30, profee_level_weight=30,
+                              cpt_weight=20, pass_threshold=90)
+        res = self._grade(facility_level="99281")
+        custom = grade_ed_single_path(
+            EDSinglePathAnswerKey(**self.AK),
+            EDSinglePathSubmission(
+                pdx_code="S61.401A", sdx=[{"code": "W26.0XXA"}],
+                cpt=[{"code": "12001", "modifier": ""}],
+                facility_level="99281", profee_level="99284"),
+            cfg,
+        )
+        assert res.total_score == 80
+        assert custom.total_score == 70
+
+    def test_edsp_config_maps_from_db_row(self):
+        class Row:
+            specialty_type = "EDSP"
+            pdx_weight = 10
+            sdx_weight = 10
+            facility_level_weight = 30
+            profee_level_weight = 30
+            cpt_weight = 20
+            pass_threshold = 85
+            overcoding_penalty = False
+
+        cfg = cfg_from_db(Row())
+        assert isinstance(cfg, EDSinglePathCfg)
+        assert cfg.facility_level_weight == 30
+        assert cfg.profee_level_weight == 30
+        assert cfg.pass_threshold == 85
+        assert not cfg.overcoding_penalty
 
 
 class TestAncillaryDxOnly:
@@ -268,6 +305,7 @@ class TestAnswerKeyExportRoundTrip:
         ws = wb["ED Single Path"]
         headers = [str(c.value) for c in ws[1] if c.value]
         assert headers[1] == "Facility_ED_Level" and headers[2] == "Profee_ED_Level"
+        assert not any("DxPointer" in h for h in headers)
         vals = [str(c.value) for c in ws[2] if c.value]
         assert "99283" in vals and "99284" in vals
 

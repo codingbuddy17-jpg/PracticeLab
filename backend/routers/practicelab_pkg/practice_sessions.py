@@ -21,7 +21,7 @@ from models import (
 from services.grading_engine import (
     grade_ip, grade_op, finalize_ip_score, cfg_from_db,
     IPAnswerKey, OPAnswerKey, IPSubmission, OPSubmission,
-    DEFAULT_IP_CFG, DEFAULT_OP_CFG,
+    DEFAULT_IP_CFG, DEFAULT_OP_CFG, DEFAULT_EDSP_CFG,
 )
 from .shared import _is_ip, _is_ed, MASTER_PASSPHRASE
 from .chart_grading import _grade_chart_for_sp
@@ -568,8 +568,10 @@ def submit_practice_session(session_id: int, payload: SubmitPracticeSession, db:
         # IP / OP: auto-grade against answer key
         ip_cfg_row = db.query(ScoringConfig).filter(ScoringConfig.specialty_type == "IP").first()
         op_cfg_row = db.query(ScoringConfig).filter(ScoringConfig.specialty_type == "OP").first()
+        edsp_cfg_row = db.query(ScoringConfig).filter(ScoringConfig.specialty_type == "EDSP").first()
         ip_cfg = cfg_from_db(ip_cfg_row) if ip_cfg_row else DEFAULT_IP_CFG
         op_cfg = cfg_from_db(op_cfg_row) if op_cfg_row else DEFAULT_OP_CFG
+        edsp_cfg = cfg_from_db(edsp_cfg_row) if edsp_cfg_row else DEFAULT_EDSP_CFG
 
         for entry in payload.entries:
             chart = db.query(Chart).filter(Chart.id == entry.chart_id).first()
@@ -586,7 +588,8 @@ def submit_practice_session(session_id: int, payload: SubmitPracticeSession, db:
                 "facility_level": entry.facility_level or "",
                 "profee_level": entry.profee_level or "",
             }
-            result_kwargs, feedback_items = _grade_chart_for_sp(chart, ak_rec, sub_data, ip_cfg, op_cfg)
+            result_kwargs, feedback_items = _grade_chart_for_sp(
+                chart, ak_rec, sub_data, ip_cfg, op_cfg, edsp_cfg)
             _upsert_practice_result(db, session_id, entry, specialty, graded=True,
                                     result_kwargs=result_kwargs, feedback_items=feedback_items,
                                     ak_rec=ak_rec)
@@ -1163,8 +1166,10 @@ def regrade_practice_session(session_id: int, db: Session = Depends(get_db)):
 
     ip_cfg_row = db.query(ScoringConfig).filter(ScoringConfig.specialty_type == "IP").first()
     op_cfg_row = db.query(ScoringConfig).filter(ScoringConfig.specialty_type == "OP").first()
+    edsp_cfg_row = db.query(ScoringConfig).filter(ScoringConfig.specialty_type == "EDSP").first()
     ip_cfg = cfg_from_db(ip_cfg_row) if ip_cfg_row else DEFAULT_IP_CFG
     op_cfg = cfg_from_db(op_cfg_row) if op_cfg_row else DEFAULT_OP_CFG
+    edsp_cfg = cfg_from_db(edsp_cfg_row) if edsp_cfg_row else DEFAULT_EDSP_CFG
 
     drafts = db.execute(text(
         "SELECT chart_id, pdx_code, pdx_poa, sdx, pcs, cpt, flagged, coder_notes, "
@@ -1226,7 +1231,7 @@ def regrade_practice_session(session_id: int, db: Session = Depends(get_db)):
             feedback_items = _em_feedback_items(scoring, em_ak, entry.em_data or {}, em_cfg)
         else:
             result_kwargs, feedback_items = _grade_chart_for_sp(
-                chart, ak_rec, sub_data, ip_cfg, op_cfg)
+                chart, ak_rec, sub_data, ip_cfg, op_cfg, edsp_cfg)
         _upsert_practice_result(db, session_id, entry, specialty, graded=True,
                                 result_kwargs=result_kwargs, feedback_items=feedback_items,
                                 ak_rec=ak_rec)

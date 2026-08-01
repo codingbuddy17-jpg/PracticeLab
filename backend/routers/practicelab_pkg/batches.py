@@ -72,7 +72,13 @@ def create_batch(payload: BatchCreate, db: Session = Depends(get_db)):
     except ValueError:
         raise HTTPException(status_code=400, detail=f"Invalid specialty: {payload.specialty}")
 
-    if not payload.use_weighted and not payload.use_dpo:
+    use_weighted = payload.use_weighted
+    use_dpo = payload.use_dpo
+    if specialty == Specialty.ED_SINGLE_PATH:
+        use_weighted = True
+        use_dpo = False
+
+    if not use_weighted and not use_dpo:
         raise HTTPException(status_code=400, detail="At least one scoring method must be selected")
 
     if not payload.coders:
@@ -113,8 +119,8 @@ def create_batch(payload: BatchCreate, db: Session = Depends(get_db)):
         charts_per_coder=payload.charts_per_coder,
         created_by=payload.created_by,
         status=BatchStatus.OPEN,
-        use_weighted=payload.use_weighted,
-        use_dpo=payload.use_dpo,
+        use_weighted=use_weighted,
+        use_dpo=use_dpo,
         is_direct_assignment=payload.is_direct_assignment,
         notes=[],
         tags=[],
@@ -587,5 +593,4 @@ def get_batch(batch_id: int, db: Session = Depends(get_db)):
                     "excel_generated": c.excel_generated_at is not None,
                     "charts": coder_map.get(c.coder_name, [])} for c in coders],
     }
-
 
