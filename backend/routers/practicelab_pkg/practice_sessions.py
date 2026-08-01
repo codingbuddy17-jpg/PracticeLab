@@ -24,7 +24,7 @@ from services.grading_engine import (
     DEFAULT_IP_CFG, DEFAULT_OP_CFG,
 )
 from .shared import _is_ip, _is_ed, MASTER_PASSPHRASE
-from .self_practice import _grade_chart_for_sp
+from .chart_grading import _grade_chart_for_sp
 
 router = APIRouter()
 

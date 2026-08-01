@@ -289,34 +289,6 @@ export async function getPLChartDetail(chartNumber: string) {
   return data as { chart_number: string; coders: { coder_name: string; batch_name: string; total_score: number; pass_fail: string; missed_codes: string[] }[] }
 }
 
-export function downloadSelfPracticeTemplate() {
-  window.open(`${import.meta.env.VITE_API_URL || '/api'}/practicelab/self-practice/template`, '_blank')
-}
-
-export async function submitSelfPractice(coderName: string, empId: string, files: File[]) {
-  const form = new FormData()
-  form.append('coder_name', coderName)
-  form.append('emp_id', empId)
-  files.forEach(f => form.append('files', f))
-  const { data } = await api.post('/practicelab/self-practice/submit', form, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  })
-  return data as { submission_id: number | null; graded: string[]; errors: string[] }
-}
-
-export async function getSelfPracticeQueue(status = 'pending_review') {
-  const { data } = await api.get('/practicelab/self-practice/queue', { params: { status } })
-  return data
-}
-
-export async function releaseSelfPractice(submissionId: number, trainerFeedback: string, reviewedBy: string) {
-  const { data } = await api.post(`/practicelab/self-practice/${submissionId}/release`, {
-    trainer_feedback: trainerFeedback,
-    reviewed_by: reviewedBy,
-  })
-  return data
-}
-
 // ── E/M MDM API ──────────────────────────────────────────────────────────────
 
 export async function getEMAnswerKey(chartId: number) {

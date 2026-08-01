@@ -10,7 +10,6 @@ const TrainerReports        = lazy(() => import('./pages/TrainerReports').then(m
 const ChartLibraryAnalytics = lazy(() => import('./pages/ChartLibraryAnalytics').then(m => ({ default: m.ChartLibraryAnalytics })))
 const TrainerFeedback       = lazy(() => import('./pages/TrainerFeedback').then(m => ({ default: m.TrainerFeedback })))
 const TrainerPracticeLab    = lazy(() => import('./pages/TrainerPracticeLab').then(m => ({ default: m.TrainerPracticeLab })))
-const CoderSelfPractice     = lazy(() => import('./pages/CoderSelfPractice').then(m => ({ default: m.CoderSelfPractice })))
 const AssessmentHome        = lazy(() => import('./pages/assessment/AssessmentHome').then(m => ({ default: m.AssessmentHome })))
 const ChartManagementHome   = lazy(() => import('./pages/ChartManagementHome').then(m => ({ default: m.ChartManagementHome })))
 const TakeAssessmentEntry   = lazy(() => import('./pages/TakeAssessmentEntry').then(m => ({ default: m.TakeAssessmentEntry })))
@@ -33,7 +32,6 @@ export default function App() {
       <Suspense fallback={<PageLoader />}>
         <Routes>
           <Route path="/" element={<CoderHome />} />
-          <Route path="/self-practice" element={<CoderSelfPractice />} />
           <Route path="/trainer" element={<TrainerHome />} />
           <Route path="/trainer/upload" element={<TrainerUpload />} />
           <Route path="/trainer/charts" element={<TrainerCharts />} />

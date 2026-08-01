@@ -10,17 +10,15 @@ import { BatchDetailView } from './practicelab/BatchDetailView'
 import { DRGReviewView } from './practicelab/DRGReviewView'
 import { ResultsView } from './practicelab/ResultsView'
 import { ScoringConfigView } from './practicelab/ScoringConfigView'
-import { SelfPracticeView } from './practicelab/SelfPracticeView'
 import { PLAnalyticsView } from './practicelab/PLAnalyticsView'
 import styles from './practicelab/styles'
 
-type Tab = 'home' | 'answer-keys' | 'self-practice' | 'analytics'
+type Tab = 'home' | 'answer-keys' | 'analytics'
 type View = Tab | 'scoring-config' | 'create-batch' | 'create-direct' | 'batch-detail' | 'drg-review' | 'results'
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'home',          label: 'Batches' },
   { key: 'answer-keys',   label: 'Answer Keys' },
-  { key: 'self-practice', label: 'Self Practice' },
   { key: 'analytics',     label: 'Analytics' },
 ]
 
@@ -65,11 +63,11 @@ export function TrainerPracticeLab() {
   const statusColor = (s: string) => ({ Open: '#2563eb', Closed: '#16a34a' }[s] || '#6b7280')
 
   // Which tab is "active" — drilldown views belong to 'home'
-  const activeTab: Tab = (['home', 'answer-keys', 'self-practice', 'analytics'] as Tab[]).includes(view as Tab)
+  const activeTab: Tab = (['home', 'answer-keys', 'analytics'] as Tab[]).includes(view as Tab)
     ? (view as Tab)
     : 'home'
 
-  const isDrilldown = !(['home', 'answer-keys', 'self-practice', 'analytics'] as string[]).includes(view)
+  const isDrilldown = !(['home', 'answer-keys', 'analytics'] as string[]).includes(view)
 
   return (
     <div style={styles.container}>
@@ -157,7 +155,6 @@ export function TrainerPracticeLab() {
           />
         )}
         {view === 'answer-keys'    && <AnswerKeysView />}
-        {view === 'self-practice'  && <SelfPracticeView />}
         {view === 'analytics'      && <PLAnalyticsView onOpenBatch={(id: number) => { setSelectedBatchId(id); setView('batch-detail') }} />}
         {view === 'scoring-config' && <ScoringConfigView />}
         {view === 'create-batch' && (
