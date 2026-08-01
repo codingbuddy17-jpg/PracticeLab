@@ -390,9 +390,15 @@ def _run_migrations():
     except Exception as exc:
         logger.warning("Assessment sample seed skipped (non-fatal): %s", exc)
 
+    # PostgreSQL SERIAL has no SQLite equivalent — SQLite only auto-assigns for
+    # the exact form "INTEGER PRIMARY KEY" (the rowid alias). Declaring SERIAL
+    # there produced rows with a NULL id, which is why nothing touching the
+    # practice_* tables could be tested.
+    _PK = "INTEGER PRIMARY KEY AUTOINCREMENT" if is_sqlite else "SERIAL PRIMARY KEY"
+
     # ── in-browser practice sessions ─────────────────────────────────────────
-    _run("""CREATE TABLE IF NOT EXISTS practice_sessions (
-        id SERIAL PRIMARY KEY,
+    _run(f"""CREATE TABLE IF NOT EXISTS practice_sessions (
+        id {_PK},
         batch_id INTEGER REFERENCES batches(id),
         cycle_id INTEGER REFERENCES batch_allocation_cycles(id),
         coder_name VARCHAR(100) NOT NULL,
@@ -405,8 +411,8 @@ def _run_migrations():
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )""")
 
-    _run("""CREATE TABLE IF NOT EXISTS practice_chart_drafts (
-        id SERIAL PRIMARY KEY,
+    _run(f"""CREATE TABLE IF NOT EXISTS practice_chart_drafts (
+        id {_PK},
         session_id INTEGER REFERENCES practice_sessions(id) NOT NULL,
         chart_id INTEGER REFERENCES charts(id) NOT NULL,
         pdx_code VARCHAR(20),
@@ -429,8 +435,8 @@ def _run_migrations():
     _add_col("practice_chart_drafts", "ed_rationale", "TEXT", "TEXT")
     _add_col("practice_chart_drafts", "em_data", "TEXT", "TEXT")
 
-    _run("""CREATE TABLE IF NOT EXISTS practice_results (
-        id SERIAL PRIMARY KEY,
+    _run(f"""CREATE TABLE IF NOT EXISTS practice_results (
+        id {_PK},
         session_id INTEGER REFERENCES practice_sessions(id) NOT NULL,
         chart_id INTEGER REFERENCES charts(id) NOT NULL,
         specialty VARCHAR(50),

@@ -23,7 +23,7 @@ from services.grading_engine import (
     IPAnswerKey, OPAnswerKey, IPSubmission, OPSubmission,
     DEFAULT_IP_CFG, DEFAULT_OP_CFG, DEFAULT_EDSP_CFG,
 )
-from .shared import _is_ip, _is_ed, MASTER_PASSPHRASE
+from .shared import _is_ip, _is_ed, MASTER_PASSPHRASE, assert_batch_open
 from .chart_grading import _grade_chart_for_sp
 
 router = APIRouter()
@@ -1045,12 +1045,13 @@ def score_ed_practice_chart(
     from sqlalchemy import text
 
     sess = db.execute(text(
-        "SELECT specialty, status FROM practice_sessions WHERE id=:s"
+        "SELECT specialty, status, batch_id FROM practice_sessions WHERE id=:s"
     ), {"s": session_id}).fetchone()
     if not sess:
         raise HTTPException(status_code=404, detail="Session not found")
     if not _is_ed(Specialty(sess[0])):
         raise HTTPException(status_code=400, detail="Rubric scoring only applies to E&D sessions")
+    assert_batch_open(db, sess[2], "score this chart")
 
     score = sum(v for k, v in ED_RUBRIC_WEIGHTS.items() if getattr(payload, k))
     score += ED_RATIONALE_SCORES.get(payload.rationale_tier, 0)
@@ -1120,6 +1121,12 @@ def drg_review_practice_chart(
     if not result:
         raise HTTPException(status_code=404, detail="Result not found")
 
+    _sess_batch = db.execute(text(
+        "SELECT batch_id FROM practice_sessions WHERE id=:s"
+    ), {"s": session_id}).fetchone()
+    if _sess_batch:
+        assert_batch_open(db, _sess_batch[0], "record a DRG decision")
+
     specialty_str = result[2]
     ip_cfg_row = db.query(ScoringConfig).filter(ScoringConfig.specialty_type == "IP").first()
     ip_cfg = cfg_from_db(ip_cfg_row) if ip_cfg_row else DEFAULT_IP_CFG
@@ -1160,12 +1167,14 @@ def regrade_practice_session(session_id: int, db: Session = Depends(get_db)):
     from sqlalchemy import text
 
     sess = db.execute(text(
-        "SELECT id, specialty, status FROM practice_sessions WHERE id=:s"
+        "SELECT id, specialty, status, batch_id FROM practice_sessions WHERE id=:s"
     ), {"s": session_id}).fetchone()
     if not sess:
         raise HTTPException(status_code=404, detail="Session not found")
     if sess[2] != "submitted":
         raise HTTPException(status_code=400, detail="Session not yet submitted")
+
+    assert_batch_open(db, sess[3], "re-grade this session")
 
     specialty = Specialty(sess[1])
     if _is_ed(specialty):

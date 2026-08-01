@@ -292,6 +292,49 @@ def run_allocation(batch_id: int, payload: AllocationRun, db: Session = Depends(
     }
 
 
+class BatchReopen(BaseModel):
+    reopened_by: str
+    passphrase: str
+    reason: str = ""
+
+
+@router.post("/batches/{batch_id}/reopen")
+def reopen_batch(batch_id: int, payload: BatchReopen, db: Session = Depends(get_db)):
+    """
+    Reopen a closed batch.
+
+    Closed batches are frozen — every path that mutates a graded result refuses
+    them. force-close exists to close a batch with work outstanding, so without
+    a way back that work would be stranded permanently. Gated on the master
+    passphrase because reopening makes the record editable again.
+    """
+    batch = db.query(Batch).filter(Batch.id == batch_id).first()
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    if batch.status != BatchStatus.CLOSED:
+        raise HTTPException(status_code=400, detail="Batch is not closed")
+    if payload.passphrase != MASTER_PASSPHRASE:
+        raise HTTPException(status_code=403, detail="Invalid passphrase")
+    if not payload.reopened_by.strip():
+        raise HTTPException(status_code=400, detail="reopened_by is required")
+
+    batch.status = BatchStatus.OPEN
+    batch.closed_at = None
+    batch.closed_by = None
+    batch.force_closed = False
+
+    note = f"Reopened by {payload.reopened_by}"
+    if payload.reason.strip():
+        note += f" — {payload.reason.strip()}"
+    notes = list(batch.notes or [])
+    notes.append({"text": note, "author": payload.reopened_by,
+                  "ts": datetime.utcnow().isoformat()})
+    batch.notes = notes
+
+    db.commit()
+    return {"reopened": True, "batch_id": batch_id, "status": batch.status.value}
+
+
 @router.post("/batches/{batch_id}/close")
 def close_batch(batch_id: int, payload: BatchClose, db: Session = Depends(get_db)):
     batch = db.query(Batch).filter(Batch.id == batch_id).first()

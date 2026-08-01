@@ -63,3 +63,25 @@ def _is_single_path(specialty: Specialty) -> bool:
 
 def _uses_dpo(specialty: Specialty) -> bool:
     return specialty in DPO_SPECIALTIES
+
+
+def assert_batch_open(db, batch_id, action: str = "modify results"):
+    """
+    Refuse to mutate a graded result in a closed batch.
+
+    Closing is the point at which results become the record. Only
+    /results/{id}/drg-decision enforced this; DRG review, ED rubric scoring and
+    session re-grade all wrote to closed batches silently. Reopening (master
+    passphrase) is the way back, so this never strands a force-closed batch.
+    """
+    from fastapi import HTTPException
+    from models import Batch, BatchStatus
+
+    batch = db.query(Batch).filter(Batch.id == batch_id).first()
+    if batch and batch.status == BatchStatus.CLOSED:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot {action} — batch '{batch.name}' is closed. "
+                   "Reopen it first if this needs to change.",
+        )
+    return batch
