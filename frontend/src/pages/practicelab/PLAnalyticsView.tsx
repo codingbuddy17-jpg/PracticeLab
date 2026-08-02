@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Loader } from 'lucide-react'
 import toast from 'react-hot-toast'
 import {
@@ -76,7 +76,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
   const [teachingData, setTeachingData] = useState<any[]>([])
   const [matrixData, setMatrixData] = useState<{ batches: any[]; coders: string[]; coder_emp_ids?: Record<string, string>; cells: any[] } | null>(null)
   const [teachingFilter, setTeachingFilter] = useState<string>('All')
-  const [loading, setLoading] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
   const [expandedCategory, setExpandedCategory] = useState<string | null>(null)
   const [expandedChart, setExpandedChart] = useState<string | null>(null)
   const [chartDetail, setChartDetail] = useState<Record<string, any>>({})
@@ -164,23 +164,48 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
     setFilterVersion(v => v + 1)
   }
 
+  /**
+   * Scope is a SERVER filter — every figure on these tabs is an aggregate
+   * computed in SQL, so flipping it has to make the round trip. What was not
+   * acceptable was blanking the whole page while it did: the spinner replaced
+   * the tab bar and the scope switch itself, so the control you had just
+   * clicked vanished under you.
+   *
+   * Two changes: results are cached per (filters, scope) so going back to a
+   * scope you have already seen is instant, and a pending fetch now shows an
+   * "Updating…" marker beside the switch while the current numbers stay on
+   * screen, instead of unmounting the page.
+   */
+  const scopeCache = useRef<Record<string, [any, any[], any[]]>>({})
+
   useEffect(() => {
-    setLoading(true)
+    const key = JSON.stringify([filters, scope])
+    const hit = scopeCache.current[key]
+    if (hit) {
+      const [ov, sp, bt] = hit
+      setOverview(ov); setBySpecialty(sp); setByBatch(bt)
+    }
+    setRefreshing(true)
     Promise.all([
       getPLAnalyticsOverview(filters, scope),
       getPLAnalyticsBySpecialty(filters, scope),
       getPLAnalyticsByBatch(filters, scope),
     ]).then(([ov, sp, bt]) => {
+      scopeCache.current[key] = [ov, sp, bt]
       setOverview(ov); setBySpecialty(sp); setByBatch(bt)
       if (ov?.ip_pass_threshold) setIpThreshold(ov.ip_pass_threshold)
       if (ov?.op_pass_threshold) setOpThreshold(ov.op_pass_threshold)
-    }).catch(() => toast.error('Failed to load analytics')).finally(() => setLoading(false))
+    }).catch(() => toast.error('Failed to load analytics')).finally(() => setRefreshing(false))
   }, [filters, scope])
 
   // Reloads on scope and filter changes too — a profile left open while the
   // scope switch is flipped would otherwise contradict the table above it.
   useEffect(() => {
     if (!profileSpecialty) { setProfile(null); return }
+    // Keeping stale data on screen is right for a scope change and wrong for a
+    // specialty change — the second would show one specialty's numbers under
+    // another's name until the fetch landed.
+    setProfile((p: any) => (p && p.specialty === profileSpecialty ? p : null))
     setProfileLoading(true)
     getPLSpecialtyProfile(profileSpecialty, filters, scope)
       .then(setProfile)
@@ -269,7 +294,9 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
     { key: 'em_mdm', label: 'E/M MDM' },
   ]
 
-  if (loading) return <div style={styles.center}><Loader size={24} /></div>
+  // Only the very first load takes over the page. After that there is always
+  // something real on screen to update in place.
+  if (refreshing && !overview) return <div style={styles.center}><Loader size={24} /></div>
 
   return (
     <div style={styles.section}>
@@ -345,6 +372,11 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
               </button>
             ))}
           </div>
+          {refreshing && (
+            <span style={{ fontSize: 11, color: '#0f766e', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+              <Loader size={12} /> Updating…
+            </span>
+          )}
           <span style={{ fontSize: 11, color: '#9ca3af' }}>
             {scope === 'formal' && 'Formal batch work only — direct assignments shown separately'}
             {scope === 'direct' && 'One-off direct assignments only'}
@@ -563,7 +595,9 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                 who has attempted them, how it compares with the other specialties, and which charts
                 people are struggling on.
               </div>
-            ) : profileLoading || !profile ? (
+            ) : !profile ? (
+              // Same rule as the page: only an empty panel waits: a scope flip
+              // with a profile already open updates it rather than clearing it.
               <div style={{ ...styles.emptyState, margin: 0 }}>Loading {profileSpecialty}…</div>
             ) : (
                   <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '18px 16px', display: 'flex', flexDirection: 'column', gap: 18 }}>
