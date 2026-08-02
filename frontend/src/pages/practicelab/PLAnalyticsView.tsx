@@ -451,13 +451,93 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
       {tab === 'specialty' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
 
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 800, color: '#111', marginBottom: 4 }}>All Specialties Compared</div>
+            <div style={{ fontSize: 11, color: '#6b7280' }}>Only specialties with graded results appear here</div>
+          </div>
+
+          {bySpecialty.length === 0 ? <div style={styles.emptyState}>No specialty data yet — upload and grade at least one batch to see a breakdown here.</div> : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '18px 16px' }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 16 }}>Avg Grading Score & Pass Rate by Specialty</div>
+                <ResponsiveContainer width="100%" height={Math.max(200, bySpecialty.length * 56)}>
+                  <BarChart data={bySpecialty} layout="vertical" margin={{ left: 20, right: 50, top: 4, bottom: 4 }}>
+                    <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                    <XAxis type="number" domain={[0, 100]} tickFormatter={v => `${v}%`} tick={{ fontSize: 11 }} />
+                    <YAxis type="category" dataKey="specialty" width={110} tick={{ fontSize: 12, fontWeight: 600 }} />
+                    <Tooltip formatter={(v: any, name: any) => [`${v}%`, name === 'avg_score' ? 'Avg Grading Score' : 'Pass Rate']} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                    <Legend formatter={n => n === 'avg_score' ? 'Avg Grading Score' : 'Pass Rate'} />
+                    <Bar dataKey="avg_score" name="avg_score" radius={[0, 4, 4, 0]} fill="#4f46e5" fillOpacity={0.85} />
+                    <Bar dataKey="pass_rate" name="pass_rate" radius={[0, 4, 4, 0]} fill="#16a34a" fillOpacity={0.85} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <div style={styles.table}>
+                {/* Pass Mark is shown because the two rate columns are NOT
+                    comparable across rows without it — 85% average is a pass in
+                    IP-DRG (80) and a fail in SDS (90), and the bar chart above
+                    puts them side by side as though one bar were simply longer. */}
+                <div style={{ ...styles.tableHeader, gridTemplateColumns: '2fr 0.8fr 0.8fr 1.2fr 1.2fr 1fr' }}>
+                  <span>Specialty</span><span>Graded</span><span>Pass Mark</span>
+                  <span>Avg Grading Score</span><span>Chart Pass Rate</span><span></span>
+                </div>
+                {/* Weakest first — a trainer opens this tab to find where to
+                    intervene, not to read an alphabetical list. */}
+                {[...bySpecialty].sort((a: any, b: any) => a.avg_score - b.avg_score).map((r: any, i: number) => {
+                  const pt = thresholdFor(r.specialty)
+                  const needsReview = r.avg_score < pt || r.pass_rate < PASS_RATE_TARGET
+                  const lowSample = r.total < LOW_SAMPLE
+                  return (
+                    <div key={r.specialty} className={i % 2 === 1 ? 'pl-tr-alt' : 'pl-tr'}
+                      onClick={() => {
+                        setProfileSpecialty(profileSpecialty === r.specialty ? null : r.specialty)
+                        // A click that loads the panel off-screen looks like a
+                        // click that did nothing — which is exactly how it read.
+                        document.getElementById('pl-specialty-deepdive')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                      }}
+                      style={{ ...styles.tableRow, gridTemplateColumns: '2fr 0.8fr 0.8fr 1.2fr 1.2fr 1fr', cursor: 'pointer', alignItems: 'center' }}>
+                      <span style={{ fontWeight: 600 }}>
+                        {profileSpecialty === r.specialty ? '▾ ' : '▸ '}{r.specialty}
+                      </span>
+                      <span>
+                        {r.total}
+                        {lowSample && <span title={`Fewer than ${LOW_SAMPLE} graded charts — these percentages move a lot on one result`}
+                          style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, background: '#f3f4f6', color: '#6b7280', padding: '1px 6px', borderRadius: 8 }}>Low sample</span>}
+                      </span>
+                      <span style={{ color: '#6b7280' }}>{pt != null ? `${pt}%` : '—'}</span>
+                      <span style={{ fontWeight: 700, color: sc(r.avg_score, r.specialty) }}>{r.avg_score}%</span>
+                      <span style={{ fontWeight: 700, color: rc(r.pass_rate) }}>{r.pass_rate}%</span>
+                      <span>
+                        {needsReview && <span style={{ fontSize: 10, fontWeight: 700, background: '#fef3c7', color: '#92400e', padding: '2px 8px', borderRadius: 10 }}>Needs review</span>}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+              <div style={{ fontSize: 11, color: '#9ca3af' }}>
+                Pass Mark is the per-chart score a coder must reach. Chart Pass Rate is the share of graded
+                charts that reached it — a population figure, not a score. Click any row to open it in the
+                Specialty Deep Dive below.
+              </div>
+
+            </div>
+          )}
+
           {/* ── Deep dive ────────────────────────────────────────────────
-              Deliberately its own area above the comparison, and deliberately
-              NOT gated on there being grading data: library and readiness are
+              Below the comparison, not above it. The tab reads general →
+              specific: find the weak specialty, then drill into it, which is
+              also where a row click lands you.
+
+              It sat above, directly beneath the scope switch, which made the
+              switch look like it governed this panel — and the panel's first
+              section, Library, is the one part of the tab scope does NOT
+              affect (a chart exists however it was assigned).
+
+              Not gated on there being grading data: library and readiness are
               real facts about a specialty before anyone has practised it, and
-              "nothing has been attempted yet" is itself the answer a trainer
-              is looking for. The selector lists every specialty for the same
-              reason — the comparison below can only offer the graded ones. */}
+              "nothing has been attempted yet" is itself an answer. The
+              selector lists every specialty for the same reason — the
+              comparison above can only offer the graded ones. */}
           <div id="pl-specialty-deepdive" style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '18px 16px', display: 'flex', flexDirection: 'column', gap: 16 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' as const }}>
               <div>
@@ -499,7 +579,15 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                         healthy on scores while having almost nothing left to
                         practise on, and nothing else in analytics shows that. */}
                     <div>
-                      <div style={sectionLabel}>Library</div>
+                      {/* Says so out loud: this is the one group the scope
+                          switch does not move, and silent invariance under a
+                          control is indistinguishable from a broken control. */}
+                      <div style={sectionLabel}>
+                        Library
+                        <span style={{ marginLeft: 8, fontWeight: 600, textTransform: 'none' as const, letterSpacing: 0, color: '#9ca3af' }}>
+                          — all charts, unaffected by the Batches / Direct filter
+                        </span>
+                      </div>
                       <div style={styles.statsRow}>
                         <Box label="Charts" value={profile.library.total_charts} />
                         <Box label="Ready to Practise" value={profile.library.practice_ready} color="#16a34a"
@@ -512,7 +600,12 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                     </div>
 
                     <div>
-                      <div style={sectionLabel}>Participation & Outcome</div>
+                      <div style={sectionLabel}>
+                        Participation &amp; Outcome
+                        <span style={{ marginLeft: 8, fontWeight: 600, textTransform: 'none' as const, letterSpacing: 0, color: '#9ca3af' }}>
+                          — {scope === 'formal' ? 'batch work only' : scope === 'direct' ? 'direct assignments only' : 'batches and direct assignments'}
+                        </span>
+                      </div>
                       <div style={styles.statsRow}>
                         <Box label="Attempts" value={profile.activity.attempts} />
                         <Box label="Coders" value={profile.activity.coders} />
@@ -580,78 +673,6 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                   </div>
             )}
           </div>
-
-          <div>
-            <div style={{ fontSize: 14, fontWeight: 800, color: '#111', marginBottom: 4 }}>All Specialties Compared</div>
-            <div style={{ fontSize: 11, color: '#6b7280' }}>Only specialties with graded results appear here</div>
-          </div>
-
-          {bySpecialty.length === 0 ? <div style={styles.emptyState}>No specialty data yet — upload and grade at least one batch to see a breakdown here.</div> : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '18px 16px' }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 16 }}>Avg Grading Score & Pass Rate by Specialty</div>
-                <ResponsiveContainer width="100%" height={Math.max(200, bySpecialty.length * 56)}>
-                  <BarChart data={bySpecialty} layout="vertical" margin={{ left: 20, right: 50, top: 4, bottom: 4 }}>
-                    <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                    <XAxis type="number" domain={[0, 100]} tickFormatter={v => `${v}%`} tick={{ fontSize: 11 }} />
-                    <YAxis type="category" dataKey="specialty" width={110} tick={{ fontSize: 12, fontWeight: 600 }} />
-                    <Tooltip formatter={(v: any, name: any) => [`${v}%`, name === 'avg_score' ? 'Avg Grading Score' : 'Pass Rate']} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
-                    <Legend formatter={n => n === 'avg_score' ? 'Avg Grading Score' : 'Pass Rate'} />
-                    <Bar dataKey="avg_score" name="avg_score" radius={[0, 4, 4, 0]} fill="#4f46e5" fillOpacity={0.85} />
-                    <Bar dataKey="pass_rate" name="pass_rate" radius={[0, 4, 4, 0]} fill="#16a34a" fillOpacity={0.85} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-              <div style={styles.table}>
-                {/* Pass Mark is shown because the two rate columns are NOT
-                    comparable across rows without it — 85% average is a pass in
-                    IP-DRG (80) and a fail in SDS (90), and the bar chart above
-                    puts them side by side as though one bar were simply longer. */}
-                <div style={{ ...styles.tableHeader, gridTemplateColumns: '2fr 0.8fr 0.8fr 1.2fr 1.2fr 1fr' }}>
-                  <span>Specialty</span><span>Graded</span><span>Pass Mark</span>
-                  <span>Avg Grading Score</span><span>Chart Pass Rate</span><span></span>
-                </div>
-                {/* Weakest first — a trainer opens this tab to find where to
-                    intervene, not to read an alphabetical list. */}
-                {[...bySpecialty].sort((a: any, b: any) => a.avg_score - b.avg_score).map((r: any, i: number) => {
-                  const pt = thresholdFor(r.specialty)
-                  const needsReview = r.avg_score < pt || r.pass_rate < PASS_RATE_TARGET
-                  const lowSample = r.total < LOW_SAMPLE
-                  return (
-                    <div key={r.specialty} className={i % 2 === 1 ? 'pl-tr-alt' : 'pl-tr'}
-                      onClick={() => {
-                        setProfileSpecialty(profileSpecialty === r.specialty ? null : r.specialty)
-                        // The deep dive is above the table, so a click that
-                        // loads it off-screen looks like a click that did nothing.
-                        document.getElementById('pl-specialty-deepdive')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                      }}
-                      style={{ ...styles.tableRow, gridTemplateColumns: '2fr 0.8fr 0.8fr 1.2fr 1.2fr 1fr', cursor: 'pointer', alignItems: 'center' }}>
-                      <span style={{ fontWeight: 600 }}>
-                        {profileSpecialty === r.specialty ? '▾ ' : '▸ '}{r.specialty}
-                      </span>
-                      <span>
-                        {r.total}
-                        {lowSample && <span title={`Fewer than ${LOW_SAMPLE} graded charts — these percentages move a lot on one result`}
-                          style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, background: '#f3f4f6', color: '#6b7280', padding: '1px 6px', borderRadius: 8 }}>Low sample</span>}
-                      </span>
-                      <span style={{ color: '#6b7280' }}>{pt != null ? `${pt}%` : '—'}</span>
-                      <span style={{ fontWeight: 700, color: sc(r.avg_score, r.specialty) }}>{r.avg_score}%</span>
-                      <span style={{ fontWeight: 700, color: rc(r.pass_rate) }}>{r.pass_rate}%</span>
-                      <span>
-                        {needsReview && <span style={{ fontSize: 10, fontWeight: 700, background: '#fef3c7', color: '#92400e', padding: '2px 8px', borderRadius: 10 }}>Needs review</span>}
-                      </span>
-                    </div>
-                  )
-                })}
-              </div>
-              <div style={{ fontSize: 11, color: '#9ca3af' }}>
-                Pass Mark is the per-chart score a coder must reach. Chart Pass Rate is the share of graded
-                charts that reached it — a population figure, not a score. Click any row to load it into the
-                Specialty Deep Dive at the top.
-              </div>
-
-            </div>
-          )}
         </div>
       )}
 
