@@ -1275,8 +1275,42 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
       {/* C: Topic Mastery */}
       {tab === 'category' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+          {/* The specialty picker lives ABOVE the empty-state gate.
+              Inside it, choosing a specialty with no data removed the picker
+              along with everything else — the control that caused the empty
+              state vanished with the results, so there was no way back to a
+              specialty that had data short of reloading the app. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' as const }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: '#6b7280' }}>Specialty</span>
+            <select value={topicSpecialty} onChange={e => { setTopicSpecialty(e.target.value); setTopicShowAll(false) }}
+              style={{ ...styles.select, fontSize: 12, padding: '5px 10px', minWidth: 180 }}>
+              <option value="">All specialties</option>
+              {SPECIALTIES.map(sp => <option key={sp} value={sp}>{sp}</option>)}
+            </select>
+            {topicSpecialty && (
+              <button onClick={() => { setTopicSpecialty(''); setTopicShowAll(false) }}
+                style={{ ...styles.outlineBtn, fontSize: 12, padding: '5px 12px' }}>
+                Show all specialties
+              </button>
+            )}
+          </div>
+
           {!categoryData ? <div style={styles.emptyState}>Loading…</div> : categoryData.team.length === 0 ? (
-            <div style={styles.emptyState}>No category data yet — grade some batches first.</div>
+            <div style={{ ...styles.emptyState, lineHeight: 1.7 }}>
+              {topicSpecialty ? (
+                <>
+                  <div style={{ fontWeight: 700, color: '#b45309' }}>No graded {topicSpecialty} work in range</div>
+                  <div style={{ fontSize: 12 }}>
+                    Pick another specialty above, or{' '}
+                    <button onClick={() => { setTopicSpecialty(''); setTopicShowAll(false) }}
+                      style={{ background: 'none', border: 'none', color: '#4f46e5', cursor: 'pointer', fontWeight: 700, fontSize: 12, padding: 0 }}>
+                      show all specialties
+                    </button>.
+                  </div>
+                </>
+              ) : 'No topic data yet — grade some batches first.'}
+            </div>
           ) : (
             <>
               <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '18px 16px' }}>
@@ -1294,14 +1328,6 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                       </span>
                     )}
                   </div>
-                  {/* Topic names repeat across specialties graded to different
-                      pass marks, so comparing all of them at once compares
-                      things measured on different scales. */}
-                  <select value={topicSpecialty} onChange={e => { setTopicSpecialty(e.target.value); setTopicShowAll(false) }}
-                    style={{ ...styles.select, marginLeft: 'auto', fontSize: 12, padding: '5px 10px' }}>
-                    <option value="">All specialties</option>
-                    {SPECIALTIES.map(sp => <option key={sp} value={sp}>{sp}</option>)}
-                  </select>
                 </div>
                 <ResponsiveContainer width="100%" height={barHeight(categoryChartRows.length)}>
                   <BarChart data={categoryChartRows} layout="vertical" margin={{ left: 10, right: 40, top: 4, bottom: 4 }}>
@@ -1338,6 +1364,12 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                   <span>Topic</span><span>Attempts</span><span>Pass Mark</span>
                   <span>Avg Grading Score</span><span>Chart Pass Rate</span>
                 </div>
+                {visibleTopics.length === 0 && (
+                  /* Search box stays put — same reason as the specialty picker. */
+                  <div style={{ ...styles.emptyState, padding: '16px 0' }}>
+                    No topics match "{topicSearch.trim()}"
+                  </div>
+                )}
                 {visibleTopics.map((cat: any, i: number) => {
                   const isExp = expandedCategory === cat.category
                   const catCharts = byChart.filter((c: any) => c.category === cat.category).sort((a: any, b: any) => a.avg_score - b.avg_score)
