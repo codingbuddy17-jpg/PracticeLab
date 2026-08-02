@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import toast from 'react-hot-toast'
 import { FileCheck, Search, X, ChevronDown, ChevronRight, FileText, Download } from 'lucide-react'
 import { SPECIALTY_COLORS } from '../../theme'
 import styles from './styles'
@@ -319,7 +320,11 @@ function BatchRow({ b, onOpen, statusColor }: any) {
           ? `Performance report — ${graded} graded result${graded !== 1 ? 's' : ''}`
           : 'No graded results yet — nothing to report on'}
         disabled={graded === 0}
-        onClick={e => { e.stopPropagation(); downloadBatchReportPdf(b.id) }}
+        onClick={async e => {
+          e.stopPropagation()
+          try { await downloadBatchReportPdf(b.id) }
+          catch { toast.error(`No report could be generated for ${b.name}`) }
+        }}
         style={{
           ...s.reportBtn,
           ...(graded === 0

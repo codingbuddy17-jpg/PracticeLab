@@ -310,8 +310,17 @@ export function downloadSessionCoderReportPdf(sessionId: number) {
   window.open(`${import.meta.env.VITE_API_URL || '/api'}/practicelab/practice-sessions/${sessionId}/coder-report.pdf`, '_blank')
 }
 
-export function downloadBatchReportPdf(batchId: number) {
-  window.open(`${import.meta.env.VITE_API_URL || '/api'}/practicelab/batches/${batchId}/insights/report.pdf`, '_blank')
+/**
+ * Fetches before opening, so a failure surfaces as a message rather than a new
+ * tab containing an error page. window.open() cannot tell success from a 500 —
+ * it hands the response to the browser either way.
+ */
+export async function downloadBatchReportPdf(batchId: number) {
+  const res = await api.get(`/practicelab/batches/${batchId}/insights/report.pdf`,
+                            { responseType: 'blob' })
+  const url = URL.createObjectURL(res.data as Blob)
+  window.open(url, '_blank')
+  setTimeout(() => URL.revokeObjectURL(url), 60_000)
 }
 
 export async function getPLAnalyticsByCategory(f: PLFilters = {}, scope: 'formal' | 'direct' | 'all' = 'formal') {

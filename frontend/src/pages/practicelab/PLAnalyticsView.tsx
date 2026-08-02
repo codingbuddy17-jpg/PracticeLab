@@ -972,7 +972,10 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                             the endpoint skips batches without them — so this
                             is never the disabled case the batch list has. */}
                         <button title="Batch performance report (PDF)"
-                          onClick={() => downloadBatchReportPdf(r.batch_id)}
+                          onClick={async () => {
+                            try { await downloadBatchReportPdf(r.batch_id) }
+                            catch { toast.error(`No report could be generated for ${r.batch_name}`) }
+                          }}
                           style={{ fontSize: 11, fontWeight: 700, color: '#0f766e', background: 'none', border: '1px solid #99f6e4', borderRadius: 6, padding: '4px 9px', cursor: 'pointer' }}>
                           PDF
                         </button>

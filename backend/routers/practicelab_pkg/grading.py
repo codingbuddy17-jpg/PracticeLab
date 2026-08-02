@@ -434,13 +434,22 @@ def get_batch_insights(batch_id: int, db: Session = Depends(get_db)):
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
 
-    # Direct assignments store results in practice_results
-    results = []
-    if batch.is_direct_assignment:
+    # Two result stores. /practice writes practice_results; everything else
+    # writes grading_results, and practice work is MIRRORED into the latter.
+    # So grading_results is the superset and is tried first — for a direct
+    # assignment it yields real ORM rows rather than the shim below, which
+    # carries only the handful of fields it was written for.
+    results = (db.query(GradingResult)
+               .filter(GradingResult.batch_id == batch_id,
+                       GradingResult.total_score.isnot(None))
+               .join(Chart)
+               .all())
+
+    if not results and batch.is_direct_assignment:
         import json as _json
         raw = db.execute(_text("""
             SELECT pr.total_score, pr.pass_fail, c.chart_number, pr.feedback,
-                   c.category
+                   c.category, ps.coder_name, pr.chart_id
             FROM practice_results pr
             JOIN practice_sessions ps ON pr.session_id = ps.id
             JOIN charts c ON c.id = pr.chart_id
@@ -476,14 +485,14 @@ def get_batch_insights(batch_id: int, db: Session = Depends(get_db)):
             class _Chart:
                 def __init__(self, num, cat): self.chart_number = num; self.category = cat
             r.chart = _Chart(row[2], row[4])
+            # Downstream builds a per-coder breakdown and counts distinct
+            # charts. The shim carried neither, so a direct assignment that
+            # DID have practice_results raised AttributeError and the report
+            # 500'd — the empty case was fixed, this one was not.
+            r.coder_name = row[5]
+            r.emp_id = None
+            r.chart_id = row[6]
             results.append(r)
-
-    if not results:
-        results = (db.query(GradingResult)
-                   .filter(GradingResult.batch_id == batch_id,
-                           GradingResult.total_score.isnot(None))
-                   .join(Chart)
-                   .all())
 
     if not results:
         return {"has_data": False, "batch_name": batch.name, "specialty": batch.specialty.value}

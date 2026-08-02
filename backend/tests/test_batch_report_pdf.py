@@ -270,3 +270,59 @@ class TestEveryListedBatchHasAWorkingReport:
         b = _batch(db, "Nothing Yet")
         assert client.get("/practicelab/analytics/by-batch").json() == []
         assert client.get(f"/practicelab/batches/{b.id}/insights/report.pdf").status_code == 404
+
+
+class TestDirectAssignmentWithPracticeResults:
+    """
+    The remaining 500, and the one the earlier fix missed.
+
+    Fixing the EMPTY practice_results case left the non-empty one untouched:
+    a direct assignment that DID have practice_results built lightweight shim
+    objects carrying only total_score, pass_fail, feedback and chart. The
+    report then asked each row for coder_name and chart_id, neither of which
+    existed, and the endpoint raised AttributeError.
+    """
+
+    def _direct_with_practice_results(self, db, name="Direct Practice"):
+        from sqlalchemy import text
+        b = Batch(name=name, specialty=Specialty.IP_DRG, status=BatchStatus.OPEN,
+                  created_by="t", charts_per_coder=1, is_direct_assignment=True,
+                  use_weighted=True, use_dpo=False, force_closed=False)
+        db.add(b); db.commit()
+        c = _chart(db, f"IPP{b.id}")
+        db.execute(text(
+            "INSERT INTO practice_sessions (batch_id, coder_name, specialty, token, "
+            "chart_ids, status) VALUES (:b, 'Asha R', 'IP_DRG', :tok, '[]', 'submitted')"
+        ), {"b": b.id, "tok": f"TOK{b.id}"})
+        sid = db.execute(text("SELECT id FROM practice_sessions WHERE batch_id = :b"),
+                         {"b": b.id}).scalar()
+        db.execute(text(
+            "INSERT INTO practice_results (session_id, chart_id, total_score, pass_fail, "
+            "feedback) VALUES (:s, :c, 88, 'PASS', '[]')"
+        ), {"s": sid, "c": c.id})
+        db.commit()
+        return b
+
+    def test_the_report_renders(self, client, db):
+        b = self._direct_with_practice_results(db)
+        _pdf(client, b.id)
+
+    def test_the_coder_breakdown_survives(self, client, db):
+        """coder_name came from the session; without it the endpoint crashed."""
+        b = self._direct_with_practice_results(db, "Named Coder")
+        body = client.get(f"/practicelab/batches/{b.id}/insights").json()
+        assert body["has_data"] is True
+        assert any(c["coder_name"] == "Asha R" for c in body["coder_insights"])
+
+    def test_grading_results_win_when_both_stores_have_rows(self, client, db):
+        """
+        Practice work is mirrored into grading_results, so both stores can hold
+        the same batch. The ORM rows are complete; the shim is not. Preferring
+        the shim was the whole cause, so the order is worth pinning.
+        """
+        b = self._direct_with_practice_results(db, "Both Stores")
+        c = _chart(db, "IPBOTH")
+        _result(db, b, c, "Asha R", 88)
+        body = client.get(f"/practicelab/batches/{b.id}/insights").json()
+        assert body["has_data"] is True
+        _pdf(client, b.id)

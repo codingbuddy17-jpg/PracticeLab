@@ -117,7 +117,10 @@ export function InsightsPanel({ insights, batchId, onClose }: { insights: any; b
             Copy Summary
           </button>
           <button style={{ ...styles.outlineBtn, fontSize: 12, color: '#4f46e5', borderColor: '#a5b4fc', padding: '5px 12px' }}
-            onClick={() => downloadBatchReportPdf(batchId)}>
+            onClick={async () => {
+              try { await downloadBatchReportPdf(batchId) }
+              catch { toast.error('No report could be generated for this batch') }
+            }}>
             Download PDF Report
           </button>
           <button style={{ ...styles.outlineBtn, fontSize: 12, padding: '5px 12px' }} onClick={onClose}>✕ Close</button>
