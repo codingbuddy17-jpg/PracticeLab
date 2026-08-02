@@ -1190,3 +1190,44 @@ def export_coder_performance(rows: list, feedback_rows: list) -> bytes:
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
+
+
+def export_batch_list(rows: list) -> bytes:
+    """
+    The batch list, exactly as the panel shows it.
+
+    Deliberately NOT the coder-performance export. That one is long-format
+    pivot fodder — one row per graded result, every dimension its own column —
+    which is the right shape for slicing performance and the wrong shape for
+    "give me the list I am looking at". This is one row per batch, the columns
+    on screen, in the order they appear.
+    """
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Batches"
+
+    cols = [
+        ("Name", 32), ("Type", 12), ("Specialty", 16), ("Status", 10),
+        ("Coders", 9), ("Charts / Coder", 14), ("Cycles", 9),
+        ("Graded Results", 15), ("Days Open", 11),
+        ("Created By", 18), ("Created", 13), ("Closed", 13),
+    ]
+    for i, (label, width) in enumerate(cols, start=1):
+        _header(ws, i, 1, label)
+        ws.column_dimensions[get_column_letter(i)].width = width
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = f"A1:{get_column_letter(len(cols))}1"
+
+    if not rows:
+        ws.cell(2, 1, "No batches match the selected filters.")
+        buf = io.BytesIO(); wb.save(buf); return buf.getvalue()
+
+    keys = ["name", "type", "specialty", "status", "coder_count", "charts_per_coder",
+            "cycles", "graded_count", "days_open", "created_by", "created_at", "closed_at"]
+    for r, row in enumerate(rows, start=2):
+        for i, key in enumerate(keys, start=1):
+            ws.cell(r, i, row.get(key))
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()

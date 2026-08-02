@@ -594,6 +594,82 @@ def list_batches(
     ]
 
 
+@router.get("/batches/export.xlsx")
+def export_batch_list_xlsx(
+    status: Optional[str] = None,
+    specialty: Optional[str] = None,
+    search: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """
+    The batch list panel, as an Excel file.
+
+    Distinct from the coder-performance export on purpose. That one is
+    long-format pivot fodder — one row per graded RESULT — which is right for
+    slicing performance and wrong for "give me the list I am looking at". This
+    is one row per batch, the columns on screen.
+
+    It honours the panel's filters but NOT its paging: you are looking at a
+    page because the screen is finite, not because you wanted 25 of 340 in a
+    spreadsheet. Batches and direct assignments come back together, as the
+    panel merges them, with a Type column to tell them apart.
+
+    Registered above /batches/{batch_id} — FastAPI matches in order, and a
+    parameterised route declared first swallows its static siblings.
+    """
+    from services.excel_service import export_batch_list
+
+    q = db.query(Batch)
+    if status:
+        q = q.filter(Batch.status == status)
+    if specialty:
+        try:
+            q = q.filter(Batch.specialty == Specialty(specialty))
+        except ValueError:
+            pass
+    if search and search.strip():
+        term = f"%{search.strip().lower()}%"
+        q = q.filter(or_(func.lower(Batch.name).like(term),
+                         func.lower(Batch.created_by).like(term)))
+    batches = q.order_by(Batch.created_at.desc(), Batch.id.desc()).all()
+
+    ids = [b.id for b in batches]
+    graded_counts: dict[int, int] = {}
+    if ids:
+        graded_counts = dict(
+            db.query(GradingResult.batch_id, func.count(GradingResult.id))
+              .filter(GradingResult.batch_id.in_(ids),
+                      GradingResult.total_score.isnot(None))
+              .group_by(GradingResult.batch_id)
+              .all()
+        )
+
+    now = datetime.utcnow()
+    rows = [{
+        "name": b.name,
+        "type": "Direct" if b.is_direct_assignment else "Batch",
+        "specialty": b.specialty.value,
+        "status": b.status.value,
+        "coder_count": len(b.coders),
+        "charts_per_coder": b.charts_per_coder,
+        "cycles": len(b.allocation_cycles),
+        "graded_count": graded_counts.get(b.id, 0),
+        "days_open": ((now - b.created_at.replace(tzinfo=None)).days
+                      if b.created_at and b.status == BatchStatus.OPEN else None),
+        "created_by": b.created_by,
+        "created_at": b.created_at.strftime("%Y-%m-%d") if b.created_at else None,
+        "closed_at": b.closed_at.strftime("%Y-%m-%d") if b.closed_at else None,
+    } for b in batches]
+
+    data = export_batch_list(rows)
+    stamp = now.strftime("%Y%m%d")
+    return StreamingResponse(
+        io.BytesIO(data),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="Batch_List_{stamp}.xlsx"'},
+    )
+
+
 @router.get("/batches/{batch_id}")
 def get_batch(batch_id: int, db: Session = Depends(get_db)):
     batch = db.query(Batch).filter(Batch.id == batch_id).first()

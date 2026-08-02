@@ -486,3 +486,19 @@ export async function downloadCoderPerformanceXlsx(f: PLFilters = {}, coderName?
   document.body.appendChild(a); a.click(); a.remove()
   URL.revokeObjectURL(url)
 }
+
+/**
+ * The batch list panel as Excel — the rows on screen, not a pivot source.
+ * Honours the panel's filters and deliberately ignores its paging.
+ */
+export function downloadBatchListXlsx(opts: { status?: string; search?: string; specialty?: string } = {}) {
+  const p = new URLSearchParams()
+  if (opts.status) p.set('status', opts.status)
+  if (opts.search?.trim()) p.set('search', opts.search.trim())
+  if (opts.specialty) p.set('specialty', opts.specialty)
+  // Query built outside the template literal — a nested one here reads as a
+  // different path to anything scanning these calls, including our own
+  // UI -> API contract check.
+  const qs = p.toString() ? `?${p.toString()}` : ''
+  window.open(`${import.meta.env.VITE_API_URL || '/api'}/practicelab/batches/export.xlsx` + qs, '_blank')
+}

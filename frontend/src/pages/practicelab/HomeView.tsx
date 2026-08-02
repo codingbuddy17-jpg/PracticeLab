@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import { FileCheck, Search, X, ChevronDown, ChevronRight, FileText } from 'lucide-react'
+import { FileCheck, Search, X, ChevronDown, ChevronRight, FileText, Download } from 'lucide-react'
 import { SPECIALTY_COLORS } from '../../theme'
 import styles from './styles'
-import { downloadBatchReportPdf } from '../../api'
+import { downloadBatchReportPdf, downloadBatchListXlsx } from '../../api'
 
 type StatusFilter = 'open' | 'closed' | 'all'
 
@@ -155,6 +155,22 @@ export function HomeView({ batches, directAssignments, overview, loading, onOpen
               <button style={s.clearBtn} onClick={() => setSearch('')}><X size={12} /></button>
             )}
           </div>
+
+          {/* Exports THIS list — the columns on screen, one row per batch.
+              Separate from the coder-performance export in Analytics, which is
+              long-format pivot fodder over every graded result and answers a
+              different question. Filters carry over; paging does not, since a
+              page is a screen limit rather than something you asked for. */}
+          <button
+            title="Export this list to Excel — current filters, all matching rows"
+            onClick={() => downloadBatchListXlsx({
+              status: statusFilter === 'all' ? undefined : statusFilter === 'open' ? 'Open' : 'Closed',
+              search,
+            })}
+            style={{ ...styles.outlineBtn, fontSize: 12, padding: '6px 12px' }}
+          >
+            <Download size={13} /> Export List
+          </button>
         </div>
       )}
 

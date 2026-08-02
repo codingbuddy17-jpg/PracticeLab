@@ -241,3 +241,79 @@ class TestCoderPerformanceExport:
                        params={"emp_id": "E1"})
         assert _is_workbook(r)["Results"].max_row == 2
         assert "Content-Disposition" in r.headers
+
+
+class TestBatchListExport:
+    """
+    The batch list panel, exported as it is shown.
+
+    Deliberately not the coder-performance export: that is one row per graded
+    RESULT for pivoting, this is one row per BATCH for the list you are
+    looking at. The distinction is the whole reason it exists.
+    """
+
+    def _mk(self, client, name, direct=False):
+        r = client.post("/practicelab/batches", json={
+            "name": name, "specialty": "IP-DRG", "categories": [], "difficulties": [],
+            "charts_per_coder": 3, "coders": [{"name": "A", "emp_id": "E1"}],
+            "created_by": "trainer", "is_direct_assignment": direct,
+        })
+        assert r.status_code == 200, r.text
+        return r.json()["batch_id"]
+
+    def test_one_row_per_batch_with_the_panel_columns(self, client):
+        self._mk(client, "Wave 1")
+        ws = _is_workbook(client.get("/practicelab/batches/export.xlsx")).worksheets[0]
+        headers = [c.value for c in ws[1]]
+        for expected in ("Name", "Type", "Specialty", "Status", "Coders",
+                         "Charts / Coder", "Cycles", "Graded Results", "Created By"):
+            assert expected in headers
+        assert ws.max_row == 2, "header + one batch"
+        row = {c.value: ws.cell(2, i + 1).value for i, c in enumerate(ws[1])}
+        assert row["Name"] == "Wave 1"
+        assert row["Coders"] == 1
+        assert row["Charts / Coder"] == 3
+
+    def test_the_route_is_not_shadowed_by_batch_id(self, client):
+        """/batches/export.xlsx must not be parsed as /batches/{batch_id}."""
+        r = client.get("/practicelab/batches/export.xlsx")
+        assert r.status_code == 200, r.text
+        assert XLSX_MIME in r.headers.get("content-type", "")
+
+    def test_batches_and_direct_assignments_come_back_together(self, client):
+        """The panel merges them, so the export of the panel must too."""
+        self._mk(client, "Formal One")
+        self._mk(client, "Direct One", direct=True)
+        ws = _is_workbook(client.get("/practicelab/batches/export.xlsx")).worksheets[0]
+        col = [c.value for c in ws[1]].index("Type") + 1
+        assert {ws.cell(r, col).value for r in range(2, ws.max_row + 1)} == {"Batch", "Direct"}
+
+    def test_search_filter_carries_over(self, client):
+        self._mk(client, "Sepsis Wave")
+        self._mk(client, "Other Work")
+        ws = _is_workbook(client.get("/practicelab/batches/export.xlsx",
+                                     params={"search": "sepsis"})).worksheets[0]
+        assert ws.max_row == 2
+        assert ws.cell(2, 1).value == "Sepsis Wave"
+
+    def test_status_filter_carries_over(self, client):
+        self._mk(client, "Open One")
+        ws = _is_workbook(client.get("/practicelab/batches/export.xlsx",
+                                     params={"status": "Closed"})).worksheets[0]
+        assert ws.cell(2, 1).value == "No batches match the selected filters."
+
+    def test_paging_does_not_carry_over(self, client):
+        """
+        A page is a screen limit, not a request. Exporting 25 of 340 because
+        that is what fits on screen would be a trap.
+        """
+        for i in range(30):
+            self._mk(client, f"Batch {i}")
+        ws = _is_workbook(client.get("/practicelab/batches/export.xlsx")).worksheets[0]
+        assert ws.max_row == 31, "all 30 rows, not one page"
+
+    def test_headers_freeze_and_filter(self, client):
+        self._mk(client, "Any")
+        ws = _is_workbook(client.get("/practicelab/batches/export.xlsx")).worksheets[0]
+        assert ws.freeze_panes == "A2"
+        assert ws.auto_filter.ref is not None
