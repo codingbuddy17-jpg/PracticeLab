@@ -167,13 +167,26 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
   // Strongest and weakest categories, in score order. Taking the top N would
   // hide every struggling category the moment the list grew, which is the
   // opposite of what this page is for.
-  const categoryChartRows = extremes(categoryData?.team ?? [], (r: any) => r.avg_score)
   const [profileSpecialty, setProfileSpecialty] = useState<string | null>(null)
   const [profile, setProfile] = useState<any>(null)
   const [profileLoading, setProfileLoading] = useState(false)
   const [matrixShowAll, setMatrixShowAll] = useState(false)
   const [heatmapCoderSearch, setHeatmapCoderSearch] = useState('')
   const [heatmapShowAll, setHeatmapShowAll] = useState(false)
+  // Tab-local, like the Overview trend's picker: narrowing this tab should not
+  // re-scope the other seven.
+  const [topicSpecialty, setTopicSpecialty] = useState('')
+  const [topicSearch, setTopicSearch] = useState('')
+  const [topicShowAll, setTopicShowAll] = useState(false)
+  const [heatmapShowAllCols, setHeatmapShowAllCols] = useState(false)
+
+  // Topics are free text, so this list has no ceiling. Search + a visible cap
+  // rather than a table that grows until it is unusable.
+  const TOPIC_PAGE = 20
+  const topicRows = (categoryData?.team ?? []).filter((r: any) =>
+    !topicSearch.trim() || r.category.toLowerCase().includes(topicSearch.trim().toLowerCase()))
+  const visibleTopics = topicShowAll ? topicRows : topicRows.slice(0, TOPIC_PAGE)
+  const categoryChartRows = extremes(topicRows, (r: any) => r.avg_score)
   const [heatmapSort, setHeatmapSort] = useState<{ col: string; dir: 'asc' | 'desc' }>({ col: 'coder', dir: 'asc' })
   const [matrixSort, setMatrixSort] = useState<{ col: string; dir: 'asc' | 'desc' }>({ col: 'overall', dir: 'desc' })
   const [chartValueShowAll, setChartValueShowAll] = useState(false)
@@ -257,7 +270,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
 
   useEffect(() => {
     if ((tab === 'chart' || tab === 'category') && byChart.length === 0) getPLAnalyticsByChart(filters).then(setByChart).catch(() => {})
-    if (tab === 'category' && !categoryData) getPLAnalyticsByCategory(filters, scope).then(setCategoryData).catch(() => {})
+    if (tab === 'category' && !categoryData) getPLAnalyticsByCategory({ ...filters, specialty: topicSpecialty || filters.specialty }, scope).then(setCategoryData).catch(() => {})
     if (tab === 'teaching' && teachingData.length === 0) getPLChartTeachingValue(filters).then(setTeachingData).catch(() => {})
     if ((tab === 'matrix' || tab === 'coder') && !matrixData) getPLCoderMatrix(filters).then(setMatrixData).catch(() => {})
   }, [tab, filterVersion])
@@ -265,8 +278,11 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
   // Topic Mastery honours the scope switch now, so a change has to refetch it
   // rather than leaving stale rows under a new scope label.
   useEffect(() => {
-    if (tab === 'category') getPLAnalyticsByCategory(filters, scope).then(setCategoryData).catch(() => {})
-  }, [scope, tab, filterVersion])
+    if (tab === 'category') {
+      getPLAnalyticsByCategory({ ...filters, specialty: topicSpecialty || filters.specialty }, scope)
+        .then(setCategoryData).catch(() => {})
+    }
+  }, [scope, tab, filterVersion, topicSpecialty])
 
   useEffect(() => {
     if (tab === 'em_mdm' && emBatchId) {
@@ -1269,13 +1285,23 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                     taller than three screens. Cut to the extremes, which is
                     what a "who stands out" chart is for; the full list is the
                     table directly below, which scrolls. */}
-                <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 16 }}>
-                  Team Avg Grading Score by Topic
-                  {categoryChartRows.length < categoryData.team.length && (
-                    <span style={{ fontWeight: 600, fontSize: 11, color: '#9ca3af', marginLeft: 8 }}>
-                      strongest and weakest {categoryChartRows.length} of {categoryData.team.length} — all {categoryData.team.length} in the table below
-                    </span>
-                  )}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, flexWrap: 'wrap' as const }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#111' }}>
+                    Team Avg Grading Score by Topic
+                    {categoryChartRows.length < topicRows.length && (
+                      <span style={{ fontWeight: 600, fontSize: 11, color: '#9ca3af', marginLeft: 8 }}>
+                        strongest and weakest {categoryChartRows.length} of {topicRows.length} — all {topicRows.length} in the table below
+                      </span>
+                    )}
+                  </div>
+                  {/* Topic names repeat across specialties graded to different
+                      pass marks, so comparing all of them at once compares
+                      things measured on different scales. */}
+                  <select value={topicSpecialty} onChange={e => { setTopicSpecialty(e.target.value); setTopicShowAll(false) }}
+                    style={{ ...styles.select, marginLeft: 'auto', fontSize: 12, padding: '5px 10px' }}>
+                    <option value="">All specialties</option>
+                    {SPECIALTIES.map(sp => <option key={sp} value={sp}>{sp}</option>)}
+                  </select>
                 </div>
                 <ResponsiveContainer width="100%" height={barHeight(categoryChartRows.length)}>
                   <BarChart data={categoryChartRows} layout="vertical" margin={{ left: 10, right: 40, top: 4, bottom: 4 }}>
@@ -1294,13 +1320,25 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                   </BarChart>
                 </ResponsiveContainer>
               </div>
-              {/* Clickable category rows with drill-through */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' as const }}>
+                <input
+                  placeholder={`Search topics (${(categoryData.team || []).length} total)…`}
+                  value={topicSearch}
+                  onChange={e => { setTopicSearch(e.target.value); setTopicShowAll(false) }}
+                  style={{ padding: '6px 10px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 12, width: 240 }}
+                />
+                <span style={{ fontSize: 11, color: '#9ca3af' }}>
+                  Showing {visibleTopics.length} of {topicRows.length}
+                  {topicSpecialty ? ` in ${topicSpecialty}` : ''} · weakest first
+                </span>
+              </div>
+              {/* Clickable topic rows with drill-through */}
               <div style={styles.table}>
                 <div style={{ ...styles.tableHeader, gridTemplateColumns: '2fr 80px 80px 90px 110px' }}>
                   <span>Topic</span><span>Attempts</span><span>Pass Mark</span>
                   <span>Avg Grading Score</span><span>Chart Pass Rate</span>
                 </div>
-                {categoryData.team.map((cat: any, i: number) => {
+                {visibleTopics.map((cat: any, i: number) => {
                   const isExp = expandedCategory === cat.category
                   const catCharts = byChart.filter((c: any) => c.category === cat.category).sort((a: any, b: any) => a.avg_score - b.avg_score)
                   const catCoders = categoryData.coder_category.filter((r: any) => r.category === cat.category).sort((a: any, b: any) => a.avg_score - b.avg_score)
@@ -1332,13 +1370,20 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                         <div style={{ padding: '12px 16px', background: '#fafafa', borderBottom: '1px solid #ede9fe', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                           <div>
                             <div style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' as const, letterSpacing: 0.4, marginBottom: 8 }}>Weak charts in this topic</div>
-                            {catCharts.length === 0 ? <div style={{ fontSize: 12, color: '#9ca3af' }}>No chart data yet</div> : catCharts.slice(0, 6).map((c: any) => (
+                            {catCharts.length === 0 ? <div style={{ fontSize: 12, color: '#9ca3af' }}>No chart data yet</div> : <>
+                            {catCharts.slice(0, 6).map((c: any) => (
                               <div key={c.chart_number} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #f3f4f6', fontSize: 12 }}>
                                 <span style={{ fontWeight: 700, color: '#4f46e5', cursor: 'pointer' }} onClick={e => { e.stopPropagation(); setExpandedChart(c.chart_number); setTab('chart') }}>{c.chart_number}</span>
                                 <span style={{ color: '#6b7280' }}>{c.attempt_count} attempts</span>
-                                <span style={{ fontWeight: 700, color: sc(c.avg_score) }}>{c.avg_score}%</span>
+                                <span style={{ fontWeight: 700, color: sc(c.avg_score, c.specialty) }}>{c.avg_score}%</span>
                               </div>
                             ))}
+                            {catCharts.length > 6 && (
+                              <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>
+                                + {catCharts.length - 6} more chart{catCharts.length - 6 !== 1 ? 's' : ''} — see By Chart
+                              </div>
+                            )}
+                            </>}
                           </div>
                           <div>
                             <div style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' as const, letterSpacing: 0.4, marginBottom: 8 }}>Coders by performance</div>
@@ -1366,6 +1411,18 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                 })}
               </div>
 
+              {topicRows.length > visibleTopics.length && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: 12, color: '#6b7280' }}>
+                    {topicRows.length - visibleTopics.length} more topic{topicRows.length - visibleTopics.length !== 1 ? 's' : ''} not shown
+                  </span>
+                  <button onClick={() => setTopicShowAll(true)}
+                    style={{ fontSize: 12, color: '#4f46e5', background: 'none', border: '1px solid #e5e7eb', borderRadius: 6, padding: '4px 12px', cursor: 'pointer', fontWeight: 600 }}>
+                    Show all {topicRows.length}
+                  </button>
+                </div>
+              )}
+
               {categoryData.coder_scope_note && (
                 <div style={{ fontSize: 11, color: '#6b7280', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8, padding: '8px 14px' }}>
                   ℹ️ {categoryData.coder_scope_note}
@@ -1378,7 +1435,13 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                 const nameOf: Record<string, string> = {}
                 categoryData.coder_category.forEach((r: any) => { nameOf[idOf(r)] = r.coder_name })
                 const allCoders = Array.from(new Set(categoryData.coder_category.map(idOf))) as string[]
-                const cats = categoryData.team.map((r: any) => r.category)
+                // Columns were every topic that exists. Rows were paged and
+                // searchable; columns grew without limit, so 60 topics meant a
+                // 60-column table scrolled sideways forever. Weakest first,
+                // since that is what a planning view is read for.
+                const HEATMAP_COLS = 12
+                const allCats = topicRows.map((r: any) => r.category)
+                const cats = heatmapShowAllCols ? allCats : allCats.slice(0, HEATMAP_COLS)
                 const cellMap: Record<string, Record<string, any>> = {}
                 categoryData.coder_category.forEach((r: any) => {
                   if (!cellMap[idOf(r)]) cellMap[idOf(r)] = {}
@@ -1399,7 +1462,18 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                 return (
                   <div>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, flexWrap: 'wrap' as const, gap: 8 }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: '#111' }}>Coder × Topic Heatmap</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: '#111' }}>
+                        Coder × Topic Heatmap
+                        {cats.length < allCats.length && (
+                          <span style={{ fontWeight: 600, fontSize: 11, color: '#9ca3af', marginLeft: 8 }}>
+                            weakest {cats.length} of {allCats.length} topics
+                            <button onClick={() => setHeatmapShowAllCols(true)}
+                              style={{ marginLeft: 6, fontSize: 11, color: '#4f46e5', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700, padding: 0 }}>
+                              show all
+                            </button>
+                          </span>
+                        )}
+                      </div>
                       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                         {allCoders.length > CODER_PAGE && (
                           <input

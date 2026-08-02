@@ -139,3 +139,46 @@ class TestPassRate:
         row = client.get(URL).json()["team"][0]
         assert row["pass_rate"] == 50.0
         assert row["pass_rate_basis"] == "chart"
+
+
+class TestSpecialtyDeepDive:
+    """
+    A specialty picker on this tab is not a convenience. Topic names repeat
+    across specialties graded to different pass marks, so comparing every topic
+    at once compares figures measured on different scales.
+    """
+
+    @pytest.fixture()
+    def two_specialties(self, db):
+        ip = _batch(db, "IP B")
+        sds = _batch(db, "SDS B", sp=Specialty.SDS)
+        _result(db, ip, _chart(db, "IPX", "Sepsis"), 85)
+        _result(db, sds, _chart(db, "SDSX", "Endoscopy", Specialty.SDS), 85, emp="E2")
+
+    def test_narrowing_to_a_specialty_returns_only_its_topics(self, client, two_specialties):
+        team = client.get(URL, params={"specialty": "SDS"}).json()["team"]
+        assert [t["category"] for t in team] == ["Endoscopy"]
+
+    def test_a_narrowed_topic_carries_a_definite_pass_mark(self, client, two_specialties):
+        """Narrowed to one specialty, "mixed" should no longer appear."""
+        team = client.get(URL, params={"specialty": "SDS"}).json()["team"]
+        assert team[0]["pass_threshold"] == 90
+
+    def test_coder_rows_narrow_with_the_team_rows(self, client, two_specialties):
+        body = client.get(URL, params={"specialty": "IP-DRG"}).json()
+        assert {r["category"] for r in body["coder_category"]} == {"Sepsis"}
+
+
+class TestGrowth:
+    def test_many_topics_all_come_back_for_the_client_to_page(self, client, db):
+        """
+        The endpoint returns everything; the tab searches and caps it. Worth
+        pinning that the server is not silently truncating as well — two
+        independent limits would hide rows nothing accounts for.
+        """
+        b = _batch(db, "Wide")
+        for i in range(40):
+            _result(db, b, _chart(db, f"IPW{i}", f"Topic {i:02d}"), 50 + i)
+        team = client.get(URL).json()["team"]
+        assert len(team) == 40
+        assert team[0]["avg_score"] < team[-1]["avg_score"], "weakest first"

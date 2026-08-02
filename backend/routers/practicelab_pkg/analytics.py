@@ -893,6 +893,7 @@ def analytics_by_category(
             "pass_rate": round(d["passed"] / d["total"] * 100, 1),
             "attempt_count": d["total"],
             "pass_threshold": _topic_threshold(d["specialties"]),
+            "specialties": sorted(d["specialties"]),
         }
         for d in coder_cat.values()
     ]
