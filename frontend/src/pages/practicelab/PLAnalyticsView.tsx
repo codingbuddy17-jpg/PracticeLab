@@ -41,6 +41,12 @@ const TAB_STORAGE_KEY = 'pl_analytics_tab'
 // population — and nothing on screen would have told you it had reset.
 const SCOPE_STORAGE_KEY = 'pl_analytics_scope'
 
+// One height for every control in a search-and-actions row. The input, the
+// primary button and the outline buttons all carry different padding and
+// border widths, so without this they render at three near-but-not-equal
+// heights — which is what reads as "misaligned".
+const ctrlH: React.CSSProperties = { height: 38, paddingTop: 0, paddingBottom: 0 }
+
 const sectionLabel: React.CSSProperties = {
   fontSize: 11, fontWeight: 700, color: '#6b7280', marginBottom: 8,
   textTransform: 'uppercase', letterSpacing: 0.5,
@@ -976,7 +982,9 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
 
       {tab === 'coder' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          {/* Buttons sized to match the input so the row reads as one control
+              strip rather than three items of different heights. */}
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' as const }}>
             <CoderPicker
               value={coderName}
               empId={coderEmpId}
@@ -987,13 +995,13 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                 if (name) fetchCoder(name, empId)
               }}
             />
-            <button style={styles.primaryBtn} onClick={loadCoderTrend} disabled={coderLoading}>
+            <button style={{ ...styles.primaryBtn, ...ctrlH }} onClick={loadCoderTrend} disabled={coderLoading}>
               {coderLoading ? 'Loading…' : 'Look Up'}
             </button>
             {/* Only offered when there is something to put in the report — it used
                 to stay clickable with no data in range and opened a blank tab. */}
             {(coderSummary || coderTrend.length > 0) && (
-              <button style={styles.outlineBtn} onClick={async () => {
+              <button style={{ ...styles.outlineBtn, ...ctrlH }} onClick={async () => {
                 try {
                   await downloadCoderReportPdf(loadedCoder, filters, loadedEmpId)
                 } catch {
@@ -1004,7 +1012,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
               </button>
             )}
             {(coderSummary || coderTrend.length > 0) && (
-              <button style={styles.outlineBtn}
+              <button style={{ ...styles.outlineBtn, ...ctrlH }}
                 title="Excel: one row per graded chart for this coder"
                 onClick={async () => {
                 try { await downloadCoderPerformanceXlsx(filters, loadedCoder, loadedEmpId) }

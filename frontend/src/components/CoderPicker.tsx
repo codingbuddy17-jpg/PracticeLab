@@ -86,7 +86,7 @@ export function CoderPicker({
         <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#9ca3af', pointerEvents: 'none' }} />
         <input
           style={{
-            width: '100%', padding: '8px 30px 8px 30px', border: '1px solid #d1d5db',
+            width: '100%', height: 38, padding: '0 30px', border: '1px solid #d1d5db',
             borderRadius: 8, fontSize: 13, outline: 'none', boxSizing: 'border-box',
           }}
           placeholder={placeholder}
@@ -105,9 +105,17 @@ export function CoderPicker({
         )}
       </div>
 
-      {empId && !open && (
-        <div style={{ fontSize: 11, color: '#6b7280', marginTop: 3 }}>Emp ID: {empId}</div>
-      )}
+      {/* Absolutely positioned so it does not add to the control's height.
+          In flow it made the picker taller the moment a coder was selected,
+          and any row centred on the picker — the Look Up and export buttons —
+          shifted down to re-centre against the taller block. */}
+      <div style={{
+        position: 'absolute', top: '100%', left: 0, marginTop: 3,
+        fontSize: 11, color: '#6b7280', whiteSpace: 'nowrap',
+        visibility: empId && !open ? 'visible' : 'hidden',
+      }}>
+        Emp ID: {empId || '\u00a0'}
+      </div>
 
       {open && (
         <div style={{
