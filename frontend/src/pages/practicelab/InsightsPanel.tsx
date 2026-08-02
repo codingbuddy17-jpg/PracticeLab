@@ -5,6 +5,7 @@ import {
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Cell, PieChart, Pie,
 } from 'recharts'
 import { ISSUE_COLORS } from './shared'
+import { barHeight, extremes } from './chartScale'
 import styles from './styles'
 import { downloadBatchReportPdf } from '../../api'
 
@@ -12,6 +13,9 @@ export function InsightsPanel({ insights, batchId, onClose }: { insights: any; b
   const { batch_summary: bs, team_errors: te, category_performance: cp, chart_signals: cs, coder_insights: ci, is_ip,
     top_categories: topCats, bottom_categories: bottomCats, top_performers: topPerf, bottom_performers: bottomPerf,
     score_distribution: scoreDist, pass_threshold: passThreshold = 90 } = insights
+  // Chart-legible slice of the categories; the summary text below still reads
+  // from the full list, so nothing is lost by narrowing the drawing.
+  const cpRows = extremes(cp ?? [], (c: any) => c.avg_score)
   const [expandedCoder, setExpandedCoder] = useState<string | null>(null)
   const [selectedBucket, setSelectedBucket] = useState<string | null>(null)
   const coderLabel = (c: any) => c.emp_id ? `${c.coder_name} (${c.emp_id})` : c.coder_name
@@ -303,17 +307,26 @@ export function InsightsPanel({ insights, batchId, onClose }: { insights: any; b
         </div>
 
         <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '14px 16px' }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 12 }}>Category Performance</div>
+          {/* Categories are free text, so this axis has no ceiling. Cut to the
+              extremes and say so, rather than growing the chart without limit. */}
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 12 }}>
+            Category Performance
+            {cpRows.length < cp.length && (
+              <span style={{ fontWeight: 600, fontSize: 11, color: '#9ca3af', marginLeft: 8 }}>
+                strongest and weakest {cpRows.length} of {cp.length}
+              </span>
+            )}
+          </div>
           {cp.length === 0 ? (
             <div style={{ fontSize: 12, color: '#9ca3af' }}>No data</div>
           ) : (
-            <ResponsiveContainer width="100%" height={Math.max(140, cp.length * 40)}>
-              <BarChart data={cp} layout="vertical" margin={{ left: 8, right: 40, top: 2, bottom: 2 }}>
+            <ResponsiveContainer width="100%" height={barHeight(cpRows.length, 40, 140)}>
+              <BarChart data={cpRows} layout="vertical" margin={{ left: 8, right: 40, top: 2, bottom: 2 }}>
                 <XAxis type="number" domain={[0, 100]} tickFormatter={v => `${v}%`} tick={{ fontSize: 10 }} />
                 <YAxis type="category" dataKey="category" width={100} tick={{ fontSize: 11, fontWeight: 600 }} />
                 <Tooltip formatter={(v: any, _name: any, p: any) => [`${v}% avg · ${p.payload.pass_rate}% pass rate · ${p.payload.attempt_count} attempts`, 'Avg Grading Score']} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
                 <Bar dataKey="avg_score" radius={[0, 6, 6, 0]}>
-                  {cp.map((c: any) => <Cell key={c.category} fill={c.avg_score < 60 ? '#dc2626' : c.avg_score < 80 ? '#d97706' : '#16a34a'} />)}
+                  {cpRows.map((c: any) => <Cell key={c.category} fill={c.avg_score < 60 ? '#dc2626' : c.avg_score < 80 ? '#d97706' : '#16a34a'} />)}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>

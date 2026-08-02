@@ -15,6 +15,7 @@ import {
 } from '../../api'
 import { CoderPicker } from '../../components/CoderPicker'
 import { round1 } from './shared'
+import { barHeight, recent, extremes, tickInterval, axisLabel, TREND_WINDOWS } from './chartScale'
 import styles from './styles'
 
 // Share of charts expected to pass. A POPULATION target — deliberately not
@@ -136,6 +137,11 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
   // "Batch" is wrong wording under the Direct scope, where no row is a batch.
   const unitLabel = scope === 'direct' ? 'Assignment' : 'Batch'
   const unitPlural = scope === 'direct' ? 'direct assignments' : scope === 'all' ? 'batches or assignments' : 'batches'
+  const [trendWindow, setTrendWindow] = useState<number | 'all'>(25)
+  // Strongest and weakest categories, in score order. Taking the top N would
+  // hide every struggling category the moment the list grew, which is the
+  // opposite of what this page is for.
+  const categoryChartRows = extremes(categoryData?.team ?? [], (r: any) => r.avg_score)
   const [profileSpecialty, setProfileSpecialty] = useState<string | null>(null)
   const [profile, setProfile] = useState<any>(null)
   const [profileLoading, setProfileLoading] = useState(false)
@@ -825,11 +831,31 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
           ) : (
             <>
               <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '18px 16px' }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 16 }}>Pass Rate &amp; Avg Grading Score Over {unitLabel === 'Assignment' ? 'Assignments' : 'Batches'}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' as const }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#111' }}>Pass Rate &amp; Avg Grading Score Over {unitLabel === 'Assignment' ? 'Assignments' : 'Batches'}</div>
+                  {/* A trend line stops being readable long before it stops
+                      being drawable. Windowed to the most recent, because the
+                      question a trend answers is "where is this heading". */}
+                  {byBatch.length > TREND_WINDOWS[0] && (
+                    <div style={{ display: 'flex', gap: 4, marginLeft: 'auto', alignItems: 'center' }}>
+                      <span style={{ fontSize: 11, color: '#9ca3af' }}>Show last</span>
+                      {[...TREND_WINDOWS, 'all' as const].map(w => (
+                        <button key={String(w)} onClick={() => setTrendWindow(w)}
+                          style={{
+                            fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 6, cursor: 'pointer',
+                            border: '1px solid ' + (trendWindow === w ? '#0f766e' : '#e5e7eb'),
+                            background: trendWindow === w ? '#0f766e' : '#fff',
+                            color: trendWindow === w ? '#fff' : '#6b7280',
+                          }}>{w === 'all' ? 'All' : w}</button>
+                      ))}
+                      <span style={{ fontSize: 11, color: '#9ca3af', marginLeft: 4 }}>of {byBatch.length}</span>
+                    </div>
+                  )}
+                </div>
                 <ResponsiveContainer width="100%" height={240}>
-                  <LineChart data={byBatch.map(b => ({ ...b, label: b.batch_name.length > 16 ? b.batch_name.slice(0, 16) + '…' : b.batch_name }))} margin={{ left: 10, right: 20, top: 8, bottom: 8 }}>
+                  <LineChart data={recent(byBatch, trendWindow).map(b => ({ ...b, label: axisLabel(b.batch_name) }))} margin={{ left: 10, right: 20, top: 8, bottom: 8 }}>
                     <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                    <XAxis dataKey="label" tick={{ fontSize: 11 }} interval={tickInterval(recent(byBatch, trendWindow).length)} angle={-20} textAnchor="end" height={52} />
                     <YAxis domain={[0, 100]} tickFormatter={v => `${v}%`} tick={{ fontSize: 11 }} />
                     <Tooltip formatter={(v: any, name: any) => [`${v}%`, name === 'pass_rate' ? 'Pass Rate' : 'Avg Grading Score']} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
                     <Legend formatter={n => n === 'pass_rate' ? 'Pass Rate' : 'Avg Grading Score'} />
@@ -1064,11 +1090,16 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
               {/* Score trend chart */}
               {coderTrend.length > 1 && (
                 <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '18px 16px' }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 16 }}>Grading Score Trend — {coderName}</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 16 }}>
+                    Grading Score Trend — {coderName}
+                    {coderTrend.length > 25 && <span style={{ fontWeight: 600, fontSize: 11, color: '#9ca3af', marginLeft: 8 }}>
+                      most recent 25 of {coderTrend.length} — full history in the table below
+                    </span>}
+                  </div>
                   <ResponsiveContainer width="100%" height={200}>
-                    <LineChart data={coderTrend.map(r => ({ ...r, label: r.batch_name.length > 14 ? r.batch_name.slice(0, 14) + '…' : r.batch_name }))} margin={{ left: 10, right: 20, top: 8, bottom: 8 }}>
+                    <LineChart data={recent(coderTrend, 25).map(r => ({ ...r, label: axisLabel(r.batch_name, 14) }))} margin={{ left: 10, right: 20, top: 8, bottom: 8 }}>
                       <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                      <XAxis dataKey="label" tick={{ fontSize: 11 }} interval={tickInterval(Math.min(coderTrend.length, 25))} angle={-20} textAnchor="end" height={52} />
                       <YAxis domain={[0, 100]} tickFormatter={v => `${v}%`} tick={{ fontSize: 11 }} />
                       <Tooltip formatter={(v: any) => [`${v}%`, 'Avg Grading Score']} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
                       <Line type="monotone" dataKey="avg_score" stroke="#4f46e5" strokeWidth={2.5} dot={{ r: 6, fill: '#4f46e5' }} activeDot={{ r: 8 }} name="Avg Grading Score" />
@@ -1118,15 +1149,27 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
           ) : (
             <>
               <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '18px 16px' }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 16 }}>Team Avg Grading Score by Category</div>
-                <ResponsiveContainer width="100%" height={Math.max(180, categoryData.team.length * 48)}>
-                  <BarChart data={categoryData.team} layout="vertical" margin={{ left: 10, right: 40, top: 4, bottom: 4 }}>
+                {/* Categories are free text entered at chart upload, so this
+                    axis has no natural ceiling — 60 of them produced a chart
+                    taller than three screens. Cut to the extremes, which is
+                    what a "who stands out" chart is for; the full list is the
+                    table directly below, which scrolls. */}
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 16 }}>
+                  Team Avg Grading Score by Category
+                  {categoryChartRows.length < categoryData.team.length && (
+                    <span style={{ fontWeight: 600, fontSize: 11, color: '#9ca3af', marginLeft: 8 }}>
+                      strongest and weakest {categoryChartRows.length} of {categoryData.team.length} — all {categoryData.team.length} in the table below
+                    </span>
+                  )}
+                </div>
+                <ResponsiveContainer width="100%" height={barHeight(categoryChartRows.length)}>
+                  <BarChart data={categoryChartRows} layout="vertical" margin={{ left: 10, right: 40, top: 4, bottom: 4 }}>
                     <CartesianGrid strokeDasharray="3 3" horizontal={false} />
                     <XAxis type="number" domain={[0, 100]} tickFormatter={v => `${v}%`} tick={{ fontSize: 11 }} />
                     <YAxis type="category" dataKey="category" tick={{ fontSize: 11 }} width={140} />
                     <Tooltip formatter={(v: any) => [`${v}%`]} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
                     <Bar dataKey="avg_score" name="Avg Grading Score" radius={[0, 4, 4, 0]}>
-                      {categoryData.team.map((entry: any, i: number) => (
+                      {categoryChartRows.map((entry: any, i: number) => (
                         <Cell key={i} fill={sc(entry.avg_score) === '#16a34a' ? '#22c55e' : sc(entry.avg_score) === '#d97706' ? '#f59e0b' : '#ef4444'} />
                       ))}
                     </Bar>
