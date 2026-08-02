@@ -237,6 +237,11 @@ export async function getPLAnalyticsBySpecialty(f: PLFilters = {}, scope: 'forma
   return data
 }
 
+export async function getPLSpecialtyProfile(specialty: string, f: PLFilters = {}, scope: 'formal' | 'direct' | 'all' = 'formal') {
+  const { data } = await api.get('/practicelab/analytics/specialty-profile', { params: { ...fp(f), specialty, scope } })
+  return data
+}
+
 export async function getPLAnalyticsByChart(f: PLFilters = {}) {
   const { data } = await api.get('/practicelab/analytics/by-chart', { params: fp(f) })
   return data

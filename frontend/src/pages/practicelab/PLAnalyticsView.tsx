@@ -10,7 +10,7 @@ import {
   getPLAnalyticsByBatch, getCoderTrend, getCoderSummary, downloadCoderReportPdf,
   downloadCoderPerformanceXlsx,
   getPLAnalyticsByCategory, getPLChartTeachingValue, getPLCoderMatrix, getPLChartDetail,
-  getBatchEMBreakdown,
+  getBatchEMBreakdown, getPLSpecialtyProfile,
   type PLFilters,
 } from '../../api'
 import { CoderPicker } from '../../components/CoderPicker'
@@ -30,7 +30,26 @@ const TEACHING_LABEL_META: Record<string, { color: string; bg: string; desc: str
   'Standard':      { color: '#374151', bg: '#f9fafb', desc: 'Typical performance range' },
 }
 
+// Below this many graded charts, a percentage is one result away from moving
+// double digits, so it is flagged rather than presented as a finding.
+const LOW_SAMPLE = 10
+
 const TAB_STORAGE_KEY = 'pl_analytics_tab'
+
+const sectionLabel: React.CSSProperties = {
+  fontSize: 11, fontWeight: 700, color: '#6b7280', marginBottom: 8,
+  textTransform: 'uppercase', letterSpacing: 0.5,
+}
+
+function Box({ label, value, color, hint }: { label: string; value: any; color?: string; hint?: string }) {
+  return (
+    <div style={styles.statCard}>
+      <div style={{ ...styles.statValue, color: color || '#111' }}>{value}</div>
+      <div style={styles.statLabel}>{label}</div>
+      {hint && <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2 }}>{hint}</div>}
+    </div>
+  )
+}
 
 export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: number) => void } = {}) {
   const [tab, setTab] = useState<'overview' | 'specialty' | 'chart' | 'batch' | 'coder' | 'category' | 'teaching' | 'matrix' | 'em_mdm'>(
@@ -107,6 +126,9 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
   // no way to see them, so a coder who only practised that way was invisible.
   const [scope, setScope] = useState<'formal' | 'direct' | 'all'>('formal')
   const [matrixCoderSearch, setMatrixCoderSearch] = useState('')
+  const [profileSpecialty, setProfileSpecialty] = useState<string | null>(null)
+  const [profile, setProfile] = useState<any>(null)
+  const [profileLoading, setProfileLoading] = useState(false)
   const [matrixShowAll, setMatrixShowAll] = useState(false)
   const [heatmapCoderSearch, setHeatmapCoderSearch] = useState('')
   const [heatmapShowAll, setHeatmapShowAll] = useState(false)
@@ -154,6 +176,17 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
       if (ov?.op_pass_threshold) setOpThreshold(ov.op_pass_threshold)
     }).catch(() => toast.error('Failed to load analytics')).finally(() => setLoading(false))
   }, [filters, scope])
+
+  // Reloads on scope and filter changes too — a profile left open while the
+  // scope switch is flipped would otherwise contradict the table above it.
+  useEffect(() => {
+    if (!profileSpecialty) { setProfile(null); return }
+    setProfileLoading(true)
+    getPLSpecialtyProfile(profileSpecialty, filters, scope)
+      .then(setProfile)
+      .catch(() => toast.error('Failed to load specialty profile'))
+      .finally(() => setProfileLoading(false))
+  }, [profileSpecialty, filters, scope])
 
   useEffect(() => {
     if ((tab === 'chart' || tab === 'category') && byChart.length === 0) getPLAnalyticsByChart(filters).then(setByChart).catch(() => {})
@@ -289,33 +322,40 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
         ))}
       </div>
 
+      {/* Direct assignments are one-off charts, so folding them into batch
+          trends by default would change what the trend line means. Offered as a
+          switch instead of being silently absent.
+
+          Rendered outside the tab bodies because all three scope-aware tabs are
+          driven by the same state: it lived inside Overview, so By Specialty
+          silently inherited whatever had been picked there with nothing on
+          screen saying so. */}
+      {(tab === 'overview' || tab === 'specialty' || tab === 'batch') && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' as const, marginBottom: 16 }}>
+          <div style={{ display: 'flex', border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
+            {([['formal', 'Batches'], ['direct', 'Direct Assignments'], ['all', 'Both']] as const).map(([k, label]) => (
+              <button key={k} onClick={() => setScope(k)}
+                style={{
+                  padding: '6px 14px', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700,
+                  borderRight: k === 'all' ? 'none' : '1px solid #e5e7eb',
+                  background: scope === k ? '#0f766e' : '#fff',
+                  color: scope === k ? '#fff' : '#6b7280',
+                }}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <span style={{ fontSize: 11, color: '#9ca3af' }}>
+            {scope === 'formal' && 'Formal batch work only — direct assignments shown separately'}
+            {scope === 'direct' && 'One-off direct assignments only'}
+            {scope === 'all' && 'Batches and direct assignments combined'}
+            {tab === 'overview' && ' · batch counts by created date, grading by graded date'}
+          </span>
+        </div>
+      )}
+
       {tab === 'overview' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-          {/* Direct assignments are one-off charts, so folding them into batch
-              trends by default would change what the trend line means. Offered
-              as a switch instead of being silently absent. */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' as const }}>
-            <div style={{ display: 'flex', border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
-              {([['formal', 'Batches'], ['direct', 'Direct Assignments'], ['all', 'Both']] as const).map(([k, label]) => (
-                <button key={k} onClick={() => setScope(k)}
-                  style={{
-                    padding: '6px 14px', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700,
-                    borderRight: k === 'all' ? 'none' : '1px solid #e5e7eb',
-                    background: scope === k ? '#0f766e' : '#fff',
-                    color: scope === k ? '#fff' : '#6b7280',
-                  }}>
-                  {label}
-                </button>
-              ))}
-            </div>
-            <span style={{ fontSize: 11, color: '#9ca3af' }}>
-              {scope === 'formal' && 'Formal batch work only — direct assignments shown separately'}
-              {scope === 'direct' && 'One-off direct assignments only'}
-              {scope === 'all' && 'Batches and direct assignments combined'}
-              {' · batch counts by created date, grading by graded date'}
-            </span>
-          </div>
-
           {!overview ? (
             <div style={styles.emptyState}>No grading data yet</div>
           ) : (
@@ -427,18 +467,145 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                 </ResponsiveContainer>
               </div>
               <div style={styles.table}>
-                <div style={{ ...styles.tableHeader, gridTemplateColumns: '2fr 1fr 1fr 1fr' }}>
-                  <span>Specialty</span><span>Graded</span><span>Avg Grading Score</span><span>Pass Rate</span>
+                {/* Pass Mark is shown because the two rate columns are NOT
+                    comparable across rows without it — 85% average is a pass in
+                    IP-DRG (80) and a fail in SDS (90), and the bar chart above
+                    puts them side by side as though one bar were simply longer. */}
+                <div style={{ ...styles.tableHeader, gridTemplateColumns: '2fr 0.8fr 0.8fr 1.2fr 1.2fr 1fr' }}>
+                  <span>Specialty</span><span>Graded</span><span>Pass Mark</span>
+                  <span>Avg Grading Score</span><span>Chart Pass Rate</span><span></span>
                 </div>
-                {bySpecialty.map((r: any, i: number) => (
-                  <div key={r.specialty} className={i % 2 === 1 ? 'pl-tr-alt' : 'pl-tr'} style={{ ...styles.tableRow, gridTemplateColumns: '2fr 1fr 1fr 1fr' }}>
-                    <span style={{ fontWeight: 600 }}>{r.specialty}</span>
-                    <span>{r.total}</span>
-                    <span style={{ fontWeight: 700, color: sc(r.avg_score, r.specialty) }}>{r.avg_score}%</span>
-                    <span style={{ fontWeight: 700, color: rc(r.pass_rate) }}>{r.pass_rate}%</span>
-                  </div>
-                ))}
+                {/* Weakest first — a trainer opens this tab to find where to
+                    intervene, not to read an alphabetical list. */}
+                {[...bySpecialty].sort((a: any, b: any) => a.avg_score - b.avg_score).map((r: any, i: number) => {
+                  const pt = thresholdFor(r.specialty)
+                  const needsReview = r.avg_score < pt || r.pass_rate < PASS_RATE_TARGET
+                  const lowSample = r.total < LOW_SAMPLE
+                  return (
+                    <div key={r.specialty} className={i % 2 === 1 ? 'pl-tr-alt' : 'pl-tr'}
+                      onClick={() => setProfileSpecialty(profileSpecialty === r.specialty ? null : r.specialty)}
+                      style={{ ...styles.tableRow, gridTemplateColumns: '2fr 0.8fr 0.8fr 1.2fr 1.2fr 1fr', cursor: 'pointer', alignItems: 'center' }}>
+                      <span style={{ fontWeight: 600 }}>
+                        {profileSpecialty === r.specialty ? '▾ ' : '▸ '}{r.specialty}
+                      </span>
+                      <span>
+                        {r.total}
+                        {lowSample && <span title={`Fewer than ${LOW_SAMPLE} graded charts — these percentages move a lot on one result`}
+                          style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, background: '#f3f4f6', color: '#6b7280', padding: '1px 6px', borderRadius: 8 }}>Low sample</span>}
+                      </span>
+                      <span style={{ color: '#6b7280' }}>{pt != null ? `${pt}%` : '—'}</span>
+                      <span style={{ fontWeight: 700, color: sc(r.avg_score, r.specialty) }}>{r.avg_score}%</span>
+                      <span style={{ fontWeight: 700, color: rc(r.pass_rate) }}>{r.pass_rate}%</span>
+                      <span>
+                        {needsReview && <span style={{ fontSize: 10, fontWeight: 700, background: '#fef3c7', color: '#92400e', padding: '2px 8px', borderRadius: 10 }}>Needs review</span>}
+                      </span>
+                    </div>
+                  )
+                })}
               </div>
+              <div style={{ fontSize: 11, color: '#9ca3af' }}>
+                Pass Mark is the per-chart score a coder must reach. Chart Pass Rate is the share of graded
+                charts that reached it — a population figure, not a score. Click a specialty for its full profile.
+              </div>
+
+              {profileSpecialty && (
+                profileLoading || !profile ? (
+                  <div style={styles.emptyState}>Loading {profileSpecialty} profile…</div>
+                ) : (
+                  <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '18px 16px', display: 'flex', flexDirection: 'column', gap: 18 }}>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' as const }}>
+                      <div style={{ fontSize: 15, fontWeight: 800, color: '#111' }}>{profile.specialty}</div>
+                      <div style={{ fontSize: 11, color: '#6b7280' }}>
+                        {profile.pass_threshold != null ? `pass mark ${profile.pass_threshold}%` : 'rubric-graded — no numeric pass mark'}
+                        {' · '}{scope === 'formal' ? 'batch work' : scope === 'direct' ? 'direct assignments' : 'batches and direct'}
+                      </div>
+                    </div>
+
+                    {/* Library — capacity, not outcome. A specialty can look
+                        healthy on scores while having almost nothing left to
+                        practise on, and nothing else in analytics shows that. */}
+                    <div>
+                      <div style={sectionLabel}>Library</div>
+                      <div style={styles.statsRow}>
+                        <Box label="Charts" value={profile.library.total_charts} />
+                        <Box label="Ready to Practise" value={profile.library.practice_ready} color="#16a34a"
+                          hint={profile.library.uses_answer_keys ? 'has a complete answer key' : 'rubric-graded — no key needed'} />
+                        <Box label="Awaiting Key" value={profile.library.awaiting_key}
+                          color={profile.library.awaiting_key > 0 ? '#d97706' : '#111'} hint="cannot be graded yet" />
+                        <Box label="Charts Attempted" value={profile.activity.charts_attempted}
+                          hint={`of ${profile.library.practice_ready} ready`} />
+                      </div>
+                    </div>
+
+                    <div>
+                      <div style={sectionLabel}>Participation & Outcome</div>
+                      <div style={styles.statsRow}>
+                        <Box label="Attempts" value={profile.activity.attempts} />
+                        <Box label="Coders" value={profile.activity.coders} />
+                        <Box label="Avg Grading Score" value={`${profile.performance.avg_score}%`}
+                          color={sc(profile.performance.avg_score, profile.specialty)} hint="per-chart score" />
+                        <Box label="Chart Pass Rate" value={`${profile.performance.chart_pass_rate}%`}
+                          color={rc(profile.performance.chart_pass_rate)} hint="share of charts that passed" />
+                        <Box label="Coders Clearing" value={`${profile.performance.coder_clear_rate}%`}
+                          color={rc(profile.performance.coder_clear_rate)}
+                          hint={`${profile.performance.coders_cleared} of ${profile.activity.coders} — ${profile.performance.coder_clear_rule}`} />
+                      </div>
+                    </div>
+
+                    {/* The one figure a per-specialty view cannot work out for
+                        itself: where this sits among the others. */}
+                    <div>
+                      <div style={sectionLabel}>Standing vs Other Specialties</div>
+                      <div style={styles.statsRow}>
+                        <Box label="Rank — Avg Score" value={profile.standing.rank_by_avg_score ? `#${profile.standing.rank_by_avg_score}` : '—'}
+                          hint={`of ${profile.standing.peers} specialties`} />
+                        <Box label="Rank — Pass Rate" value={profile.standing.rank_by_pass_rate ? `#${profile.standing.rank_by_pass_rate}` : '—'}
+                          hint={`of ${profile.standing.peers} specialties`} />
+                        <Box label="All-Specialty Avg Score" value={profile.standing.peer_avg_score != null ? `${profile.standing.peer_avg_score}%` : '—'}
+                          hint={profile.standing.peer_avg_score != null
+                            ? `${profile.performance.avg_score >= profile.standing.peer_avg_score ? '+' : ''}${(profile.performance.avg_score - profile.standing.peer_avg_score).toFixed(1)} pts vs this specialty` : ''} />
+                      </div>
+                    </div>
+
+                    <div>
+                      <div style={sectionLabel}>Chart Difficulty in Practice</div>
+                      <div style={styles.statsRow}>
+                        <Box label="Most Clear It" value={profile.charts.well_cleared} color="#16a34a"
+                          hint={`≥${profile.charts.well_cleared_at}% of attempts passed`} />
+                        <Box label="Most Struggle" value={profile.charts.struggling} color="#dc2626"
+                          hint={`<${profile.charts.struggling_below}% of attempts passed`} />
+                        <Box label="Too Few Attempts" value={profile.charts.low_sample}
+                          hint={`under ${profile.charts.min_attempts} attempts — not rated`} />
+                      </div>
+                      {profile.charts.struggling_list.length > 0 && (
+                        <div style={{ marginTop: 12 }}>
+                          <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 6 }}>Hardest charts — candidates for a teaching session</div>
+                          <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 8 }}>
+                            {profile.charts.struggling_list.map((c: any) => (
+                              <span key={c.chart_number} style={{ fontSize: 11, background: '#fef2f2', color: '#991b1b', border: '1px solid #fecaca', padding: '3px 10px', borderRadius: 10 }}>
+                                <strong>{c.chart_number}</strong> · {c.pass_rate}% passed · {c.attempts} attempts
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {profile.top_missed_codes.length > 0 && (
+                      <div>
+                        <div style={sectionLabel}>Most Missed Codes</div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 8 }}>
+                          {profile.top_missed_codes.map((m: any) => (
+                            <span key={m.code} style={{ fontSize: 11, background: '#eef2ff', color: '#3730a3', border: '1px solid #c7d2fe', padding: '3px 10px', borderRadius: 10 }}>
+                              <strong>{m.code}</strong> · missed {m.count}×
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              )}
             </div>
           )}
         </div>

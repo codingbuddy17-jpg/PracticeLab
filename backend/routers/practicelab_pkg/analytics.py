@@ -187,6 +187,173 @@ def analytics_by_specialty(
     ]
 
 
+def _key_counts(db, spec: Specialty) -> dict:
+    """
+    How many ACTIVE charts in this specialty are ready to practise.
+
+    "Ready" means a complete answer key exists — a chart without one cannot be
+    graded, so it is inventory, not capacity. Which table holds the key depends
+    on the specialty: E/M and ED Profee use em_answer_keys, everything else
+    answer_keys, and the rubric ED specialties have no key at all.
+    """
+    from .shared import _is_ed
+    from .em_grading import _is_em
+    from models import AnswerKey
+    from models.charts import ChartStatus
+
+    q = db.query(Chart).filter(Chart.status == ChartStatus.ACTIVE,
+                               Chart.specialty == spec)
+    total = q.count()
+    if _is_ed(spec):
+        return {"total_charts": total, "practice_ready": total,
+                "awaiting_key": 0, "uses_answer_keys": False}
+    if _is_em(spec):
+        ready = db.execute(text(
+            "SELECT COUNT(*) FROM em_answer_keys k JOIN charts c ON c.id = k.chart_id "
+            "WHERE c.specialty = :s AND c.status = :st"
+        ), {"s": spec.name, "st": ChartStatus.ACTIVE.name}).scalar() or 0
+    else:
+        ready = q.join(AnswerKey, AnswerKey.chart_id == Chart.id).count()
+    return {"total_charts": total, "practice_ready": ready,
+            "awaiting_key": max(0, total - ready), "uses_answer_keys": True}
+
+
+@router.get("/analytics/specialty-profile")
+def specialty_profile(
+    specialty: str,
+    from_date: Optional[str] = None, to_date: Optional[str] = None,
+    scope: str = "formal",
+    well_cleared_at: int = 70, struggling_below: int = 50, min_attempts: int = 3,
+    db: Session = Depends(get_db),
+):
+    """
+    Everything about ONE specialty in one place — the thing Tab 2 could not do.
+
+    The bar chart answers "which specialty is weakest"; it cannot answer "what
+    is the state of IP-DRG". That needs library inventory, participation and
+    outcome side by side, plus where this specialty sits against the others —
+    a rank is the only figure here that a per-specialty view cannot compute
+    for itself.
+    """
+    scope = (scope or "formal").lower()
+    if scope not in ("formal", "direct", "all"):
+        raise HTTPException(status_code=400, detail="scope must be formal, direct or all")
+    spec = next((s for s in Specialty if s.value == specialty), None)
+    if spec is None:
+        raise HTTPException(status_code=404, detail=f"Unknown specialty: {specialty}")
+
+    def _scoped(sp: Optional[str]):
+        q = _gr_base(db, from_date, to_date, sp, exclude_direct=(scope == "formal"))
+        if scope == "direct":
+            q = q.join(Batch, GradingResult.batch_id == Batch.id).filter(
+                Batch.is_direct_assignment == True)
+        return q
+
+    results = _scoped(specialty).all()
+    thresholds = _pass_thresholds(db)
+    pass_threshold = thresholds.get(spec.value)
+
+    total = len(results)
+    passed = sum(1 for r in results if r.pass_fail == PassFail.PASS)
+    avg_score = round(sum(r.total_score for r in results) / total, 1) if total else 0.0
+
+    # Per coder: identity is emp_id where present, else the name (same rule as
+    # the coder directory — two spellings of one person must not become two).
+    coders: dict[str, list] = {}
+    for r in results:
+        coders.setdefault(r.emp_id or r.coder_name, []).append(r)
+    # A coder "clears" by passing MORE THAN HALF their charts. This is the same
+    # majority rule batch results use; it is not an average-score comparison.
+    cleared = sum(1 for rs in coders.values()
+                  if sum(1 for r in rs if r.pass_fail == PassFail.PASS) > len(rs) / 2)
+
+    # Per chart, so "where are people struggling" is about charts, not coders.
+    per_chart: dict[int, list] = {}
+    for r in results:
+        per_chart.setdefault(r.chart_id, []).append(r)
+    chart_rows = []
+    for cid, rs in per_chart.items():
+        ch = rs[0].chart
+        p = sum(1 for r in rs if r.pass_fail == PassFail.PASS)
+        chart_rows.append({
+            "chart_number": ch.chart_number if ch else str(cid),
+            "category": ch.category if ch else None,
+            "attempts": len(rs),
+            "pass_rate": round(p / len(rs) * 100, 1),
+            "avg_score": round(sum(r.total_score for r in rs) / len(rs), 1),
+        })
+    # Charts with one or two attempts swing between 0% and 100% on a single
+    # result, so they are counted but never labelled well-cleared or struggling.
+    rated = [c for c in chart_rows if c["attempts"] >= min_attempts]
+    well = [c for c in rated if c["pass_rate"] >= well_cleared_at]
+    struggling = sorted([c for c in rated if c["pass_rate"] < struggling_below],
+                        key=lambda c: c["pass_rate"])
+
+    # Rank against the other specialties under the same scope and filters.
+    peers = []
+    for row in _scoped(None).with_entities(
+            GradingResult.specialty,
+            func.count(GradingResult.id).label("n"),
+            func.avg(GradingResult.total_score).label("avg"),
+            func.sum(func.cast(GradingResult.pass_fail == PassFail.PASS, Integer)).label("p"),
+    ).group_by(GradingResult.specialty).all():
+        peers.append({"specialty": row.specialty.value,
+                      "avg_score": round(float(row.avg or 0), 1),
+                      "pass_rate": round(float(row.p or 0) / row.n * 100, 1) if row.n else 0.0})
+
+    def _rank(key):
+        ordered = sorted(peers, key=lambda p: p[key], reverse=True)
+        for i, p in enumerate(ordered, 1):
+            if p["specialty"] == spec.value:
+                return i
+        return None
+
+    missed = Counter()
+    for r in results:
+        for f in r.feedback:
+            if f.issue_type.value == "Missed" and f.ak_code:
+                missed[f.ak_code] += 1
+
+    return {
+        "specialty": spec.value,
+        "scope": scope,
+        "pass_threshold": pass_threshold,
+        "library": _key_counts(db, spec),
+        "activity": {
+            "attempts": total,
+            "coders": len(coders),
+            "charts_attempted": len(per_chart),
+        },
+        "performance": {
+            "avg_score": avg_score,
+            "chart_pass_rate": round(passed / total * 100, 1) if total else 0.0,
+            "coder_clear_rate": round(cleared / len(coders) * 100, 1) if coders else 0.0,
+            "coders_cleared": cleared,
+            "pass_rate_basis": "chart",
+            "clear_rate_basis": "coder",
+            "coder_clear_rule": "majority of charts passed",
+        },
+        "standing": {
+            "peers": len(peers),
+            "rank_by_avg_score": _rank("avg_score"),
+            "rank_by_pass_rate": _rank("pass_rate"),
+            "peer_avg_score": round(sum(p["avg_score"] for p in peers) / len(peers), 1) if peers else None,
+            "peer_pass_rate": round(sum(p["pass_rate"] for p in peers) / len(peers), 1) if peers else None,
+        },
+        "charts": {
+            "rated": len(rated),
+            "well_cleared": len(well),
+            "struggling": len(struggling),
+            "low_sample": len(chart_rows) - len(rated),
+            "well_cleared_at": well_cleared_at,
+            "struggling_below": struggling_below,
+            "min_attempts": min_attempts,
+            "struggling_list": struggling[:10],
+        },
+        "top_missed_codes": [{"code": c, "count": n} for c, n in missed.most_common(5)],
+    }
+
+
 @router.get("/analytics/by-chart")
 def analytics_by_chart(
     from_date: Optional[str] = None, to_date: Optional[str] = None, specialty: Optional[str] = None,
