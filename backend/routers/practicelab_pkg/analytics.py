@@ -486,6 +486,7 @@ def coder_trend(
                 "batch_name": r.batch.name,
                 "specialty": r.batch.specialty.value if r.batch.specialty else None,
                 "created_at": r.batch.created_at.isoformat() if r.batch.created_at else None,
+                "is_direct": bool(getattr(r.batch, "is_direct_assignment", False)),
                 "scores": [],
                 "passed": 0,
             }
@@ -638,6 +639,7 @@ def build_coder_summary(results, coder_name: str, db: Session):
                 "batch_name": r.batch.name,
                 "specialty": r.batch.specialty.value,
                 "created_at": r.batch.created_at.isoformat() if r.batch.created_at else None,
+                "is_direct": bool(getattr(r.batch, "is_direct_assignment", False)),
                 "scores": [],
                 "passed": 0,
             }
@@ -652,6 +654,10 @@ def build_coder_summary(results, coder_name: str, db: Session):
             "batch_name": d["batch_name"],
             "specialty": d["specialty"],
             "created_at": d["created_at"],
+            # A coder view mixes formal batches with one-off direct
+            # assignments by design. Without this the two are indistinguishable
+            # in the history, and a run of direct work reads as batch work.
+            "is_direct_assignment": d["is_direct"],
             "chart_count": len(d["scores"]),
             "avg_score": round(sum(d["scores"]) / len(d["scores"]), 1) if d["scores"] else None,
             "charts_passed": d["passed"],
@@ -664,7 +670,31 @@ def build_coder_summary(results, coder_name: str, db: Session):
     cfg_row = db.query(ScoringConfig).filter(ScoringConfig.specialty_type == ("IP" if has_ip else "OP")).first()
     pass_threshold = (cfg_row.pass_threshold or 80) if cfg_row else 80
 
+    # ── What this coder actually works on ────────────────────────────────────
+    # Reports headed "All practice & batch work" said nothing a reader could
+    # use. What they need is WHICH specialties, because that is what the scores
+    # in the report are scores in.
+    spec_counts = Counter(r.specialty.value for r in scored if r.specialty)
+    specialty_mix = [{"specialty": sp, "charts": n} for sp, n in spec_counts.most_common()]
+
+    graded_dates = [r.graded_at for r in results if r.graded_at]
+    last_activity = max(graded_dates).isoformat() if graded_dates else None
+
+    # PCS and CPT are different code sets, and a trainer reads "Procedure
+    # accuracy" as whichever their specialty uses. Name it when unambiguous.
+    ip_specs = {"IP-DRG"}
+    mix = set(spec_counts)
+    if mix and mix <= ip_specs:
+        proc_label = "PCS accuracy"
+    elif mix and not (mix & ip_specs):
+        proc_label = "CPT accuracy"
+    else:
+        proc_label = "Procedure accuracy (PCS + CPT)"
+
     return {
+        "specialty_mix": specialty_mix,
+        "last_activity": last_activity,
+        "proc_label": proc_label,
         "coder_name": coder_name,
         "emp_id": emp_id,
         "total_charts": total_charts,

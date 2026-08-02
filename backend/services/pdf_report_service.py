@@ -385,7 +385,21 @@ def generate_coder_report_pdf(coder_name: str, summary: dict, team_avg_score: Op
     coder_subtitle = f"Coder: {coder_name}  |  Emp ID: {emp_id}" if emp_id else f"Coder: {coder_name}"
     # Always state the scope — a filtered report must not be mistakable for a
     # cumulative one once it leaves the app.
-    subtitles = [coder_subtitle, scope_label or "Scope: All practice & batch work"]
+    # "All practice & batch work" told a reader nothing they could use — it is
+    # true of every report this function has ever produced. What matters is
+    # WHICH specialties, because that is what the scores in here are scores in.
+    mix = summary.get("specialty_mix") or []
+    if mix:
+        shown = " · ".join(f"{m['specialty']} {m['charts']} chart{'s' if m['charts'] != 1 else ''}"
+                           for m in mix[:4])
+        if len(mix) > 4:
+            shown += f" · +{len(mix) - 4} more"
+        default_scope = f"Specialties: {shown}"
+    else:
+        default_scope = "Scope: batch and direct-assignment work"
+    subtitles = [coder_subtitle, scope_label or default_scope]
+    if summary.get("last_activity"):
+        subtitles.append(f"Last graded: {summary['last_activity'][:10]}")
     if period_label:
         subtitles.append(period_label)
     _header(elements, "Coder Performance Report", subtitles)
@@ -427,10 +441,13 @@ def generate_coder_report_pdf(coder_name: str, summary: dict, team_avg_score: Op
     if dpo and any(dpo.get(k) is not None for k in ("dx_accuracy", "proc_accuracy", "drg_accuracy")):
         _section_heading(elements, "Accuracy Breakdown")
         dpo_rows = []
-        for label, key in [("Diagnosis accuracy", "dx_accuracy"), ("Procedure accuracy", "proc_accuracy"), ("DRG accuracy", "drg_accuracy")]:
+        # PCS and CPT are different code sets; a generic "Procedure accuracy"
+        # reads as whichever the trainer's specialty uses, which is a guess.
+        proc_label = summary.get("proc_label") or "Procedure accuracy"
+        for label, key in [("Diagnosis accuracy", "dx_accuracy"), (proc_label, "proc_accuracy"), ("DRG accuracy", "drg_accuracy")]:
             if dpo.get(key) is not None:
                 dpo_rows.append([Paragraph(label, NORMAL), _score_cell(dpo[key], pass_threshold=pt)])
-        elements.append(_data_table(["Section", "Accuracy"], dpo_rows, [3, 1]))
+        elements.append(_data_table(["Element", "Accuracy"], dpo_rows, [3, 1]))
 
     ep = summary.get("error_pattern") or {}
     if ep.get("by_issue_type"):

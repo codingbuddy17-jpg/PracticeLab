@@ -120,6 +120,18 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
     return '#dc2626'
   }
 
+  /**
+   * Colour a coder's score against the threshold the BACKEND resolved for
+   * them. sc() infers a threshold from a specialty string, and a coder spans
+   * several — every call in this tab passed no specialty at all, so an SDS
+   * coder at 85% was coloured green against IP's 80 when their bar is 90.
+   */
+  function cc(v: number | null | undefined, threshold?: number): string {
+    if (v == null) return '#9ca3af'
+    const pt = threshold ?? 80
+    return v >= pt ? '#16a34a' : v >= Math.round(pt * 0.75) ? '#d97706' : '#dc2626'
+  }
+
   function sc(v: number | null | undefined, specialty?: string): string {
     if (v == null) return '#9ca3af'
     const pt = thresholdFor(specialty)
@@ -310,7 +322,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
     { key: 'overview', label: 'Overview' },
     { key: 'specialty', label: 'By Specialty' },
     { key: 'batch', label: 'By Batch' },
-    { key: 'coder', label: 'Coder Trend' },
+    { key: 'coder', label: 'Coder Profile' },
     { key: 'category', label: 'Category Mastery' },
     { key: 'teaching', label: 'Chart Value' },
     { key: 'matrix', label: 'Coder Matrix' },
@@ -1008,15 +1020,41 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
               </div>
             </div>
           ) : !coderSummary && coderTrend.length === 0 ? (
-            <div style={styles.emptyState}>Enter the coder's name and press Look Up to see their full performance profile across all batches.</div>
+            <div style={styles.emptyState}>Enter the coder's name and press Look Up to see their full performance profile — batch work and direct assignments together.</div>
           ) : (
             <>
               {/* Summary stat cards */}
               {coderSummary && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  {coderSummary.emp_id && (
-                    <div style={{ fontSize: 12, color: '#6b7280', fontWeight: 600 }}>Emp ID: {coderSummary.emp_id}</div>
-                  )}
+                  {/* Identity, what they work on, and whether they are current.
+                      "Charts Completed: 40" says nothing about whether that is
+                      40 IP-DRG charts or 40 across six specialties, and nothing
+                      about whether the last one was last week or last year. */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' as const, fontSize: 12, color: '#6b7280' }}>
+                    {coderSummary.emp_id && <span style={{ fontWeight: 600 }}>Emp ID: {coderSummary.emp_id}</span>}
+                    {(coderSummary.specialty_mix || []).map((m: any) => (
+                      <span key={m.specialty} style={{ fontSize: 11, fontWeight: 700, background: '#f1f5f9', color: '#475569', padding: '2px 9px', borderRadius: 10 }}>
+                        {m.specialty} · {m.charts} chart{m.charts !== 1 ? 's' : ''}
+                      </span>
+                    ))}
+                    {coderSummary.last_activity && (() => {
+                      const days = Math.floor((Date.now() - new Date(coderSummary.last_activity).getTime()) / 86400000)
+                      const stale = days > 60
+                      return (
+                        <span title="Most recent graded result"
+                          style={{ fontSize: 11, fontWeight: 700, marginLeft: 'auto',
+                                   color: stale ? '#92400e' : '#6b7280',
+                                   background: stale ? '#fef3c7' : '#f8fafc',
+                                   padding: '2px 9px', borderRadius: 10 }}>
+                          Last graded {coderSummary.last_activity.slice(0, 10)}
+                          {stale ? ` · ${days} days ago` : ''}
+                        </span>
+                      )
+                    })()}
+                  </div>
+                  <div style={{ fontSize: 11, color: '#9ca3af' }}>
+                    Coder views include formal batch work and direct assignments together — team views exclude direct.
+                  </div>
                   <div style={styles.statsRow}>
                     <div style={styles.statCard}>
                       <div style={styles.statValue}>{coderSummary.total_charts ?? 0}</div>
@@ -1028,7 +1066,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                     </div>
                     {coderSummary.weighted_accuracy != null && (
                       <div style={{ ...styles.statCard, background: '#fffbeb', borderLeft: '3px solid #f59e0b' }}>
-                        <div style={{ ...styles.statValue, color: sc(coderSummary.weighted_accuracy) }}>
+                        <div style={{ ...styles.statValue, color: cc(coderSummary.weighted_accuracy, coderSummary.pass_threshold) }}>
                           {coderSummary.weighted_accuracy}%
                         </div>
                         <div style={styles.statLabel}>Grading Score</div>
@@ -1036,7 +1074,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                     )}
                     {coderSummary.cumulative_dpo?.overall_accuracy != null && (
                       <div style={{ ...styles.statCard, background: '#eef2ff', borderLeft: '3px solid #6366f1' }}>
-                        <div style={{ ...styles.statValue, color: sc(coderSummary.cumulative_dpo.overall_accuracy) }}>
+                        <div style={{ ...styles.statValue, color: cc(coderSummary.cumulative_dpo.overall_accuracy, coderSummary.pass_threshold) }}>
                           {coderSummary.cumulative_dpo.overall_accuracy}%
                         </div>
                         <div style={styles.statLabel}>Overall accuracy (DPO)</div>
@@ -1047,23 +1085,28 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                   {/* Accuracy breakdown */}
                   {coderSummary.cumulative_dpo && (coderSummary.cumulative_dpo.dx_accuracy != null || coderSummary.cumulative_dpo.proc_accuracy != null || coderSummary.cumulative_dpo.drg_accuracy != null) && (
                     <div style={{ background: '#f8faff', border: '1px solid #e0e7ff', borderRadius: 10, padding: '14px 18px' }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: '#6366f1', textTransform: 'uppercase' as const, letterSpacing: 0.6, marginBottom: 10 }}>Accuracy Cumulative (All Batches)</div>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: '#6366f1', textTransform: 'uppercase' as const, letterSpacing: 0.6, marginBottom: 10 }}>
+                        Element Accuracy
+                        <span style={{ fontWeight: 600, textTransform: 'none' as const, letterSpacing: 0, color: '#9ca3af', marginLeft: 8 }}>
+                          — batches and direct assignments in the selected date range, not all time
+                        </span>
+                      </div>
                       <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' as const }}>
                         {coderSummary.cumulative_dpo.dx_accuracy != null && (
                           <div style={{ textAlign: 'center' as const }}>
-                            <div style={{ fontSize: 20, fontWeight: 800, color: sc(coderSummary.cumulative_dpo.dx_accuracy) }}>{coderSummary.cumulative_dpo.dx_accuracy}%</div>
+                            <div style={{ fontSize: 20, fontWeight: 800, color: cc(coderSummary.cumulative_dpo.dx_accuracy, coderSummary.pass_threshold) }}>{coderSummary.cumulative_dpo.dx_accuracy}%</div>
                             <div style={{ fontSize: 10, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.4 }}>Diagnosis accuracy</div>
                           </div>
                         )}
                         {coderSummary.cumulative_dpo.proc_accuracy != null && (
                           <div style={{ textAlign: 'center' as const }}>
-                            <div style={{ fontSize: 20, fontWeight: 800, color: sc(coderSummary.cumulative_dpo.proc_accuracy) }}>{coderSummary.cumulative_dpo.proc_accuracy}%</div>
-                            <div style={{ fontSize: 10, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.4 }}>Procedure accuracy</div>
+                            <div style={{ fontSize: 20, fontWeight: 800, color: cc(coderSummary.cumulative_dpo.proc_accuracy, coderSummary.pass_threshold) }}>{coderSummary.cumulative_dpo.proc_accuracy}%</div>
+                            <div style={{ fontSize: 10, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.4 }}>{coderSummary.proc_label || 'Procedure accuracy'}</div>
                           </div>
                         )}
                         {coderSummary.cumulative_dpo.drg_accuracy != null && (
                           <div style={{ textAlign: 'center' as const }}>
-                            <div style={{ fontSize: 20, fontWeight: 800, color: sc(coderSummary.cumulative_dpo.drg_accuracy) }}>{coderSummary.cumulative_dpo.drg_accuracy}%</div>
+                            <div style={{ fontSize: 20, fontWeight: 800, color: cc(coderSummary.cumulative_dpo.drg_accuracy, coderSummary.pass_threshold) }}>{coderSummary.cumulative_dpo.drg_accuracy}%</div>
                             <div style={{ fontSize: 10, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.4 }}>DRG accuracy</div>
                           </div>
                         )}
@@ -1085,7 +1128,11 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                           <div style={{ fontSize: 11, fontWeight: 700, color: '#166534', textTransform: 'uppercase' as const, letterSpacing: 0.5, marginBottom: 8 }}>Top Categories</div>
                           {top.map((c: any) => (
                             <div key={c.category} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #dcfce7', fontSize: 12 }}>
-                              <span style={{ fontWeight: 600, color: '#111' }}>{c.category}</span>
+                              <span style={{ fontWeight: 600, color: '#111' }}>
+                                {c.category}
+                                {c.charts < 3 && <span title="Only one or two charts — not enough to call this a strength"
+                                  style={{ marginLeft: 6, fontSize: 9, fontWeight: 700, background: '#f3f4f6', color: '#6b7280', padding: '1px 6px', borderRadius: 8 }}>thin</span>}
+                              </span>
                               <span style={{ display: 'flex', gap: 8, color: '#6b7280' }}>
                                 <span>{c.charts} charts</span>
                                 <span style={{ fontWeight: 700, color: '#16a34a' }}>{c.avg_score}%</span>
@@ -1099,10 +1146,14 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                             <div style={{ fontSize: 12, color: '#166534', fontWeight: 600 }}>None — every category is at or above {coderSummary.pass_threshold ?? 90}%</div>
                           ) : bottom.map((c: any) => (
                             <div key={c.category} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #fde68a', fontSize: 12 }}>
-                              <span style={{ fontWeight: 600, color: '#111' }}>{c.category}</span>
+                              <span style={{ fontWeight: 600, color: '#111' }}>
+                                {c.category}
+                                {c.charts < 3 && <span title="Only one or two charts — too thin to act on"
+                                  style={{ marginLeft: 6, fontSize: 9, fontWeight: 700, background: '#f3f4f6', color: '#6b7280', padding: '1px 6px', borderRadius: 8 }}>thin</span>}
+                              </span>
                               <span style={{ display: 'flex', gap: 8, color: '#6b7280' }}>
                                 <span>{c.charts} charts</span>
-                                <span style={{ fontWeight: 700, color: sc(c.avg_score) }}>{c.avg_score}%</span>
+                                <span style={{ fontWeight: 700, color: cc(c.avg_score, pt) }}>{c.avg_score}%</span>
                               </span>
                             </div>
                           ))}
@@ -1147,12 +1198,17 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                       const delta = prev?.avg_score != null && r.avg_score != null ? round1(r.avg_score - prev.avg_score) : null
                       return (
                         <div key={r.batch_id} className={i % 2 === 1 ? 'pl-tr-alt' : 'pl-tr'} style={{ ...styles.tableRow, gridTemplateColumns: '2fr 100px 100px 80px 80px 80px' }}>
-                          <span style={{ fontWeight: 600, fontSize: 13 }}>{r.batch_name}</span>
+                          <span style={{ fontWeight: 600, fontSize: 13, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' as const }}>
+                            {r.batch_name}
+                            {/* A coder's history mixes both by design; without
+                                this a run of one-off charts reads as batch work. */}
+                            {r.is_direct_assignment && <span style={{ fontSize: 9, fontWeight: 700, background: '#ede9fe', color: '#7c3aed', padding: '1px 6px', borderRadius: 8 }}>Direct</span>}
+                          </span>
                           <span style={{ fontSize: 12, color: '#6b7280' }}>{r.specialty || '—'}</span>
                           <span style={{ fontSize: 12, color: '#6b7280' }}>{r.created_at ? new Date(r.created_at).toLocaleDateString() : '—'}</span>
                           <span>{r.chart_count ?? r.charts ?? '—'}</span>
                           <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                            <span style={{ fontWeight: 700, color: sc(r.avg_score) }}>{r.avg_score != null ? `${r.avg_score}%` : '—'}</span>
+                            <span style={{ fontWeight: 700, color: cc(r.avg_score, coderSummary?.pass_threshold) }}>{r.avg_score != null ? `${r.avg_score}%` : '—'}</span>
                             {delta != null && <span style={{ fontSize: 11, fontWeight: 700, color: delta > 0 ? '#16a34a' : delta < 0 ? '#dc2626' : '#9ca3af' }}>{delta > 0 ? '↑' : delta < 0 ? '↓' : '→'}{Math.abs(delta)}%</span>}
                           </span>
                           <span style={{ fontWeight: 700, color: '#16a34a' }}>{r.charts_passed != null ? `${r.charts_passed}/${r.chart_count ?? r.charts ?? '?'}` : '—'}</span>
