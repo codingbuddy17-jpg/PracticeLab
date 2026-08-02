@@ -346,3 +346,66 @@ class TestBatchListPaging:
         for n in ("B1", "B2", "B3"):
             self._mk(client, n)
         assert len(client.get("/practicelab/batches").json()) == 3
+
+
+class TestBatchListGradedCount:
+    """
+    Drives whether the list can offer a performance report. The report is built
+    from grading results, so with none it would be an empty PDF — the button is
+    disabled instead, and this is the field that decides.
+    """
+
+    def _mk(self, client, name):
+        r = client.post("/practicelab/batches", json={
+            "name": name, "specialty": "IP-DRG", "categories": [], "difficulties": [],
+            "charts_per_coder": 1, "coders": [{"name": "A", "emp_id": "E1"}],
+            "created_by": "trainer",
+        })
+        return r.json()["batch_id"]
+
+    def test_zero_for_a_batch_with_no_grading(self, client):
+        self._mk(client, "Fresh")
+        assert client.get("/practicelab/batches").json()[0]["graded_count"] == 0
+
+    def test_counts_graded_results(self, client, db):
+        from models import Chart, GradingResult, Specialty, PassFail
+        from models.charts import ChartStatus, Difficulty
+        bid = self._mk(client, "Graded")
+        c = Chart(chart_number="IP900", specialty=Specialty.IP_DRG, category="Sepsis",
+                  difficulty=Difficulty.BEGINNER, status=ChartStatus.ACTIVE,
+                  uploaded_by="t", view_count=0)
+        db.add(c); db.commit()
+        db.add(GradingResult(batch_id=bid, coder_name="A", emp_id="E1", chart_id=c.id,
+                             specialty=Specialty.IP_DRG, total_score=90, pass_fail=PassFail.PASS))
+        db.commit()
+        assert client.get("/practicelab/batches").json()[0]["graded_count"] == 1
+
+    def test_ungraded_submissions_do_not_count(self, client, db):
+        """An allocated-but-unscored submission is not something to report on."""
+        from models import Chart, GradingResult, Specialty
+        from models.charts import ChartStatus, Difficulty
+        bid = self._mk(client, "Awaiting")
+        c = Chart(chart_number="IP901", specialty=Specialty.IP_DRG, category="Sepsis",
+                  difficulty=Difficulty.BEGINNER, status=ChartStatus.ACTIVE,
+                  uploaded_by="t", view_count=0)
+        db.add(c); db.commit()
+        db.add(GradingResult(batch_id=bid, coder_name="A", emp_id="E1", chart_id=c.id,
+                             specialty=Specialty.IP_DRG, total_score=None, pass_fail=None))
+        db.commit()
+        assert client.get("/practicelab/batches").json()[0]["graded_count"] == 0
+
+    def test_counts_are_per_batch_not_shared(self, client, db):
+        """One aggregate query fills the whole page — it must not smear counts."""
+        from models import Chart, GradingResult, Specialty, PassFail
+        from models.charts import ChartStatus, Difficulty
+        a = self._mk(client, "Has Results")
+        self._mk(client, "Has None")
+        c = Chart(chart_number="IP902", specialty=Specialty.IP_DRG, category="Sepsis",
+                  difficulty=Difficulty.BEGINNER, status=ChartStatus.ACTIVE,
+                  uploaded_by="t", view_count=0)
+        db.add(c); db.commit()
+        db.add(GradingResult(batch_id=a, coder_name="A", emp_id="E1", chart_id=c.id,
+                             specialty=Specialty.IP_DRG, total_score=80, pass_fail=PassFail.PASS))
+        db.commit()
+        rows = {b["name"]: b["graded_count"] for b in client.get("/practicelab/batches").json()}
+        assert rows == {"Has None": 0, "Has Results": 1}

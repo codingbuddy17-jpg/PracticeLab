@@ -138,6 +138,14 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
   const unitLabel = scope === 'direct' ? 'Assignment' : 'Batch'
   const unitPlural = scope === 'direct' ? 'direct assignments' : scope === 'all' ? 'batches or assignments' : 'batches'
   const [trendWindow, setTrendWindow] = useState<number | 'all'>(25)
+
+  // Overview mini-trend: its own specialty filter and its own window.
+  // Under the "Both" scope each point can be a batch OR a direct assignment,
+  // so the window doubles — otherwise showing 3 points across two mixed
+  // streams can mean only one or two of each, which is not a trend.
+  const [miniSpecialty, setMiniSpecialty] = useState('')
+  const miniPool = miniSpecialty ? byBatch.filter((b: any) => b.specialty === miniSpecialty) : byBatch
+  const miniTrend = recent(miniPool, scope === 'all' ? 6 : 3)
   // Strongest and weakest categories, in score order. Taking the top N would
   // hide every struggling category the moment the list grew, which is the
   // opposite of what this page is for.
@@ -456,18 +464,36 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                 )
               })()}
 
-              {/* Mini batch trend */}
+              {/* Mini batch trend. Its own specialty picker, deliberately not
+                  the page-wide filter — narrowing this one chart should not
+                  re-scope the tiles and the Needs-attention banner above it. */}
               {byBatch.length > 1 && (
                 <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '14px 16px' }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: '#6b7280', marginBottom: 10, textTransform: 'uppercase' as const, letterSpacing: 0.5 }}>Pass rate trend — last {Math.min(byBatch.length, 8)} batches</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' as const }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' as const, letterSpacing: 0.5 }}>
+                      Pass rate trend — last {miniTrend.length} of {miniPool.length}
+                      {miniSpecialty ? ` ${miniSpecialty}` : ''} {scope === 'direct' ? 'assignments' : 'batches'}
+                    </div>
+                    <select value={miniSpecialty} onChange={e => setMiniSpecialty(e.target.value)}
+                      style={{ ...styles.select, marginLeft: 'auto', fontSize: 12, padding: '5px 10px' }}>
+                      <option value="">All specialties</option>
+                      {SPECIALTIES.filter(sp => byBatch.some((b: any) => b.specialty === sp)).map(sp => (
+                        <option key={sp} value={sp}>{sp}</option>
+                      ))}
+                    </select>
+                  </div>
+                  {miniTrend.length === 0 ? (
+                    <div style={{ ...styles.emptyState, margin: 0 }}>No graded {miniSpecialty} batches in range.</div>
+                  ) : (
                   <ResponsiveContainer width="100%" height={100}>
-                    <LineChart data={byBatch.slice(-8).map((b: any) => ({ ...b, label: b.batch_name.length > 12 ? b.batch_name.slice(0, 12) + '…' : b.batch_name }))} margin={{ left: 0, right: 16, top: 4, bottom: 4 }}>
+                    <LineChart data={miniTrend.map((b: any) => ({ ...b, label: axisLabel(b.batch_name, 12) }))} margin={{ left: 0, right: 16, top: 4, bottom: 4 }}>
                       <XAxis dataKey="label" tick={{ fontSize: 10 }} />
                       <YAxis domain={[0, 100]} tickFormatter={v => `${v}%`} tick={{ fontSize: 10 }} width={32} />
                       <Tooltip formatter={(v: any) => [`${v}%`, 'Pass Rate']} contentStyle={{ fontSize: 11, borderRadius: 8 }} />
                       <Line type="monotone" dataKey="pass_rate" stroke="#16a34a" strokeWidth={2} dot={{ r: 4, fill: '#16a34a' }} />
                     </LineChart>
                   </ResponsiveContainer>
+                  )}
                 </div>
               )}
 

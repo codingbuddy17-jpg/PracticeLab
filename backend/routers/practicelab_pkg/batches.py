@@ -556,6 +556,21 @@ def list_batches(
     if limit is not None:
         q = q.offset(offset).limit(limit)
     batches = q.all()
+
+    # Graded counts for the page in ONE query. Reading len(b.results) per row
+    # would lazy-load every result set on a list screen that never shows them —
+    # 25 extra queries a page, growing with the batch.
+    ids = [b.id for b in batches]
+    graded_counts: dict[int, int] = {}
+    if ids:
+        graded_counts = dict(
+            db.query(GradingResult.batch_id, func.count(GradingResult.id))
+              .filter(GradingResult.batch_id.in_(ids),
+                      GradingResult.total_score.isnot(None))
+              .group_by(GradingResult.batch_id)
+              .all()
+        )
+
     now = datetime.utcnow()
     return [
         {
@@ -570,6 +585,10 @@ def list_batches(
             "force_closed": b.force_closed,
             "tags": b.tags or [],
             "is_direct_assignment": b.is_direct_assignment,
+            # Drives whether a performance report can be offered at all. A
+            # report over zero graded results is an empty document, so the UI
+            # disables the button rather than producing one.
+            "graded_count": graded_counts.get(b.id, 0),
         }
         for b in batches
     ]

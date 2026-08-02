@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { FileCheck, Search, X, ChevronDown, ChevronRight } from 'lucide-react'
+import { FileCheck, Search, X, ChevronDown, ChevronRight, FileText } from 'lucide-react'
 import { SPECIALTY_COLORS } from '../../theme'
 import styles from './styles'
+import { downloadBatchReportPdf } from '../../api'
 
 type StatusFilter = 'open' | 'closed' | 'all'
 
@@ -234,6 +235,7 @@ export function HomeView({ batches, directAssignments, overview, loading, onOpen
 function BatchRow({ b, onOpen, statusColor }: any) {
   const sc     = SPECIALTY_COLORS[b.specialty as keyof typeof SPECIALTY_COLORS]
   const isOpen = b.status === 'Open'
+  const graded = b.graded_count ?? 0
 
   let hint = ''
   if (isOpen) {
@@ -291,6 +293,26 @@ function BatchRow({ b, onOpen, statusColor }: any) {
       }}>
         {b.status}
       </span>
+
+      {/* Performance report. Disabled rather than hidden when nothing has been
+          graded — a missing button leaves you wondering where it went, a
+          disabled one that says why does not. The PDF is built from grading
+          results, so with none it would be an empty document. */}
+      <button
+        title={graded > 0
+          ? `Performance report — ${graded} graded result${graded !== 1 ? 's' : ''}`
+          : 'No graded results yet — nothing to report on'}
+        disabled={graded === 0}
+        onClick={e => { e.stopPropagation(); downloadBatchReportPdf(b.id) }}
+        style={{
+          ...s.reportBtn,
+          ...(graded === 0
+            ? { color: '#d1d5db', borderColor: '#f3f4f6', cursor: 'not-allowed' }
+            : { color: '#4f46e5', borderColor: '#c7d2fe', cursor: 'pointer' }),
+        }}
+      >
+        <FileText size={13} /> Report
+      </button>
     </div>
   )
 }
@@ -357,6 +379,10 @@ const s: Record<string, React.CSSProperties> = {
   specialtyBadge: {
     fontSize: 10, fontWeight: 700, padding: '1px 7px',
     borderRadius: 10, display: 'inline-flex', alignItems: 'center',
+  },
+  reportBtn: {
+    display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 7,
+    border: '1px solid', background: '#fff', fontSize: 11, fontWeight: 700, flexShrink: 0,
   },
   statusPill: {
     fontSize: 11, fontWeight: 700, padding: '3px 10px',
