@@ -27,6 +27,7 @@ from models import (
     GeneratedAssessment, GeneratedAssessmentStudent,
     AssessmentSession, AssessmentResponse, AssessmentResult,
 )
+from services.download_headers import content_disposition
 
 router = APIRouter()
 
@@ -210,7 +211,7 @@ def export_student_pdfs(assessment_id: int, db: Session = Depends(get_db)):
     return StreamingResponse(
         zip_buf,
         media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{safe_name}_tests.zip"'},
+        headers=content_disposition(f"{safe_name}_tests.zip", "tests.zip"),
     )
 
 
@@ -230,7 +231,7 @@ def export_answer_key(assessment_id: int, db: Session = Depends(get_db)):
     return StreamingResponse(
         io.BytesIO(pdf_bytes),
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{safe_name}_answer_key.pdf"'},
+        headers=content_disposition(f"{safe_name}_answer_key.pdf", "answer_key.pdf"),
     )
 
 
@@ -411,7 +412,7 @@ def export_responses_excel(assessment_id: int, db: Session = Depends(get_db)):
     return StreamingResponse(
         buf,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{safe}_responses.xlsx"'},
+        headers=content_disposition(f"{safe}_responses.xlsx", "responses.xlsx"),
     )
 
 

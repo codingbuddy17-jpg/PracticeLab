@@ -15,6 +15,7 @@ from models import (
 from services.excel_service import export_batch_results
 from services.pdf_report_service import generate_batch_report_pdf
 from .shared import _is_ip, _uses_dpo
+from services.download_headers import content_disposition
 
 router = APIRouter()
 
@@ -422,7 +423,7 @@ def export_results(batch_id: int, db: Session = Depends(get_db)):
     return StreamingResponse(
         io.BytesIO(excel_bytes),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename={batch.name.replace(' ','_')}_Results.xlsx"},
+        headers=content_disposition(f"{batch.name}_Results.xlsx", "Batch_Results.xlsx"),
     )
 
 
@@ -730,5 +731,5 @@ def batch_report_pdf(batch_id: int, db: Session = Depends(get_db)):
     return StreamingResponse(
         io.BytesIO(pdf_bytes),
         media_type="application/pdf",
-        headers={"Content-Disposition": f"attachment; filename={safe_name}_Batch_Report.pdf"},
+        headers=content_disposition(f"{insights['batch_name']}_Batch_Report.pdf", "Batch_Report.pdf"),
     )

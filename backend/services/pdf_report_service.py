@@ -14,7 +14,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.platypus import (
     SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, HRFlowable,
-    KeepInFrame,
+    KeepInFrame, KeepTogether,
 )
 from reportlab.graphics.shapes import Drawing, Circle, String
 from reportlab.graphics.charts.piecharts import Pie
@@ -182,9 +182,36 @@ def _draw_background(c, _doc):
     c.restoreState()
 
 
-def _stat_row(stats: list[tuple[str, str]]) -> Table:
-    """stats: list of (value, label) tuples rendered as evenly-sized boxed stat cards spanning the full CONTENT_W,
-    with real spacer columns between cards so the gap is visible rather than just unused trailing margin."""
+# Above this many cards in one row, each card is too narrow for its label and
+# KeepInFrame starts shrinking the text — which is why the boxes ended up with
+# visibly different font sizes rather than overflowing outright.
+MAX_STATS_PER_ROW = 4
+
+
+def _stat_row(stats: list[tuple[str, str]], per_row: int = MAX_STATS_PER_ROW):
+    """
+    Boxed stat cards, evenly sized, spanning CONTENT_W.
+
+    Wraps onto multiple rows rather than squeezing everything onto one. The
+    batch report passes six — "TOTAL CHARTS CODED" in a 1.1-inch card had to be
+    shrunk to fit, and since shrink is per-card, adjacent boxes ended up at
+    different font sizes. Balanced across rows (6 -> 3+3, not 4+2) so every
+    card on the page stays the same width.
+    """
+    if len(stats) > per_row:
+        n_rows = -(-len(stats) // per_row)          # ceil
+        base, extra = divmod(len(stats), n_rows)
+        chunks, i = [], 0
+        for r in range(n_rows):
+            size = base + (1 if r < extra else 0)
+            chunks.append(stats[i:i + size])
+            i += size
+        stacked = []
+        for j, chunk in enumerate(chunks):
+            if j:
+                stacked.append(Spacer(1, 6))
+            stacked.append(_stat_row(chunk, per_row))
+        return KeepTogether(stacked)
     value_style = ParagraphStyle("statValue", parent=styles["Normal"], fontSize=18, leading=21, fontName="Helvetica-Bold", alignment=1, textColor=R1_BLUE_DARK)
     label_style = ParagraphStyle("statLabel", parent=styles["Normal"], fontSize=7.4, leading=8.2, alignment=1, textColor=GRAY, fontName="Helvetica-Bold")
     n = len(stats)

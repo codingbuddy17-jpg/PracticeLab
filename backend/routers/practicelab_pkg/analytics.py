@@ -10,6 +10,7 @@ from database import get_db
 from models import Batch, BatchCoder, BatchStatus, GradingResult, GradingFeedback, Chart, PassFail, Specialty, ScoringConfig
 from services.pdf_report_service import generate_coder_report_pdf
 from .shared import _uses_dpo
+from services.download_headers import content_disposition
 
 router = APIRouter()
 
@@ -737,7 +738,7 @@ def coder_report_pdf(
     return StreamingResponse(
         io.BytesIO(pdf_bytes),
         media_type="application/pdf",
-        headers={"Content-Disposition": f"attachment; filename={safe_name}_Performance_Report.pdf"},
+        headers=content_disposition(f"{coder_name}_Performance_Report.pdf", "Coder_Report.pdf"),
     )
 
 
@@ -1127,5 +1128,5 @@ def coder_performance_export(
     return StreamingResponse(
         io.BytesIO(data),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename={'_'.join(bits)}.xlsx"},
+        headers=content_disposition("_".join(bits) + ".xlsx", "Coder_Performance.xlsx"),
     )

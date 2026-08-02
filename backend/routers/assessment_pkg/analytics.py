@@ -9,6 +9,7 @@ from models import (
     AssessmentSession, AssessmentResponse, AssessmentResult,
     GeneratedAssessment, GeneratedAssessmentStudent,
 )
+from services.download_headers import content_disposition
 
 
 router = APIRouter()
@@ -841,7 +842,7 @@ def assessment_coder_report_pdf(
     return StreamingResponse(
         io.BytesIO(pdf_bytes),
         media_type="application/pdf",
-        headers={"Content-Disposition": f"attachment; filename={safe_name}_Assessment_Report.pdf"},
+        headers=content_disposition(f"{safe_name}_Assessment_Report.pdf", "Assessment_Report.pdf"),
     )
 
 
@@ -856,7 +857,7 @@ def assessment_batch_report_pdf(batch_name: str, db: Session = Depends(get_db)):
     return StreamingResponse(
         io.BytesIO(pdf_bytes),
         media_type="application/pdf",
-        headers={"Content-Disposition": f"attachment; filename={safe_name}_Batch_Report.pdf"},
+        headers=content_disposition(f"{safe_name}_Batch_Report.pdf", "Assessment_Batch_Report.pdf"),
     )
 
 
@@ -908,7 +909,7 @@ def assessment_batch_coder_reports_zip(batch_name: str, db: Session = Depends(ge
     return StreamingResponse(
         zip_buf,
         media_type="application/zip",
-        headers={"Content-Disposition": f"attachment; filename={safe_batch}_Coder_Reports.zip"},
+        headers=content_disposition(f"{safe_batch}_Coder_Reports.zip", "Coder_Reports.zip"),
     )
 
 
