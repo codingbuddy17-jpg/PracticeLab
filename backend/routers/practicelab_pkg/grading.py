@@ -192,7 +192,15 @@ def _get_direct_assignment_results(batch_id: int, batch, db):
             "total_coders": total_coders,
             "passed": passed_coders,
             "failed": total_coders - passed_coders,
+            # CODER pass rate — what share of coders passed the batch. Analytics
+            # reports a CHART pass rate under the same name, so the basis is
+            # stated rather than left to be inferred from context.
             "pass_rate": round(passed_coders / total_coders * 100, 1) if total_coders else 0,
+            "pass_rate_basis": "coder",
+            # A coder passes the batch by passing MORE THAN HALF their charts —
+            # a majority rule, not a score threshold. Stated because it is a
+            # third distinct meaning of "pass" and appears nowhere in the UI.
+            "coder_pass_rule": "majority of charts passed",
             "avg_score": round(sum(all_totals) / len(all_totals), 1) if all_totals else 0,
             "top_missed_codes": [{"code": c, "count": n} for c, n in top_missed],
             "error_type_counts": error_type_counts,
@@ -362,7 +370,15 @@ def get_batch_results(batch_id: int, db: Session = Depends(get_db)):
             "total_coders": total_coders,
             "passed": passed_coders,
             "failed": total_coders - passed_coders,
+            # CODER pass rate — what share of coders passed the batch. Analytics
+            # reports a CHART pass rate under the same name, so the basis is
+            # stated rather than left to be inferred from context.
             "pass_rate": round(passed_coders / total_coders * 100, 1) if total_coders else 0,
+            "pass_rate_basis": "coder",
+            # A coder passes the batch by passing MORE THAN HALF their charts —
+            # a majority rule, not a score threshold. Stated because it is a
+            # third distinct meaning of "pass" and appears nowhere in the UI.
+            "coder_pass_rule": "majority of charts passed",
             "avg_score": round(sum(all_totals) / len(all_totals), 1) if all_totals else 0,
             "top_missed_codes": [{"code": c, "count": n} for c, n in top_missed],
             "error_type_counts": error_type_counts,
@@ -667,7 +683,11 @@ def get_batch_insights(batch_id: int, db: Session = Depends(get_db)):
             "n_distinct_charts": n_distinct_charts,
             "passed": n_passed,
             "failed": len(results) - n_passed,
+            # CHART basis here — n_passed counts RESULTS. The /results endpoint
+            # builds a batch_summary with the SAME field name from a CODER
+            # basis, so the two batch screens report different populations.
             "pass_rate": pass_rate,
+            "pass_rate_basis": "chart",
             "avg_score": avg_score,
             "prior_batch_name": prior_name,
             "prior_batch_pass_rate": prior_pass_rate,

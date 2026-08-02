@@ -138,6 +138,7 @@ def analytics_overview(
         "total_graded": total_results,
         "total_passed": passed,
         "overall_pass_rate": round(passed / total_results * 100, 1) if total_results else 0,
+        "pass_rate_basis": "chart",
         "ip_pass_threshold": (ip_cfg.pass_threshold or 80) if ip_cfg else 80,
         "op_pass_threshold": (op_cfg.pass_threshold or 90) if op_cfg else 90,
         # Per-specialty, so nothing downstream has to guess which are OP-like
@@ -177,7 +178,10 @@ def analytics_by_specialty(
             "specialty": r.specialty.value,
             "total": r.total,
             "avg_score": round(float(r.avg_score or 0), 1),
+            # CHART pass rate — what share of graded charts passed. Batch
+            # summaries report a CODER pass rate under the same key.
             "pass_rate": round(float(r.passed or 0) / r.total * 100, 1) if r.total else 0,
+            "pass_rate_basis": "chart",
         }
         for r in rows
     ]

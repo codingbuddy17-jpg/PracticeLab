@@ -27,7 +27,7 @@ export function ResultsView({ batchId }: any) {
     const lines = [
       `Batch: ${data.batch_name}`,
       `Coders: ${bs.total_coders}  Passed: ${bs.passed}  Failed: ${bs.failed}`,
-      `Pass Rate: ${bs.pass_rate}%  Avg Grading Score: ${bs.avg_score}%`,
+      `Coder Pass Rate: ${bs.pass_rate}%  Avg Grading Score: ${bs.avg_score}%`,
     ]
     if (bs.top_missed_codes?.length) {
       lines.push(`Top Missed: ${bs.top_missed_codes.map((m: any) => `${m.code} (${m.count}×)`).join(', ')}`)

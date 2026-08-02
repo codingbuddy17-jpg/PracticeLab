@@ -293,3 +293,70 @@ class TestBySpecialtyUnits:
             "pass_rate is a population share — it cannot be compared to a score threshold"
         assert "s.avg_score < pt" in src, "avg_score is what pass_threshold governs"
         assert "PASS_RATE_TARGET" in src, "the population target must be its own named constant"
+
+
+class TestPassRateTerminology:
+    """
+    "Pass rate" means three different things in this product. They are all
+    legitimate, but they were not distinguishable:
+
+      chart pass rate  — share of graded CHARTS that passed      (analytics)
+      coder pass rate  — share of CODERS who passed the batch    (batch views)
+      coder pass RULE  — a coder passes by passing MORE THAN HALF their charts,
+                         a majority rule rather than a score threshold
+
+    A trainer comparing 75% on a batch screen with 75% in Overview would
+    reasonably assume they were the same figure. Each payload now declares its
+    basis.
+    """
+
+    def test_analytics_declares_a_chart_basis(self, client, seeded):
+        assert client.get("/practicelab/analytics/overview").json()["pass_rate_basis"] == "chart"
+        rows = client.get("/practicelab/analytics/by-specialty").json()
+        assert all(r["pass_rate_basis"] == "chart" for r in rows)
+
+    def test_results_summary_declares_a_coder_basis(self, client, db):
+        b = _batch(db, "Basis", direct=False)
+        _result(db, b, _chart(db, "SDS300"), "A", 100)
+        bs = client.get(f"/practicelab/batches/{b.id}/results").json()["batch_summary"]
+        assert bs["pass_rate_basis"] == "coder"
+        assert "majority" in bs["coder_pass_rule"]
+
+    def test_insights_summary_declares_a_chart_basis(self, client, db):
+        """
+        Same batch, same field name, different population — /results is a coder
+        rate and /insights is a chart rate.
+        """
+        b = _batch(db, "Basis2", direct=False)
+        _result(db, b, _chart(db, "SDS301"), "A", 100)
+        bs = client.get(f"/practicelab/batches/{b.id}/insights").json()["batch_summary"]
+        assert bs["pass_rate_basis"] == "chart"
+
+    def test_the_two_rates_genuinely_differ(self, client, db):
+        """
+        One coder, three charts, two passed. Chart pass rate is 66.7%; the coder
+        passed on the majority rule, so coder pass rate is 100%. Same batch,
+        same data, two very different numbers under one old label.
+        """
+        b = _batch(db, "Diverge", direct=False)
+        _result(db, b, _chart(db, "SDS310"), "Solo", 100)
+        _result(db, b, _chart(db, "SDS311"), "Solo", 100)
+        _result(db, b, _chart(db, "SDS312"), "Solo", 0)
+
+        coder_rate = client.get(f"/practicelab/batches/{b.id}/results").json()["batch_summary"]["pass_rate"]
+        chart_row = next(r for r in client.get("/practicelab/analytics/by-specialty").json()
+                         if r["specialty"] == "SDS")
+        assert coder_rate == 100.0, "the one coder passed 2 of 3 — a majority"
+        assert chart_row["pass_rate"] == 66.7, "2 of 3 charts passed"
+
+    def test_ui_never_colours_a_rate_with_the_score_helper(self):
+        """
+        sc() judges a SCORE against a specialty threshold. Running a population
+        share through it painted 85% of charts passing as red, because 85 < 90.
+        """
+        import pathlib
+        src = (pathlib.Path(__file__).resolve().parents[2] / "frontend" / "src" /
+               "pages" / "practicelab" / "PLAnalyticsView.tsx").read_text()
+        assert "sc(" in src and "rc(" in src, "both helpers must exist"
+        for bad in ("sc(r.pass_rate", "sc(c.pass_rate", "sc(overview.overall_pass_rate"):
+            assert bad not in src, f"{bad} colours a share with a score threshold"

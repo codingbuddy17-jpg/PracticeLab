@@ -81,6 +81,21 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
     return specialty === 'OP' ? opThreshold : ipThreshold
   }
 
+  /**
+   * Colour a POPULATION SHARE (what % of charts or coders passed).
+   *
+   * Distinct from sc() on purpose. sc() judges a SCORE against the specialty's
+   * pass threshold; a share is a different scale entirely, and running it
+   * through sc() painted an SDS specialty red at 85% of charts passing — a good
+   * result — purely because 85 < the 90 score threshold.
+   */
+  function rc(v: number | null | undefined): string {
+    if (v == null) return '#9ca3af'
+    if (v >= PASS_RATE_TARGET) return '#16a34a'
+    if (v >= PASS_RATE_TARGET * 0.7) return '#d97706'
+    return '#dc2626'
+  }
+
   function sc(v: number | null | undefined, specialty?: string): string {
     if (v == null) return '#9ca3af'
     const pt = thresholdFor(specialty)
@@ -311,7 +326,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                   { label: 'Open Batches', value: overview.open_batches ?? 0, color: '#2563eb' },
                   { label: 'Closed Batches', value: overview.complete_batches ?? 0, color: '#16a34a' },
                   { label: 'Total Graded', value: overview.total_graded },
-                  { label: 'Graded Chart Pass Rate', value: `${overview.overall_pass_rate}%`, color: sc(overview.overall_pass_rate) },
+                  { label: 'Graded Chart Pass Rate', value: `${overview.overall_pass_rate}%`, color: rc(overview.overall_pass_rate) },
                 ].map(s => (
                   <div key={s.label} style={styles.statCard}>
                     <div style={{ ...styles.statValue, color: (s as any).color || '#111' }}>{s.value}</div>
@@ -420,7 +435,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                     <span style={{ fontWeight: 600 }}>{r.specialty}</span>
                     <span>{r.total}</span>
                     <span style={{ fontWeight: 700, color: sc(r.avg_score, r.specialty) }}>{r.avg_score}%</span>
-                    <span style={{ fontWeight: 700, color: sc(r.pass_rate, r.specialty) }}>{r.pass_rate}%</span>
+                    <span style={{ fontWeight: 700, color: rc(r.pass_rate) }}>{r.pass_rate}%</span>
                   </div>
                 ))}
               </div>
@@ -526,7 +541,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                     <span style={{ fontSize: 12, color: '#6b7280' }}>{r.specialty}</span>
                     <span>{r.coder_count}</span>
                     <span style={{ fontWeight: 700, color: sc(r.avg_score, r.specialty) }}>{r.avg_score}%</span>
-                    <span style={{ fontWeight: 700, color: sc(r.pass_rate, r.specialty) }}>{r.pass_rate}%</span>
+                    <span style={{ fontWeight: 700, color: rc(r.pass_rate) }}>{r.pass_rate}%</span>
                     {onOpenBatch ? (
                       <button onClick={() => onOpenBatch(r.batch_id)}
                         style={{ fontSize: 11, fontWeight: 700, color: '#4f46e5', background: 'none', border: '1px solid #e0e7ff', borderRadius: 6, padding: '4px 10px', cursor: 'pointer' }}>
@@ -1022,7 +1037,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                             <div style={{ display: 'flex', gap: 12, fontSize: 12 }}>
                               <span><b style={{ color: '#111' }}>{c.attempt_count}</b> attempts</span>
                               <span><b style={{ color: sc(c.avg_score) }}>{c.avg_score}%</b> avg</span>
-                              <span><b style={{ color: sc(c.pass_rate) }}>{c.pass_rate}%</b> pass</span>
+                              <span><b style={{ color: rc(c.pass_rate) }}>{c.pass_rate}%</b> pass</span>
                             </div>
                             {c.error_variety > 0 && <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>{c.error_variety} distinct error type{c.error_variety > 1 ? 's' : ''}</div>}
                           </div>

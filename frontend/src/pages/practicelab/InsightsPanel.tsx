@@ -23,7 +23,7 @@ export function InsightsPanel({ insights, batchId, onClose }: { insights: any; b
       '',
       'SUMMARY',
       `Coders: ${bs.n_coders}  |  Total Charts Coded: ${bs.total_graded}`,
-      `Pass Rate: ${bs.pass_rate}% (${bs.passed}/${bs.total_graded} passed)${bs.pass_rate_delta != null ? `  vs prior batch: ${bs.pass_rate_delta > 0 ? '+' : ''}${bs.pass_rate_delta}%` : ''}`,
+      `Chart Pass Rate: ${bs.pass_rate}% (${bs.passed}/${bs.total_graded} charts passed)${bs.pass_rate_delta != null ? `  vs prior batch: ${bs.pass_rate_delta > 0 ? '+' : ''}${bs.pass_rate_delta}%` : ''}`,
       `Avg Grading Score: ${bs.avg_score}%`,
       '',
     ]
@@ -124,7 +124,10 @@ export function InsightsPanel({ insights, batchId, onClose }: { insights: any; b
         {[
           { label: 'Coders', value: bs.n_coders, color: '#111' },
           { label: 'Total Charts Coded', value: bs.total_graded, color: '#111' },
-          { label: 'Chart Pass Rate', value: `${bs.pass_rate}%`, color: bs.pass_rate >= 80 ? '#16a34a' : bs.pass_rate >= 60 ? '#d97706' : '#dc2626' },
+          // CHART pass rate — /insights computes n_passed/len(results) over
+          // results. Note ResultsView's batch_summary is a CODER rate from a
+          // different endpoint, under the identical field name.
+          { label: 'Chart Pass Rate', value: `${bs.pass_rate}%`, color: bs.pass_rate >= 70 ? '#16a34a' : bs.pass_rate >= 49 ? '#d97706' : '#dc2626' },
           { label: 'Avg Grading Score', value: `${bs.avg_score}%`, color: '#111' },
           { label: 'Passed', value: bs.passed, color: '#16a34a' },
           { label: 'Failed', value: bs.failed, color: '#dc2626' },
