@@ -417,14 +417,28 @@ def analytics_by_batch(
             continue
         scores = [r.total_score for r in results]
         passed = sum(1 for r in results if r.pass_fail == PassFail.PASS)
+        graded = [r.graded_at for r in results if r.graded_at]
         out.append({
             "batch_id": b.id,
             "batch_name": b.name,
             "specialty": b.specialty.value,
+            "is_direct_assignment": bool(b.is_direct_assignment),
             "created_at": b.created_at.isoformat() if b.created_at else None,
-            "coder_count": len(set(r.coder_name for r in results)),
+            # The two dates this row lives under, both returned so the UI never
+            # has to imply that one stands for the other: rows are FILTERED on
+            # created_at and the work happened on graded_at.
+            "last_graded_at": max(graded).isoformat() if graded else None,
+            # emp_id is the coder identity everywhere else — the directory, the
+            # deep dive, GradingResult itself. Counting distinct NAMES here made
+            # "Asha R" and "asha  r" two coders and inflated the column.
+            "coder_count": len({r.emp_id or r.coder_name for r in results}),
+            "chart_count": len({r.chart_id for r in results}),
+            "graded_count": len(results),
             "avg_score": round(sum(scores) / len(scores), 1),
+            # CHART pass rate — the share of graded charts that passed. The
+            # batch RESULTS screen reports a CODER pass rate under this key.
             "pass_rate": round(passed / len(results) * 100, 1),
+            "pass_rate_basis": "chart",
         })
     return out
 

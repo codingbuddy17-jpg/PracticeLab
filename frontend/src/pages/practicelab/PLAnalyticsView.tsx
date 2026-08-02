@@ -126,6 +126,9 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
   // no way to see them, so a coder who only practised that way was invisible.
   const [scope, setScope] = useState<'formal' | 'direct' | 'all'>('formal')
   const [matrixCoderSearch, setMatrixCoderSearch] = useState('')
+  // "Batch" is wrong wording under the Direct scope, where no row is a batch.
+  const unitLabel = scope === 'direct' ? 'Assignment' : 'Batch'
+  const unitPlural = scope === 'direct' ? 'direct assignments' : scope === 'all' ? 'batches or assignments' : 'batches'
   const [profileSpecialty, setProfileSpecialty] = useState<string | null>(null)
   const [profile, setProfile] = useState<any>(null)
   const [profileLoading, setProfileLoading] = useState(false)
@@ -801,10 +804,21 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
 
       {tab === 'batch' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {byBatch.length === 0 ? <div style={styles.emptyState}>No batch results yet — close a batch after grading to see trends over time.</div> : (
+          {/* Under the Direct scope every row IS a direct assignment, so
+              calling the column "Batch" describes nothing on screen. */}
+          {/* The old copy said "close a batch after grading". Closing has
+              nothing to do with it — the endpoint skips any batch with no
+              scored results and includes open ones freely. It sent people to
+              close batches to fix an emptiness that closing does not fix. */}
+          {byBatch.length === 0 ? (
+            <div style={styles.emptyState}>
+              No graded {unitPlural} yet — this tab shows {unitPlural} that have at least one graded
+              result, open or closed. Grade a submission to see trends over time.
+            </div>
+          ) : (
             <>
               <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '18px 16px' }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 16 }}>Pass Rate & Avg Grading Score Over Batches</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 16 }}>Pass Rate &amp; Avg Grading Score Over {unitLabel === 'Assignment' ? 'Assignments' : 'Batches'}</div>
                 <ResponsiveContainer width="100%" height={240}>
                   <LineChart data={byBatch.map(b => ({ ...b, label: b.batch_name.length > 16 ? b.batch_name.slice(0, 16) + '…' : b.batch_name }))} margin={{ left: 10, right: 20, top: 8, bottom: 8 }}>
                     <CartesianGrid strokeDasharray="3 3" />
@@ -818,24 +832,54 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                 </ResponsiveContainer>
               </div>
               <div style={styles.table}>
-                <div style={{ ...styles.tableHeader, gridTemplateColumns: '2fr 100px 80px 80px 80px 90px' }}>
-                  <span>Batch</span><span>Specialty</span><span>Coders</span><span>Avg Grading Score</span><span>Pass Rate</span><span></span>
+                <div style={{ ...styles.tableHeader, gridTemplateColumns: '1.8fr 96px 90px 70px 70px 90px 90px 100px' }}>
+                  <span>{unitLabel}</span><span>Specialty</span><span>Created</span>
+                  <span>Coders</span><span>Charts</span>
+                  <span>Avg Grading Score</span><span>Chart Pass Rate</span><span></span>
                 </div>
-                {byBatch.map((r: any, i: number) => (
-                  <div key={r.batch_id} className={i % 2 === 1 ? 'pl-tr-alt' : 'pl-tr'} style={{ ...styles.tableRow, gridTemplateColumns: '2fr 100px 80px 80px 80px 90px', alignItems: 'center' }}>
-                    <span style={{ fontWeight: 600, fontSize: 13 }}>{r.batch_name}</span>
-                    <span style={{ fontSize: 12, color: '#6b7280' }}>{r.specialty}</span>
-                    <span>{r.coder_count}</span>
-                    <span style={{ fontWeight: 700, color: sc(r.avg_score, r.specialty) }}>{r.avg_score}%</span>
-                    <span style={{ fontWeight: 700, color: rc(r.pass_rate) }}>{r.pass_rate}%</span>
-                    {onOpenBatch ? (
-                      <button onClick={() => onOpenBatch(r.batch_id)}
-                        style={{ fontSize: 11, fontWeight: 700, color: '#4f46e5', background: 'none', border: '1px solid #e0e7ff', borderRadius: 6, padding: '4px 10px', cursor: 'pointer' }}>
-                        View Details →
-                      </button>
-                    ) : <span />}
-                  </div>
-                ))}
+                {/* Newest first here, oldest first in the chart above. A table
+                    is read top-down for "what happened lately"; a trend line is
+                    meaningless unless time runs left to right. */}
+                {[...byBatch].reverse().map((r: any, i: number) => {
+                  const pt = thresholdFor(r.specialty)
+                  const belowTarget = r.avg_score < pt || r.pass_rate < PASS_RATE_TARGET
+                  const lowSample = r.graded_count < LOW_SAMPLE
+                  return (
+                    <div key={r.batch_id} className={i % 2 === 1 ? 'pl-tr-alt' : 'pl-tr'} style={{ ...styles.tableRow, gridTemplateColumns: '1.8fr 96px 90px 70px 70px 90px 90px 100px', alignItems: 'center' }}>
+                      <span style={{ fontWeight: 600, fontSize: 13, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' as const }}>
+                        {r.batch_name}
+                        {belowTarget && <span title={`Avg below the ${pt}% pass mark, or under ${PASS_RATE_TARGET}% of charts passing`}
+                          style={{ fontSize: 10, fontWeight: 700, background: '#fef3c7', color: '#92400e', padding: '1px 7px', borderRadius: 10 }}>Below target</span>}
+                        {lowSample && <span title={`Fewer than ${LOW_SAMPLE} graded charts — these percentages move a lot on one result`}
+                          style={{ fontSize: 10, fontWeight: 700, background: '#f3f4f6', color: '#6b7280', padding: '1px 7px', borderRadius: 10 }}>Low sample</span>}
+                      </span>
+                      <span style={{ fontSize: 12, color: '#6b7280' }}>{r.specialty}</span>
+                      <span style={{ fontSize: 12, color: '#6b7280' }} title={r.last_graded_at ? `Last graded ${r.last_graded_at.slice(0, 10)}` : undefined}>
+                        {r.created_at ? r.created_at.slice(0, 10) : '—'}
+                      </span>
+                      <span>{r.coder_count}</span>
+                      <span title={`${r.graded_count} graded results across ${r.chart_count} charts`}>{r.chart_count}</span>
+                      <span style={{ fontWeight: 700, color: sc(r.avg_score, r.specialty) }}>{r.avg_score}%</span>
+                      <span style={{ fontWeight: 700, color: rc(r.pass_rate) }}>{r.pass_rate}%</span>
+                      {onOpenBatch ? (
+                        <button onClick={() => onOpenBatch(r.batch_id)}
+                          style={{ fontSize: 11, fontWeight: 700, color: '#4f46e5', background: 'none', border: '1px solid #e0e7ff', borderRadius: 6, padding: '4px 10px', cursor: 'pointer' }}>
+                          View Details →
+                        </button>
+                      ) : <span />}
+                    </div>
+                  )
+                })}
+              </div>
+              {/* The date column and the date filter are not the same field.
+                  Saying so is the fix — switching the filter to graded_at would
+                  be worse, since a batch would then half-appear whenever its
+                  results straddled the range boundary. */}
+              <div style={{ fontSize: 11, color: '#9ca3af' }}>
+                Created is when the {unitLabel.toLowerCase()} was set up, and is also what the date filter
+                above narrows on — not when the work was graded. Hover a date for the last graded date.
+                Chart Pass Rate is the share of graded charts that passed; the {unitLabel.toLowerCase()}
+                {' '}results screen reports a per-coder pass rate instead.
               </div>
             </>
           )}
