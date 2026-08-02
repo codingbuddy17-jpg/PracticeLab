@@ -468,7 +468,7 @@ export async function searchCoders(q?: string, limit = 50) {
 }
 
 /**
- * Coder performance as a pivot-table source (long format, three sheets).
+ * Coder performance: one row per graded chart, three sheets.
  * Blob-fetched rather than window.open()'d so an error is a message, not a
  * blank tab rendering JSON.
  */
@@ -488,7 +488,7 @@ export async function downloadCoderPerformanceXlsx(f: PLFilters = {}, coderName?
 }
 
 /**
- * The batch list panel as Excel — the rows on screen, not a pivot source.
+ * The batch list panel as Excel — the rows on screen, one per batch.
  * Honours the panel's filters and deliberately ignores its paging.
  */
 export function downloadBatchListXlsx(opts: { status?: string; search?: string; specialty?: string } = {}) {

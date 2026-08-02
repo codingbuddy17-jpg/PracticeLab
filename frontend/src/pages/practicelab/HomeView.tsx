@@ -158,7 +158,7 @@ export function HomeView({ batches, directAssignments, overview, loading, onOpen
 
           {/* Exports THIS list — the columns on screen, one row per batch.
               Separate from the coder-performance export in Analytics, which is
-              long-format pivot fodder over every graded result and answers a
+              one row per graded result and answers a
               different question. Filters carry over; paging does not, since a
               page is a screen limit rather than something you asked for. */}
           <button

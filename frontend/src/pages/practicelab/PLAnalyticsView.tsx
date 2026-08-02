@@ -364,16 +364,17 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
         {activeFilterCount > 0 && (
           <span style={{ fontSize: 11, color: '#4f46e5', fontWeight: 700 }}>Filtered view active</span>
         )}
-        {/* Long-format export for pivoting — honours the same filters as the
-            charts above, and covers every coder rather than one looked-up name. */}
+        {/* Names what the file IS — one row per graded chart, every coder —
+            rather than what someone might do with it afterwards. Honours the
+            same filters as the charts above. */}
         <button
           style={{ ...styles.outlineBtn, marginLeft: 'auto' }}
-          title="Download all coder results as an Excel pivot source"
+          title="Excel: one row per graded chart, all coders, current filters applied"
           onClick={async () => {
             try { await downloadCoderPerformanceXlsx(filters) }
             catch { toast.error('No results match the current filter') }
           }}>
-          Export for Pivot (.xlsx)
+          Export All Results (.xlsx)
         </button>
       </div>
 
@@ -1003,11 +1004,13 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
               </button>
             )}
             {(coderSummary || coderTrend.length > 0) && (
-              <button style={styles.outlineBtn} onClick={async () => {
+              <button style={styles.outlineBtn}
+                title="Excel: one row per graded chart for this coder"
+                onClick={async () => {
                 try { await downloadCoderPerformanceXlsx(filters, loadedCoder, loadedEmpId) }
                 catch { toast.error('Could not export this coder') }
               }}>
-                Excel (pivot)
+                Export Results (.xlsx)
               </button>
             )}
             {activeFilterCount > 0 && (coderSummary || coderTrend.length > 0) && (

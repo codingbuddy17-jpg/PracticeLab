@@ -1099,7 +1099,7 @@ def coder_performance_export(
     db: Session = Depends(get_db),
 ):
     """
-    Coder performance as a pivot table source.
+    Coder performance: one row per graded chart, every dimension a column.
 
     The PDF answers "how is this coder doing"; this answers "let me slice it
     myself" — across coders, batches, categories and time, which nothing else
@@ -1107,7 +1107,7 @@ def coder_performance_export(
 
     Direct assignments are INCLUDED, because this is a coder-level view, but
     carry an "Assignment Type" column so the trainer can exclude them in the
-    pivot rather than having that decided for them.
+    spreadsheet rather than having that decided for them.
     """
     from services.excel_service import export_coder_performance
 

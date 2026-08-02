@@ -1110,14 +1110,15 @@ def export_batch_results(batch_name: str, results: list[dict]) -> bytes:
 
 def export_coder_performance(rows: list, feedback_rows: list) -> bytes:
     """
-    Coder performance as pivot fodder.
+    Coder performance, one row per graded chart.
 
     Deliberately LONG format — one row per graded result, every dimension its
-    own column — because the reason to want Excel over the PDF is to pivot it.
+    own column — so the file can be sliced any way, which is the reason to
+    want Excel rather than the PDF.
     A pre-formatted report would defeat the purpose.
 
     rows: dicts, one per GradingResult, already flattened by the caller.
-    feedback_rows: dicts, one per feedback item, for error-pattern pivots.
+    feedback_rows: dicts, one per feedback item, for error-pattern analysis.
     """
     wb = Workbook()
 
@@ -1179,7 +1180,7 @@ def export_coder_performance(rows: list, feedback_rows: list) -> bytes:
         ws2.cell(r, 8, min(a["dates"]) if a["dates"] else None)
         ws2.cell(r, 9, max(a["dates"]) if a["dates"] else None)
 
-    # ── Sheet 3: errors, so "what does this coder repeat" is pivotable ──
+    # ── Sheet 3: errors, so "what does this coder repeat" can be sliced ──
     ws3 = wb.create_sheet("Errors")
     err_cols = [("Coder", 22), ("Emp ID", 12), ("Batch", 26), ("Chart", 13),
                 ("Specialty", 16), ("Category", 20), ("Section", 12),
@@ -1210,7 +1211,7 @@ def export_batch_list(rows: list) -> bytes:
     The batch list, exactly as the panel shows it.
 
     Deliberately NOT the coder-performance export. That one is long-format
-    pivot fodder — one row per graded result, every dimension its own column —
+    one row per graded result, every dimension its own column —
     which is the right shape for slicing performance and the wrong shape for
     "give me the list I am looking at". This is one row per batch, the columns
     on screen, in the order they appear.
@@ -1251,7 +1252,7 @@ def export_batch_analytics(rows: list) -> bytes:
     The Analytics -> By Batch table, as shown.
 
     Third batch-shaped export, and the three answer different questions:
-      - coder-performance : one row per graded RESULT, for pivoting
+      - coder-performance : one row per graded RESULT, sliceable
       - batch list        : one row per batch, the roster view (coders,
                             cycles, status) — about SET-UP
       - this one          : one row per batch, the performance view (scores,

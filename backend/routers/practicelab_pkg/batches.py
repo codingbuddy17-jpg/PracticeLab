@@ -605,7 +605,7 @@ def export_batch_list_xlsx(
     The batch list panel, as an Excel file.
 
     Distinct from the coder-performance export on purpose. That one is
-    long-format pivot fodder — one row per graded RESULT — which is right for
+    long format — one row per graded RESULT — which is right for
     slicing performance and wrong for "give me the list I am looking at". This
     is one row per batch, the columns on screen.
 
