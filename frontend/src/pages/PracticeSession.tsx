@@ -871,7 +871,7 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
                 <input
                   style={{ ...s.inputField, width: 120, marginBottom: 0, textTransform: 'uppercase' }}
                   placeholder="Dx ptrs 1,2"
-                  title="Diagnosis pointers — which diagnoses justify this line. First one is primary."
+                  title="Which diagnoses justify this line. Up to 4 per line (CMS-1500 Box 24E) — choose the ones supporting medical necessity for this procedure. First is primary."
                   value={(row.pointers || []).join(',')}
                   onChange={e => {
                     const cpt = [...emData.em_cpt]
@@ -1100,7 +1100,7 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
                 <input
                   style={{ ...s.inputField, width: 130, marginBottom: 0, textTransform: 'uppercase' }}
                   placeholder="Dx ptrs 1,2"
-                  title="Diagnosis pointers — which diagnoses justify this line. First one is primary."
+                  title="Which diagnoses justify this line. Up to 4 per line (CMS-1500 Box 24E) — choose the ones supporting medical necessity for this procedure. First is primary."
                   value={(row.pointers || []).join(',')}
                   onChange={e => updateCpt(i, 'pointers', e.target.value)}
                 />

@@ -178,21 +178,9 @@ def code_supports_time(em_code: str) -> bool:
 
 
 def _canon_pointers(raw) -> list:
-    """
-    Canonical pointer list: numeric strings, in the order given.
-
-    Truncating to one character (the old rule) was safe while pointers were
-    letters and silently wrong the moment they were numbers — "10" became "1",
-    pointing at a different diagnosis. Positions are resolved properly here so
-    two-digit pointers survive.
-    """
-    from services.grading_engine import pointer_index, pointer_label
-    out = []
-    for p in (raw or []):
-        idx = pointer_index(p)
-        if idx is not None and 0 <= idx < 12:      # Box 21 holds 12 diagnoses
-            out.append(pointer_label(idx))
-    return out
+    """Shared cleaner — numeric, deduped, capped at four per line."""
+    from services.grading_engine import canonical_pointers
+    return canonical_pointers(raw)
 
 
 def normalise_cpts(raw) -> list:

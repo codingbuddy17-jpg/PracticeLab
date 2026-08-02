@@ -355,6 +355,37 @@ def pointer_label(idx: int) -> str:
     return str(idx + 1)
 
 
+# CMS-1500 Box 24E holds at most four diagnosis pointers per service line. A
+# claim may carry twelve diagnoses (Box 21); the coder must choose the four
+# that support medical necessity for THAT procedure. The first is primary.
+MAX_POINTERS_PER_LINE = 4
+
+# Box 21 holds twelve diagnoses, so no pointer can reference beyond that.
+MAX_DIAGNOSES = 12
+
+
+def canonical_pointers(raw) -> list:
+    """
+    The one place a pointer list is cleaned: canonical numeric strings, in
+    order, capped at four.
+
+    The cap lived in four separate slices — two UI parsers, the Excel reader
+    and the E/M normaliser — which is three chances for a route to skip it. A
+    key carrying five pointers is not merely untidy: it is a claim that could
+    not be submitted, and grading a coder against it marks a correct four-
+    pointer answer as incomplete.
+    """
+    out = []
+    for p in (raw or []):
+        idx = pointer_index(p)
+        if idx is None or not (0 <= idx < MAX_DIAGNOSES):
+            continue
+        label = pointer_label(idx)
+        if label not in out:                       # a repeat points nowhere new
+            out.append(label)
+    return out[:MAX_POINTERS_PER_LINE]
+
+
 def pointer_display(pointers, dx_list: list) -> str:
     """Readable pointer list for trainer feedback — keeps the dotted code form."""
     out = []

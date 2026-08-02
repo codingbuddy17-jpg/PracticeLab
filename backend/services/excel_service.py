@@ -12,6 +12,7 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.comments import Comment
+from services.grading_engine import canonical_pointers
 
 
 # ── Style helpers ─────────────────────────────────────────────────────────────
@@ -717,9 +718,12 @@ def parse_answer_key_upload(file_bytes: bytes, specialty: str, with_pointers: bo
                 if code:
                     entry = {"code": code, "modifier": modifier}
                     if with_pointers:
+                        # isalpha() here silently DROPPED every numeric
+                        # pointer, which is now the documented form — an
+                        # uploaded key would have graded every line unlinked.
                         raw = _cell(row, col + 2).upper()
                         ptrs = [x.strip() for x in raw.replace(" ", ",").split(",") if x.strip()]
-                        entry["pointers"] = [x[0] for x in ptrs if x[0].isalpha()][:4]
+                        entry["pointers"] = canonical_pointers(ptrs)
                     cpt.append(entry)
                 col += step
             row_out = {

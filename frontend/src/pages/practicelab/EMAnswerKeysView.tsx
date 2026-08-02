@@ -604,7 +604,7 @@ export function EMAnswerKeysView() {
                   <input style={{ ...styles.input, flex: 1 }} placeholder="Modifier"
                     value={cpt.modifier} onChange={e => setCpt(i, 'modifier', e.target.value)} />
                   <input style={{ ...styles.input, flex: 1, textTransform: 'uppercase' }} placeholder="Dx ptrs 1,2"
-                    title="Which diagnoses justify this line. First is primary."
+                    title="Which diagnoses justify this line. Up to 4 per line (CMS-1500 Box 24E) — choose the ones supporting medical necessity for this procedure. First is primary."
                     value={(cpt.pointers || []).join(',')}
                     onChange={e => setCpt(i, 'pointers', e.target.value.toUpperCase()
                       .replace(/[^0-9A-L,\s]/g, '').split(/[,\s]+/).filter(Boolean).slice(0, 4) as any)} />

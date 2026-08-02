@@ -142,3 +142,87 @@ class TestNumericPointers:
         assert pointer_index("") is None
         assert pointer_index("-") is None
         assert pointer_index(None) is None
+
+
+class TestFourPointerLimit:
+    """
+    CMS-1500 Box 24E holds at most FOUR diagnosis pointers per service line.
+    A claim may list twelve diagnoses; the coder picks the four that support
+    medical necessity for that procedure, first one primary.
+
+    This matters beyond tidiness. A key carrying five pointers describes a
+    claim that could not be submitted, and grading against it marks a correct
+    four-pointer answer as incomplete — the coder is penalised for being right.
+    """
+
+    def test_a_line_is_capped_at_four(self):
+        from services.grading_engine import canonical_pointers
+        assert canonical_pointers(["1", "2", "3", "4", "5", "6"]) == ["1", "2", "3", "4"]
+
+    def test_the_first_four_are_kept_because_the_first_is_primary(self):
+        """Order carries meaning, so the cap takes from the front, not anywhere."""
+        from services.grading_engine import canonical_pointers
+        assert canonical_pointers(["3", "1", "4", "2", "5"])[0] == "3"
+
+    def test_repeats_do_not_consume_the_allowance(self):
+        """Pointing at Dx 1 twice references one diagnosis, not two."""
+        from services.grading_engine import canonical_pointers
+        assert canonical_pointers(["1", "1", "2", "2", "3"]) == ["1", "2", "3"]
+
+    def test_pointers_beyond_the_twelve_diagnosis_box_are_dropped(self):
+        from services.grading_engine import canonical_pointers
+        assert canonical_pointers(["11", "12", "13", "99"]) == ["11", "12"]
+
+    def test_mixed_spellings_still_dedupe(self):
+        """A and 1 are the same position — together they are one pointer."""
+        from services.grading_engine import canonical_pointers
+        assert canonical_pointers(["A", "1", "B"]) == ["1", "2"]
+
+    def test_the_limit_is_stated_once(self):
+        from services.grading_engine import MAX_POINTERS_PER_LINE, MAX_DIAGNOSES
+        assert MAX_POINTERS_PER_LINE == 4
+        assert MAX_DIAGNOSES == 12
+
+
+class TestExcelUploadReadsNumericPointers:
+    def test_numeric_pointers_survive_an_upload(self, client, db):
+        """
+        The Excel reader kept only characters passing isalpha(), so it dropped
+        every numeric pointer — an uploaded key would have graded every
+        professional line as unlinked.
+        """
+        import io
+        from openpyxl import load_workbook
+        from models import Chart, Specialty
+        from models.charts import ChartStatus, Difficulty
+
+        db.add(Chart(chart_number="SURG700", specialty=Specialty.SURGERY, category="Ortho",
+                     difficulty=Difficulty.BEGINNER, status=ChartStatus.ACTIVE,
+                     uploaded_by="t", view_count=0))
+        db.commit()
+
+        blank = client.get("/practicelab/answer-key/template",
+                           params={"specialty": "Surgery"}).content
+        wb = load_workbook(io.BytesIO(blank))
+        ws = wb.worksheets[0]
+        headers = [c.value for c in ws[1]]
+        ws.cell(2, 1, "SURG700")
+        ws.cell(2, 2, "M17.11")
+        ws.cell(2, headers.index("CPT_1") + 1, "27447")
+        ws.cell(2, headers.index("CPT_1_DxPointers") + 1, "1,2")
+        buf = io.BytesIO(); wb.save(buf)
+
+        r = client.post("/practicelab/answer-key/upload",
+                        files={"file": ("k.xlsx", buf.getvalue(), "application/vnd.ms-excel")},
+                        data={"specialty": "Surgery", "entered_by": "trainer"})
+        assert r.status_code == 200, r.text
+        assert "SURG700" in r.json()["stored"]
+
+        from models import AnswerKey
+        key = db.query(AnswerKey).filter(AnswerKey.chart_id == db.query(Chart).filter(
+            Chart.chart_number == "SURG700").one().id).one()
+        assert key.cpt[0]["pointers"] == ["1", "2"], key.cpt
+
+    def test_an_over_long_pointer_list_is_capped_on_upload(self, client, db):
+        from services.grading_engine import canonical_pointers
+        assert len(canonical_pointers("1,2,3,4,5".split(","))) == 4
