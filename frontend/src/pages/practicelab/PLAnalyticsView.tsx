@@ -257,10 +257,16 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
 
   useEffect(() => {
     if ((tab === 'chart' || tab === 'category') && byChart.length === 0) getPLAnalyticsByChart(filters).then(setByChart).catch(() => {})
-    if (tab === 'category' && !categoryData) getPLAnalyticsByCategory(filters).then(setCategoryData).catch(() => {})
+    if (tab === 'category' && !categoryData) getPLAnalyticsByCategory(filters, scope).then(setCategoryData).catch(() => {})
     if (tab === 'teaching' && teachingData.length === 0) getPLChartTeachingValue(filters).then(setTeachingData).catch(() => {})
     if ((tab === 'matrix' || tab === 'coder') && !matrixData) getPLCoderMatrix(filters).then(setMatrixData).catch(() => {})
   }, [tab, filterVersion])
+
+  // Topic Mastery honours the scope switch now, so a change has to refetch it
+  // rather than leaving stale rows under a new scope label.
+  useEffect(() => {
+    if (tab === 'category') getPLAnalyticsByCategory(filters, scope).then(setCategoryData).catch(() => {})
+  }, [scope, tab, filterVersion])
 
   useEffect(() => {
     if (tab === 'em_mdm' && emBatchId) {
@@ -329,7 +335,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
     { key: 'specialty', label: 'By Specialty' },
     { key: 'batch', label: 'By Batch' },
     { key: 'coder', label: 'Coder Profile' },
-    { key: 'category', label: 'Category Mastery' },
+    { key: 'category', label: 'Topic Mastery' },
     { key: 'teaching', label: 'Chart Value' },
     { key: 'matrix', label: 'Coder Matrix' },
     { key: 'chart', label: 'By Chart' },
@@ -400,7 +406,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
           driven by the same state: it lived inside Overview, so By Specialty
           silently inherited whatever had been picked there with nothing on
           screen saying so. */}
-      {(tab === 'overview' || tab === 'specialty' || tab === 'batch') && (
+      {(tab === 'overview' || tab === 'specialty' || tab === 'batch' || tab === 'category') && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' as const, marginBottom: 16 }}>
           <div style={{ display: 'flex', border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
             {([['formal', 'Batches'], ['direct', 'Direct Assignments'], ['all', 'Both']] as const).map(([k, label]) => (
@@ -1250,7 +1256,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
         </div>
       )}
 
-      {/* C: Category Mastery */}
+      {/* C: Topic Mastery */}
       {tab === 'category' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           {!categoryData ? <div style={styles.emptyState}>Loading…</div> : categoryData.team.length === 0 ? (
@@ -1264,7 +1270,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                     what a "who stands out" chart is for; the full list is the
                     table directly below, which scrolls. */}
                 <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 16 }}>
-                  Team Avg Grading Score by Category
+                  Team Avg Grading Score by Topic
                   {categoryChartRows.length < categoryData.team.length && (
                     <span style={{ fontWeight: 600, fontSize: 11, color: '#9ca3af', marginLeft: 8 }}>
                       strongest and weakest {categoryChartRows.length} of {categoryData.team.length} — all {categoryData.team.length} in the table below
@@ -1278,17 +1284,21 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                     <YAxis type="category" dataKey="category" tick={{ fontSize: 11 }} width={140} />
                     <Tooltip formatter={(v: any) => [`${v}%`]} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
                     <Bar dataKey="avg_score" name="Avg Grading Score" radius={[0, 4, 4, 0]}>
-                      {categoryChartRows.map((entry: any, i: number) => (
-                        <Cell key={i} fill={sc(entry.avg_score) === '#16a34a' ? '#22c55e' : sc(entry.avg_score) === '#d97706' ? '#f59e0b' : '#ef4444'} />
-                      ))}
+                      {categoryChartRows.map((entry: any, i: number) => {
+                        // Each topic against its OWN pass mark; a fixed default
+                        // colours a 90-threshold topic as if it were an 80.
+                        const c = cc(entry.avg_score, entry.pass_threshold)
+                        return <Cell key={i} fill={c === '#16a34a' ? '#22c55e' : c === '#d97706' ? '#f59e0b' : '#ef4444'} />
+                      })}
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
               </div>
               {/* Clickable category rows with drill-through */}
               <div style={styles.table}>
-                <div style={{ ...styles.tableHeader, gridTemplateColumns: '2fr 70px 80px' }}>
-                  <span>Category</span><span>Attempts</span><span>Avg Grading Score</span>
+                <div style={{ ...styles.tableHeader, gridTemplateColumns: '2fr 80px 80px 90px 110px' }}>
+                  <span>Topic</span><span>Attempts</span><span>Pass Mark</span>
+                  <span>Avg Grading Score</span><span>Chart Pass Rate</span>
                 </div>
                 {categoryData.team.map((cat: any, i: number) => {
                   const isExp = expandedCategory === cat.category
@@ -1296,16 +1306,32 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                   const catCoders = categoryData.coder_category.filter((r: any) => r.category === cat.category).sort((a: any, b: any) => a.avg_score - b.avg_score)
                   return (
                     <div key={cat.category}>
-                      <div className={!isExp ? (i % 2 === 1 ? 'pl-tr-alt' : 'pl-tr') : ''} style={{ ...styles.tableRow, gridTemplateColumns: '2fr 70px 80px', cursor: 'pointer', background: isExp ? '#f5f3ff' : undefined }}
+                      <div className={!isExp ? (i % 2 === 1 ? 'pl-tr-alt' : 'pl-tr') : ''} style={{ ...styles.tableRow, gridTemplateColumns: '2fr 80px 80px 90px 110px', cursor: 'pointer', background: isExp ? '#f5f3ff' : undefined, alignItems: 'center' }}
                         onClick={() => setExpandedCategory(isExp ? null : cat.category)}>
-                        <span style={{ fontWeight: 600 }}>{cat.category} <span style={{ fontSize: 11, color: '#9ca3af' }}>{isExp ? '▲' : '▼'}</span></span>
-                        <span>{cat.attempt_count}</span>
-                        <span style={{ fontWeight: 700, color: sc(cat.avg_score) }}>{cat.avg_score}%</span>
+                        <span style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' as const }}>
+                          {cat.category} <span style={{ fontSize: 11, color: '#9ca3af' }}>{isExp ? '▲' : '▼'}</span>
+                          {/* Topic names are free text and repeat across
+                              specialties — "Sepsis" exists in IP-DRG and SDS,
+                              graded against different pass marks. */}
+                          {(cat.specialties || []).map((sp: string) => (
+                            <span key={sp} style={{ fontSize: 9, fontWeight: 700, background: '#f1f5f9', color: '#475569', padding: '1px 6px', borderRadius: 8 }}>{sp}</span>
+                          ))}
+                        </span>
+                        <span>
+                          {cat.attempt_count}
+                          {cat.attempt_count < LOW_SAMPLE && <span title={`Fewer than ${LOW_SAMPLE} attempts — these percentages move a lot on one result`}
+                            style={{ marginLeft: 5, fontSize: 9, fontWeight: 700, background: '#f3f4f6', color: '#6b7280', padding: '1px 5px', borderRadius: 8 }}>thin</span>}
+                        </span>
+                        <span style={{ color: '#6b7280' }} title={cat.pass_threshold == null ? 'This topic spans specialties with different pass marks' : undefined}>
+                          {cat.pass_threshold != null ? `${cat.pass_threshold}%` : 'mixed'}
+                        </span>
+                        <span style={{ fontWeight: 700, color: cc(cat.avg_score, cat.pass_threshold) }}>{cat.avg_score}%</span>
+                        <span style={{ fontWeight: 700, color: rc(cat.pass_rate) }}>{cat.pass_rate}%</span>
                       </div>
                       {isExp && (
                         <div style={{ padding: '12px 16px', background: '#fafafa', borderBottom: '1px solid #ede9fe', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                           <div>
-                            <div style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' as const, letterSpacing: 0.4, marginBottom: 8 }}>Weak charts in this category</div>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' as const, letterSpacing: 0.4, marginBottom: 8 }}>Weak charts in this topic</div>
                             {catCharts.length === 0 ? <div style={{ fontSize: 12, color: '#9ca3af' }}>No chart data yet</div> : catCharts.slice(0, 6).map((c: any) => (
                               <div key={c.chart_number} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #f3f4f6', fontSize: 12 }}>
                                 <span style={{ fontWeight: 700, color: '#4f46e5', cursor: 'pointer' }} onClick={e => { e.stopPropagation(); setExpandedChart(c.chart_number); setTab('chart') }}>{c.chart_number}</span>
@@ -1346,19 +1372,24 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                 </div>
               )}
               {categoryData.coder_category.length > 0 && (() => {
-                const allCoders = Array.from(new Set(categoryData.coder_category.map((r: any) => r.coder_name))) as string[]
+                // Keyed on emp_id, not the typed name — "Asha R" and "asha  r"
+                // were two rows for one person, each holding half their work.
+                const idOf = (r: any) => r.emp_id || r.coder_name
+                const nameOf: Record<string, string> = {}
+                categoryData.coder_category.forEach((r: any) => { nameOf[idOf(r)] = r.coder_name })
+                const allCoders = Array.from(new Set(categoryData.coder_category.map(idOf))) as string[]
                 const cats = categoryData.team.map((r: any) => r.category)
                 const cellMap: Record<string, Record<string, any>> = {}
                 categoryData.coder_category.forEach((r: any) => {
-                  if (!cellMap[r.coder_name]) cellMap[r.coder_name] = {}
-                  cellMap[r.coder_name][r.category] = r
+                  if (!cellMap[idOf(r)]) cellMap[idOf(r)] = {}
+                  cellMap[idOf(r)][r.category] = r
                 })
                 const filteredCoders = heatmapCoderSearch.trim()
-                  ? allCoders.filter(n => n.toLowerCase().includes(heatmapCoderSearch.toLowerCase()))
+                  ? allCoders.filter(id => (nameOf[id] || id).toLowerCase().includes(heatmapCoderSearch.toLowerCase()))
                   : allCoders
                 const sortedCoders = [...filteredCoders].sort((a, b) => {
                   const dir = heatmapSort.dir === 'asc' ? 1 : -1
-                  if (heatmapSort.col === 'coder') return a.localeCompare(b) * dir
+                  if (heatmapSort.col === 'coder') return (nameOf[a] || a).localeCompare(nameOf[b] || b) * dir
                   const sa = cellMap[a]?.[heatmapSort.col]?.avg_score ?? -1
                   const sb = cellMap[b]?.[heatmapSort.col]?.avg_score ?? -1
                   return (sa - sb) * dir
@@ -1368,7 +1399,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                 return (
                   <div>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, flexWrap: 'wrap' as const, gap: 8 }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: '#111' }}>Coder × Category Heatmap</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: '#111' }}>Coder × Topic Heatmap</div>
                       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                         {allCoders.length > CODER_PAGE && (
                           <input
@@ -1398,11 +1429,15 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                         <tbody>
                           {visibleCoders.map((coder: string, i: number) => (
                             <tr key={coder} style={{ background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
-                              <td style={{ padding: '6px 10px', fontWeight: 600, borderBottom: '1px solid #f3f4f6', whiteSpace: 'nowrap' as const }}>{coderLink(coder)}</td>
+                              <td style={{ padding: '6px 10px', fontWeight: 600, borderBottom: '1px solid #f3f4f6', whiteSpace: 'nowrap' as const }}>{coderLink(nameOf[coder] || coder)}</td>
                               {cats.map((cat: string) => {
                                 const cell = cellMap[coder]?.[cat]
                                 const score = cell?.avg_score
-                                const _sc = sc(score)
+                                // cc() against the topic's own pass mark. sc()
+                                // with no specialty fell through to IP's 80, so
+                                // an SDS cell at 85 showed green against a bar
+                                // of 90.
+                                const _sc = cc(score, cell?.pass_threshold)
                                 const bg = score == null ? 'transparent' : _sc === '#16a34a' ? '#dcfce7' : _sc === '#d97706' ? '#fef3c7' : '#fee2e2'
                                 const color = score == null ? '#d1d5db' : _sc === '#16a34a' ? '#166534' : _sc === '#d97706' ? '#92400e' : '#991b1b'
                                 return (

@@ -793,66 +793,120 @@ def coder_report_pdf(
 @router.get("/analytics/by-category")
 def analytics_by_category(
     from_date: Optional[str] = None, to_date: Optional[str] = None, specialty: Optional[str] = None,
+    scope: str = "formal",
     db: Session = Depends(get_db),
 ):
+    """
+    Topic mastery: how the team and each coder perform per chart topic.
+
+    Honours the page scope switch, which it previously ignored — so this tab
+    could show batch-and-direct figures while the three tabs before it showed
+    batch-only, with nothing on screen explaining the disagreement.
+
+    Under `formal` the long-standing split is preserved: team averages are
+    batch work (direct assignments are one-offs and would dilute a team
+    figure), while coder rows cover everything a coder did. Choosing `direct`
+    or `all` applies to both, because at that point the trainer has asked for a
+    specific population and the split would override their choice.
+    """
+    scope = (scope or "formal").lower()
+    if scope not in ("formal", "direct", "all"):
+        raise HTTPException(status_code=400, detail="scope must be formal, direct or all")
+
     results = _gr_base(db, from_date, to_date, specialty).join(Chart).all()
+    if scope == "direct":
+        results = [r for r in results if r.batch and r.batch.is_direct_assignment]
 
     if not results:
-        return {"team": [], "coder_category": []}
+        return {"team": [], "coder_category": [], "scope": scope}
 
-    # Team-level aggregate excludes direct assignments; coder-level (below) includes
-    # everything, since a coder's record should reflect all their work regardless of source.
-    team_results = [r for r in results if not r.batch.is_direct_assignment]
+    if scope == "formal":
+        team_results = [r for r in results if not r.batch.is_direct_assignment]
+    else:
+        team_results = results
+
+    def _topic_key(name: str) -> str:
+        """
+        Topics are free text typed at chart upload, so "Sepsis", "sepsis" and
+        "Sepsis " are one topic that would otherwise be reported as three —
+        each with a fraction of the attempts and its own average.
+        """
+        return (name or "").strip().casefold()
+
+    thresholds = _pass_thresholds(db)
 
     cat_map: dict = {}
     for r in team_results:
-        cat = r.chart.category
-        if cat not in cat_map:
-            cat_map[cat] = {"scores": [], "passed": 0, "total": 0, "coders": set(), "specialties": set()}
-        cat_map[cat]["scores"].append(r.total_score)
-        cat_map[cat]["total"] += 1
-        cat_map[cat]["coders"].add(r.coder_name)
-        cat_map[cat]["specialties"].add(r.chart.specialty.value)
+        key = _topic_key(r.chart.category)
+        if key not in cat_map:
+            cat_map[key] = {"label": (r.chart.category or "").strip(), "scores": [],
+                            "passed": 0, "total": 0, "coders": set(), "specialties": set()}
+        cat_map[key]["scores"].append(r.total_score)
+        cat_map[key]["total"] += 1
+        # emp_id is the coder identity everywhere else; counting names here made
+        # one person entered two ways look like two coders on the topic.
+        cat_map[key]["coders"].add(r.emp_id or r.coder_name)
+        cat_map[key]["specialties"].add(r.chart.specialty.value)
         if r.pass_fail and r.pass_fail.value == "PASS":
-            cat_map[cat]["passed"] += 1
+            cat_map[key]["passed"] += 1
+
+    def _topic_threshold(specialties: set):
+        """A topic spanning specialties has no single pass mark; say so rather
+        than picking one and colouring against a bar that does not apply."""
+        marks = {thresholds.get(s) for s in specialties} - {None}
+        return marks.pop() if len(marks) == 1 else None
 
     team = sorted([
         {
-            "category": cat,
+            "category": d["label"],
             "avg_score": round(sum(d["scores"]) / len(d["scores"]), 1),
             "pass_rate": round(d["passed"] / d["total"] * 100, 1),
+            "pass_rate_basis": "chart",
             "attempt_count": d["total"],
             "coder_count": len(d["coders"]),
-            "specialties": list(d["specialties"]),
+            "specialties": sorted(d["specialties"]),
+            "pass_threshold": _topic_threshold(d["specialties"]),
         }
-        for cat, d in cat_map.items()
+        for d in cat_map.values()
     ], key=lambda x: x["avg_score"])
 
     coder_cat: dict = {}
     for r in results:
-        key = (r.coder_name, r.chart.category)
+        key = (r.emp_id or r.coder_name, _topic_key(r.chart.category))
         if key not in coder_cat:
-            coder_cat[key] = {"scores": [], "passed": 0, "total": 0}
+            coder_cat[key] = {"name": r.coder_name, "emp_id": r.emp_id,
+                              "label": (r.chart.category or "").strip(),
+                              "scores": [], "passed": 0, "total": 0,
+                              "specialties": set()}
         coder_cat[key]["scores"].append(r.total_score)
         coder_cat[key]["total"] += 1
+        coder_cat[key]["specialties"].add(r.chart.specialty.value)
         if r.pass_fail and r.pass_fail.value == "PASS":
             coder_cat[key]["passed"] += 1
 
     coder_category = [
         {
-            "coder_name": k[0],
-            "category": k[1],
+            "coder_name": d["name"],
+            "emp_id": d["emp_id"],
+            "category": d["label"],
             "avg_score": round(sum(d["scores"]) / len(d["scores"]), 1),
             "pass_rate": round(d["passed"] / d["total"] * 100, 1),
             "attempt_count": d["total"],
+            "pass_threshold": _topic_threshold(d["specialties"]),
         }
-        for k, d in coder_cat.items()
+        for d in coder_cat.values()
     ]
 
     return {
         "team": team,
         "coder_category": coder_category,
-        "coder_scope_note": "Coder rows include direct assignments and standalone grades. Team averages reflect formal batches only.",
+        "scope": scope,
+        "coder_scope_note": (
+            "Coder rows include direct assignments and standalone grades. "
+            "Team averages reflect formal batches only."
+            if scope == "formal" else
+            f"Both team and coder rows cover {'direct assignments only' if scope == 'direct' else 'batches and direct assignments'}."
+        ),
     }
 
 

@@ -314,8 +314,8 @@ export function downloadBatchReportPdf(batchId: number) {
   window.open(`${import.meta.env.VITE_API_URL || '/api'}/practicelab/batches/${batchId}/insights/report.pdf`, '_blank')
 }
 
-export async function getPLAnalyticsByCategory(f: PLFilters = {}) {
-  const { data } = await api.get('/practicelab/analytics/by-category', { params: fp(f) })
+export async function getPLAnalyticsByCategory(f: PLFilters = {}, scope: 'formal' | 'direct' | 'all' = 'formal') {
+  const { data } = await api.get('/practicelab/analytics/by-category', { params: { ...fp(f), scope } })
   return data as { team: any[]; coder_category: any[] }
 }
 
