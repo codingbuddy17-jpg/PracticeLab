@@ -132,6 +132,26 @@ export async function getAdminOpenBatches(passphrase: string) {
   }>
 }
 
+/**
+ * A page of batches, newest first, with the pre-paging total.
+ *
+ * The total has to come from the server: a page cannot say how many rows there
+ * were, and a "Load more" that cannot tell you what is left is a button you
+ * have to press to find out whether pressing it does anything.
+ */
+export async function listBatchesPage(opts: {
+  directOnly?: boolean; search?: string; limit?: number; offset?: number; status?: string
+} = {}) {
+  const res = await api.get('/practicelab/batches', {
+    params: {
+      direct_only: opts.directOnly, search: opts.search || undefined,
+      limit: opts.limit, offset: opts.offset, status: opts.status,
+    },
+  })
+  const total = Number(res.headers['x-total-count'] ?? (res.data as any[]).length)
+  return { items: res.data as any[], total }
+}
+
 export async function listBatches(status?: string, specialty?: string, directOnly?: boolean) {
   const { data } = await api.get('/practicelab/batches', { params: { status, specialty, direct_only: directOnly } })
   return data as Array<{

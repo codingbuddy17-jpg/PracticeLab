@@ -32,9 +32,10 @@ function groupBatches(list: any[]) {
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
-export function HomeView({ batches, directAssignments, overview, loading, onOpen, statusColor, onCreateBatch }: any) {
+export function HomeView({ batches, directAssignments, overview, loading, onOpen, statusColor, onCreateBatch,
+                           search, onSearch, total, loaded, onLoadMore }: any) {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('open')
-  const [search, setSearch]             = useState('')
+  const setSearch = onSearch
   const [collapsed, setCollapsed]       = useState<Record<string, boolean>>({})
 
   if (loading) return (
@@ -47,7 +48,10 @@ export function HomeView({ batches, directAssignments, overview, loading, onOpen
     let out = list
     if (statusFilter === 'open')   out = out.filter((b: any) => b.status === 'Open')
     if (statusFilter === 'closed') out = out.filter((b: any) => b.status !== 'Open')
-    if (search.trim()) {
+    // Name and creator are matched on the server so a search reaches batches
+    // that were never loaded. Specialty is matched here as well, so typing
+    // "SDS" still narrows what is on screen.
+    if (search?.trim()) {
       const q = search.trim().toLowerCase()
       out = out.filter((b: any) =>
         b.name.toLowerCase().includes(q) ||
@@ -63,10 +67,14 @@ export function HomeView({ batches, directAssignments, overview, loading, onOpen
   }
 
   // Merge direct assignments into the main list with a flag
+  // Both lists arrive newest-first, but concatenating two sorted lists does
+  // not give a sorted list — every direct assignment landed after every batch,
+  // so inside "This Week" the order was by type, not by date.
   const allBatches = [
     ...batches,
     ...(directAssignments ?? []).map((b: any) => ({ ...b, _direct: true })),
-  ]
+  ].sort((a: any, b: any) =>
+    String(b.created_at || '').localeCompare(String(a.created_at || '')) || (b.id - a.id))
 
   const openCount   = allBatches.filter((b: any) => b.status === 'Open').length
   const closedCount = allBatches.filter((b: any) => b.status !== 'Open').length
@@ -198,6 +206,23 @@ export function HomeView({ batches, directAssignments, overview, loading, onOpen
               </div>
             )
           })}
+        </div>
+      )}
+
+      {/* Paging. States what is loaded against what exists, so the count on
+          screen is never mistaken for the total. */}
+      {total > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, padding: '14px 0 4px' }}>
+          <span style={{ fontSize: 11, color: '#9ca3af' }}>
+            Showing {Math.min(loaded, total)} of {total}
+            {search?.trim() ? ` matching "${search.trim()}"` : ''}
+            {' · newest first'}
+          </span>
+          {loaded < total && (
+            <button style={{ ...styles.outlineBtn, fontSize: 12, padding: '6px 14px' }} onClick={onLoadMore}>
+              Load more
+            </button>
+          )}
         </div>
       )}
 

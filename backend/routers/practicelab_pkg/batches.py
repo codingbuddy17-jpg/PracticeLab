@@ -3,10 +3,10 @@ import io
 import random
 from datetime import datetime
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
+from sqlalchemy import or_, func
 from pydantic import BaseModel
 from database import get_db
 from models import (
@@ -514,8 +514,20 @@ def list_batches(
     status: Optional[str] = None,
     specialty: Optional[str] = None,
     direct_only: bool = False,
+    search: Optional[str] = None,
+    limit: Optional[int] = None,
+    offset: int = 0,
+    response: Response = None,
     db: Session = Depends(get_db),
 ):
+    """
+    Newest first, optionally searched and paged.
+
+    search and limit are opt-in so existing callers are unaffected. The total
+    before paging comes back in X-Total-Count, because a page of results cannot
+    tell you how many there were — and a "Load more" button that cannot say
+    what is left is a button you have to click to learn anything.
+    """
     if direct_only:
         q = db.query(Batch).filter(Batch.is_direct_assignment.is_(True))
     else:
@@ -527,7 +539,23 @@ def list_batches(
             q = q.filter(Batch.specialty == Specialty(specialty))
         except ValueError:
             pass
-    batches = q.order_by(Batch.created_at.desc()).all()
+    if search and search.strip():
+        # Server-side so a few letters find a batch anywhere in the history,
+        # not just one that happens to be on the page already loaded.
+        term = f"%{search.strip().lower()}%"
+        q = q.filter(or_(func.lower(Batch.name).like(term),
+                         func.lower(Batch.created_by).like(term)))
+
+    # id breaks the tie. created_at alone is not a total order — batches created
+    # in the same second (a bulk set-up) came back in whatever order the DB
+    # felt like, which under paging can show one row twice and hide another.
+    q = q.order_by(Batch.created_at.desc(), Batch.id.desc())
+    if response is not None:
+        response.headers["X-Total-Count"] = str(q.count())
+        response.headers["Access-Control-Expose-Headers"] = "X-Total-Count"
+    if limit is not None:
+        q = q.offset(offset).limit(limit)
+    batches = q.all()
     now = datetime.utcnow()
     return [
         {

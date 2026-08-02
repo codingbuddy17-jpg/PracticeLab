@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ChevronLeft, Plus, Zap, Settings } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { listBatches, getPLAnalyticsOverview, getScoringConfigs } from '../api'
+import { listBatchesPage, getPLAnalyticsOverview, getScoringConfigs } from '../api'
 import { HomeView } from './practicelab/HomeView'
 import { AnswerKeysView } from './practicelab/AnswerKeysView'
 import { CreateBatchView } from './practicelab/CreateBatchView'
@@ -33,21 +33,42 @@ export function TrainerPracticeLab() {
   const [scoringCfg, setScoringCfg]         = useState<any>(null)
   const [loading, setLoading]               = useState(false)
 
+  const PAGE_SIZE = 25
+  const [batchLimit, setBatchLimit] = useState(PAGE_SIZE)
+  const [batchSearch, setBatchSearch] = useState('')
+  const [batchTotal, setBatchTotal] = useState(0)
+  const [directTotal, setDirectTotal] = useState(0)
+
   useEffect(() => {
-    loadHome()
     getScoringConfigs().then(setScoringCfg).catch(() => {})
   }, [])
 
-  async function loadHome() {
+  // Debounced: typing a batch name should not fire a request per keystroke.
+  useEffect(() => {
+    const t = setTimeout(() => loadHome({ limit: batchLimit, search: batchSearch }), 250)
+    return () => clearTimeout(t)
+  }, [batchSearch, batchLimit])
+
+  /**
+   * The list used to load EVERY batch and every direct assignment on entry,
+   * which is fine at a few dozen and not at a few thousand. Paged newest-first,
+   * with the search term pushed to the server so a few letters reach batches
+   * that were never loaded.
+   */
+  async function loadHome(opts: { limit?: number; search?: string } = {}) {
+    const lim = opts.limit ?? batchLimit
+    const term = opts.search ?? batchSearch
     setLoading(true)
     try {
       const [b, da, ov] = await Promise.all([
-        listBatches(),
-        listBatches(undefined, undefined, true),
+        listBatchesPage({ limit: lim, search: term }),
+        listBatchesPage({ limit: lim, search: term, directOnly: true }),
         getPLAnalyticsOverview(),
       ])
-      setBatches(b)
-      setDirectAssignments(da)
+      setBatches(b.items)
+      setBatchTotal(b.total)
+      setDirectAssignments(da.items)
+      setDirectTotal(da.total)
       setOverview(ov)
     } catch { toast.error('Failed to load batches') }
     finally { setLoading(false) }
@@ -196,6 +217,10 @@ export function TrainerPracticeLab() {
             overview={overview} loading={loading}
             onOpen={openBatch} statusColor={statusColor}
             onCreateBatch={() => go('create-batch')}
+            search={batchSearch} onSearch={setBatchSearch}
+            total={batchTotal + directTotal}
+            loaded={batches.length + directAssignments.length}
+            onLoadMore={() => setBatchLimit(l => l + PAGE_SIZE)}
           />
         )}
         {view === 'answer-keys'    && <AnswerKeysView />}

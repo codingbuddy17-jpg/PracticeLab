@@ -264,3 +264,85 @@ class TestBatchClosure:
         r2 = client.post(f"/practicelab/batches/{batch_id}/run-allocation",
                          json={"run_by": "trainer"})
         assert r2.status_code == 400
+
+
+class TestBatchListPaging:
+    """
+    The list loaded every batch on entry. Fine at a few dozen, not at a few
+    thousand — and a search that only looks at what is already loaded stops
+    working exactly when the list gets big enough to need it.
+    """
+
+    def _mk(self, client, name, direct=False):
+        r = client.post("/practicelab/batches", json={
+            "name": name, "specialty": "IP-DRG", "categories": [], "difficulties": [],
+            "charts_per_coder": 1, "coders": [{"name": "A", "emp_id": "E1"}],
+            "created_by": "trainer", "is_direct_assignment": direct,
+        })
+        assert r.status_code == 200, r.text
+        return r.json()["batch_id"]
+
+    def test_newest_first(self, client):
+        """Ties on created_at are broken by id, so batches created inside the
+        same second still have one stable order — without that, paging can show
+        a row twice and skip another."""
+        for n in ("Oldest", "Middle", "Newest"):
+            self._mk(client, n)
+        names = [b["name"] for b in client.get("/practicelab/batches").json()]
+        assert names == ["Newest", "Middle", "Oldest"]
+
+    def test_limit_and_offset_walk_the_list(self, client):
+        for n in ("B1", "B2", "B3"):
+            self._mk(client, n)
+        first = client.get("/practicelab/batches", params={"limit": 2}).json()
+        second = client.get("/practicelab/batches", params={"limit": 2, "offset": 2}).json()
+        assert len(first) == 2 and len(second) == 1
+        assert {b["name"] for b in first} | {b["name"] for b in second} == {"B1", "B2", "B3"}
+
+    def test_total_count_header_is_the_unpaged_total(self, client):
+        """A page cannot say how many rows there were — the header must."""
+        for n in ("B1", "B2", "B3"):
+            self._mk(client, n)
+        r = client.get("/practicelab/batches", params={"limit": 1})
+        assert len(r.json()) == 1
+        assert r.headers["X-Total-Count"] == "3"
+
+    def test_search_reaches_past_the_loaded_page(self, client):
+        """
+        The point of server-side search: "Sepsis" must find the batch even when
+        it is nowhere near the first page.
+        """
+        for i in range(30):
+            self._mk(client, f"Filler {i}")
+        self._mk(client, "Sepsis Wave 1")
+        for i in range(30):
+            self._mk(client, f"Later Filler {i}")
+
+        r = client.get("/practicelab/batches", params={"search": "sepsis", "limit": 25})
+        assert [b["name"] for b in r.json()] == ["Sepsis Wave 1"]
+        assert r.headers["X-Total-Count"] == "1"
+
+    def test_search_is_case_insensitive_and_partial(self, client):
+        self._mk(client, "IP-DRG June Wave")
+        assert len(client.get("/practicelab/batches", params={"search": "JUNE"}).json()) == 1
+        assert len(client.get("/practicelab/batches", params={"search": "wav"}).json()) == 1
+
+    def test_search_matches_the_creator(self, client):
+        self._mk(client, "Some Batch")
+        assert len(client.get("/practicelab/batches", params={"search": "trainer"}).json()) == 1
+
+    def test_paging_keeps_batches_and_direct_assignments_apart(self, client):
+        """Each list pages independently, so one cannot crowd out the other."""
+        self._mk(client, "Formal One")
+        self._mk(client, "Direct One", direct=True)
+        formal = client.get("/practicelab/batches")
+        direct = client.get("/practicelab/batches", params={"direct_only": True})
+        assert [b["name"] for b in formal.json()] == ["Formal One"]
+        assert [b["name"] for b in direct.json()] == ["Direct One"]
+        assert formal.headers["X-Total-Count"] == "1"
+
+    def test_no_limit_still_returns_everything(self, client):
+        """Existing callers pass no limit and must be unaffected."""
+        for n in ("B1", "B2", "B3"):
+            self._mk(client, n)
+        assert len(client.get("/practicelab/batches").json()) == 3
