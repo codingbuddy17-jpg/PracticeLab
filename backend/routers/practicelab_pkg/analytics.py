@@ -444,6 +444,54 @@ def analytics_by_batch(
     return out
 
 
+@router.get("/analytics/by-batch.xlsx")
+def analytics_by_batch_export(
+    from_date: Optional[str] = None, to_date: Optional[str] = None,
+    specialty: Optional[str] = None, scope: str = "formal",
+    db: Session = Depends(get_db),
+):
+    """
+    The By Batch table as Excel — same rows, same filters, same scope.
+
+    Distinct from the batch-list export, which is the roster view (coders,
+    cycles, status — how a batch was SET UP). This is the performance view
+    (scores, pass rates — how it WENT), and it inherits this tab's scope switch
+    and date range rather than the list panel's status tabs.
+    """
+    from services.excel_service import export_batch_analytics
+    from services.download_headers import content_disposition
+
+    rows = analytics_by_batch(from_date, to_date, specialty, scope, db)
+    thresholds = _pass_thresholds(db)
+
+    out = []
+    for r in rows:
+        pt = thresholds.get(r["specialty"])
+        out.append({
+            "batch_name": r["batch_name"],
+            "type": "Direct" if r.get("is_direct_assignment") else "Batch",
+            "specialty": r["specialty"],
+            "created_at": (r["created_at"] or "")[:10],
+            "coder_count": r["coder_count"],
+            "chart_count": r["chart_count"],
+            "graded_count": r["graded_count"],
+            "pass_threshold": pt,
+            "avg_score": r["avg_score"],
+            "pass_rate": r["pass_rate"],
+            # Precomputed so the spreadsheet carries the same judgement the
+            # screen shows, rather than leaving the reader to reapply a rule
+            # that differs by specialty.
+            "below_target": "Yes" if (pt is not None and r["avg_score"] < pt) or r["pass_rate"] < 70 else "",
+            "last_graded_at": (r.get("last_graded_at") or "")[:10],
+        })
+
+    return StreamingResponse(
+        io.BytesIO(export_batch_analytics(out)),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=content_disposition("Batch_Performance.xlsx", "Batch_Performance.xlsx"),
+    )
+
+
 def _coder_filter(q, coder_name: Optional[str], emp_id: Optional[str]):
     """
     Identify a coder by emp_id when we have one, otherwise by name.

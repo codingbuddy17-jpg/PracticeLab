@@ -502,3 +502,10 @@ export function downloadBatchListXlsx(opts: { status?: string; search?: string; 
   const qs = p.toString() ? `?${p.toString()}` : ''
   window.open(`${import.meta.env.VITE_API_URL || '/api'}/practicelab/batches/export.xlsx` + qs, '_blank')
 }
+
+/** The Analytics -> By Batch table as Excel: same rows, filters and scope. */
+export function downloadBatchAnalyticsXlsx(f: PLFilters = {}, scope: 'formal' | 'direct' | 'all' = 'formal') {
+  const p = new URLSearchParams({ ...fp(f), scope })
+  const qs = p.toString() ? `?${p.toString()}` : ''
+  window.open(`${import.meta.env.VITE_API_URL || '/api'}/practicelab/analytics/by-batch.xlsx` + qs, '_blank')
+}

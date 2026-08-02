@@ -317,3 +317,58 @@ class TestBatchListExport:
         ws = _is_workbook(client.get("/practicelab/batches/export.xlsx")).worksheets[0]
         assert ws.freeze_panes == "A2"
         assert ws.auto_filter.ref is not None
+
+
+class TestBatchAnalyticsExport:
+    """
+    The Analytics -> By Batch table. Third batch-shaped export, and the reason
+    for a third is that they answer different questions: the batch LIST export
+    is the roster (coders, cycles, status — how a batch was set up), this is
+    performance (scores, pass rates — how it went).
+    """
+
+    def test_columns_are_the_performance_view_not_the_roster(self, client, batch_with_results):
+        ws = _is_workbook(client.get("/practicelab/analytics/by-batch.xlsx")).worksheets[0]
+        headers = [c.value for c in ws[1]]
+        for expected in ("Batch", "Specialty", "Avg Grading Score %", "Chart Pass Rate %",
+                         "Pass Mark %", "Graded Results", "Below Target"):
+            assert expected in headers
+        assert "Cycles" not in headers, "that is the roster export's column"
+
+    def test_one_row_per_batch(self, client, batch_with_results):
+        ws = _is_workbook(client.get("/practicelab/analytics/by-batch.xlsx")).worksheets[0]
+        assert ws.max_row == 2
+        row = {c.value: ws.cell(2, i + 1).value for i, c in enumerate(ws[1])}
+        assert row["Batch"] == "Export Batch"
+        assert row["Avg Grading Score %"] == 90
+        assert row["Chart Pass Rate %"] == 100.0
+
+    def test_pass_mark_travels_with_the_score(self, client, batch_with_results):
+        """A score without its bar is not interpretable once it is in Excel."""
+        ws = _is_workbook(client.get("/practicelab/analytics/by-batch.xlsx")).worksheets[0]
+        row = {c.value: ws.cell(2, i + 1).value for i, c in enumerate(ws[1])}
+        assert row["Pass Mark %"] == 80, "IP-DRG"
+
+    def test_scope_carries_over(self, client, db, batch_with_results):
+        d = Batch(name="Direct Row", specialty=Specialty.IP_DRG, status=BatchStatus.OPEN,
+                  created_by="t", charts_per_coder=1, is_direct_assignment=True,
+                  use_weighted=True, use_dpo=False, force_closed=False)
+        db.add(d); db.commit()
+        c = _chart(db, "IP610")
+        db.add(GradingResult(batch_id=d.id, coder_name="B", emp_id="E2", chart_id=c.id,
+                             specialty=Specialty.IP_DRG, total_score=50, pass_fail=PassFail.FAIL))
+        db.commit()
+
+        formal = _is_workbook(client.get("/practicelab/analytics/by-batch.xlsx")).worksheets[0]
+        assert formal.max_row == 2, "default scope excludes direct"
+
+        both = _is_workbook(client.get("/practicelab/analytics/by-batch.xlsx",
+                                       params={"scope": "all"})).worksheets[0]
+        assert both.max_row == 3
+        col = [c.value for c in both[1]].index("Type") + 1
+        assert {both.cell(r, col).value for r in range(2, 4)} == {"Batch", "Direct"}
+
+    def test_empty_selection_says_so(self, client):
+        ws = _is_workbook(client.get("/practicelab/analytics/by-batch.xlsx",
+                                     params={"specialty": "SDS"})).worksheets[0]
+        assert ws.cell(2, 1).value == "No batches match the selected filters."

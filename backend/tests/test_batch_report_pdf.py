@@ -222,3 +222,51 @@ class TestStatCardLayout:
 
 
 MAX_PER_ROW_GUARD = 4
+
+
+class TestEveryListedBatchHasAWorkingReport:
+    """
+    Analytics -> By Batch enables a PDF button on every row, on the grounds
+    that the endpoint only lists batches with graded results. That was true of
+    the LISTING and false of the REPORT.
+
+    There are two result stores: /practice writes practice_results, everything
+    else writes grading_results, and practice work is mirrored into the latter.
+    The insights endpoint read only practice_results for direct assignments,
+    so a direct assignment graded through the normal path was listed by
+    Analytics (which reads grading_results) and 404'd when its button was
+    pressed.
+    """
+
+    def _direct(self, db, name="Direct One"):
+        b = Batch(name=name, specialty=Specialty.IP_DRG, status=BatchStatus.OPEN,
+                  created_by="t", charts_per_coder=1, is_direct_assignment=True,
+                  use_weighted=True, use_dpo=False, force_closed=False)
+        db.add(b); db.commit()
+        return b
+
+    def test_a_direct_assignment_with_only_grading_results(self, client, db):
+        b = self._direct(db)
+        _result(db, b, _chart(db, "IPD1"), "A", 90)
+        listed = [r["batch_name"] for r in
+                  client.get("/practicelab/analytics/by-batch", params={"scope": "direct"}).json()]
+        assert listed == ["Direct One"]
+        _pdf(client, b.id)
+
+    def test_every_row_by_batch_lists_can_produce_a_report(self, client, db):
+        """The invariant the enabled button depends on, stated directly."""
+        formal = _batch(db, "Formal")
+        _result(db, formal, _chart(db, "IPE1"), "A", 90)
+        direct = self._direct(db, "Direct Two")
+        _result(db, direct, _chart(db, "IPE2"), "B", 70, emp="E2")
+
+        rows = client.get("/practicelab/analytics/by-batch", params={"scope": "all"}).json()
+        assert len(rows) == 2
+        for row in rows:
+            r = client.get(f"/practicelab/batches/{row['batch_id']}/insights/report.pdf")
+            assert r.status_code == 200, f"{row['batch_name']} is listed but its report {r.status_code}s"
+
+    def test_a_batch_with_nothing_graded_is_neither_listed_nor_reportable(self, client, db):
+        b = _batch(db, "Nothing Yet")
+        assert client.get("/practicelab/analytics/by-batch").json() == []
+        assert client.get(f"/practicelab/batches/{b.id}/insights/report.pdf").status_code == 404

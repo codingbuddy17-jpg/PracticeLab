@@ -435,6 +435,7 @@ def get_batch_insights(batch_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Batch not found")
 
     # Direct assignments store results in practice_results
+    results = []
     if batch.is_direct_assignment:
         import json as _json
         raw = db.execute(_text("""
@@ -445,8 +446,14 @@ def get_batch_insights(batch_id: int, db: Session = Depends(get_db)):
             JOIN charts c ON c.id = pr.chart_id
             WHERE ps.batch_id = :b AND pr.total_score IS NOT NULL
         """), {"b": batch_id}).fetchall()
-        if not raw:
-            return {"has_data": False, "batch_name": batch.name, "specialty": batch.specialty.value}
+        # No practice_results is NOT the same as no results. There are two
+        # result stores: /practice writes practice_results, everything else
+        # writes grading_results, and practice work is mirrored into the
+        # latter. A direct assignment graded through the normal upload path
+        # therefore exists only in grading_results — this branch reported it as
+        # empty, so Analytics listed the batch (it reads grading_results) while
+        # its report 404'd. Fall through to the shared path instead of
+        # declaring the batch empty.
         # Build a lightweight structure compatible with the rest of the function
         class _R:
             pass
@@ -470,7 +477,8 @@ def get_batch_insights(batch_id: int, db: Session = Depends(get_db)):
                 def __init__(self, num, cat): self.chart_number = num; self.category = cat
             r.chart = _Chart(row[2], row[4])
             results.append(r)
-    else:
+
+    if not results:
         results = (db.query(GradingResult)
                    .filter(GradingResult.batch_id == batch_id,
                            GradingResult.total_score.isnot(None))

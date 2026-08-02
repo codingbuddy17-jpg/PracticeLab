@@ -1231,3 +1231,46 @@ def export_batch_list(rows: list) -> bytes:
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
+
+
+def export_batch_analytics(rows: list) -> bytes:
+    """
+    The Analytics -> By Batch table, as shown.
+
+    Third batch-shaped export, and the three answer different questions:
+      - coder-performance : one row per graded RESULT, for pivoting
+      - batch list        : one row per batch, the roster view (coders,
+                            cycles, status) — about SET-UP
+      - this one          : one row per batch, the performance view (scores,
+                            pass rates, chart counts) — about OUTCOMES
+    """
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Batch Performance"
+
+    cols = [
+        ("Batch", 30), ("Type", 10), ("Specialty", 16), ("Created", 12),
+        ("Coders", 9), ("Charts", 9), ("Graded Results", 15),
+        ("Pass Mark %", 12), ("Avg Grading Score %", 19), ("Chart Pass Rate %", 17),
+        ("Below Target", 13), ("Last Graded", 13),
+    ]
+    for i, (label, width) in enumerate(cols, start=1):
+        _header(ws, i, 1, label)
+        ws.column_dimensions[get_column_letter(i)].width = width
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = f"A1:{get_column_letter(len(cols))}1"
+
+    if not rows:
+        ws.cell(2, 1, "No batches match the selected filters.")
+        buf = io.BytesIO(); wb.save(buf); return buf.getvalue()
+
+    keys = ["batch_name", "type", "specialty", "created_at", "coder_count",
+            "chart_count", "graded_count", "pass_threshold", "avg_score",
+            "pass_rate", "below_target", "last_graded_at"]
+    for r, row in enumerate(rows, start=2):
+        for i, key in enumerate(keys, start=1):
+            ws.cell(r, i, row.get(key))
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()

@@ -8,7 +8,7 @@ import {
 import {
   getPLAnalyticsOverview, getPLAnalyticsBySpecialty, getPLAnalyticsByChart,
   getPLAnalyticsByBatch, getCoderTrend, getCoderSummary, downloadCoderReportPdf,
-  downloadCoderPerformanceXlsx, downloadBatchReportPdf,
+  downloadCoderPerformanceXlsx, downloadBatchReportPdf, downloadBatchAnalyticsXlsx,
   getPLAnalyticsByCategory, getPLChartTeachingValue, getPLCoderMatrix, getPLChartDetail,
   getBatchEMBreakdown, getPLSpecialtyProfile,
   type PLFilters,
@@ -874,6 +874,12 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                   {/* A trend line stops being readable long before it stops
                       being drawable. Windowed to the most recent, because the
                       question a trend answers is "where is this heading". */}
+                  <button
+                    title="Export this table to Excel — same rows, filters and scope"
+                    onClick={() => downloadBatchAnalyticsXlsx(filters, scope)}
+                    style={{ ...styles.outlineBtn, fontSize: 12, padding: '5px 12px', marginLeft: byBatch.length > TREND_WINDOWS[0] ? 8 : 'auto' }}>
+                    Export Table
+                  </button>
                   {byBatch.length > TREND_WINDOWS[0] && (
                     <div style={{ display: 'flex', gap: 4, marginLeft: 'auto', alignItems: 'center' }}>
                       <span style={{ fontSize: 11, color: '#9ca3af' }}>Show last</span>
