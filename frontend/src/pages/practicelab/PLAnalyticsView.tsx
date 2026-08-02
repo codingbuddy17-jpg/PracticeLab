@@ -519,18 +519,32 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                   const pt = thresholdFor(r.specialty)
                   const needsReview = r.avg_score < pt || r.pass_rate < PASS_RATE_TARGET
                   const lowSample = r.total < LOW_SAMPLE
+                  const isOpen = profileSpecialty === r.specialty
                   return (
                     <div key={r.specialty} className={i % 2 === 1 ? 'pl-tr-alt' : 'pl-tr'}
                       onClick={() => {
-                        setProfileSpecialty(profileSpecialty === r.specialty ? null : r.specialty)
+                        // Always select, never toggle off. Toggling made sense
+                        // when the row expanded itself; against a panel further
+                        // down the page, re-clicking the row you are studying
+                        // silently emptied it.
+                        setProfileSpecialty(r.specialty)
                         // A click that loads the panel off-screen looks like a
                         // click that did nothing — which is exactly how it read.
                         document.getElementById('pl-specialty-deepdive')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
                       }}
-                      style={{ ...styles.tableRow, gridTemplateColumns: '2fr 0.8fr 0.8fr 1.2fr 1.2fr 1fr', cursor: 'pointer', alignItems: 'center' }}>
-                      <span style={{ fontWeight: 600 }}>
-                        {profileSpecialty === r.specialty ? '▾ ' : '▸ '}{r.specialty}
-                      </span>
+                      style={{
+                        ...styles.tableRow, gridTemplateColumns: '2fr 0.8fr 0.8fr 1.2fr 1.2fr 1fr',
+                        cursor: 'pointer', alignItems: 'center',
+                        // The selected row stays marked, so the panel below is
+                        // visibly tied to a row rather than floating free.
+                        background: isOpen ? '#ecfeff' : undefined,
+                        boxShadow: isOpen ? 'inset 3px 0 0 #0f766e' : undefined,
+                      }}>
+                      {/* No ▸/▾ here. That marker means "expands in place" on
+                          By Chart and By Category; this row sends you to a panel
+                          further down, and borrowing the same glyph for a
+                          different action is how the click came to feel broken. */}
+                      <span style={{ fontWeight: 600, color: isOpen ? '#0f766e' : undefined }}>{r.specialty}</span>
                       <span>
                         {r.total}
                         {lowSample && <span title={`Fewer than ${LOW_SAMPLE} graded charts — these percentages move a lot on one result`}
@@ -539,8 +553,14 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                       <span style={{ color: '#6b7280' }}>{pt != null ? `${pt}%` : '—'}</span>
                       <span style={{ fontWeight: 700, color: sc(r.avg_score, r.specialty) }}>{r.avg_score}%</span>
                       <span style={{ fontWeight: 700, color: rc(r.pass_rate) }}>{r.pass_rate}%</span>
-                      <span>
-                        {needsReview && <span style={{ fontSize: 10, fontWeight: 700, background: '#fef3c7', color: '#92400e', padding: '2px 8px', borderRadius: 10 }}>Needs review</span>}
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between' }}>
+                        {needsReview
+                          ? <span style={{ fontSize: 10, fontWeight: 700, background: '#fef3c7', color: '#92400e', padding: '2px 8px', borderRadius: 10 }}>Needs review</span>
+                          : <span />}
+                        {/* Names the destination instead of implying expansion. */}
+                        <span style={{ fontSize: 11, fontWeight: 700, color: isOpen ? '#0f766e' : '#9ca3af', whiteSpace: 'nowrap' as const }}>
+                          {isOpen ? 'Shown below' : 'Deep dive ↓'}
+                        </span>
                       </span>
                     </div>
                   )
@@ -548,8 +568,8 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
               </div>
               <div style={{ fontSize: 11, color: '#9ca3af' }}>
                 Pass Mark is the per-chart score a coder must reach. Chart Pass Rate is the share of graded
-                charts that reached it — a population figure, not a score. Click any row to open it in the
-                Specialty Deep Dive below.
+                charts that reached it — a population figure, not a score. Click any row to open that
+                specialty in the Deep Dive below.
               </div>
 
             </div>
