@@ -17,6 +17,10 @@ import { CoderPicker } from '../../components/CoderPicker'
 import { round1 } from './shared'
 import styles from './styles'
 
+// Share of charts expected to pass. A POPULATION target — deliberately not
+// the per-chart pass_threshold, which is a score and a different scale.
+const PASS_RATE_TARGET = 70
+
 const TEACHING_LABEL_META: Record<string, { color: string; bg: string; desc: string }> = {
   'High Yield':    { color: '#166534', bg: '#dcfce7', desc: 'Commonly attempted, produces meaningful repeatable mistakes' },
   'High Confusion':{ color: '#92400e', bg: '#fef3c7', desc: '>60% fail rate with diverse error types — review answer key' },
@@ -317,16 +321,31 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
               </div>
               {/* Attention banner */}
               {overview.total_graded > 0 && (() => {
-                // Each specialty against ITS OWN pass threshold. A flat 70% meant an
-                // OP specialty at 75 — well under its 90 threshold — never surfaced.
-                const atRisk = bySpecialty.filter((s: any) => s.pass_rate < thresholdFor(s.specialty))
+                // Two DIFFERENT signals, deliberately kept apart — they are not
+                // measured on the same scale:
+                //   avg_score  is a per-chart SCORE, so it is the thing
+                //              pass_threshold governs and can be compared to it
+                //   pass_rate  is the SHARE of charts that passed, a population
+                //              figure; comparing it to a score threshold is a
+                //              units error (85% of OP charts passing is healthy,
+                //              yet 85 < 90 would flag it)
+                const reasons = (s: any) => {
+                  const out: string[] = []
+                  const pt = thresholdFor(s.specialty)
+                  if (s.avg_score < pt) out.push(`average score ${s.avg_score}% is below the ${pt}% pass mark`)
+                  if (s.pass_rate < PASS_RATE_TARGET) out.push(`only ${s.pass_rate}% of charts passed`)
+                  return out
+                }
+                const atRisk = bySpecialty
+                  .map((s: any) => ({ ...s, why: reasons(s) }))
+                  .filter((s: any) => s.why.length)
                 if (!atRisk.length) return null
                 return (
                   <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 10, padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 6 }}>
                     <div style={{ fontSize: 13, fontWeight: 700, color: '#92400e' }}>⚠ Needs attention</div>
                     {atRisk.map((s: any) => (
                       <div key={s.specialty} style={{ fontSize: 13, color: '#92400e' }}>
-                        <strong>{s.specialty}</strong> — {s.pass_rate}% pass rate (below 70% target)
+                        <strong>{s.specialty}</strong> — {s.why.join('; ')}
                         {s.pass_rate < 50 && <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, background: '#fecaca', color: '#991b1b', padding: '1px 8px', borderRadius: 10 }}>Critical</span>}
                       </div>
                     ))}

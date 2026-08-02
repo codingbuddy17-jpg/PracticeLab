@@ -32,11 +32,15 @@ def _batch(db, name, direct, status=BatchStatus.CLOSED):
     return b
 
 
-def _result(db, batch, chart, coder, score):
+def _result(db, batch, chart, coder, score, passed=None):
+    """passed defaults to score >= 80; pass it explicitly to model a specialty
+    whose bar is higher (SDS is 90, so 89 scores well and still fails)."""
+    if passed is None:
+        passed = score >= 80
     r = GradingResult(batch_id=batch.id, submission_id=None, coder_name=coder,
                       emp_id="E1", chart_id=chart.id, specialty=Specialty.SDS,
                       total_score=score,
-                      pass_fail=PassFail.PASS if score >= 80 else PassFail.FAIL)
+                      pass_fail=PassFail.PASS if passed else PassFail.FAIL)
     db.add(r); db.commit()
     return r
 
@@ -240,3 +244,52 @@ class TestPassThresholdMap:
         body = client.get("/practicelab/analytics/overview").json()
         assert body["batch_date_field"] == "created_at"
         assert body["graded_date_field"] == "graded_at"
+
+
+class TestBySpecialtyUnits:
+    """
+    pass_rate and avg_score are NOT the same scale, and the Needs-attention
+    banner has to keep them apart:
+
+        pass_rate  = passed / total * 100 — the SHARE of charts that passed
+        avg_score  = mean total_score     — how well a chart SCORED
+        pass_threshold governs the second, never the first
+
+    Comparing pass_rate to pass_threshold is a units error: 85% of OP charts
+    passing is healthy, yet 85 < 90 would flag it as failing.
+    """
+
+    def test_pass_rate_is_a_population_share(self, client, db):
+        b = _batch(db, "Units", direct=False)
+        # three charts: two pass at 100, one fails at 0
+        _result(db, b, _chart(db, "SDS200"), "A", 100)
+        _result(db, b, _chart(db, "SDS201"), "B", 100)
+        _result(db, b, _chart(db, "SDS202"), "C", 0)
+
+        row = next(r for r in client.get("/practicelab/analytics/by-specialty").json()
+                   if r["specialty"] == "SDS")
+        assert row["pass_rate"] == 66.7, "2 of 3 charts passed"
+        assert row["avg_score"] == 66.7, "mean of 100, 100, 0"
+
+    def test_the_two_can_diverge_sharply(self, client, db):
+        """
+        Every chart scores just under the bar: pass_rate 0 but avg_score 89.
+        A banner keying off the wrong one reports the opposite story.
+        """
+        b = _batch(db, "Divergent", direct=False)
+        for i in range(3):
+            _result(db, b, _chart(db, f"SDS21{i}"), "A", 89, passed=False)
+
+        row = next(r for r in client.get("/practicelab/analytics/by-specialty").json()
+                   if r["specialty"] == "SDS")
+        assert row["avg_score"] == 89.0
+        assert row["pass_rate"] == 0.0, "89 is below the SDS pass mark, so nothing passed"
+
+    def test_frontend_does_not_compare_pass_rate_to_a_score_threshold(self):
+        import pathlib
+        src = (pathlib.Path(__file__).resolve().parents[2] / "frontend" / "src" /
+               "pages" / "practicelab" / "PLAnalyticsView.tsx").read_text()
+        assert "s.pass_rate < thresholdFor(" not in src, \
+            "pass_rate is a population share — it cannot be compared to a score threshold"
+        assert "s.avg_score < pt" in src, "avg_score is what pass_threshold governs"
+        assert "PASS_RATE_TARGET" in src, "the population target must be its own named constant"
