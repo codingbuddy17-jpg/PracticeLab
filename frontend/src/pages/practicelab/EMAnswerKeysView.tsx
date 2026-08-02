@@ -603,11 +603,11 @@ export function EMAnswerKeysView() {
                     value={cpt.code} onChange={e => setCpt(i, 'code', e.target.value)} />
                   <input style={{ ...styles.input, flex: 1 }} placeholder="Modifier"
                     value={cpt.modifier} onChange={e => setCpt(i, 'modifier', e.target.value)} />
-                  <input style={{ ...styles.input, flex: 1, textTransform: 'uppercase' }} placeholder="Dx ptrs A,B"
+                  <input style={{ ...styles.input, flex: 1, textTransform: 'uppercase' }} placeholder="Dx ptrs 1,2"
                     title="Which diagnoses justify this line. First is primary."
                     value={(cpt.pointers || []).join(',')}
                     onChange={e => setCpt(i, 'pointers', e.target.value.toUpperCase()
-                      .replace(/[^A-L,\s]/g, '').split(/[,\s]+/).filter(Boolean).slice(0, 4) as any)} />
+                      .replace(/[^0-9A-L,\s]/g, '').split(/[,\s]+/).filter(Boolean).slice(0, 4) as any)} />
                   <button style={{ ...styles.outlineBtn, color: '#dc2626', borderColor: '#fca5a5', padding: '6px 10px' }}
                     onClick={() => removeCpt(i)}><Trash2 size={13} /></button>
                 </div>

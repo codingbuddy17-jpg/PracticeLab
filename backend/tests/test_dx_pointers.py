@@ -83,3 +83,62 @@ class TestPointerScoring:
     def test_feedback_names_the_codes_not_the_letters(self):
         detail = _pointer_errors(_grade(["A"], ["B"]))[0].detail
         assert "A41.9" in detail and "N17.9" in detail
+
+
+class TestNumericPointers:
+    """
+    Coders refer to diagnoses by NUMBER — Dx 1, Dx 2 — in the order they are
+    listed, so that is what the app asks for and stores.
+
+    Letters are still read. The CMS-1500 (02/12) prints A-L in Box 21 and every
+    key entered before this switch used letters; a key that silently lost its
+    pointers would grade every professional line as unlinked, turning correct
+    work into errors across the whole history.
+    """
+
+    DX = ["M17.11", "E11.9", "I10", "Z79.4"]
+
+    def test_numeric_pointer_resolves_to_the_listed_diagnosis(self):
+        from services.grading_engine import resolve_pointers
+        assert resolve_pointers(["1"], self.DX) == {"M1711"}
+        assert resolve_pointers(["2"], self.DX) == {"E119"}
+
+    def test_letters_resolve_to_the_same_positions(self):
+        from services.grading_engine import resolve_pointers
+        for num, letter in [("1", "A"), ("2", "B"), ("3", "C"), ("4", "D")]:
+            assert resolve_pointers([num], self.DX) == resolve_pointers([letter], self.DX), num
+
+    def test_a_key_in_letters_and_a_submission_in_numbers_agree(self):
+        """The migration case: old key, new coder interface. Must not conflict."""
+        from services.grading_engine import resolve_pointers
+        assert resolve_pointers(["A", "C"], self.DX) == resolve_pointers(["1", "3"], self.DX)
+
+    def test_pointer_zero_is_not_a_position(self):
+        """Numbering starts at 1 on the page, so 0 is a typo, not Dx 1."""
+        from services.grading_engine import resolve_pointers
+        assert resolve_pointers(["0"], self.DX) == set()
+
+    def test_two_digit_pointers_reach_the_last_diagnoses(self):
+        from services.grading_engine import resolve_pointers
+        dx = [f"A{i:02d}" for i in range(1, 13)]          # 12 diagnoses
+        assert resolve_pointers(["12"], dx) == {"A12"}
+        assert resolve_pointers(["10"], dx) != resolve_pointers(["1"], dx)
+
+    def test_out_of_range_pointers_resolve_to_nothing(self):
+        from services.grading_engine import resolve_pointers
+        assert resolve_pointers(["9"], self.DX) == set()
+
+    def test_feedback_reads_back_in_numbers(self):
+        from services.grading_engine import pointer_display
+        assert pointer_display(["1", "2"], self.DX) == "1=M17.11, 2=E11.9"
+
+    def test_legacy_letters_are_shown_back_as_numbers(self):
+        """One convention on screen, whatever the key was typed in."""
+        from services.grading_engine import pointer_display
+        assert pointer_display(["A", "B"], self.DX) == "1=M17.11, 2=E11.9"
+
+    def test_garbage_is_ignored_rather_than_pointing_somewhere(self):
+        from services.grading_engine import pointer_index
+        assert pointer_index("") is None
+        assert pointer_index("-") is None
+        assert pointer_index(None) is None

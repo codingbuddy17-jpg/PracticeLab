@@ -326,34 +326,57 @@ def claim_dx_list(pdx_code: str, sdx: list[dict]) -> list[str]:
     return out[:12]
 
 
+def pointer_index(token) -> Optional[int]:
+    """
+    A diagnosis pointer as a 0-based position, accepting either spelling.
+
+    Coders here refer to diagnoses by NUMBER — Dx 1, Dx 2 — matching the order
+    they are listed in, and that is what the app now shows and asks for. The
+    CMS-1500 (02/12) prints letters A-L in Box 21, and earlier keys were
+    entered that way, so letters are still read.
+
+    Both are the same thing: a position in the diagnosis list. Storing the
+    position rather than the spelling is what lets one key be entered as "1,2"
+    and another as "A,B" without either being wrong.
+    """
+    t = str(token or "").strip().upper()
+    if not t:
+        return None
+    if t.isdigit():
+        n = int(t)
+        return n - 1 if n >= 1 else None          # 1-based on the page
+    if "A" <= t[0] <= "Z":
+        return ord(t[0]) - ord("A")               # legacy letter form
+    return None
+
+
+def pointer_label(idx: int) -> str:
+    """How a pointer position is written back out. Numeric, per the above."""
+    return str(idx + 1)
+
+
 def pointer_display(pointers, dx_list: list) -> str:
     """Readable pointer list for trainer feedback — keeps the dotted code form."""
     out = []
     for p in (pointers or []):
-        token = str(p).strip().upper()
-        if not token:
-            continue
-        idx = ord(token[0]) - ord("A")
-        if 0 <= idx < len(dx_list) and dx_list[idx]:
-            out.append(f"{token[0]}={dx_list[idx]}")
+        idx = pointer_index(p)
+        if idx is not None and 0 <= idx < len(dx_list) and dx_list[idx]:
+            out.append(f"{pointer_label(idx)}={dx_list[idx]}")
     return ", ".join(out) or "(none)"
 
 
 def resolve_pointers(pointers, dx_list: list) -> set:
     """
-    Turn pointer letters into the diagnosis codes they actually reference.
+    Turn pointers into the diagnosis codes they actually reference.
 
-    Pointers are POSITIONAL, so the same letter means different diagnoses if the
+    Pointers are POSITIONAL, so the same pointer means different diagnoses if the
     coder ordered their Dx list differently from the answer key. Comparing
-    letters would mark correct work wrong — always compare resolved codes.
+    pointers would mark correct work wrong — always compare resolved codes.
     """
     resolved = set()
     for p in (pointers or []):
-        token = str(p).strip().upper()
-        if not token:
-            continue
-        idx = ord(token[0]) - ord("A")
-        if 0 <= idx < len(dx_list):
+        idx = pointer_index(p)
+        if idx is not None and 0 <= idx < len(dx_list):
             code = norm_dx(dx_list[idx])
             if code:
                 resolved.add(code)

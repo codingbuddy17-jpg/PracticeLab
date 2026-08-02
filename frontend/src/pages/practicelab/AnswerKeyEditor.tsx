@@ -236,8 +236,8 @@ export function AnswerKeyEditor({ chartId, onClose, onSaved }: {
             </div>
             {detail.uses_pointers && (
               <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 6 }}>
-                Pointers are letters into the Dx list above — A = {detail.is_ip ? 'PDx' : 'first-listed'},
-                B = 1st secondary, C = 2nd… First pointer is primary.
+                Pointers are numbers into the Dx list above — 1 = {detail.is_ip ? 'PDx' : 'first-listed'},
+                2 = 1st secondary, 3 = 2nd… Up to 4 per line, first is primary.
               </div>
             )}
             {cpt.map((c, i) => (
@@ -247,11 +247,11 @@ export function AnswerKeyEditor({ chartId, onClose, onSaved }: {
                 <input style={{ ...inp, flex: 1 }} placeholder="Modifier" value={c.modifier || ''}
                   onChange={e => setCpt(cpt.map((x, j) => j === i ? { ...x, modifier: e.target.value } : x))} />
                 {detail.uses_pointers && (
-                  <input style={{ ...inp, width: 130, textTransform: 'uppercase' }} placeholder="Dx ptrs A,B"
+                  <input style={{ ...inp, width: 130, textTransform: 'uppercase' }} placeholder="Dx ptrs 1,2"
                     value={(c.pointers || []).join(',')}
                     onChange={e => setCpt(cpt.map((x, j) => j === i ? {
                       ...x,
-                      pointers: e.target.value.toUpperCase().replace(/[^A-L,\s]/g, '')
+                      pointers: e.target.value.toUpperCase().replace(/[^0-9A-L,\s]/g, '')
                         .split(/[,\s]+/).filter(Boolean).slice(0, 4),
                     } : x))} />
                 )}

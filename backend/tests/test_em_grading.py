@@ -282,9 +282,24 @@ class TestEMProcedurePointers:
         ]
 
     def test_string_form_can_also_carry_pointers(self):
+        """Stored numerically now — coders refer to Dx 1, Dx 2."""
         from routers.practicelab_pkg.em_grading import normalise_cpts
-        assert normalise_cpts('["20610:RT:A,B"]') == [
-            {"code": "20610", "modifier": "RT", "pointers": ["A", "B"]}]
+        assert normalise_cpts('["20610:RT:1,2"]') == [
+            {"code": "20610", "modifier": "RT", "pointers": ["1", "2"]}]
+
+    def test_legacy_letter_pointers_are_read_as_the_same_positions(self):
+        """
+        Keys entered before the switch used A-L. They mean the same positions,
+        so they normalise to the same list rather than being rejected — a key
+        that silently lost its pointers would grade every line as unlinked.
+        """
+        from routers.practicelab_pkg.em_grading import normalise_cpts
+        assert normalise_cpts('["20610:RT:A,B"]') == normalise_cpts('["20610:RT:1,2"]')
+
+    def test_two_digit_pointers_are_not_truncated(self):
+        """The old rule kept one character, turning pointer 10 into pointer 1."""
+        from routers.practicelab_pkg.em_grading import normalise_cpts
+        assert normalise_cpts('["20610::10,11"]')[0]["pointers"] == ["10", "11"]
 
     def test_wrong_code_loses_the_line_regardless_of_pointers(self):
         res = grade(self.AK, {"sub_dx_codes": '["E11.9"]',

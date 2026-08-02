@@ -11,6 +11,7 @@ from typing import Optional
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
+from openpyxl.comments import Comment
 
 
 # ── Style helpers ─────────────────────────────────────────────────────────────
@@ -96,8 +97,16 @@ def _build_op_ak_headers(ws, with_pointers: bool = False, single_path: bool = Fa
         _header(ws, col, 1, f"CPT_{i}_Modifier"); col += 1
         if with_pointers:
             # Professional claims (CMS-1500 Box 24E): which Dx justify this line.
-            # Letters index the Dx list — A = PDx, B = SDx_1, C = SDx_2 ...
-            _header(ws, col, 1, f"CPT_{i}_DxPointers"); col += 1
+            # NUMBERS index the Dx list, as coders refer to them — 1 = PDx,
+            # 2 = SDx_1, 3 = SDx_2 ... Letters are still accepted on upload so
+            # keys written before the switch keep grading.
+            _header(ws, col, 1, f"CPT_{i}_DxPointers")
+            ws.cell(1, col).comment = Comment(
+                "Which diagnoses justify this line, by NUMBER: 1 = PDx, "
+                "2 = SDx_1, 3 = SDx_2 ...\nUp to 4 per line, first is primary. "
+                "Example: 1,2\n\nLetters (A,B) from older keys are still accepted.",
+                "PracticeLab")
+            col += 1
     ws.row_dimensions[1].height = 36
 
 
@@ -845,7 +854,7 @@ def parse_em_answer_key_upload(file_bytes: bytes) -> list[dict]:
       AR-AY procedure_cpts (4 CPTs × code+modifier)
       AZ entered_by
       BA level_method (MDM / Time)   BB total_time (minutes)
-      BC-BF procedure CPT Dx pointers (one cell per CPT, e.g. "A,B")
+      BC-BF procedure CPT Dx pointers (one cell per CPT, e.g. "1,2")
     """
     wb = load_workbook(io.BytesIO(file_bytes), data_only=False)
     ws = wb.worksheets[0]

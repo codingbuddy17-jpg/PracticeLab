@@ -119,15 +119,29 @@ function usesPointers(specialty: string) {
   return sp.includes('SURGERY') || sp.includes('PROFEE') || sp.includes('E/M')
 }
 
-// Parse "A,B" / "a b" into ['A','B'] — max 4 per line, first is primary.
+/**
+ * Parse "1,2" into ['1','2'] — max 4 per line, first is primary.
+ *
+ * Coders refer to diagnoses by NUMBER, in the order they are listed, so that
+ * is what is asked for and stored. Letters are still accepted because keys
+ * written before the switch used them and mean the same positions.
+ */
 function parsePointers(raw: string): string[] {
-  return raw.toUpperCase().replace(/[^A-L,\s]/g, '').split(/[,\s]+/).filter(Boolean).slice(0, 4)
+  return raw.toUpperCase()
+    .split(/[,\s]+/)
+    .map(t => {
+      const n = parseInt(t, 10)
+      if (!isNaN(n)) return n >= 1 && n <= 12 ? String(n) : ''
+      return /^[A-L]$/.test(t) ? String(t.charCodeAt(0) - 64) : ''
+    })
+    .filter(Boolean)
+    .slice(0, 4)
 }
 
-// The A–L labelled Dx list a pointer refers to (Box 21 order).
+// The numbered Dx list a pointer refers to (Box 21 order).
 function dxLabelList(codes: string[]) {
   return codes
-    .map((code, i) => ({ letter: String.fromCharCode(65 + i), code }))
+    .map((code, i) => ({ letter: String(i + 1), code }))
     .filter(d => d.code && d.code.trim())
     .slice(0, 12)
 }
@@ -856,7 +870,7 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
               {pointers && (
                 <input
                   style={{ ...s.inputField, width: 120, marginBottom: 0, textTransform: 'uppercase' }}
-                  placeholder="Dx ptrs A,B"
+                  placeholder="Dx ptrs 1,2"
                   title="Diagnosis pointers — which diagnoses justify this line. First one is primary."
                   value={(row.pointers || []).join(',')}
                   onChange={e => {
@@ -1054,7 +1068,7 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
       {/* CPT Procedures (OP only) */}
       {!ip && (
         <Section title="CPT Procedures" type="procedure">
-          {/* Professional claims (CMS-1500) show the Dx list with its A–L labels,
+          {/* Professional claims (CMS-1500) show the Dx list with its numbers,
               so the coder can see what each pointer letter refers to. */}
           {pointers && dxLabels.length > 0 && (
             <div style={{ background: '#f8fafc', border: '1px solid #e5e7eb', borderRadius: 8, padding: '8px 12px', marginBottom: 10 }}>
@@ -1085,7 +1099,7 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
               {pointers && (
                 <input
                   style={{ ...s.inputField, width: 130, marginBottom: 0, textTransform: 'uppercase' }}
-                  placeholder="Dx ptrs A,B"
+                  placeholder="Dx ptrs 1,2"
                   title="Diagnosis pointers — which diagnoses justify this line. First one is primary."
                   value={(row.pointers || []).join(',')}
                   onChange={e => updateCpt(i, 'pointers', e.target.value)}

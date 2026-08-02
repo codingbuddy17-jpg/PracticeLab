@@ -177,6 +177,24 @@ def code_supports_time(em_code: str) -> bool:
     return (em_code or "").strip() in EM_TIME_BANDS
 
 
+def _canon_pointers(raw) -> list:
+    """
+    Canonical pointer list: numeric strings, in the order given.
+
+    Truncating to one character (the old rule) was safe while pointers were
+    letters and silently wrong the moment they were numbers — "10" became "1",
+    pointing at a different diagnosis. Positions are resolved properly here so
+    two-digit pointers survive.
+    """
+    from services.grading_engine import pointer_index, pointer_label
+    out = []
+    for p in (raw or []):
+        idx = pointer_index(p)
+        if idx is not None and 0 <= idx < 12:      # Box 21 holds 12 diagnoses
+            out.append(pointer_label(idx))
+    return out
+
+
 def normalise_cpts(raw) -> list:
     """
     Normalise procedure CPTs to [{code, modifier, pointers}].
@@ -194,8 +212,7 @@ def normalise_cpts(raw) -> list:
             out.append({
                 "code": code,
                 "modifier": str(item.get("modifier") or "").strip().upper(),
-                "pointers": [str(p).strip().upper()[:1]
-                             for p in (item.get("pointers") or []) if str(p).strip()],
+                "pointers": _canon_pointers(item.get("pointers")),
             })
             continue
         s = str(item).strip().upper()
@@ -204,7 +221,7 @@ def normalise_cpts(raw) -> list:
         parts = s.split(":")
         ptrs = []
         if len(parts) > 2 and parts[2].strip():
-            ptrs = [x.strip()[:1] for x in parts[2].split(",") if x.strip()]
+            ptrs = _canon_pointers(parts[2].split(","))
         out.append({
             "code": parts[0].strip(),
             "modifier": parts[1].strip() if len(parts) > 1 else "",
@@ -629,7 +646,7 @@ def download_em_template():
     # END for the same reason as BA/BB — inserting beside the CPT columns would
     # shift every downstream parser index.
     for i, col in enumerate(("BC", "BD", "BE", "BF"), start=1):
-        hdr(f"{col}1", f"CPT {i} Dx Pointers (e.g. A,B)")
+        hdr(f"{col}1", f"CPT {i} Dx Pointers (e.g. 1,2)")
 
     # Sample row
     ws["A2"] = "EM001"
