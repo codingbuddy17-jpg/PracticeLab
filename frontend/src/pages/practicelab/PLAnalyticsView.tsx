@@ -35,6 +35,10 @@ const TEACHING_LABEL_META: Record<string, { color: string; bg: string; desc: str
 const LOW_SAMPLE = 10
 
 const TAB_STORAGE_KEY = 'pl_analytics_tab'
+// Persisted alongside the tab. Opening a batch from Analytics unmounts this
+// view, so without it you came back to the right tab reading the wrong
+// population — and nothing on screen would have told you it had reset.
+const SCOPE_STORAGE_KEY = 'pl_analytics_scope'
 
 const sectionLabel: React.CSSProperties = {
   fontSize: 11, fontWeight: 700, color: '#6b7280', marginBottom: 8,
@@ -124,7 +128,10 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
   const [filterVersion, setFilterVersion] = useState(0)
   // Overview is batch work by default. Direct assignments were excluded with
   // no way to see them, so a coder who only practised that way was invisible.
-  const [scope, setScope] = useState<'formal' | 'direct' | 'all'>('formal')
+  const [scope, setScope] = useState<'formal' | 'direct' | 'all'>(
+    () => (localStorage.getItem(SCOPE_STORAGE_KEY) as any) || 'formal'
+  )
+  useEffect(() => { localStorage.setItem(SCOPE_STORAGE_KEY, scope) }, [scope])
   const [matrixCoderSearch, setMatrixCoderSearch] = useState('')
   // "Batch" is wrong wording under the Direct scope, where no row is a batch.
   const unitLabel = scope === 'direct' ? 'Assignment' : 'Batch'

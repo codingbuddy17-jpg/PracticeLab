@@ -53,11 +53,48 @@ export function TrainerPracticeLab() {
     finally { setLoading(false) }
   }
 
+  /**
+   * Where "Back" goes.
+   *
+   * The back button used to be hardcoded to the Batches list, so opening a
+   * batch from Analytics and coming back dropped you somewhere you had never
+   * been — and the tab, scope and filters you had set up were gone. Same for
+   * Results and DRG Review, which returned to the list rather than to the
+   * batch you were working inside.
+   *
+   * A stack of where you actually came from, rather than one assumed origin.
+   */
+  const [navStack, setNavStack] = useState<View[]>([])
+
+  const VIEW_LABELS: Record<string, string> = {
+    'home': 'All Batches',
+    'analytics': 'Analytics',
+    'answer-keys': 'Answer Keys',
+    'batch-detail': 'Batch',
+    'results': 'Results',
+    'drg-review': 'DRG Review',
+    'scoring-config': 'Scoring Config',
+  }
+
+  function go(next: View) {
+    setNavStack(s => [...s, view])
+    setView(next)
+  }
+
+  function goBack() {
+    const prev = (navStack[navStack.length - 1] || 'home') as View
+    setNavStack(s => s.slice(0, -1))
+    setView(prev)
+    if (prev === 'home') loadHome()
+  }
+
+  const backTarget = (navStack[navStack.length - 1] || 'home') as View
+
   function openBatch(id: number) {
     const b = batches.find((x: any) => x.id === id) || directAssignments.find((x: any) => x.id === id)
     setSelectedBatchId(id)
     if (b) setLastBatch({ id, name: b.name })
-    setView('batch-detail')
+    go('batch-detail')
   }
 
   const statusColor = (s: string) => ({ Open: '#2563eb', Closed: '#16a34a' }[s] || '#6b7280')
@@ -84,9 +121,16 @@ export function TrainerPracticeLab() {
           {isDrilldown ? (
             // Inside batch detail / create / results — show back + last batch shortcut
             <>
-              <button style={styles.navBtn} onClick={() => { setView('home'); loadHome() }}>
-                ← All Batches
+              <button style={styles.navBtn} onClick={goBack}>
+                ← Back to {VIEW_LABELS[backTarget] || 'All Batches'}
               </button>
+              {/* The list stays reachable in one click even when Back leads
+                  somewhere else, so the shortcut is not lost to the fix. */}
+              {backTarget !== 'home' && (
+                <button style={styles.navBtn} onClick={() => { setNavStack([]); setView('home'); loadHome() }}>
+                  All Batches
+                </button>
+              )}
               {lastBatch && (
                 <button style={{ ...styles.navBtn, color: '#4f46e5', borderColor: '#c7d2fe' }}
                   onClick={() => openBatch(lastBatch.id)}>
@@ -99,13 +143,13 @@ export function TrainerPracticeLab() {
             <>
               <button
                 style={{ ...styles.navBtn, color: '#4f46e5', borderColor: '#c7d2fe' }}
-                onClick={() => setView('create-direct')}
+                onClick={() => go('create-direct')}
               >
                 <Zap size={15} /> Direct Assignment
               </button>
               <button
                 style={{ ...styles.navBtn, background: '#0f766e', color: '#fff', border: 'none' }}
-                onClick={() => setView('create-batch')}
+                onClick={() => go('create-batch')}
               >
                 <Plus size={15} /> New Batch
               </button>
@@ -121,7 +165,7 @@ export function TrainerPracticeLab() {
               borderColor: view === 'scoring-config' ? '#0f766e' : '#e5e7eb',
               background: view === 'scoring-config' ? '#f0fdf4' : 'transparent',
             }}
-            onClick={() => setView(view === 'scoring-config' ? 'home' : 'scoring-config')}
+            onClick={() => { setNavStack([]); setView(view === 'scoring-config' ? 'home' : 'scoring-config') }}
           >
             <Settings size={15} />
           </button>
@@ -135,7 +179,7 @@ export function TrainerPracticeLab() {
             <button
               key={t.key}
               style={{ ...s.tab, ...(activeTab === t.key ? s.tabActive : {}) }}
-              onClick={() => { setView(t.key); if (t.key === 'home') loadHome() }}
+              onClick={() => { setNavStack([]); setView(t.key); if (t.key === 'home') loadHome() }}
             >
               {t.label}
               {activeTab === t.key && <span style={s.tabUnderline} />}
@@ -151,22 +195,22 @@ export function TrainerPracticeLab() {
             batches={batches} directAssignments={directAssignments}
             overview={overview} loading={loading}
             onOpen={openBatch} statusColor={statusColor}
-            onCreateBatch={() => setView('create-batch')}
+            onCreateBatch={() => go('create-batch')}
           />
         )}
         {view === 'answer-keys'    && <AnswerKeysView />}
-        {view === 'analytics'      && <PLAnalyticsView onOpenBatch={(id: number) => { setSelectedBatchId(id); setView('batch-detail') }} />}
+        {view === 'analytics'      && <PLAnalyticsView onOpenBatch={(id: number) => { setSelectedBatchId(id); go('batch-detail') }} />}
         {view === 'scoring-config' && <ScoringConfigView />}
         {view === 'create-batch' && (
           <CreateBatchView
-            onCancel={() => { setView('home'); loadHome() }}
+            onCancel={goBack}
             onCreated={(id: number) => { setSelectedBatchId(id); setView('batch-detail'); loadHome() }}
             scoringCfg={scoringCfg}
           />
         )}
         {view === 'create-direct' && (
           <CreateBatchView
-            onCancel={() => { setView('home'); loadHome() }}
+            onCancel={goBack}
             directMode
             onCreated={(id: number) => { setSelectedBatchId(id); setView('batch-detail'); loadHome() }}
             scoringCfg={scoringCfg}
@@ -175,12 +219,12 @@ export function TrainerPracticeLab() {
         {view === 'batch-detail' && selectedBatchId && (
           <BatchDetailView
             batchId={selectedBatchId}
-            onDRGReview={() => setView('drg-review')}
-            onResults={() => setView('results')}
+            onDRGReview={() => go('drg-review')}
+            onResults={() => go('results')}
           />
         )}
         {view === 'drg-review' && selectedBatchId && (
-          <DRGReviewView batchId={selectedBatchId} onDone={() => setView('batch-detail')} />
+          <DRGReviewView batchId={selectedBatchId} onDone={goBack} />
         )}
         {view === 'results' && selectedBatchId && <ResultsView batchId={selectedBatchId} />}
       </div>
