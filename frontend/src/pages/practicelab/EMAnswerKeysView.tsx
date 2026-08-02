@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Download, Plus, Trash2, ChevronDown, ChevronUp, CheckCircle, Upload } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { listEMAnswerKeys, upsertEMAnswerKey, deleteEMAnswerKey, downloadEMAnswerKeyTemplate, uploadEMAnswerKeys } from '../../api'
-import { searchCharts, getAnswerKeyStatus } from '../../api'
+import { searchCharts, getAnswerKeyStatus, getChartsMissingKeys } from '../../api'
 import { trainerName } from './shared'
 import styles from './styles'
 
@@ -97,13 +97,28 @@ export function EMAnswerKeysView() {
   // Same coverage stats the IP/OP tab shows. E/M and ED Profee are both
   // MDM-graded, so each is counted separately rather than lumped together.
   const [statuses, setStatuses] = useState<Record<string, any>>({})
+  // Mirrors the IP/OP tab: the work left to do, with a button per chart,
+  // rather than making the trainer search for a chart number they have to
+  // already know is unkeyed.
+  const [missing, setMissing] = useState<any[]>([])
 
-  useEffect(() => { loadList(); loadStatuses() }, [])
+  useEffect(() => { loadList(); loadStatuses(); loadMissing() }, [])
 
   async function loadList() {
     setLoading(true)
     try { setAkList(await listEMAnswerKeys()) } catch { toast.error('Could not load E/M answer keys') }
     finally { setLoading(false) }
+  }
+
+  async function loadMissing() {
+    const rows: any[] = []
+    await Promise.all(['E/M', 'ED Profee'].map(async s => {
+      try {
+        const r = await getChartsMissingKeys(s)
+        rows.push(...r.map((c: any) => ({ ...c, specialty: s })))
+      } catch { /* leave absent */ }
+    }))
+    setMissing(rows)
   }
 
   async function loadStatuses() {
@@ -163,6 +178,10 @@ export function EMAnswerKeysView() {
       setShowForm(false)
       setForm(emptyForm())
       setSelectedChart(null)
+      // Refresh the coverage cards and drop the row that just got a key,
+      // instead of leaving stale counts behind.
+      loadStatuses()
+      loadMissing()
       setChartSearch('')
       setChartResults([])
       loadList()
@@ -612,6 +631,47 @@ export function EMAnswerKeysView() {
             <button style={styles.outlineBtn} onClick={() => { setShowForm(false); setForm(emptyForm()); setSelectedChart(null); setChartSearch(''); setChartResults([]) }}>
               Cancel
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Charts still needing a key — same shape and placement as the IP/OP tab,
+          so a trainer moving between the two sees one layout, and can start a
+          key from the chart rather than searching for it. */}
+      {missing.length > 0 && (
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#374151', marginBottom: 8 }}>
+            Charts without answer keys
+            <span style={{ fontWeight: 400, color: '#9ca3af', marginLeft: 6 }}>({missing.length})</span>
+          </div>
+          <div style={styles.table}>
+            <div style={{ ...styles.tableHeader, gridTemplateColumns: '130px 120px 1fr 100px' }}>
+              <span>Chart</span><span>Specialty</span><span>Category</span><span></span>
+            </div>
+            {missing.map((c, i) => (
+              <div key={c.chart_id} className={i % 2 === 1 ? 'pl-tr-alt' : 'pl-tr'}
+                style={{ ...styles.tableRow, gridTemplateColumns: '130px 120px 1fr 100px' }}>
+                <span style={{ fontWeight: 700, fontSize: 13 }}>{c.chart_number}</span>
+                <span style={{ fontSize: 12, color: '#6b7280' }}>{c.specialty}</span>
+                <span style={{ fontSize: 12, color: '#6b7280' }}>{c.category || '—'}</span>
+                <span style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <button
+                    style={{ ...styles.outlineBtn, padding: '4px 10px', fontSize: 12 }}
+                    title={`Create the E/M answer key for ${c.chart_number}`}
+                    onClick={() => {
+                      setSelectedChart({ id: c.chart_id, chart_number: c.chart_number,
+                                         category: c.category, specialty: c.specialty })
+                      setChartResults([])
+                      setChartSearch(c.chart_number)
+                      setForm(emptyForm())
+                      setShowForm(true)
+                      setExpandedSection('copa')
+                    }}>
+                    <Plus size={13} /> Key
+                  </button>
+                </span>
+              </div>
+            ))}
           </div>
         </div>
       )}

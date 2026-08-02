@@ -140,3 +140,25 @@ class TestEMKeyStatusCountsTheRightTable:
         body = client.get("/practicelab/answer-key/status",
                           params={"specialty": "SDS"}).json()
         assert body["key_store"] == "standard"
+
+    def test_em_chart_with_a_key_is_not_listed_as_missing(self, client, db):
+        """
+        /answer-key/missing outer-joins answer_keys, so an E/M chart holding a
+        key in em_answer_keys still came back as missing one.
+        """
+        from sqlalchemy import text
+        c = _chart(db, "EM700", Specialty.EM)
+        db.execute(text(
+            "INSERT INTO em_answer_keys (chart_id, em_code, dx_codes, procedure_cpts, "
+            "entered_by, copa_level, dr_level, risk_level) "
+            "VALUES (:c,'99214','[]','[]','t','Moderate','Moderate','Moderate')"), {"c": c.id})
+        db.commit()
+        listed = [x["chart_number"] for x in client.get(
+            "/practicelab/answer-key/missing", params={"specialty": "E/M"}).json()]
+        assert "EM700" not in listed
+
+    def test_em_chart_without_a_key_is_still_listed(self, client, db):
+        _chart(db, "EM701", Specialty.EM)
+        listed = [x["chart_number"] for x in client.get(
+            "/practicelab/answer-key/missing", params={"specialty": "E/M"}).json()]
+        assert "EM701" in listed

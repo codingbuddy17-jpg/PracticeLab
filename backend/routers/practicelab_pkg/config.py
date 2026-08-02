@@ -392,6 +392,14 @@ def list_charts_without_keys(specialty: Optional[str] = None, db: Session = Depe
         if _is_ed(spec):
             return []
         q = q.filter(Chart.specialty == spec)
+        # E/M and ED Profee keys live in em_answer_keys. The outer join above is
+        # against answer_keys, so an E/M chart that HAS a key still came back as
+        # missing one — same wrong-table bug as the status endpoint had.
+        if _uses_em_keys(spec):
+            keyed = [r[0] for r in db.execute(text(
+                "SELECT chart_id FROM em_answer_keys")).fetchall()]
+            if keyed:
+                q = q.filter(~Chart.id.in_(keyed))
     else:
         q = q.filter(~Chart.specialty.in_(ED_SPECIALTIES))
     charts = q.order_by(Chart.chart_number).all()
