@@ -166,3 +166,78 @@ class TestAssessmentExports:
     def test_answer_key_export_for_a_missing_assessment_404s(self, client):
         r = client.get("/assessment/999999/export-answer-key")
         assert r.status_code == 404
+
+
+class TestCoderPerformanceExport:
+    """
+    Long-format pivot source. The PDF answers "how is this coder doing"; this
+    answers "let me slice it myself", which nothing else exposed.
+    """
+
+    def test_three_sheets(self, client, batch_with_results):
+        wb = _is_workbook(client.get("/practicelab/analytics/coder-performance.xlsx"))
+        assert wb.sheetnames == ["Results", "By Coder", "Errors"]
+
+    def test_results_sheet_is_one_row_per_result(self, client, batch_with_results):
+        ws = _is_workbook(client.get("/practicelab/analytics/coder-performance.xlsx"))["Results"]
+        assert ws.max_row == 2, "header + one seeded result"
+        headers = [c.value for c in ws[1]]
+        for expected in ("Coder", "Emp ID", "Batch", "Assignment Type",
+                         "Chart", "Specialty", "Category", "Score %", "Result"):
+            assert expected in headers
+
+    def test_pivot_dimensions_are_populated(self, client, batch_with_results):
+        ws = _is_workbook(client.get("/practicelab/analytics/coder-performance.xlsx"))["Results"]
+        row = {c.value: ws.cell(2, i + 1).value for i, c in enumerate(ws[1])}
+        assert row["Coder"] == "Asha R"
+        assert row["Emp ID"] == "E1"
+        assert row["Score %"] == 90
+        assert row["Result"] == "PASS"
+        assert row["Category"] == "Sepsis", "category must be pivotable"
+
+    def test_headers_freeze_and_filter(self, client, batch_with_results):
+        """It is a pivot source — it has to be usable on a long sheet."""
+        ws = _is_workbook(client.get("/practicelab/analytics/coder-performance.xlsx"))["Results"]
+        assert ws.freeze_panes == "A2"
+        assert ws.auto_filter.ref is not None
+
+    def test_by_coder_sheet_aggregates(self, client, batch_with_results):
+        ws = _is_workbook(client.get("/practicelab/analytics/coder-performance.xlsx"))["By Coder"]
+        row = {c.value: ws.cell(2, i + 1).value for i, c in enumerate(ws[1])}
+        assert row["Coder"] == "Asha R"
+        assert row["Charts"] == 1
+        assert row["Passed"] == 1
+        assert row["Pass Rate %"] == 100.0
+
+    def test_direct_assignments_are_included_but_labelled(self, client, db, batch_with_results):
+        """
+        A coder-level view includes direct work — but the trainer decides
+        whether to count it, so it gets a column rather than a filter.
+        """
+        d = Batch(name="Direct One", specialty=Specialty.IP_DRG, status=BatchStatus.OPEN,
+                  created_by="t", charts_per_coder=1, is_direct_assignment=True,
+                  use_weighted=True, use_dpo=False, force_closed=False)
+        db.add(d); db.commit()
+        c = _chart(db, "IP602")
+        db.add(GradingResult(batch_id=d.id, coder_name="Asha R", emp_id="E1",
+                             chart_id=c.id, specialty=Specialty.IP_DRG,
+                             total_score=40, pass_fail=PassFail.FAIL))
+        db.commit()
+
+        ws = _is_workbook(client.get("/practicelab/analytics/coder-performance.xlsx"))["Results"]
+        headers = [c.value for c in ws[1]]
+        col = headers.index("Assignment Type") + 1
+        types = {ws.cell(r, col).value for r in range(2, ws.max_row + 1)}
+        assert types == {"Batch", "Direct"}
+
+    def test_filters_apply(self, client, batch_with_results):
+        r = client.get("/practicelab/analytics/coder-performance.xlsx",
+                       params={"specialty": "SDS"})     # nothing seeded for SDS
+        ws = _is_workbook(r)["Results"]
+        assert ws.cell(2, 1).value == "No results match the selected filters."
+
+    def test_single_coder_filter(self, client, batch_with_results):
+        r = client.get("/practicelab/analytics/coder-performance.xlsx",
+                       params={"emp_id": "E1"})
+        assert _is_workbook(r)["Results"].max_row == 2
+        assert "Content-Disposition" in r.headers

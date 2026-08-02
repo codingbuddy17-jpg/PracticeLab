@@ -723,3 +723,92 @@ def list_coders(
 
     out.sort(key=lambda c: (-c["result_count"], (c["coder_name"] or "").lower()))
     return {"coders": out[:max(1, min(limit, 500))], "total": len(out)}
+
+
+@router.get("/analytics/coder-performance.xlsx")
+def coder_performance_export(
+    from_date: Optional[str] = None, to_date: Optional[str] = None,
+    specialty: Optional[str] = None, coder_name: Optional[str] = None,
+    emp_id: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """
+    Coder performance as a pivot table source.
+
+    The PDF answers "how is this coder doing"; this answers "let me slice it
+    myself" — across coders, batches, categories and time, which nothing else
+    exposes.
+
+    Direct assignments are INCLUDED, because this is a coder-level view, but
+    carry an "Assignment Type" column so the trainer can exclude them in the
+    pivot rather than having that decided for them.
+    """
+    from services.excel_service import export_coder_performance
+
+    q = (db.query(GradingResult)
+         .join(Batch, GradingResult.batch_id == Batch.id)
+         .join(Chart, GradingResult.chart_id == Chart.id)
+         .filter(GradingResult.total_score.isnot(None)))
+    if from_date:
+        q = q.filter(GradingResult.graded_at >= from_date)
+    if to_date:
+        q = q.filter(GradingResult.graded_at <= to_date + "T23:59:59")
+    if specialty:
+        spec = next((s for s in Specialty if s.value == specialty), None)
+        if spec:
+            q = q.filter(GradingResult.specialty == spec)
+    if coder_name or emp_id:
+        q = _coder_filter(q, coder_name, emp_id)
+
+    results = q.order_by(GradingResult.coder_name, GradingResult.graded_at).all()
+
+    def _d(dt):
+        return dt.strftime("%Y-%m-%d") if dt else None
+
+    rows, feedback_rows = [], []
+    for r in results:
+        base = {
+            "coder_name": r.coder_name,
+            "emp_id": r.emp_id or "",
+            "batch_name": r.batch.name if r.batch else "",
+            "assignment_type": ("Direct" if (r.batch and r.batch.is_direct_assignment)
+                                else "Batch"),
+            "batch_date": _d(r.batch.created_at) if r.batch else None,
+            "chart_number": r.chart.chart_number if r.chart else "",
+            "specialty": r.specialty.value if r.specialty else "",
+            "category": r.chart.category if r.chart else "",
+            "difficulty": (r.chart.difficulty.value
+                           if r.chart and r.chart.difficulty else ""),
+            "graded_on": _d(r.graded_at),
+        }
+        rows.append({
+            **base,
+            "total_score": r.total_score,
+            "pass_fail": r.pass_fail.value if r.pass_fail else "",
+            "pdx_score": r.pdx_score, "sdx_score": r.sdx_score,
+            "pcs_score": r.pcs_score, "cpt_score": r.cpt_score,
+            "drg_score": r.drg_score,
+            "dpo_dx": r.dpo_dx_accuracy, "dpo_poa": r.dpo_poa_accuracy,
+            "dpo_proc": r.dpo_proc_accuracy, "dpo_overall": r.dpo_overall_accuracy,
+        })
+        for f in r.feedback:
+            feedback_rows.append({
+                **{k: base[k] for k in ("coder_name", "emp_id", "batch_name",
+                                        "chart_number", "specialty", "category")},
+                "section": f.section.value if f.section else "",
+                "issue_type": f.issue_type.value if f.issue_type else "",
+                "ak_code": f.ak_code or "", "coder_code": f.coder_code or "",
+                "detail": f.detail or "",
+            })
+
+    data = export_coder_performance(rows, feedback_rows)
+    bits = ["CoderPerformance"]
+    if coder_name:
+        bits.append(coder_name.replace(" ", "_"))
+    if from_date or to_date:
+        bits.append(f"{from_date or 'start'}_to_{to_date or 'today'}")
+    return StreamingResponse(
+        io.BytesIO(data),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={'_'.join(bits)}.xlsx"},
+    )

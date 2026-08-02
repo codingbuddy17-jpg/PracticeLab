@@ -1091,3 +1091,102 @@ def export_batch_results(batch_name: str, results: list[dict]) -> bytes:
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
+
+
+# ── Coder performance export ─────────────────────────────────────────────────
+
+def export_coder_performance(rows: list, feedback_rows: list) -> bytes:
+    """
+    Coder performance as pivot fodder.
+
+    Deliberately LONG format — one row per graded result, every dimension its
+    own column — because the reason to want Excel over the PDF is to pivot it.
+    A pre-formatted report would defeat the purpose.
+
+    rows: dicts, one per GradingResult, already flattened by the caller.
+    feedback_rows: dicts, one per feedback item, for error-pattern pivots.
+    """
+    wb = Workbook()
+
+    # ── Sheet 1: the fact table ──
+    ws = wb.active
+    ws.title = "Results"
+    cols = [
+        ("Coder", 22), ("Emp ID", 12), ("Batch", 26), ("Assignment Type", 16),
+        ("Batch Date", 13), ("Chart", 13), ("Specialty", 16), ("Category", 20),
+        ("Difficulty", 13), ("Graded On", 13), ("Score %", 10), ("Result", 10),
+        ("PDx", 8), ("SDx", 8), ("PCS", 8), ("CPT", 8), ("DRG", 8),
+        ("DPO Dx %", 11), ("DPO POA %", 11), ("DPO Proc %", 11), ("DPO Overall %", 14),
+    ]
+    for i, (label, width) in enumerate(cols, start=1):
+        _header(ws, i, 1, label)
+        ws.column_dimensions[get_column_letter(i)].width = width
+    ws.freeze_panes = "A2"          # headers stay put while scrolling
+    ws.auto_filter.ref = f"A1:{get_column_letter(len(cols))}1"
+
+    for r, row in enumerate(rows, start=2):
+        for i, key in enumerate([
+            "coder_name", "emp_id", "batch_name", "assignment_type", "batch_date",
+            "chart_number", "specialty", "category", "difficulty", "graded_on",
+            "total_score", "pass_fail", "pdx_score", "sdx_score", "pcs_score",
+            "cpt_score", "drg_score", "dpo_dx", "dpo_poa", "dpo_proc", "dpo_overall",
+        ], start=1):
+            ws.cell(row=r, column=i, value=row.get(key))
+
+    # ── Sheet 2: per-coder summary, for the reader who just wants the answer ──
+    ws2 = wb.create_sheet("By Coder")
+    sum_cols = [("Coder", 22), ("Emp ID", 12), ("Charts", 10), ("Passed", 10),
+                ("Pass Rate %", 13), ("Avg Score %", 13), ("Batches", 10),
+                ("First Graded", 13), ("Last Graded", 13)]
+    for i, (label, width) in enumerate(sum_cols, start=1):
+        _header(ws2, i, 1, label)
+        ws2.column_dimensions[get_column_letter(i)].width = width
+    ws2.freeze_panes = "A2"
+
+    agg: dict = {}
+    for row in rows:
+        key = row.get("emp_id") or row.get("coder_name")
+        a = agg.setdefault(key, {"coder": row.get("coder_name"), "emp": row.get("emp_id"),
+                                 "scores": [], "passed": 0, "batches": set(), "dates": []})
+        if row.get("total_score") is not None:
+            a["scores"].append(row["total_score"])
+        if str(row.get("pass_fail", "")).upper() == "PASS":
+            a["passed"] += 1
+        a["batches"].add(row.get("batch_name"))
+        if row.get("graded_on"):
+            a["dates"].append(row["graded_on"])
+
+    for r, a in enumerate(sorted(agg.values(), key=lambda x: (x["coder"] or "").lower()), start=2):
+        n = len(a["scores"])
+        ws2.cell(r, 1, a["coder"]); ws2.cell(r, 2, a["emp"])
+        ws2.cell(r, 3, n); ws2.cell(r, 4, a["passed"])
+        ws2.cell(r, 5, round(a["passed"] / n * 100, 1) if n else None)
+        ws2.cell(r, 6, round(sum(a["scores"]) / n, 1) if n else None)
+        ws2.cell(r, 7, len(a["batches"]))
+        ws2.cell(r, 8, min(a["dates"]) if a["dates"] else None)
+        ws2.cell(r, 9, max(a["dates"]) if a["dates"] else None)
+
+    # ── Sheet 3: errors, so "what does this coder repeat" is pivotable ──
+    ws3 = wb.create_sheet("Errors")
+    err_cols = [("Coder", 22), ("Emp ID", 12), ("Batch", 26), ("Chart", 13),
+                ("Specialty", 16), ("Category", 20), ("Section", 12),
+                ("Issue", 16), ("Expected", 14), ("Coded", 14), ("Detail", 40)]
+    for i, (label, width) in enumerate(err_cols, start=1):
+        _header(ws3, i, 1, label)
+        ws3.column_dimensions[get_column_letter(i)].width = width
+    ws3.freeze_panes = "A2"
+    ws3.auto_filter.ref = f"A1:{get_column_letter(len(err_cols))}1"
+
+    for r, f in enumerate(feedback_rows, start=2):
+        for i, key in enumerate([
+            "coder_name", "emp_id", "batch_name", "chart_number", "specialty",
+            "category", "section", "issue_type", "ak_code", "coder_code", "detail",
+        ], start=1):
+            ws3.cell(row=r, column=i, value=f.get(key))
+
+    if not rows:
+        ws.cell(2, 1, "No results match the selected filters.")
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()

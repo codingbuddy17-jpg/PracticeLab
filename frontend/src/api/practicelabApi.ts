@@ -441,3 +441,23 @@ export async function searchCoders(q?: string, limit = 50) {
   const { data } = await api.get('/practicelab/coders', { params: { q, limit } })
   return data as { coders: CoderDirectoryEntry[]; total: number }
 }
+
+/**
+ * Coder performance as a pivot-table source (long format, three sheets).
+ * Blob-fetched rather than window.open()'d so an error is a message, not a
+ * blank tab rendering JSON.
+ */
+export async function downloadCoderPerformanceXlsx(f: PLFilters = {}, coderName?: string, empId?: string | null) {
+  const { data } = await api.get('/practicelab/analytics/coder-performance.xlsx', {
+    params: { ...fp(f), coder_name: coderName || undefined, emp_id: empId || undefined },
+    responseType: 'blob',
+  })
+  const url = URL.createObjectURL(data as Blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = coderName
+    ? `CoderPerformance_${coderName.replace(/\s+/g, '_')}.xlsx`
+    : 'CoderPerformance.xlsx'
+  document.body.appendChild(a); a.click(); a.remove()
+  URL.revokeObjectURL(url)
+}

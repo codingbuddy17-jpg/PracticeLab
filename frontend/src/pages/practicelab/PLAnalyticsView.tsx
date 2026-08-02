@@ -8,6 +8,7 @@ import {
 import {
   getPLAnalyticsOverview, getPLAnalyticsBySpecialty, getPLAnalyticsByChart,
   getPLAnalyticsByBatch, getCoderTrend, getCoderSummary, downloadCoderReportPdf,
+  downloadCoderPerformanceXlsx,
   getPLAnalyticsByCategory, getPLChartTeachingValue, getPLCoderMatrix, getPLChartDetail,
   getBatchEMBreakdown,
   type PLFilters,
@@ -234,6 +235,17 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
         {activeFilterCount > 0 && (
           <span style={{ fontSize: 11, color: '#4f46e5', fontWeight: 700 }}>Filtered view active</span>
         )}
+        {/* Long-format export for pivoting — honours the same filters as the
+            charts above, and covers every coder rather than one looked-up name. */}
+        <button
+          style={{ ...styles.outlineBtn, marginLeft: 'auto' }}
+          title="Download all coder results as an Excel pivot source"
+          onClick={async () => {
+            try { await downloadCoderPerformanceXlsx(filters) }
+            catch { toast.error('No results match the current filter') }
+          }}>
+          Export for Pivot (.xlsx)
+        </button>
       </div>
 
       <div style={{ display: 'flex', border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden', alignSelf: 'flex-start', flexWrap: 'wrap' }}>
@@ -496,6 +508,14 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                 }
               }}>
                 Download PDF Report
+              </button>
+            )}
+            {(coderSummary || coderTrend.length > 0) && (
+              <button style={styles.outlineBtn} onClick={async () => {
+                try { await downloadCoderPerformanceXlsx(filters, loadedCoder, loadedEmpId) }
+                catch { toast.error('Could not export this coder') }
+              }}>
+                Excel (pivot)
               </button>
             )}
             {activeFilterCount > 0 && (coderSummary || coderTrend.length > 0) && (
