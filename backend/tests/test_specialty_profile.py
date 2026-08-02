@@ -7,6 +7,8 @@ them: readiness counts charts with a key (and knows which table the key lives
 in), a coder "clears" by a majority rule rather than an average, and a chart is
 only called easy or hard once enough people have attempted it.
 """
+from datetime import datetime
+
 import pytest
 
 from models import Chart, Batch, Specialty, AnswerKey, GradingResult, PassFail
@@ -166,6 +168,55 @@ class TestScope:
         counts = {s: client.get(URL, params={"specialty": "IP-DRG", "scope": s}).json()["library"]
                   for s in ("formal", "direct", "all")}
         assert len({c["total_charts"] for c in counts.values()}) == 1
+
+
+class TestDateFilter:
+    """
+    The date range at the top of Analytics is a real filter here, not decoration
+    — it narrows on graded_at. Worth pinning because it reaches the outcome
+    figures and deliberately does NOT reach the library counts.
+    """
+
+    @pytest.fixture()
+    def spread(self, db):
+        b = _batch(db, "Spread")
+        old = _chart(db, "IP780", key=True)
+        new = _chart(db, "IP781", key=True)
+        _result(db, b, old, "A", "E1", 100)
+        _result(db, b, new, "B", "E2", 0)
+        rows = db.query(GradingResult).order_by(GradingResult.id).all()
+        rows[0].graded_at = datetime(2026, 1, 15, 10, 0)
+        rows[1].graded_at = datetime(2026, 6, 15, 10, 0)
+        db.commit()
+        return b
+
+    def test_range_narrows_the_specialty_table(self, client, spread):
+        rows = client.get("/practicelab/analytics/by-specialty",
+                          params={"from_date": "2026-01-01", "to_date": "2026-03-01"}).json()
+        ip = next(r for r in rows if r["specialty"] == "IP-DRG")
+        assert ip["total"] == 1
+        assert ip["avg_score"] == 100.0, "the June result must be outside the range"
+
+    def test_range_narrows_the_profile(self, client, spread):
+        body = client.get(URL, params={"specialty": "IP-DRG",
+                                       "from_date": "2026-05-01", "to_date": "2026-07-01"}).json()
+        assert body["activity"]["attempts"] == 1
+        assert body["activity"]["coders"] == 1
+        assert body["performance"]["avg_score"] == 0.0
+
+    def test_to_date_includes_the_whole_day(self, client, spread):
+        """A result graded at 10:00 must not fall outside a range ending that day."""
+        body = client.get(URL, params={"specialty": "IP-DRG",
+                                       "from_date": "2026-06-15", "to_date": "2026-06-15"}).json()
+        assert body["activity"]["attempts"] == 1
+
+    def test_library_ignores_the_date_range(self, client, spread):
+        """Inventory is not dated work — a chart does not stop existing because
+        the range excludes the day someone was graded on it."""
+        body = client.get(URL, params={"specialty": "IP-DRG",
+                                       "from_date": "2026-01-01", "to_date": "2026-01-02"}).json()
+        assert body["library"]["total_charts"] == 2
+        assert body["activity"]["attempts"] == 0
 
 
 class TestStanding:
