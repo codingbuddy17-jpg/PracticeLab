@@ -8,7 +8,7 @@ import {
 import {
   getPLAnalyticsOverview, getPLAnalyticsBySpecialty, getPLAnalyticsByChart,
   getPLAnalyticsByBatch, getCoderTrend, getCoderSummary, downloadCoderReportPdf,
-  downloadCoderPerformanceXlsx,
+  downloadCoderPerformanceXlsx, downloadBatchReportPdf,
   getPLAnalyticsByCategory, getPLChartTeachingValue, getPLCoderMatrix, getPLChartDetail,
   getBatchEMBreakdown, getPLSpecialtyProfile,
   type PLFilters,
@@ -903,7 +903,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                 </ResponsiveContainer>
               </div>
               <div style={styles.table}>
-                <div style={{ ...styles.tableHeader, gridTemplateColumns: '1.8fr 96px 90px 70px 70px 90px 90px 100px' }}>
+                <div style={{ ...styles.tableHeader, gridTemplateColumns: '1.8fr 96px 90px 64px 64px 90px 90px 140px' }}>
                   <span>{unitLabel}</span><span>Specialty</span><span>Created</span>
                   <span>Coders</span><span>Charts</span>
                   <span>Avg Grading Score</span><span>Chart Pass Rate</span><span></span>
@@ -916,7 +916,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                   const belowTarget = r.avg_score < pt || r.pass_rate < PASS_RATE_TARGET
                   const lowSample = r.graded_count < LOW_SAMPLE
                   return (
-                    <div key={r.batch_id} className={i % 2 === 1 ? 'pl-tr-alt' : 'pl-tr'} style={{ ...styles.tableRow, gridTemplateColumns: '1.8fr 96px 90px 70px 70px 90px 90px 100px', alignItems: 'center' }}>
+                    <div key={r.batch_id} className={i % 2 === 1 ? 'pl-tr-alt' : 'pl-tr'} style={{ ...styles.tableRow, gridTemplateColumns: '1.8fr 96px 90px 64px 64px 90px 90px 140px', alignItems: 'center' }}>
                       <span style={{ fontWeight: 600, fontSize: 13, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' as const }}>
                         {r.batch_name}
                         {belowTarget && <span title={`Avg below the ${pt}% pass mark, or under ${PASS_RATE_TARGET}% of charts passing`}
@@ -932,12 +932,22 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                       <span title={`${r.graded_count} graded results across ${r.chart_count} charts`}>{r.chart_count}</span>
                       <span style={{ fontWeight: 700, color: sc(r.avg_score, r.specialty) }}>{r.avg_score}%</span>
                       <span style={{ fontWeight: 700, color: rc(r.pass_rate) }}>{r.pass_rate}%</span>
-                      {onOpenBatch ? (
-                        <button onClick={() => onOpenBatch(r.batch_id)}
-                          style={{ fontSize: 11, fontWeight: 700, color: '#4f46e5', background: 'none', border: '1px solid #e0e7ff', borderRadius: 6, padding: '4px 10px', cursor: 'pointer' }}>
-                          View Details →
+                      <span style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                        {/* Every row here has graded results by definition —
+                            the endpoint skips batches without them — so this
+                            is never the disabled case the batch list has. */}
+                        <button title="Batch performance report (PDF)"
+                          onClick={() => downloadBatchReportPdf(r.batch_id)}
+                          style={{ fontSize: 11, fontWeight: 700, color: '#0f766e', background: 'none', border: '1px solid #99f6e4', borderRadius: 6, padding: '4px 9px', cursor: 'pointer' }}>
+                          PDF
                         </button>
-                      ) : <span />}
+                        {onOpenBatch && (
+                          <button onClick={() => onOpenBatch(r.batch_id)}
+                            style={{ fontSize: 11, fontWeight: 700, color: '#4f46e5', background: 'none', border: '1px solid #e0e7ff', borderRadius: 6, padding: '4px 9px', cursor: 'pointer' }}>
+                            Details →
+                          </button>
+                        )}
+                      </span>
                     </div>
                   )
                 })}

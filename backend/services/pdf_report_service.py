@@ -508,11 +508,15 @@ def generate_batch_report_pdf(insights: dict) -> bytes:
     elements = []
     bs = insights["batch_summary"]
 
-    _header(elements, "Batch Performance Report", [
-        f"Batch: {insights['batch_name']}  |  Specialty: {insights['specialty']}",
-    ])
-
     pt = insights.get("pass_threshold", 80)
+    # State the bar the scores in here are judged against. Without it a reader
+    # has to know the specialty's threshold to tell a good report from a bad
+    # one, and the thresholds differ by specialty.
+    subtitles = [f"Batch: {insights['batch_name']}  |  Specialty: {insights['specialty']}",
+                 f"Pass mark: {pt}% per chart"]
+    if insights.get("is_direct_assignment"):
+        subtitles[0] += "  |  Direct assignment"
+    _header(elements, "Batch Performance Report", subtitles)
     headline, detail, color, bg, border = _batch_verdict(bs, pass_threshold=pt)
     elements.append(_verdict_box(headline, detail, color, bg, border))
     elements.append(Spacer(1, 12))
@@ -520,7 +524,7 @@ def generate_batch_report_pdf(insights: dict) -> bytes:
     stats = [
         (str(bs["n_coders"]), "Coders"),
         (str(bs["total_graded"]), "Total Charts Coded"),
-        (f"{bs['pass_rate']}%", "Pass Rate"),
+        (f"{bs['pass_rate']}%", "Chart Pass Rate"),
         (f"{bs['avg_score']}%", "Avg Grading Score"),
         (str(bs["passed"]), "Passed"),
         (str(bs["failed"]), "Failed"),
@@ -551,7 +555,7 @@ def generate_batch_report_pdf(insights: dict) -> bytes:
         delta_hex = "#1A7A4C" if delta > 0 else "#B23A33" if delta < 0 else "#6B6457"
         trend_label = "↑ improving" if delta > 0 else "↓ declining" if delta < 0 else "→ flat"
         elements.append(Paragraph(
-            f"vs prior batch ({bs['prior_batch_name']}, {bs['prior_batch_pass_rate']}% pass rate): "
+            f"vs prior batch ({bs['prior_batch_name']}, {bs['prior_batch_pass_rate']}% chart pass rate): "
             f"<font color='{delta_hex}'><b>{'+' if delta > 0 else ''}{delta}% — {trend_label}</b></font>",
             ParagraphStyle("trendline", parent=NORMAL, textColor=colors.HexColor("#33312b"))
         ))
