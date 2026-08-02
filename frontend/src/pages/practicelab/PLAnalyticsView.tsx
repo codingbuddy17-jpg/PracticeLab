@@ -66,13 +66,27 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
   const [emLoading, setEmLoading] = useState(false)
 
   // Score color derived from the active pass threshold
+  function thresholdFor(specialty?: string): number {
+    // Was a hardcoded list of "OP-like" specialties, which went stale the moment
+    // Surgery and ED Single Path were added — both were then coloured against
+    // the IP threshold (80) rather than OP (90). The backend now supplies the
+    // map, so it cannot drift again.
+    if (specialty && overview?.pass_thresholds?.[specialty] != null) {
+      return overview.pass_thresholds[specialty]
+    }
+    return specialty === 'OP' ? opThreshold : ipThreshold
+  }
+
   function sc(v: number | null | undefined, specialty?: string): string {
     if (v == null) return '#9ca3af'
-    const pt = (specialty === 'OP' || specialty === 'ED Facility' || specialty === 'ED Profee' || specialty === 'SDS' || specialty === 'Ancillary' || specialty === 'E/M') ? opThreshold : ipThreshold
+    const pt = thresholdFor(specialty)
     const low = Math.round(pt * 0.75)
     return v >= pt ? '#16a34a' : v >= low ? '#d97706' : '#dc2626'
   }
   const [filterVersion, setFilterVersion] = useState(0)
+  // Overview is batch work by default. Direct assignments were excluded with
+  // no way to see them, so a coder who only practised that way was invisible.
+  const [scope, setScope] = useState<'formal' | 'direct' | 'all'>('formal')
   const [matrixCoderSearch, setMatrixCoderSearch] = useState('')
   const [matrixShowAll, setMatrixShowAll] = useState(false)
   const [heatmapCoderSearch, setHeatmapCoderSearch] = useState('')
@@ -112,15 +126,15 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
   useEffect(() => {
     setLoading(true)
     Promise.all([
-      getPLAnalyticsOverview(filters),
-      getPLAnalyticsBySpecialty(filters),
-      getPLAnalyticsByBatch(filters),
+      getPLAnalyticsOverview(filters, scope),
+      getPLAnalyticsBySpecialty(filters, scope),
+      getPLAnalyticsByBatch(filters, scope),
     ]).then(([ov, sp, bt]) => {
       setOverview(ov); setBySpecialty(sp); setByBatch(bt)
       if (ov?.ip_pass_threshold) setIpThreshold(ov.ip_pass_threshold)
       if (ov?.op_pass_threshold) setOpThreshold(ov.op_pass_threshold)
     }).catch(() => toast.error('Failed to load analytics')).finally(() => setLoading(false))
-  }, [filters])
+  }, [filters, scope])
 
   useEffect(() => {
     if ((tab === 'chart' || tab === 'category') && byChart.length === 0) getPLAnalyticsByChart(filters).then(setByChart).catch(() => {})
@@ -258,6 +272,31 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
 
       {tab === 'overview' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+          {/* Direct assignments are one-off charts, so folding them into batch
+              trends by default would change what the trend line means. Offered
+              as a switch instead of being silently absent. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' as const }}>
+            <div style={{ display: 'flex', border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
+              {([['formal', 'Batches'], ['direct', 'Direct Assignments'], ['all', 'Both']] as const).map(([k, label]) => (
+                <button key={k} onClick={() => setScope(k)}
+                  style={{
+                    padding: '6px 14px', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700,
+                    borderRight: k === 'all' ? 'none' : '1px solid #e5e7eb',
+                    background: scope === k ? '#0f766e' : '#fff',
+                    color: scope === k ? '#fff' : '#6b7280',
+                  }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            <span style={{ fontSize: 11, color: '#9ca3af' }}>
+              {scope === 'formal' && 'Formal batch work only — direct assignments shown separately'}
+              {scope === 'direct' && 'One-off direct assignments only'}
+              {scope === 'all' && 'Batches and direct assignments combined'}
+              {' · batch counts by created date, grading by graded date'}
+            </span>
+          </div>
+
           {!overview ? (
             <div style={styles.emptyState}>No grading data yet</div>
           ) : (
@@ -268,7 +307,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                   { label: 'Open Batches', value: overview.open_batches ?? 0, color: '#2563eb' },
                   { label: 'Closed Batches', value: overview.complete_batches ?? 0, color: '#16a34a' },
                   { label: 'Total Graded', value: overview.total_graded },
-                  { label: 'Overall Pass Rate', value: `${overview.overall_pass_rate}%`, color: sc(overview.overall_pass_rate) },
+                  { label: 'Graded Chart Pass Rate', value: `${overview.overall_pass_rate}%`, color: sc(overview.overall_pass_rate) },
                 ].map(s => (
                   <div key={s.label} style={styles.statCard}>
                     <div style={{ ...styles.statValue, color: (s as any).color || '#111' }}>{s.value}</div>
@@ -278,7 +317,9 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
               </div>
               {/* Attention banner */}
               {overview.total_graded > 0 && (() => {
-                const atRisk = bySpecialty.filter((s: any) => s.pass_rate < 70)
+                // Each specialty against ITS OWN pass threshold. A flat 70% meant an
+                // OP specialty at 75 — well under its 90 threshold — never surfaced.
+                const atRisk = bySpecialty.filter((s: any) => s.pass_rate < thresholdFor(s.specialty))
                 if (!atRisk.length) return null
                 return (
                   <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 10, padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 6 }}>

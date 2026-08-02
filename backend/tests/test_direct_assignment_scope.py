@@ -166,3 +166,77 @@ class TestDPOScope:
         if r.status_code == 200:
             bid = r.json().get("batch_id") or r.json().get("id")
             assert db.query(Batch).filter(Batch.id == bid).first().use_dpo is False
+
+
+class TestOverviewScope:
+    """
+    Direct assignments were excluded from Overview with no way to see them, so
+    a coder who only ever practised that way was invisible and the numbers
+    looked short with nothing explaining why.
+
+    The default stays formal-only: folding one-off charts into batch trends
+    would change what the trend line means.
+    """
+
+    def test_default_is_formal_only(self, client, seeded):
+        body = client.get("/practicelab/analytics/overview").json()
+        assert body["total_graded"] == 1
+        assert body["scope"] == "formal"
+
+    def test_direct_scope_shows_only_direct(self, client, seeded):
+        body = client.get("/practicelab/analytics/overview",
+                          params={"scope": "direct"}).json()
+        assert body["total_graded"] == 1
+        assert body["overall_pass_rate"] == 0.0, "the direct result scored 0"
+
+    def test_all_scope_combines(self, client, seeded):
+        body = client.get("/practicelab/analytics/overview",
+                          params={"scope": "all"}).json()
+        assert body["total_graded"] == 2
+        assert body["overall_pass_rate"] == 50.0
+
+    def test_bad_scope_rejected(self, client):
+        assert client.get("/practicelab/analytics/overview",
+                          params={"scope": "nonsense"}).status_code == 400
+
+    def test_by_specialty_honours_scope(self, client, seeded):
+        """Needs-attention is rendered from this — a mismatch would contradict the tiles."""
+        rows = client.get("/practicelab/analytics/by-specialty",
+                          params={"scope": "all"}).json()
+        sds = next(r for r in rows if r["specialty"] == "SDS")
+        assert sds["total"] == 2
+
+    def test_by_batch_honours_scope(self, client, seeded):
+        names = [b["batch_name"] for b in client.get(
+            "/practicelab/analytics/by-batch", params={"scope": "all"}).json()]
+        assert "Direct" in names and "Formal" in names
+
+
+class TestPassThresholdMap:
+    """
+    The frontend hardcoded which specialties were "OP-like" to pick a colour
+    threshold. That list went stale when Surgery and ED Single Path landed, so
+    both were judged against the IP threshold (80) rather than OP (90).
+    """
+
+    def test_every_scored_specialty_has_a_threshold(self, client):
+        thresholds = client.get("/practicelab/analytics/overview").json()["pass_thresholds"]
+        for spec in ("IP-DRG", "SDS", "Surgery", "ED Facility", "ED Single Path",
+                     "Ancillary", "E/M", "ED Profee"):
+            assert spec in thresholds, f"{spec} missing — the stale-list bug"
+
+    def test_rubric_specialties_have_none(self, client):
+        """Edits/Denials are rubric-graded — a numeric threshold is meaningless."""
+        thresholds = client.get("/practicelab/analytics/overview").json()["pass_thresholds"]
+        assert "Edits" not in thresholds and "Denials" not in thresholds
+
+    def test_surgery_uses_the_op_threshold_not_ip(self, client):
+        body = client.get("/practicelab/analytics/overview").json()
+        assert body["pass_thresholds"]["Surgery"] == body["op_pass_threshold"]
+        assert body["pass_thresholds"]["IP-DRG"] == body["ip_pass_threshold"]
+
+    def test_date_basis_is_declared(self, client):
+        """The two tile groups filter on different dates; say so rather than imply it."""
+        body = client.get("/practicelab/analytics/overview").json()
+        assert body["batch_date_field"] == "created_at"
+        assert body["graded_date_field"] == "graded_at"

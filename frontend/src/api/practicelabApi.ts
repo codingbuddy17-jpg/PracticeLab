@@ -227,13 +227,13 @@ function fp(f: PLFilters) {
   return p
 }
 
-export async function getPLAnalyticsOverview(f: PLFilters = {}) {
-  const { data } = await api.get('/practicelab/analytics/overview', { params: fp(f) })
+export async function getPLAnalyticsOverview(f: PLFilters = {}, scope: 'formal' | 'direct' | 'all' = 'formal') {
+  const { data } = await api.get('/practicelab/analytics/overview', { params: { ...fp(f), scope } })
   return data
 }
 
-export async function getPLAnalyticsBySpecialty(f: PLFilters = {}) {
-  const { data } = await api.get('/practicelab/analytics/by-specialty', { params: fp(f) })
+export async function getPLAnalyticsBySpecialty(f: PLFilters = {}, scope: 'formal' | 'direct' | 'all' = 'formal') {
+  const { data } = await api.get('/practicelab/analytics/by-specialty', { params: { ...fp(f), scope } })
   return data
 }
 
@@ -242,8 +242,8 @@ export async function getPLAnalyticsByChart(f: PLFilters = {}) {
   return data
 }
 
-export async function getPLAnalyticsByBatch(f: PLFilters = {}) {
-  const { data } = await api.get('/practicelab/analytics/by-batch', { params: fp(f) })
+export async function getPLAnalyticsByBatch(f: PLFilters = {}, scope: 'formal' | 'direct' | 'all' = 'formal') {
+  const { data } = await api.get('/practicelab/analytics/by-batch', { params: { ...fp(f), scope } })
   return data
 }
 

@@ -5,7 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import func, Integer
+from sqlalchemy import func, Integer, text
 from database import get_db
 from models import Batch, BatchCoder, BatchStatus, GradingResult, GradingFeedback, Chart, PassFail, Specialty, ScoringConfig
 from services.pdf_report_service import generate_coder_report_pdf
@@ -45,16 +45,88 @@ def _batch_base(db: Session, from_date: Optional[str], to_date: Optional[str], s
     return q
 
 
+def _pass_thresholds(db) -> dict:
+    """
+    Pass threshold per specialty, resolved from the scoring configs.
+
+    The frontend used to hardcode which specialties were "OP-like" to pick a
+    colour threshold, and that list silently went stale when Surgery and
+    ED Single Path were added — both were graded against the IP threshold (80)
+    instead of OP (90). Deriving it here means the list cannot drift again.
+    """
+    from .shared import _is_ip, _is_single_path, _is_ed
+    from .em_grading import _is_em
+
+    def _cfg(stype, default):
+        row = db.query(ScoringConfig).filter(ScoringConfig.specialty_type == stype).first()
+        return (row.pass_threshold or default) if row else default
+
+    ip, op, edsp = _cfg("IP", 80), _cfg("OP", 90), _cfg("EDSP", 90)
+    em = 80
+    try:
+        row = db.execute(text("SELECT pass_threshold FROM em_scoring_configs WHERE id=1")).fetchone()
+        if row and row[0]:
+            em = row[0]
+    except Exception:
+        pass
+
+    out = {}
+    for s in Specialty:
+        if _is_ed(s):
+            continue                     # rubric-graded, no numeric threshold
+        if _is_ip(s):
+            out[s.value] = ip
+        elif _is_single_path(s):
+            out[s.value] = edsp
+        elif _is_em(s):
+            out[s.value] = em
+        else:
+            out[s.value] = op
+    return out
+
+
 @router.get("/analytics/overview")
 def analytics_overview(
     from_date: Optional[str] = None, to_date: Optional[str] = None, specialty: Optional[str] = None,
+    scope: str = "formal",
     db: Session = Depends(get_db),
 ):
-    base = _gr_base(db, from_date, to_date, specialty, exclude_direct=True)
+    """
+    scope=formal (default) — batch work only, the team view.
+    scope=direct          — direct assignments only.
+    scope=all             — both.
+
+    Direct assignments were excluded with no way to see them, so anyone who
+    practised only that way was invisible here and the numbers looked short
+    with nothing explaining why. The default is unchanged; the other two are
+    opt-in, because mixing one-off charts into batch trends by default would
+    make the trend line mean something different.
+    """
+    scope = (scope or "formal").lower()
+    if scope not in ("formal", "direct", "all"):
+        raise HTTPException(status_code=400, detail="scope must be formal, direct or all")
+
+    base = _gr_base(db, from_date, to_date, specialty,
+                    exclude_direct=(scope == "formal"))
+    if scope == "direct":
+        base = base.join(Batch, GradingResult.batch_id == Batch.id).filter(
+            Batch.is_direct_assignment == True)
     total_results = base.count()
     passed = base.filter(GradingResult.pass_fail == PassFail.PASS).count()
 
-    b_base = _batch_base(db, from_date, to_date, specialty)
+    b_base = db.query(Batch)
+    if scope == "formal":
+        b_base = b_base.filter(Batch.is_direct_assignment == False)
+    elif scope == "direct":
+        b_base = b_base.filter(Batch.is_direct_assignment == True)
+    if from_date:
+        b_base = b_base.filter(Batch.created_at >= from_date)
+    if to_date:
+        b_base = b_base.filter(Batch.created_at <= to_date + "T23:59:59")
+    if specialty:
+        _s = next((s for s in Specialty if s.value == specialty), None)
+        if _s:
+            b_base = b_base.filter(Batch.specialty == _s)
 
     ip_cfg = db.query(ScoringConfig).filter(ScoringConfig.specialty_type == "IP").first()
     op_cfg = db.query(ScoringConfig).filter(ScoringConfig.specialty_type == "OP").first()
@@ -68,15 +140,30 @@ def analytics_overview(
         "overall_pass_rate": round(passed / total_results * 100, 1) if total_results else 0,
         "ip_pass_threshold": (ip_cfg.pass_threshold or 80) if ip_cfg else 80,
         "op_pass_threshold": (op_cfg.pass_threshold or 90) if op_cfg else 90,
+        # Per-specialty, so nothing downstream has to guess which are OP-like
+        "pass_thresholds": _pass_thresholds(db),
+        # The two tiles are filtered on DIFFERENT dates — batch counts on when
+        # the batch was created, grading counts on when it was graded. Stated so
+        # the UI can label them rather than leaving the mismatch to be inferred.
+        "batch_date_field": "created_at",
+        "graded_date_field": "graded_at",
+        "scope": scope,
     }
 
 
 @router.get("/analytics/by-specialty")
 def analytics_by_specialty(
     from_date: Optional[str] = None, to_date: Optional[str] = None, specialty: Optional[str] = None,
+    scope: str = "formal",
     db: Session = Depends(get_db),
 ):
-    base = _gr_base(db, from_date, to_date, specialty, exclude_direct=True)
+    # Must honour the same scope as /overview — the Needs-attention banner is
+    # rendered from this, so a mismatched scope would contradict the tiles.
+    base = _gr_base(db, from_date, to_date, specialty,
+                    exclude_direct=(scope == "formal"))
+    if scope == "direct":
+        base = base.join(Batch, GradingResult.batch_id == Batch.id).filter(
+            Batch.is_direct_assignment == True)
     rows = (base.with_entities(
                 GradingResult.specialty,
                 func.count(GradingResult.id).label("total"),
@@ -134,9 +221,24 @@ def analytics_by_chart(
 @router.get("/analytics/by-batch")
 def analytics_by_batch(
     from_date: Optional[str] = None, to_date: Optional[str] = None, specialty: Optional[str] = None,
+    scope: str = "formal",
     db: Session = Depends(get_db),
 ):
-    batches = _batch_base(db, from_date, to_date, specialty).order_by(Batch.created_at.asc()).all()
+    q = _batch_base(db, from_date, to_date, specialty)
+    if scope != "formal":
+        # _batch_base hard-excludes direct assignments; rebuild without that
+        q = db.query(Batch)
+        if scope == "direct":
+            q = q.filter(Batch.is_direct_assignment == True)
+        if from_date:
+            q = q.filter(Batch.created_at >= from_date)
+        if to_date:
+            q = q.filter(Batch.created_at <= to_date + "T23:59:59")
+        if specialty:
+            _s = next((s for s in Specialty if s.value == specialty), None)
+            if _s:
+                q = q.filter(Batch.specialty == _s)
+    batches = q.order_by(Batch.created_at.asc()).all()
     out = []
     for b in batches:
         results = [r for r in b.results if r.total_score is not None]
