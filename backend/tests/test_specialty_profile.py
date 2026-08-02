@@ -78,6 +78,21 @@ class TestLibrary:
         assert lib["awaiting_key"] == 0
         assert lib["practice_ready"] == 1
 
+    def test_a_specialty_nobody_has_practised_still_reports(self, client, db):
+        """
+        The selector offers every specialty, not just graded ones — "12 charts
+        ready and nobody has touched them" is exactly what a trainer opens this
+        for. It must not divide by zero on the way to saying so.
+        """
+        _chart(db, "SDS770", Specialty.SDS, key=True)
+        body = client.get(URL, params={"specialty": "SDS"}).json()
+        assert body["library"]["practice_ready"] == 1
+        assert body["activity"] == {"attempts": 0, "coders": 0, "charts_attempted": 0}
+        assert body["performance"]["avg_score"] == 0.0
+        assert body["performance"]["coder_clear_rate"] == 0.0
+        assert body["charts"]["struggling_list"] == []
+        assert body["standing"]["rank_by_avg_score"] is None, "unranked, not ranked last"
+
     def test_retired_charts_are_not_capacity(self, client, db):
         c = _chart(db, "IP703", key=True)
         c.status = ChartStatus.RETIRED
