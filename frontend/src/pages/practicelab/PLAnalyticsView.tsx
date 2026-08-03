@@ -283,7 +283,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
 
   // Topic Mastery honours the scope switch now, so a change has to refetch it
   // rather than leaving stale rows under a new scope label.
-  // Teaching Value honours the scope switch now — it always excluded direct
+  // Chart Signals honours the scope switch now — it always excluded direct
   // assignments, so it could disagree with every other tab without saying so.
   useEffect(() => {
     if (tab === 'teaching') getPLChartTeachingValue(filters, scope).then(setTeachingData).catch(() => {})
@@ -364,7 +364,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
     { key: 'batch', label: 'By Batch' },
     { key: 'coder', label: 'Coder Profile' },
     { key: 'category', label: 'Topic Mastery' },
-    { key: 'teaching', label: 'Teaching Value' },
+    { key: 'teaching', label: 'Chart Signals' },
     { key: 'matrix', label: 'Coder Matrix' },
     { key: 'chart', label: 'By Chart' },
     { key: 'em_mdm', label: 'E/M MDM' },
@@ -1594,7 +1594,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
         </div>
       )}
 
-      {/* D: Chart Teaching Value */}
+      {/* D: Chart Signals */}
       {tab === 'teaching' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           {teachingData.length === 0 ? <div style={styles.emptyState}>No chart grading data yet.</div> : (() => {
@@ -1616,7 +1616,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
             return (
               <>
                 <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '18px 16px' }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 16 }}>Chart Teaching Value Distribution</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 16 }}>Signal Distribution</div>
                   <ResponsiveContainer width="100%" height={200}>
                     <BarChart data={summaryData} margin={{ left: 10, right: 20, top: 4, bottom: 4 }}>
                       <CartesianGrid strokeDasharray="3 3" />
