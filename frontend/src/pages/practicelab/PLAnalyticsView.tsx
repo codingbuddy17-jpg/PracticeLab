@@ -10,7 +10,7 @@ import {
   getPLAnalyticsByBatch, getCoderTrend, getCoderSummary, downloadCoderReportPdf,
   downloadCoderPerformanceXlsx, downloadBatchReportPdf, downloadBatchAnalyticsXlsx,
   downloadCoderMatrixXlsx, downloadTopicHeatmapXlsx, downloadChartSignalsXlsx,
-  getPLErrorAnalysis, getPLErrorDetail, downloadErrorAnalysisXlsx,
+  getPLErrorAnalysis, getPLErrorDetail, downloadErrorAnalysisXlsx, getPLErrorCoders,
   getPLAnalyticsByCategory, getPLChartTeachingValue, getPLCoderMatrix, getPLChartDetail,
   getBatchEMBreakdown, getPLSpecialtyProfile,
   type PLFilters,
@@ -291,6 +291,8 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
   // on. They are most of the list and none of the decisions.
   const [showScattered, setShowScattered] = useState(false)
   const [showAllInsights, setShowAllInsights] = useState(false)
+  const [errorCoders, setErrorCoders] = useState<any>(null)
+  const [expandedErrCoder, setExpandedErrCoder] = useState<string | null>(null)
   const [expandedCode, setExpandedCode] = useState<string | null>(null)
   const [codeDetail, setCodeDetail] = useState<Record<string, any>>({})
   const ERROR_PAGE = 25
@@ -412,7 +414,10 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
     if (tab === 'teaching') getPLChartTeachingValue(filters, scope).then(setTeachingData).catch(() => {})
     if (tab === 'matrix') loadMatrix()
     if (tab === 'chart') getPLAnalyticsByChart(filters, scope).then(setByChart).catch(() => {})
-    if (tab === 'errors') loadErrors()
+    if (tab === 'errors') {
+      loadErrors()
+      getPLErrorCoders(filters, scope).then(setErrorCoders).catch(() => {})
+    }
   }, [scope, tab, filterVersion, matrixGroupBy])
 
   useEffect(() => {
@@ -1315,6 +1320,115 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                   figure={d.best_specialty ? `${d.best_specialty.errors_per_chart} per chart` : undefined}
                   hint={d.best_specialty ? `${d.best_specialty.errors} over ${d.best_specialty.charts} charts` : `needs ${d.min_charts_to_rank}+ graded charts`} />
               </div>
+
+              {/* Coders, ranked on ERROR DENSITY.
+                  Not on score — that is the Coder Profile tab's question. This
+                  one is about errors, and errors per chart is the only measure
+                  that does not just rank people by how much they practised. */}
+              {errorCoders?.coders?.length > 0 && (() => {
+                const ec = errorCoders
+                const ADVICE_META: Record<string, { c: string; bg: string; icon: string }> = {
+                  coaching:   { c: '#1d4ed8', bg: '#dbeafe', icon: '👤' },
+                  curriculum: { c: '#991b1b', bg: '#fee2e2', icon: '👥' },
+                  good:       { c: '#166534', bg: '#dcfce7', icon: '★' },
+                  info:       { c: '#374151', bg: '#f9fafb', icon: '·' },
+                }
+                const DIR: Record<string, { t: string; c: string }> = {
+                  improving: { t: '↓ improving', c: '#16a34a' },
+                  worsening: { t: '↑ worsening', c: '#dc2626' },
+                  steady:    { t: '→ steady', c: '#6b7280' },
+                }
+
+                const CoderCard = ({ r, rank, tone }: any) => {
+                  const open = expandedErrCoder === r.coder_id
+                  const dir = r.direction ? DIR[r.direction] : null
+                  return (
+                    <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, background: '#fff', overflow: 'hidden' }}>
+                      <div onClick={() => setExpandedErrCoder(open ? null : r.coder_id)}
+                        style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', cursor: 'pointer',
+                                 borderLeft: `3px solid ${tone}` }}>
+                        <span style={{ fontSize: 11, fontWeight: 800, color: '#9ca3af', width: 16 }}>{rank}</span>
+                        <span style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontWeight: 700, fontSize: 13 }}>{coderLink(r.coder_name)}</div>
+                          <div style={{ fontSize: 10, color: '#9ca3af' }}>
+                            {r.emp_id && r.emp_id !== r.coder_name ? `${r.emp_id} · ` : ''}
+                            {r.charts} charts · {r.errors} errors
+                          </div>
+                        </span>
+                        <span style={{ textAlign: 'right' as const }}>
+                          <div style={{ fontSize: 15, fontWeight: 800, color: tone }}>{r.errors_per_chart}</div>
+                          <div style={{ fontSize: 9, color: '#9ca3af' }}>per chart</div>
+                        </span>
+                        {dir && <span style={{ fontSize: 10, fontWeight: 700, color: dir.c, whiteSpace: 'nowrap' as const }}>{dir.t}</span>}
+                        <span style={{ fontSize: 11, color: '#9ca3af' }}>{open ? '▲' : '▼'}</span>
+                      </div>
+                      {open && (
+                        <div style={{ padding: '10px 12px', borderTop: '1px solid #f3f4f6', background: '#fafafa', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                          {/* Their own rate over time — improving means improving
+                              for them, not relative to anyone else. */}
+                          {r.trend.length > 1 && (
+                            <ResponsiveContainer width="100%" height={90}>
+                              <LineChart data={r.trend} margin={{ left: 0, right: 8, top: 4, bottom: 0 }}>
+                                <XAxis dataKey="month" tick={{ fontSize: 9 }} />
+                                <YAxis tick={{ fontSize: 9 }} width={26} />
+                                <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8 }}
+                                  formatter={(v: any, n: any) => [v, n === 'errors_per_chart' ? 'Errors per chart' : n]} />
+                                <Line type="monotone" dataKey="errors_per_chart" stroke={tone} strokeWidth={2} dot={{ r: 3 }} />
+                              </LineChart>
+                            </ResponsiveContainer>
+                          )}
+                          {r.advice.map((a: any, i: number) => {
+                            const m = ADVICE_META[a.kind] || ADVICE_META.info
+                            return (
+                              <div key={i} style={{ display: 'flex', gap: 8, background: m.bg, border: `1px solid ${m.c}22`, borderRadius: 8, padding: '8px 10px' }}>
+                                <span style={{ fontSize: 12 }}>{m.icon}</span>
+                                <span style={{ fontSize: 12, color: m.c, lineHeight: 1.5 }}>{a.text}</span>
+                              </div>
+                            )
+                          })}
+                          {r.top_codes.length > 0 && (
+                            <div style={{ fontSize: 11, color: '#6b7280' }}>
+                              Most missed: {r.top_codes.map((c: any) => `${c.code} (${c.count})`).join(' · ')}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )
+                }
+
+                return (
+                  <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '14px 16px' }}>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' as const, marginBottom: 12 }}>
+                      <div style={sectionLabel}>Coders by Error Rate</div>
+                      <span style={{ fontSize: 11, color: '#9ca3af' }}>
+                        errors per graded chart · team average {ec.team?.errors_per_chart}
+                        {ec.excluded_thin > 0 && ` · ${ec.excluded_thin} coder(s) under ${ec.min_charts} charts not ranked`}
+                      </span>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: '#166534', marginBottom: 8 }}>
+                          Fewest errors — candidates to teach from
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          {ec.top.map((r: any, i: number) => <CoderCard key={r.coder_id} r={r} rank={i + 1} tone="#16a34a" />)}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: '#991b1b', marginBottom: 8 }}>
+                          Most errors — where coaching pays
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          {ec.bottom.length === 0
+                            ? <div style={{ fontSize: 12, color: '#9ca3af' }}>Only one ranked coder — no comparison to draw.</div>
+                            : ec.bottom.map((r: any, i: number) => <CoderCard key={r.coder_id} r={r} rank={i + 1} tone="#dc2626" />)}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })()}
 
               {/* Where the errors are: by type and by section, side by side. */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>

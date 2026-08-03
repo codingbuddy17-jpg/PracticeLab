@@ -1645,6 +1645,197 @@ def error_analysis_export(
     )
 
 
+MIN_CHARTS_FOR_CODER_RANK = 5
+
+
+@router.get("/analytics/error-coders")
+def analytics_error_coders(
+    from_date: Optional[str] = None, to_date: Optional[str] = None, specialty: Optional[str] = None,
+    scope: str = "formal", top_n: int = 5,
+    db: Session = Depends(get_db),
+):
+    """
+    Coders ranked by ERROR DENSITY, with advice drawn from how their profile
+    differs from the team's.
+
+    Ranked on errors per graded chart, not raw errors: a raw count ranks people
+    by how much they practised, so the "cleanest" coder is whoever did least.
+    Anyone under five graded charts is excluded from both ends rather than
+    topping a list on three charts.
+
+    The advice rests on one comparison. A coder failing at what everyone fails
+    at needs the session everyone is getting; a coder failing at something the
+    team handles fine needs a conversation. Same error count, different action —
+    the concentration idea from the code table, turned around to point at a
+    person instead of a code.
+    """
+    scope = (scope or "formal").lower()
+    if scope not in ("formal", "direct", "all"):
+        raise HTTPException(status_code=400, detail="scope must be formal, direct or all")
+
+    results = _with_details(_gr_base(db, from_date, to_date, specialty,
+                                     exclude_direct=(scope == "formal"))).join(Chart).all()
+    if scope == "direct":
+        results = [r for r in results if r.batch and r.batch.is_direct_assignment]
+    if not results:
+        # Same shape when empty — a caller should not need to check which keys
+        # exist before reading them.
+        return {"top": [], "bottom": [], "coders": [], "team": None,
+                "ranked_coders": 0, "excluded_thin": 0,
+                "min_charts": MIN_CHARTS_FOR_CODER_RANK, "scope": scope}
+
+    team_errors = sum(len(r.feedback) for r in results)
+    team_charts = len(results)
+    team_rate = round(team_errors / team_charts, 2) if team_charts else 0
+    team_sections: Counter = Counter()
+    team_codes: Counter = Counter()
+    for r in results:
+        for f in r.feedback:
+            team_sections[f.section.value] += 1
+            code = f.ak_code or f.coder_code
+            if code:
+                team_codes[code] += 1
+
+    coders: dict = {}
+    for r in results:
+        cid = r.emp_id or r.coder_name
+        d = coders.setdefault(cid, {
+            "coder_id": cid, "coder_name": r.coder_name, "emp_id": r.emp_id,
+            "charts": 0, "errors": 0, "sections": Counter(), "issues": Counter(),
+            "codes": Counter(), "months": {}, "specialties": set(),
+        })
+        d["charts"] += 1
+        d["errors"] += len(r.feedback)
+        if r.specialty:
+            d["specialties"].add(r.specialty.value)
+        if r.graded_at:
+            m = d["months"].setdefault(r.graded_at.strftime("%Y-%m"), {"errors": 0, "charts": 0})
+            m["errors"] += len(r.feedback)
+            m["charts"] += 1
+        for f in r.feedback:
+            d["sections"][f.section.value] += 1
+            d["issues"][f.issue_type.value] += 1
+            code = f.ak_code or f.coder_code
+            if code:
+                d["codes"][code] += 1
+
+    def _advice(d, rate):
+        """What to actually do about this coder, and why."""
+        out = []
+        # Their worst section, compared with how the team fares there. Only a
+        # gap the team does NOT share is a coaching item.
+        if d["sections"]:
+            sec, n = d["sections"].most_common(1)[0]
+            mine = n / d["errors"] if d["errors"] else 0
+            theirs = team_sections.get(sec, 0) / team_errors if team_errors else 0
+            if mine >= 0.4 and mine >= theirs * 1.5:
+                out.append({
+                    "kind": "coaching",
+                    "text": f"{round(mine * 100)}% of their errors are in {sec}, against "
+                            f"{round(theirs * 100)}% for the team. That is their own gap, not the "
+                            f"room's — worth a session on {sec} specifically.",
+                })
+            elif mine >= 0.4:
+                out.append({
+                    "kind": "curriculum",
+                    "text": f"Their errors concentrate in {sec} ({round(mine * 100)}%), and so do "
+                            f"the team's ({round(theirs * 100)}%). They are struggling with what "
+                            f"everyone struggles with — the team session covers this.",
+                })
+
+        # Codes they own: a large share of every team sighting is theirs.
+        signature = []
+        for code, n in d["codes"].most_common(8):
+            total_seen = team_codes.get(code, 0)
+            if n >= 2 and total_seen and n / total_seen >= 0.6:
+                signature.append((code, n, total_seen))
+        if signature:
+            bits = ", ".join(f"{c} ({n} of {t} team-wide)" for c, n, t in signature[:3])
+            out.append({
+                "kind": "coaching",
+                "text": f"Codes mostly missed by them alone: {bits}. Nobody else is finding these "
+                        f"difficult, so a 1:1 will land better than a session.",
+            })
+
+        if rate <= team_rate * 0.5 and d["errors"] > 0:
+            out.append({
+                "kind": "good",
+                "text": f"At {rate} errors per chart against a team average of {team_rate}, they are "
+                        f"a candidate for peer teaching rather than coaching.",
+            })
+        elif d["errors"] == 0:
+            out.append({
+                "kind": "good",
+                "text": f"No recorded errors across {d['charts']} graded charts.",
+            })
+
+        if not out:
+            out.append({
+                "kind": "info",
+                "text": f"No distinctive pattern — their errors look like the team's, spread across "
+                        f"{len(d['sections'])} sections. Track rather than intervene.",
+            })
+        return out
+
+    rows = []
+    for d in coders.values():
+        rate = round(d["errors"] / d["charts"], 2) if d["charts"] else 0
+        trend = [{"month": m, "errors": v["errors"], "charts": v["charts"],
+                  "errors_per_chart": round(v["errors"] / v["charts"], 2) if v["charts"] else None}
+                 for m, v in sorted(d["months"].items())]
+        # Direction over the coder's own history, so "improving" means improving
+        # for them rather than relative to anyone else.
+        direction = None
+        if len(trend) >= 2:
+            first, last = trend[0]["errors_per_chart"], trend[-1]["errors_per_chart"]
+            if first is not None and last is not None:
+                if last <= first * 0.7:
+                    direction = "improving"
+                elif last >= first * 1.3:
+                    direction = "worsening"
+                else:
+                    direction = "steady"
+        rows.append({
+            "coder_id": d["coder_id"], "coder_name": d["coder_name"], "emp_id": d["emp_id"],
+            "charts": d["charts"], "errors": d["errors"], "errors_per_chart": rate,
+            "vs_team": round(rate - team_rate, 2),
+            "specialties": sorted(d["specialties"]),
+            "top_sections": [{"section": s, "count": n} for s, n in d["sections"].most_common(3)],
+            "top_issues": [{"type": t, "count": n} for t, n in d["issues"].most_common(3)],
+            "top_codes": [{"code": c, "count": n} for c, n in d["codes"].most_common(5)],
+            "trend": trend,
+            "direction": direction,
+            "rankable": d["charts"] >= MIN_CHARTS_FOR_CODER_RANK,
+            "advice": _advice(d, rate),
+        })
+
+    rankable = [r for r in rows if r["rankable"]]
+    by_rate = sorted(rankable, key=lambda r: r["errors_per_chart"])
+    top_n = max(1, min(top_n, 20))
+
+    # Below twice the list size the two ends would overlap, and a coder shown
+    # as both best and worst is worse than a short list. Split down the middle
+    # instead; with one rankable coder there is no comparison to draw at all.
+    n = top_n if len(by_rate) >= top_n * 2 else max(1, len(by_rate) // 2)
+
+    return {
+        # "Top" is fewest errors per chart. Deliberately not "highest score" —
+        # that is the Coder Profile tab's question, and this one is about
+        # errors.
+        "top": by_rate[:n],
+        # One coder is a record, not a ranking — there is no contrast to draw.
+        "bottom": list(reversed(by_rate[-n:])) if len(by_rate) > 1 else [],
+        # Everyone rankable, so a caller wanting one coder need not guess which
+        # end they landed on.
+        "coders": by_rate,
+        "team": {"errors_per_chart": team_rate, "charts": team_charts, "errors": team_errors},
+        "ranked_coders": len(rankable),
+        "excluded_thin": len(rows) - len(rankable),
+        "min_charts": MIN_CHARTS_FOR_CODER_RANK,
+        "scope": scope,
+    }
+
+
 @router.get("/analytics/error-detail")
 def analytics_error_detail(
     code: str,

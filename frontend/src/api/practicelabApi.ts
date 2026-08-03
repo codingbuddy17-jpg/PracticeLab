@@ -595,3 +595,11 @@ export function downloadErrorAnalysisXlsx(f: PLFilters = {}, scope = 'formal',
   if (opts.includeScattered) p.set('include_scattered', 'true')
   window.open(`${import.meta.env.VITE_API_URL || '/api'}/practicelab/analytics/error-analysis.xlsx?` + p.toString(), '_blank')
 }
+
+/** Coders ranked by error density, with per-coder trend and coaching advice. */
+export async function getPLErrorCoders(f: PLFilters = {}, scope = 'formal', topN = 5) {
+  const { data } = await api.get('/practicelab/analytics/error-coders', {
+    params: { ...fp(f), scope, top_n: topN },
+  })
+  return data as any
+}
