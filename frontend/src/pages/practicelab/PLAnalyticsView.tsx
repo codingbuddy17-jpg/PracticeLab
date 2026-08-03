@@ -495,13 +495,23 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
     return () => clearTimeout(t)
   }, [errorSearch, errorPattern, errorSection, errorIssue, showScattered])
 
+  /**
+   * Lazy, like the chart drilldown — and keyed by the FILTERS as well as the
+   * code. Keyed by code alone, reopening J18.9 after changing scope or the
+   * date range served the previous answer: a panel describing one population
+   * sitting under a row describing another.
+   */
+  const detailKey = (code: string) =>
+    `${code}|${scope}|${filters.specialty || ''}|${filters.from_date || ''}|${filters.to_date || ''}`
+
   function toggleCodeDetail(code: string) {
     if (expandedCode === code) { setExpandedCode(null); return }
     setExpandedCode(code)
-    if (!codeDetail[code]) {
+    const k = detailKey(code)
+    if (!codeDetail[k]) {
       getPLErrorDetail(code, filters, scope)
-        .then(dd => setCodeDetail(prev => ({ ...prev, [code]: dd })))
-        .catch(() => {})
+        .then(dd => setCodeDetail(prev => ({ ...prev, [k]: dd })))
+        .catch(() => toast.error(`Could not load detail for ${code}`))
     }
   }
 
@@ -1187,7 +1197,12 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
           <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' as const }}>
               <span style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase' as const, letterSpacing: 0.5, width: 56 }}>Issue</span>
-              {['', 'Missed', 'Wrong_Code', 'Over_coded', 'Wrong_POA', 'Wrong_Modifier', 'Wrong_Pointer'].map(t => (
+              {/* Derived from what the data actually contains, plus whatever
+                  is currently selected. A hardcoded list silently drops a new
+                  issue type the moment grading adds one — the same staleness
+                  that put Surgery on the wrong pass threshold. */}
+              {['', ...new Set([...(d?.by_issue_type || []).map((e: any) => e.type),
+                                ...(errorIssue ? [errorIssue] : [])])].map(t => (
                 <button key={t || 'all'} onClick={() => { setErrorIssue(t); setErrorPage(1) }}
                   style={{ padding: '4px 11px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
                     background: errorIssue === t ? '#4f46e5' : '#f3f4f6',
@@ -1199,7 +1214,8 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' as const }}>
               <span style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase' as const, letterSpacing: 0.5, width: 56 }}>Section</span>
-              {['', 'PDx', 'SDx', 'PCS', 'CPT', 'DRG', 'POA', 'Modifier'].map(t => (
+              {['', ...new Set([...(d?.by_section || []).map((e: any) => e.section),
+                                ...(errorSection ? [errorSection] : [])])].map(t => (
                 <button key={t || 'all'} onClick={() => { setErrorSection(t); setErrorPage(1) }}
                   style={{ padding: '4px 11px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
                     background: errorSection === t ? '#0f766e' : '#f3f4f6',
@@ -1244,6 +1260,13 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
               {d.commentary?.length > 0 && (
                 <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
                   <div style={sectionLabel}>Error Insights</div>
+                  {/* Above the findings: it changes how all of them read. */}
+                  {d.not_represented?.length > 0 && (
+                    <div style={{ background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 8, padding: '9px 12px', fontSize: 12, color: '#92400e', lineHeight: 1.5 }}>
+                      <strong>Not covered here:</strong> {d.not_represented.join(', ')}. These grade without
+                      code-level feedback, so "0 errors" above means not measured — not clean.
+                    </div>
+                  )}
                   {[...d.commentary, ...(showAllInsights ? (d.commentary_more || []) : [])].map((n: any, i: number) => {
                     const meta: Record<string, { c: string; bg: string; icon: string }> = {
                       curriculum: { c: '#991b1b', bg: '#fee2e2', icon: '👥' },
@@ -1324,14 +1347,21 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
 
               {d.trend.length > 1 && (
                 <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '14px 16px' }}>
-                  <div style={sectionLabel}>Errors Over Time — is it getting better?</div>
+                  <div style={sectionLabel}>
+                    Errors Over Time — is it getting better?
+                    <span style={{ fontWeight: 600, textTransform: 'none' as const, letterSpacing: 0, color: '#9ca3af', marginLeft: 8 }}>
+                      — errors per graded chart, so growing practice volume does not read as decline
+                    </span>
+                  </div>
                   <ResponsiveContainer width="100%" height={160}>
                     <LineChart data={recent(d.trend, 12)} margin={{ left: 0, right: 16, top: 4, bottom: 4 }}>
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="month" tick={{ fontSize: 10 }} />
                       <YAxis tick={{ fontSize: 10 }} width={36} />
                       <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
-                      <Line type="monotone" dataKey="total" stroke="#dc2626" strokeWidth={2.5} dot={{ r: 4 }} name="Errors" />
+                      <Legend iconType="line" wrapperStyle={{ fontSize: 11 }} />
+                      <Line type="monotone" dataKey="errors_per_chart" stroke="#dc2626" strokeWidth={2.5} dot={{ r: 4 }} name="Errors per chart" />
+                      <Line type="monotone" dataKey="charts" stroke="#cbd5e1" strokeWidth={1.5} dot={false} name="Charts graded" />
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
@@ -1401,8 +1431,8 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                         <div style={{ padding: '12px 16px', background: '#fafafa', borderBottom: '1px solid #ede9fe', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                           <div>
                             <div style={sectionLabel}>Who</div>
-                            {!codeDetail[c.code] ? <div style={{ fontSize: 12, color: '#9ca3af' }}>Loading…</div>
-                              : codeDetail[c.code].coders.slice(0, 8).map((x: any) => (
+                            {!codeDetail[detailKey(c.code)] ? <div style={{ fontSize: 12, color: '#9ca3af' }}>Loading…</div>
+                              : codeDetail[detailKey(c.code)].coders.slice(0, 8).map((x: any) => (
                                 <div key={(x.emp_id || x.coder_name)} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #f3f4f6', fontSize: 12 }}>
                                   {coderLink(x.coder_name)}
                                   <span style={{ color: '#6b7280' }}>{x.count}× on {x.charts} chart{x.charts !== 1 ? 's' : ''}</span>
@@ -1411,8 +1441,8 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                           </div>
                           <div>
                             <div style={sectionLabel}>Where</div>
-                            {!codeDetail[c.code] ? <div style={{ fontSize: 12, color: '#9ca3af' }}>Loading…</div>
-                              : codeDetail[c.code].charts.slice(0, 8).map((x: any) => (
+                            {!codeDetail[detailKey(c.code)] ? <div style={{ fontSize: 12, color: '#9ca3af' }}>Loading…</div>
+                              : codeDetail[detailKey(c.code)].charts.slice(0, 8).map((x: any) => (
                                 <div key={x.chart_number} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #f3f4f6', fontSize: 12 }}>
                                   <span style={{ fontWeight: 700, color: '#4f46e5', cursor: 'pointer' }}
                                     onClick={e => { e.stopPropagation(); setByChartSearch(x.chart_number); setTab('chart') }}>

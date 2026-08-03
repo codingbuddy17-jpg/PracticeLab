@@ -1266,9 +1266,46 @@ def analytics_error_analysis(
             continue
         key = r.graded_at.strftime("%Y-%m")
         months.setdefault(key, Counter())[f.issue_type.value] += 1
-    trend = [{"month": m, "total": sum(c.values()),
+
+    # Charts graded per month, so the trend can be a RATE. A raw count rises
+    # when practice volume rises — a team doubling its practice while halving
+    # its error rate would show a flat line and read as no progress.
+    month_charts: Counter = Counter()
+    for r in results:
+        if r.graded_at:
+            month_charts[r.graded_at.strftime("%Y-%m")] += 1
+
+    trend = [{"month": m,
+              "total": sum(c.values()),
+              "charts": month_charts.get(m, 0),
+              "errors_per_chart": round(sum(c.values()) / month_charts[m], 2)
+                                  if month_charts.get(m) else None,
               **{t: c.get(t, 0) for t in by_issue}}
              for m, c in sorted(months.items())]
+
+    # ── Coverage ─────────────────────────────────────────────────────────────
+    # This tab reads grading_feedback. E/M and ED Profee emit free-text issue
+    # strings that do not map to the IssueType/GradingSection enums, so those
+    # rows are skipped when practice results are mirrored — they live on in
+    # practice_results.feedback and the E/M breakdown endpoint instead. Rubric
+    # specialties (Edits, Denials) produce no code-level feedback at all.
+    #
+    # The tab therefore under-reports for those specialties, and a silent
+    # under-report is worse than a gap: "no errors in E/M" reads as a clean
+    # specialty. Counted and stated rather than left to be discovered.
+    covered: dict = {}
+    for r in results:
+        if not r.specialty:
+            continue
+        sp = r.specialty.value
+        c = covered.setdefault(sp, {"specialty": sp, "graded": 0, "with_feedback": 0})
+        c["graded"] += 1
+        if r.feedback:
+            c["with_feedback"] += 1
+    coverage = sorted(covered.values(), key=lambda x: x["specialty"])
+    for c in coverage:
+        c["represented"] = c["with_feedback"] > 0
+    not_represented = [c["specialty"] for c in coverage if not c["represented"]]
 
     # ── Per specialty ────────────────────────────────────────────────────────
     # Raw error counts rank specialties by how much they were PRACTISED, so the
@@ -1360,16 +1397,24 @@ def analytics_error_analysis(
         })
 
     if len(trend) >= 3:
-        first, last = trend[0]["total"], trend[-1]["total"]
+        # Rate where we have it, count only as a fallback — a team doubling its
+        # practice while halving its error rate shows a rising raw count.
+        rated = [t for t in trend if t["errors_per_chart"] is not None]
+        use_rate = len(rated) >= 3
+        series = rated if use_rate else trend
+        key = "errors_per_chart" if use_rate else "total"
+        unit = "per chart" if use_rate else "errors"
+        first, last = series[0][key], series[-1][key]
         if last <= first * 0.7:
             notes.append({"kind": "good",
-                          "text": f"Errors are falling — {first} in {trend[0]['month']} to "
-                                  f"{last} in {trend[-1]['month']}. Whatever changed is working."})
+                          "text": f"Errors are falling — {first} {unit} in {series[0]['month']} to "
+                                  f"{last} in {series[-1]['month']}. Whatever changed is working."})
         elif last >= first * 1.3:
             notes.append({"kind": "warn",
-                          "text": f"Errors are rising — {first} in {trend[0]['month']} to "
-                                  f"{last} in {trend[-1]['month']}. Check whether new coders or a "
-                                  f"new specialty entered the mix before reading this as decline."})
+                          "text": f"Errors are rising — {first} {unit} in {series[0]['month']} to "
+                                  f"{last} in {series[-1]['month']}."
+                                  + ("" if use_rate else " This is a raw count, so check whether "
+                                     "practice volume simply grew.")})
 
     # Pareto, not a fixed count. "Codes seen 5+ times" is a threshold that
     # dissolves with volume — at scale almost every code clears it and the line
@@ -1403,6 +1448,14 @@ def analytics_error_analysis(
     # Without this the commentary reads as if the team has one error profile.
     # It usually does not: a "team-wide gap" that lives entirely inside one
     # specialty is a session for that group, not for everyone.
+    if not_represented:
+        notes.insert(0, {
+            "kind": "warn",
+            "text": f"{', '.join(not_represented)} produce no code-level feedback, so they are "
+                    f"absent from everything below. Read '0 errors' there as 'not measured here', "
+                    f"not as clean work — use the E/M MDM tab or the batch report for those.",
+        })
+
     if specialty:
         notes.insert(0, {
             "kind": "info",
@@ -1484,6 +1537,8 @@ def analytics_error_analysis(
         "graded_charts": len(results),
         "commentary": notes,
         "commentary_more": extra_notes,
+        "coverage": coverage,
+        "not_represented": not_represented,
         "by_specialty": by_specialty,
         "worst_specialty": worst_specialty,
         "best_specialty": best_specialty,

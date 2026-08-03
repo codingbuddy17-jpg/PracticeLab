@@ -45,6 +45,21 @@ def _err(db, b, c, coder, emp, code, issue="Missed", sect="SDx", when=None):
     return r
 
 
+def _err_n(db, b, c, coder, emp, codes, when=None):
+    """One graded chart carrying several errors — moves the RATE, not volume."""
+    r = GradingResult(batch_id=b.id, coder_name=coder, emp_id=emp, chart_id=c.id,
+                      specialty=c.specialty, total_score=50, pass_fail=PassFail.FAIL)
+    db.add(r); db.commit()
+    if when:
+        r.graded_at = when
+        db.commit()
+    for code in codes:
+        db.add(GradingFeedback(result_id=r.id, section="SDx", issue_type="Missed",
+                               ak_code=code, coder_code=None, detail=""))
+    db.commit()
+    return r
+
+
 def _row(client, code, **params):
     rows = client.get(URL, params=params).json()["codes"]
     return next(r for r in rows if r["code"] == code)
@@ -229,24 +244,39 @@ class TestCommentary:
         assert any("PDx" in n["text"] and "%" in n["text"] for n in notes)
 
     def test_a_falling_trend_is_recognised(self, client, db):
+        """Same volume each month, fewer errors per chart — a real improvement."""
         b = _batch(db, "B")
-        for i in range(6):
-            _err(db, b, _chart(db, f"IPX{i}"), f"C{i}", f"E{i}", "A00.0", when=datetime(2026, 1, 5))
-        _err(db, b, _chart(db, "IPX9"), "C9", "E9", "A00.0", when=datetime(2026, 2, 5))
-        _err(db, b, _chart(db, "IPX8"), "C8", "E8", "A00.0", when=datetime(2026, 3, 5))
-        notes = client.get(URL).json()["commentary"]
+        for i in range(3):
+            _err_n(db, b, _chart(db, f"IPX1{i}"), f"C{i}", f"E{i}",
+                   ["A00.0", "B00.0", "C00.0"], when=datetime(2026, 1, 5))
+        for i in range(3):
+            _err_n(db, b, _chart(db, f"IPX2{i}"), f"C{i}", f"E{i}",
+                   ["A00.0", "B00.0"], when=datetime(2026, 2, 5))
+        for i in range(3):
+            _err_n(db, b, _chart(db, f"IPX3{i}"), f"C{i}", f"E{i}",
+                   ["A00.0"], when=datetime(2026, 3, 5))
+        body = client.get(URL).json()
+        notes = body["commentary"] + body["commentary_more"]
         assert any(n["kind"] == "good" for n in notes)
 
-    def test_a_rising_trend_warns_but_does_not_conclude(self, client, db):
-        """More coders can raise the count without anyone getting worse, so the
-        note has to say to check that before reading it as decline."""
+    def test_a_rising_trend_is_reported(self, client, db):
+        """
+        Read as a RATE where months have chart counts, so a team that doubles
+        its practice does not look like it is getting worse.
+        """
         b = _batch(db, "B")
-        _err(db, b, _chart(db, "IPY1"), "C1", "E1", "A00.0", when=datetime(2026, 1, 5))
-        _err(db, b, _chart(db, "IPY2"), "C2", "E2", "A00.0", when=datetime(2026, 2, 5))
-        for i in range(6):
-            _err(db, b, _chart(db, f"IPY3{i}"), f"C{i}", f"E{i}", "A00.0", when=datetime(2026, 3, 5))
-        notes = client.get(URL).json()["commentary"]
-        assert any(n["kind"] == "warn" and "new coders" in n["text"] for n in notes)
+        for i in range(3):
+            _err_n(db, b, _chart(db, f"IPY1{i}"), f"C{i}", f"E{i}",
+                   ["A00.0"], when=datetime(2026, 1, 5))
+        for i in range(3):
+            _err_n(db, b, _chart(db, f"IPY2{i}"), f"C{i}", f"E{i}",
+                   ["A00.0", "B00.0"], when=datetime(2026, 2, 5))
+        for i in range(3):
+            _err_n(db, b, _chart(db, f"IPY3{i}"), f"C{i}", f"E{i}",
+                   ["A00.0", "B00.0", "C00.0"], when=datetime(2026, 3, 5))
+        body = client.get(URL).json()
+        notes = body["commentary"] + body["commentary_more"]
+        assert any(n["kind"] == "warn" and "Errors are rising" in n["text"] for n in notes)
 
     def test_thin_data_says_so_rather_than_inventing_a_finding(self, client, db):
         b = _batch(db, "B")
@@ -666,3 +696,73 @@ class TestInsightsAtVolume:
         notes = client.get(URL).json()
         texts = " ".join(n["text"] for n in notes["commentary"] + notes["commentary_more"])
         assert "no short list to fix" in texts
+
+
+class TestCoverageIsStated:
+    """
+    This tab reads grading_feedback. E/M and ED Profee emit free-text issue
+    strings that do not map to the enums, so those rows are skipped when
+    practice results are mirrored; rubric specialties produce no code-level
+    feedback at all. The tab therefore cannot see them — and a silent
+    under-report is worse than a gap, because "0 errors in E/M" reads as clean
+    work rather than as unmeasured.
+    """
+
+    def test_a_specialty_with_no_feedback_is_flagged(self, client, db):
+        b = _batch(db, "B")
+        _err(db, b, _chart(db, "IPCOV1"), "A", "E1", "J18.9")
+        # An E/M result with a score but no representable feedback.
+        c = _chart(db, "EMCOV1", Specialty.EM)
+        db.add(GradingResult(batch_id=b.id, coder_name="B", emp_id="E2", chart_id=c.id,
+                             specialty=Specialty.EM, total_score=70, pass_fail=PassFail.FAIL))
+        db.commit()
+        body = client.get(URL).json()
+        assert "E/M" in body["not_represented"]
+        assert "IP-DRG" not in body["not_represented"]
+
+    def test_coverage_counts_are_reported_per_specialty(self, client, db):
+        b = _batch(db, "B")
+        _err(db, b, _chart(db, "IPCOV2"), "A", "E1", "J18.9")
+        c = _chart(db, "EMCOV2", Specialty.EM)
+        db.add(GradingResult(batch_id=b.id, coder_name="B", emp_id="E2", chart_id=c.id,
+                             specialty=Specialty.EM, total_score=70, pass_fail=PassFail.FAIL))
+        db.commit()
+        cov = {c["specialty"]: c for c in client.get(URL).json()["coverage"]}
+        assert cov["E/M"]["graded"] == 1 and cov["E/M"]["with_feedback"] == 0
+        assert cov["IP-DRG"]["with_feedback"] == 1
+
+    def test_the_gap_is_the_first_thing_said(self, client, db):
+        """It changes how every other line should be read."""
+        b = _batch(db, "B")
+        _err(db, b, _chart(db, "IPCOV3"), "A", "E1", "J18.9")
+        c = _chart(db, "EMCOV3", Specialty.EM)
+        db.add(GradingResult(batch_id=b.id, coder_name="B", emp_id="E2", chart_id=c.id,
+                             specialty=Specialty.EM, total_score=70, pass_fail=PassFail.FAIL))
+        db.commit()
+        notes = client.get(URL).json()["commentary"]
+        assert "not measured here" in notes[0]["text"]
+
+
+class TestTrendIsARate:
+    def test_the_trend_carries_charts_and_a_rate(self, client, db):
+        b = _batch(db, "B")
+        for i in range(3):
+            _err_n(db, b, _chart(db, f"TR{i}"), f"C{i}", f"E{i}",
+                   ["A00.0", "B00.0"], when=datetime(2026, 4, 5))
+        t = client.get(URL).json()["trend"][0]
+        assert t["charts"] == 3
+        assert t["errors_per_chart"] == 2.0
+
+    def test_growing_volume_at_a_steady_rate_is_not_called_decline(self, client, db):
+        """
+        The reason the rate matters: triple the practice at the same quality
+        and a raw count triples. That must not read as getting worse.
+        """
+        b = _batch(db, "B")
+        for m, n in ((1, 2), (2, 4), (3, 8)):
+            for i in range(n):
+                _err_n(db, b, _chart(db, f"VOL{m}_{i}"), f"C{i}", f"E{i}",
+                       ["A00.0"], when=datetime(2026, m, 5))
+        body = client.get(URL).json()
+        notes = body["commentary"] + body["commentary_more"]
+        assert not any(n["kind"] == "warn" and "rising" in n["text"] for n in notes)
