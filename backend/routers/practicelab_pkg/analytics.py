@@ -1182,9 +1182,98 @@ def analytics_error_analysis(
               **{t: c.get(t, 0) for t in by_issue}}
              for m, c in sorted(months.items())]
 
+    # ── Commentary ───────────────────────────────────────────────────────────
+    # Written here rather than left to be inferred from four charts. Each line
+    # names a finding AND what it implies, because "SDx is 62% of errors" is a
+    # fact and "teach SDx capture next" is the decision it supports. Only
+    # findings that clear a threshold appear — commentary that always says
+    # something says nothing.
+    notes = []
+
+    top_section = by_section.most_common(1)[0] if by_section else None
+    if top_section and _share(top_section[1]) >= 40:
+        notes.append({
+            "kind": "focus",
+            "text": f"{top_section[0]} accounts for {_share(top_section[1])}% of all errors "
+                    f"({top_section[1]} of {total}). One section dominating this heavily usually "
+                    f"means a single teachable rule, not broad weakness.",
+        })
+
+    top_issue = by_issue.most_common(1)[0] if by_issue else None
+    if top_issue and _share(top_issue[1]) >= 50:
+        label = top_issue[0].replace("_", " ").lower()
+        implication = {
+            "missed": "coders are under-coding — the gap is recall, not judgement",
+            "over coded": "coders are adding codes the record does not support — the gap is restraint",
+            "wrong code": "the right concept is being found but the wrong code chosen — specificity drills",
+            "wrong pointer": "linkage is the problem, not code selection",
+            "wrong poa": "POA assignment specifically — a narrow, very teachable rule",
+            "wrong modifier": "modifier rules specifically — a narrow, very teachable rule",
+        }.get(label, "worth a targeted session")
+        notes.append({
+            "kind": "focus",
+            "text": f"{_share(top_issue[1])}% of errors are \"{label}\" — {implication}.",
+        })
+
+    team_wide = [c for c in code_rows if c["pattern"] == "Team-wide"][:3]
+    if team_wide:
+        names = ", ".join(c["code"] for c in team_wide)
+        notes.append({
+            "kind": "curriculum",
+            "text": f"Team-wide gaps: {names}. Several coders miss these across several charts, "
+                    f"so they are curriculum items — a session on these reaches everyone at once.",
+        })
+
+    key_suspects = [c for c in code_rows if c["pattern"] == "One chart" and c["count"] >= 3][:3]
+    if key_suspects:
+        names = ", ".join(f"{c['code']}" for c in key_suspects)
+        notes.append({
+            "kind": "key",
+            "text": f"Check the answer keys behind {names}. Each is missed by several coders on a "
+                    f"single chart, which more often means the key is arguable than that everyone "
+                    f"forgot the same code in the same place.",
+        })
+
+    coaching = [c for c in code_rows if c["pattern"] == "One coder" and c["count"] >= 3][:3]
+    if coaching:
+        notes.append({
+            "kind": "coaching",
+            "text": f"{len(coaching)} code(s) are repeated by one coder each "
+                    f"({', '.join(c['code'] for c in coaching)}). These are 1:1 coaching items — "
+                    f"teaching them to the room would waste everyone else's time.",
+        })
+
+    if len(trend) >= 3:
+        first, last = trend[0]["total"], trend[-1]["total"]
+        if last <= first * 0.7:
+            notes.append({"kind": "good",
+                          "text": f"Errors are falling — {first} in {trend[0]['month']} to "
+                                  f"{last} in {trend[-1]['month']}. Whatever changed is working."})
+        elif last >= first * 1.3:
+            notes.append({"kind": "warn",
+                          "text": f"Errors are rising — {first} in {trend[0]['month']} to "
+                                  f"{last} in {trend[-1]['month']}. Check whether new coders or a "
+                                  f"new specialty entered the mix before reading this as decline."})
+
+    concentrated = [c for c in code_rows if c["count"] >= 5]
+    if concentrated:
+        share = round(sum(c["count"] for c in concentrated) / total * 100, 1)
+        if share >= 50:
+            notes.append({
+                "kind": "focus",
+                "text": f"{len(concentrated)} codes account for {share}% of every error recorded. "
+                        f"The long tail is noise; these are the list worth working through.",
+            })
+
+    if not notes:
+        notes.append({"kind": "info",
+                      "text": "No dominant pattern yet — errors are spread thinly across codes, "
+                              "sections and coders. More graded work will sharpen this."})
+
     return {
         "total_errors": total,
         "graded_charts": len(results),
+        "commentary": notes,
         # Errors per graded chart — the one figure that says whether things are
         # improving without needing to know how much practice happened.
         "errors_per_chart": round(total / len(results), 2) if results else 0,

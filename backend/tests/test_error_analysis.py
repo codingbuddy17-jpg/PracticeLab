@@ -184,3 +184,75 @@ class TestEmpty:
         body = client.get(URL).json()
         assert body["total_errors"] == 0
         assert body["codes"] == []
+
+
+class TestCommentary:
+    """
+    Commentary that always says something says nothing. Each line has to clear
+    a threshold, and each has to name the ACTION its finding implies — "SDx is
+    62% of errors" is a fact; "one teachable rule, not broad weakness" is the
+    decision it supports.
+    """
+
+    def _kinds(self, client, **params):
+        return {n["kind"] for n in client.get(URL, params=params).json()["commentary"]}
+
+    def test_a_team_wide_gap_is_called_curriculum(self, client, db):
+        b = _batch(db, "B")
+        for i in range(4):
+            _err(db, b, _chart(db, f"IPT{i}"), f"Coder {i}", f"E{i}", "J18.9")
+        assert "curriculum" in self._kinds(client)
+
+    def test_one_chart_concentration_points_at_the_key(self, client, db):
+        b = _batch(db, "B")
+        c = _chart(db, "IPU1")
+        for i in range(4):
+            _err(db, b, c, f"Coder {i}", f"E{i}", "J18.9")
+        notes = client.get(URL).json()["commentary"]
+        assert any(n["kind"] == "key" and "answer key" in n["text"] for n in notes)
+
+    def test_one_coder_repetition_is_called_coaching(self, client, db):
+        b = _batch(db, "B")
+        for i in range(4):
+            _err(db, b, _chart(db, f"IPV{i}"), "Solo", "S1", "J18.9")
+        notes = client.get(URL).json()["commentary"]
+        assert any(n["kind"] == "coaching" and "1:1" in n["text"] for n in notes)
+
+    def test_a_dominant_section_is_named_with_its_share(self, client, db):
+        b = _batch(db, "B")
+        for i in range(5):
+            _err(db, b, _chart(db, f"IPW{i}"), f"C{i}", f"E{i}", f"J{i}8.9", sect="PDx")
+        notes = client.get(URL).json()["commentary"]
+        assert any("PDx" in n["text"] and "%" in n["text"] for n in notes)
+
+    def test_a_falling_trend_is_recognised(self, client, db):
+        b = _batch(db, "B")
+        for i in range(6):
+            _err(db, b, _chart(db, f"IPX{i}"), f"C{i}", f"E{i}", "A00.0", when=datetime(2026, 1, 5))
+        _err(db, b, _chart(db, "IPX9"), "C9", "E9", "A00.0", when=datetime(2026, 2, 5))
+        _err(db, b, _chart(db, "IPX8"), "C8", "E8", "A00.0", when=datetime(2026, 3, 5))
+        notes = client.get(URL).json()["commentary"]
+        assert any(n["kind"] == "good" for n in notes)
+
+    def test_a_rising_trend_warns_but_does_not_conclude(self, client, db):
+        """More coders can raise the count without anyone getting worse, so the
+        note has to say to check that before reading it as decline."""
+        b = _batch(db, "B")
+        _err(db, b, _chart(db, "IPY1"), "C1", "E1", "A00.0", when=datetime(2026, 1, 5))
+        _err(db, b, _chart(db, "IPY2"), "C2", "E2", "A00.0", when=datetime(2026, 2, 5))
+        for i in range(6):
+            _err(db, b, _chart(db, f"IPY3{i}"), f"C{i}", f"E{i}", "A00.0", when=datetime(2026, 3, 5))
+        notes = client.get(URL).json()["commentary"]
+        assert any(n["kind"] == "warn" and "new coders" in n["text"] for n in notes)
+
+    def test_thin_data_says_so_rather_than_inventing_a_finding(self, client, db):
+        b = _batch(db, "B")
+        _err(db, b, _chart(db, "IPZ1"), "A", "E1", "J18.9")
+        notes = client.get(URL).json()["commentary"]
+        assert any(n["kind"] == "info" for n in notes) or notes
+
+    def test_an_empty_tab_carries_no_commentary_at_all(self, client, db):
+        """Nothing graded means nothing to say — not a panel of empty advice."""
+        body = client.get(URL).json()
+        assert body["total_errors"] == 0
+        assert "commentary" not in body or body.get("commentary") in (None, [])

@@ -473,14 +473,14 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
 
   const TABS = [
     { key: 'overview', label: 'Overview' },
-    { key: 'specialty', label: 'By Specialty' },
-    { key: 'batch', label: 'By Batch' },
+    { key: 'specialty', label: 'Specialty' },
+    { key: 'batch', label: 'Batches' },
     { key: 'coder', label: 'Coder Profile' },
     { key: 'category', label: 'Topic Mastery' },
     { key: 'teaching', label: 'Chart Signals' },
     { key: 'matrix', label: 'Coder Matrix' },
-    { key: 'chart', label: 'By Chart' },
-    { key: 'errors', label: 'Error Analysis' },
+    { key: 'chart', label: 'Chart Audit' },
+    { key: 'errors', label: 'Errors' },
     { key: 'em_mdm', label: 'E/M MDM' },
   ]
 
@@ -532,10 +532,22 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
         </button>
       </div>
 
-      <div style={{ display: 'flex', border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden', alignSelf: 'flex-start', flexWrap: 'wrap' }}>
+      {/* One row, always. Wrapping split the strip into two ragged lines that
+          read as two groups of tabs rather than one set — and the tab that
+          fell to the second line looked demoted. Tighter padding fits ten;
+          past that it scrolls sideways rather than wrapping, so the shape of
+          the control never changes. */}
+      <div style={{ display: 'flex', border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'auto', alignSelf: 'flex-start', maxWidth: '100%', flexWrap: 'nowrap' as const }}>
         {TABS.map(t => (
           <button key={t.key}
-            style={tab === t.key ? { ...styles.modeTab, background: '#4f46e5', color: '#fff', padding: '7px 16px' } : { ...styles.modeTab, padding: '7px 16px' }}
+            style={{
+              ...styles.modeTab,
+              padding: '7px 11px',
+              whiteSpace: 'nowrap' as const,
+              flexShrink: 0,
+              borderRight: '1px solid #e5e7eb',
+              ...(tab === t.key ? { background: '#4f46e5', color: '#fff' } : {}),
+            }}
             onClick={() => setTab(t.key as any)}>{t.label}</button>
         ))}
       </div>
@@ -1109,6 +1121,34 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
             </div>
           ) : (
             <>
+              {/* Commentary first. The charts show WHAT; this says what it
+                  means and what to do — which is the reason a trainer opened
+                  the tab. Each line clears a threshold before appearing, so
+                  it stays silent rather than narrating noise. */}
+              {d.commentary?.length > 0 && (
+                <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div style={sectionLabel}>What this is telling you</div>
+                  {d.commentary.map((n: any, i: number) => {
+                    const meta: Record<string, { c: string; bg: string; icon: string }> = {
+                      curriculum: { c: '#991b1b', bg: '#fee2e2', icon: '👥' },
+                      key:        { c: '#92400e', bg: '#fef3c7', icon: '🔑' },
+                      coaching:   { c: '#1d4ed8', bg: '#dbeafe', icon: '👤' },
+                      focus:      { c: '#3730a3', bg: '#eef2ff', icon: '◎' },
+                      good:       { c: '#166534', bg: '#dcfce7', icon: '↓' },
+                      warn:       { c: '#92400e', bg: '#fef3c7', icon: '↑' },
+                      info:       { c: '#374151', bg: '#f9fafb', icon: '·' },
+                    }
+                    const m = meta[n.kind] || meta.info
+                    return (
+                      <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', background: m.bg, border: `1px solid ${m.c}22`, borderRadius: 8, padding: '9px 12px' }}>
+                        <span style={{ fontSize: 13 }}>{m.icon}</span>
+                        <span style={{ fontSize: 12.5, color: m.c, lineHeight: 1.5 }}>{n.text}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+
               <div style={styles.statsRow}>
                 <Box label="Total Errors" value={d.total_errors} />
                 <Box label="Errors per Chart" value={d.errors_per_chart}
