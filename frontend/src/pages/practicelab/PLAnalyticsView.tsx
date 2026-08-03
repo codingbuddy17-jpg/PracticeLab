@@ -214,6 +214,9 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
   const MATRIX_COLS = 10
   const [matrixShowAllCols, setMatrixShowAllCols] = useState(false)
   const [matrixBelowOnly, setMatrixBelowOnly] = useState(false)
+  // What a column IS. Batches are events; specialties are buckets. Mixing the
+  // two on one axis makes unlike things look comparable.
+  const [matrixGroupBy, setMatrixGroupBy] = useState<'batch' | 'specialty'>('batch')
   const [heatmapCoderSearch, setHeatmapCoderSearch] = useState('')
   const [heatmapShowAll, setHeatmapShowAll] = useState(false)
   // Tab-local, like the Overview trend's picker: narrowing this tab should not
@@ -318,7 +321,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
     if ((tab === 'chart' || tab === 'category') && byChart.length === 0) getPLAnalyticsByChart(filters).then(setByChart).catch(() => {})
     if (tab === 'category' && !categoryData) getPLAnalyticsByCategory({ ...filters, specialty: topicSpecialty || filters.specialty }, scope).then(setCategoryData).catch(() => {})
     if (tab === 'teaching' && teachingData.length === 0) getPLChartTeachingValue(filters, scope).then(setTeachingData).catch(() => {})
-    if ((tab === 'matrix' || tab === 'coder') && !matrixData) getPLCoderMatrix(filters, scope).then(setMatrixData).catch(() => {})
+    if ((tab === 'matrix' || tab === 'coder') && !matrixData) getPLCoderMatrix(filters, scope, matrixGroupBy).then(setMatrixData).catch(() => {})
   }, [tab, filterVersion])
 
   // Topic Mastery honours the scope switch now, so a change has to refetch it
@@ -327,8 +330,8 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
   // assignments, so it could disagree with every other tab without saying so.
   useEffect(() => {
     if (tab === 'teaching') getPLChartTeachingValue(filters, scope).then(setTeachingData).catch(() => {})
-    if (tab === 'matrix') getPLCoderMatrix(filters, scope).then(setMatrixData).catch(() => {})
-  }, [scope, tab, filterVersion])
+    if (tab === 'matrix') getPLCoderMatrix(filters, scope, matrixGroupBy).then(setMatrixData).catch(() => {})
+  }, [scope, tab, filterVersion, matrixGroupBy])
 
   useEffect(() => {
     if (tab === 'category') {
@@ -1794,6 +1797,23 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' as const }}>
+                  {/* The column axis. Choosing it is the point: a batch is an
+                      event and a specialty is a bucket, so they cannot share
+                      one row of headers. */}
+                  <div style={{ display: 'flex', border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
+                    {([['batch', 'Columns: Batches'], ['specialty', 'Columns: Specialties']] as const).map(([k, label]) => (
+                      <button key={k} onClick={() => { setMatrixGroupBy(k); setMatrixShowAll(false); setMatrixShowAllCols(false) }}
+                        title={k === 'batch'
+                          ? 'Closed formal batches — each column a finished, comparable set'
+                          : 'One column per specialty — includes direct assignments when scope allows'}
+                        style={{ padding: '5px 12px', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700,
+                                 borderRight: k === 'specialty' ? 'none' : '1px solid #e5e7eb',
+                                 background: matrixGroupBy === k ? '#0f766e' : '#fff',
+                                 color: matrixGroupBy === k ? '#fff' : '#6b7280' }}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
                   {/* Finding who needs attention in a thousand rows is not a
                       scrolling job. */}
                   <button onClick={() => { setMatrixBelowOnly(v => !v); setMatrixShowAll(false) }}
@@ -1897,13 +1917,16 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                               /* The aggregated direct column is styled apart
                                  so it is not read as just another batch. */
                               <th key={b.id} onClick={() => toggleSort(String(b.id), matrixSort, setMatrixSort)}
-                                title={b.is_direct
-                                  ? 'All direct-assignment work, aggregated — one column per assignment would be hundreds holding a single cell'
-                                  : `${b.specialty}${b.pass_threshold ? ` · pass mark ${b.pass_threshold}%` : ''}`}
-                                style={{ padding: '7px 10px', background: b.is_direct ? '#ede9fe' : '#f9fafb', borderBottom: '2px solid #e5e7eb', whiteSpace: 'nowrap' as const, textAlign: 'center', fontWeight: 600, color: b.is_direct ? '#5b21b6' : '#374151', minWidth: 80, cursor: 'pointer', userSelect: 'none' as const }}>
+                                title={`${b.specialty}${b.pass_threshold ? ` · pass mark ${b.pass_threshold}%` : ''}`}
+                                style={{ padding: '7px 10px', background: '#f9fafb', borderBottom: '2px solid #e5e7eb', whiteSpace: 'nowrap' as const, textAlign: 'center', fontWeight: 600, color: '#374151', minWidth: 80, cursor: 'pointer', userSelect: 'none' as const }}>
                                 <div>{b.name.length > 14 ? b.name.slice(0, 14) + '…' : b.name}</div>
-                                <div style={{ fontSize: 10, fontWeight: 400, color: b.is_direct ? '#7c3aed' : '#9ca3af' }}>
-                                  {b.is_direct ? 'aggregated' : (b.closed_at ? new Date(b.closed_at).toLocaleDateString() : '')}
+                                {/* Specialty on every batch column, so two
+                                    columns are never compared without their
+                                    different pass marks being visible. */}
+                                <div style={{ fontSize: 10, fontWeight: 400, color: '#9ca3af' }}>
+                                  {matrixGroupBy === 'batch'
+                                    ? `${b.specialty}${b.pass_threshold ? ` · ${b.pass_threshold}%` : ''}`
+                                    : (b.pass_threshold ? `pass mark ${b.pass_threshold}%` : '')}
                                   {sortIcon(String(b.id), matrixSort)}
                                 </div>
                               </th>

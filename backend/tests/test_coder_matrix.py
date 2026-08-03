@@ -109,12 +109,15 @@ class TestScope:
         assert "closed" in note.lower()
 
 
-class TestDirectAssignments:
+class TestColumnAxisIsOneKindOfThing:
     """
-    Direct assignments cannot be columns — each is typically one chart for one
-    coder, so a column apiece would be hundreds of columns holding one cell.
-    Excluding them outright made a coder who works mainly that way look absent
-    from the grid with nothing explaining why. They aggregate into one column.
+    A column must be one KIND of thing. An earlier attempt appended a
+    "Direct work" column to a row of batches: a batch is an EVENT (one
+    specialty, one window, one closed set) and direct work is a BUCKET
+    (cumulative, possibly several specialties). Side by side they look
+    comparable and are not, which is worse than leaving the data out.
+
+    The axis is chosen instead: batches (events) or specialties (buckets).
     """
 
     @pytest.fixture()
@@ -126,34 +129,48 @@ class TestDirectAssignments:
         _result(db, direct, _chart(db, "IPD3"), 60)
         return formal, direct
 
-    def test_the_default_view_says_what_it_is_hiding(self, client, mixed):
+    def test_batch_columns_are_only_batches(self, client, mixed):
+        cols = client.get(URL).json()["batches"]
+        assert [c["name"] for c in cols] == ["Formal"]
+
+    def test_batch_view_says_what_it_cannot_show(self, client, mixed):
+        """Excluded because there is no comparable column, not because the
+        work does not matter — so it has to point somewhere."""
         body = client.get(URL).json()
         assert body["excluded_direct_results"] == 2
-        assert "not shown" in body["scope_note"]
+        assert "group by specialty" in body["scope_note"]
 
-    def test_scope_all_adds_one_aggregated_column(self, client, mixed):
-        cols = client.get(URL, params={"scope": "all"}).json()["batches"]
-        assert [c["name"] for c in cols] == ["Formal", "Direct work"]
-        assert cols[-1]["is_direct"] is True
+    def test_specialty_columns_make_every_column_comparable(self, client, mixed):
+        cols = client.get(URL, params={"group_by": "specialty"}).json()["batches"]
+        assert [c["name"] for c in cols] == ["IP-DRG"]
+        assert cols[0]["pass_threshold"] == 80
 
-    def test_the_direct_column_aggregates_the_whole_history(self, client, mixed):
-        body = client.get(URL, params={"scope": "all"}).json()
-        cell = next(c for c in body["cells"] if c["batch_id"] == -1)
-        assert cell["chart_count"] == 2, "both direct charts in one cell"
-        assert cell["avg_score"] == 50.0
+    def test_specialty_view_can_include_direct_work(self, client, mixed):
+        """A specialty bucket does not care which route the work arrived by."""
+        body = client.get(URL, params={"group_by": "specialty", "scope": "all"}).json()
+        cell = body["cells"][0]
+        assert cell["chart_count"] == 3, "one batch chart plus two direct"
 
-    def test_a_coder_with_only_direct_work_still_appears(self, client, db):
-        """The case that made this worth fixing."""
+    def test_specialty_view_still_defaults_to_batch_work(self, client, mixed):
+        body = client.get(URL, params={"group_by": "specialty"}).json()
+        assert body["cells"][0]["chart_count"] == 1
+
+    def test_a_coder_with_only_direct_work_is_reachable(self, client, db):
+        """The case that made the exclusion worth fixing at all."""
         d = _batch(db, "Direct Only", direct=True, status=BatchStatus.OPEN)
         _result(db, d, _chart(db, "IPD9"), 70, coder="Direct Only Coder", emp="E9")
         assert client.get(URL).json()["coders"] == []
-        body = client.get(URL, params={"scope": "all"}).json()
+        body = client.get(URL, params={"group_by": "specialty", "scope": "all"}).json()
         assert len(body["coders"]) == 1
 
-    def test_mixed_specialty_direct_work_gets_no_single_pass_mark(self, client, db):
+    def test_one_column_per_specialty_not_one_mixed_column(self, client, db):
         d = _batch(db, "D", direct=True, status=BatchStatus.OPEN)
         _result(db, d, _chart(db, "IPD5"), 85)
         _result(db, d, _chart(db, "SDSD1", Specialty.SDS), 85)
-        col = next(c for c in client.get(URL, params={"scope": "all"}).json()["batches"]
-                   if c["is_direct"])
-        assert col["pass_threshold"] is None
+        cols = client.get(URL, params={"group_by": "specialty", "scope": "all"}).json()["batches"]
+        assert [c["name"] for c in cols] == ["IP-DRG", "SDS"]
+        # Each carries its own bar, which a single mixed column could not.
+        assert [c["pass_threshold"] for c in cols] == [80, 90]
+
+    def test_a_bad_group_by_is_rejected(self, client):
+        assert client.get(URL, params={"group_by": "sideways"}).status_code == 400
