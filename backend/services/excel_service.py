@@ -1439,12 +1439,28 @@ def export_error_analysis(data: dict) -> bytes:
     w = _sheet("Codes",
                [("Code", 16), ("Times", 10), ("Coders", 10), ("Charts", 10),
                 ("Pattern", 14), ("What it means", 62), ("Section", 12),
-                ("Specialties", 22), ("Per Coder", 12), ("Last Seen", 13)],
-               codes,
+                ("Issue Mix", 34), ("Specialties", 22), ("Per Coder", 12), ("Last Seen", 13)],
+               [{**c, "issue_mix": " · ".join(f"{b['type'].replace('_', ' ')} {b['count']}"
+                                              for b in c.get("issue_breakdown") or [])}
+                for c in codes],
                ["code", "count", "coders_affected", "charts_affected", "pattern",
-                "pattern_reason", "top_section", "specialties", "per_coder", "last_seen"])
+                "pattern_reason", "top_section", "issue_mix", "specialties",
+                "per_coder", "last_seen"])
     for ri in range(2, len(codes) + 2):
         w.cell(ri, 6).alignment = Alignment(wrap_text=True, vertical="top")
+
+    # The evidence behind each verdict. On screen this opens one code at a
+    # time; in a sheet there is no reason to make someone click two hundred
+    # times, and "Team-wide" without the names is a claim you cannot check.
+    _sheet("Code by Coder",
+           [("Code", 16), ("Coder", 24), ("Emp ID", 14), ("Times", 10), ("Charts", 10)],
+           data.get("code_coders") or [],
+           ["code", "coder_name", "emp_id", "count", "charts"])
+    _sheet("Code by Chart",
+           [("Code", 16), ("Chart", 16), ("Specialty", 18), ("Topic", 22),
+            ("Times", 10), ("Coders", 10)],
+           data.get("code_charts") or [],
+           ["code", "chart_number", "specialty", "category", "count", "coders"])
 
     if data.get("trend"):
         _sheet("Trend", [("Month", 12), ("Errors", 12)],

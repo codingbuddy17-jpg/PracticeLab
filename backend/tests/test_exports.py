@@ -539,3 +539,37 @@ class TestErrorAnalysisExport:
     def test_an_issue_filter_narrows_the_export(self, client, errors):
         ws = _is_workbook(client.get(self.URL, params={"issue_type": "Over_coded"}))["Codes"]
         assert ws.cell(2, 1).value == "No data for the selected filters."
+
+    def test_the_drilldown_behind_each_verdict_is_exported(self, client, errors):
+        """
+        The Codes sheet says "Team-wide". Without the names behind it that is a
+        claim nobody can check, and on screen the drilldown opens one code at a
+        time — in a sheet there is no reason to make someone click 200 times.
+        """
+        wb = _is_workbook(client.get(self.URL))
+        assert "Code by Coder" in wb.sheetnames
+        assert "Code by Chart" in wb.sheetnames
+
+        ws = wb["Code by Coder"]
+        assert [c.value for c in ws[1]] == ["Code", "Coder", "Emp ID", "Times", "Charts"]
+        assert ws.max_row == 7, "six coders on J18.9, plus the header"
+        assert {ws.cell(r, 1).value for r in range(2, 8)} == {"J18.9"}
+
+    def test_code_by_chart_shows_where_a_code_concentrates(self, client, errors):
+        ws = _is_workbook(client.get(self.URL))["Code by Chart"]
+        headers = [c.value for c in ws[1]]
+        for expected in ("Code", "Chart", "Specialty", "Topic", "Times", "Coders"):
+            assert expected in headers
+        assert ws.max_row == 7, "six charts carrying J18.9"
+
+    def test_the_issue_mix_travels_with_each_code(self, client, errors):
+        """It sat under the expanded row on screen and was absent from the sheet."""
+        ws = _is_workbook(client.get(self.URL))["Codes"]
+        headers = [c.value for c in ws[1]]
+        assert "Issue Mix" in headers
+        row = {c.value: ws.cell(2, i + 1).value for i, c in enumerate(ws[1])}
+        assert row["Issue Mix"] == "Missed 6"
+
+    def test_the_drilldown_respects_the_filters(self, client, errors):
+        ws = _is_workbook(client.get(self.URL, params={"issue_type": "Over_coded"}))["Code by Coder"]
+        assert ws.cell(2, 1).value == "No data for the selected filters."

@@ -1479,8 +1479,54 @@ def error_analysis_export(
     data = analytics_error_analysis(
         from_date=from_date, to_date=to_date, specialty=specialty, scope=scope,
         section=section, issue_type=issue_type, code_search=code_search,
-        pattern=pattern, limit=200, offset=0, db=db,
+        pattern=pattern, limit=500, offset=0, db=db,
     )
+
+    # The per-code drilldown — who missed it and where. On screen this opens
+    # one code at a time, so the export was carrying the verdict without the
+    # evidence behind it: a sheet saying "Team-wide" with no way to see which
+    # team. Built once here rather than per code, since doing it per code
+    # would be one pass over every result for each of two hundred codes.
+    wanted = {c["code"] for c in data.get("codes") or []}
+    results = _with_details(_gr_base(db, from_date, to_date, specialty,
+                                     exclude_direct=(scope == "formal"))).join(Chart).all()
+    if scope == "direct":
+        results = [r for r in results if r.batch and r.batch.is_direct_assignment]
+
+    per_coder: dict = {}
+    per_chart: dict = {}
+    for r in results:
+        for f in r.feedback:
+            code = f.ak_code or f.coder_code
+            if code not in wanted:
+                continue
+            if section and f.section.value != section:
+                continue
+            if issue_type and f.issue_type.value != issue_type:
+                continue
+            ck = (code, r.emp_id or r.coder_name)
+            d = per_coder.setdefault(ck, {"code": code, "coder_name": r.coder_name,
+                                          "emp_id": r.emp_id, "count": 0, "charts": set()})
+            d["count"] += 1
+            d["charts"].add(r.chart.chart_number if r.chart else "")
+
+            hk = (code, r.chart.chart_number if r.chart else "—")
+            e = per_chart.setdefault(hk, {"code": code,
+                                          "chart_number": r.chart.chart_number if r.chart else "—",
+                                          "specialty": r.specialty.value if r.specialty else None,
+                                          "category": r.chart.category if r.chart else None,
+                                          "count": 0, "coders": set()})
+            e["count"] += 1
+            e["coders"].add(r.emp_id or r.coder_name)
+
+    data["code_coders"] = sorted(
+        [{**{k: v for k, v in d.items() if k != "charts"}, "charts": len(d["charts"])}
+         for d in per_coder.values()],
+        key=lambda x: (x["code"], -x["count"]))
+    data["code_charts"] = sorted(
+        [{**{k: v for k, v in e.items() if k != "coders"}, "coders": len(e["coders"])}
+         for e in per_chart.values()],
+        key=lambda x: (x["code"], -x["count"]))
     name = f"Error_Analysis{'_' + specialty.replace('/', '-') if specialty else ''}.xlsx"
     return StreamingResponse(
         io.BytesIO(export_error_analysis(data)),
