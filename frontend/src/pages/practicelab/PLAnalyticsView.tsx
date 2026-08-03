@@ -22,13 +22,19 @@ import styles from './styles'
 // the per-chart pass_threshold, which is a score and a different scale.
 const PASS_RATE_TARGET = 70
 
+/**
+ * What each label means. These describe the rule the backend actually applies;
+ * "Too Easy" previously claimed "avg ≥90%" while the real cutoff is derived
+ * from the chart's own pass mark — 90 for an IP chart, 95 for an OP one. A
+ * legend that disagrees with the labelling is worse than no legend.
+ */
 const TEACHING_LABEL_META: Record<string, { color: string; bg: string; desc: string }> = {
-  'High Yield':    { color: '#166534', bg: '#dcfce7', desc: 'Commonly attempted, produces meaningful repeatable mistakes' },
-  'High Confusion':{ color: '#92400e', bg: '#fef3c7', desc: '>60% fail rate with diverse error types — review answer key' },
-  'High Fail':     { color: '#991b1b', bg: '#fee2e2', desc: 'High failure rate, low error variety' },
-  'Too Easy':      { color: '#1d4ed8', bg: '#dbeafe', desc: 'Avg score ≥90% — suitable for beginner packs' },
-  'Underused':     { color: '#6b7280', bg: '#f3f4f6', desc: 'Fewer than 2 grading attempts' },
-  'Standard':      { color: '#374151', bg: '#f9fafb', desc: 'Typical performance range' },
+  'High Confusion':{ color: '#92400e', bg: '#fef3c7', desc: 'Under half of attempts pass AND 3+ different codes are missed — the chart or its key may be ambiguous' },
+  'High Fail':     { color: '#991b1b', bg: '#fee2e2', desc: 'Under half of attempts pass, but coders miss the same few codes — a genuine difficulty, not confusion' },
+  'High Yield':    { color: '#166534', bg: '#dcfce7', desc: '50–80% of attempts pass with 2+ different codes missed — hard enough to teach from, not so hard it defeats everyone' },
+  'Standard':      { color: '#374151', bg: '#f9fafb', desc: 'Typical performance — no strong teaching signal either way' },
+  'Too Easy':      { color: '#1d4ed8', bg: '#dbeafe', desc: 'Average well above this chart\u2019s pass mark — suitable for beginner packs' },
+  'Underused':     { color: '#6b7280', bg: '#f3f4f6', desc: 'Fewer than 2 graded attempts — not enough to judge' },
 }
 
 // Below this many graded charts, a percentage is one result away from moving
@@ -271,12 +277,18 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
   useEffect(() => {
     if ((tab === 'chart' || tab === 'category') && byChart.length === 0) getPLAnalyticsByChart(filters).then(setByChart).catch(() => {})
     if (tab === 'category' && !categoryData) getPLAnalyticsByCategory({ ...filters, specialty: topicSpecialty || filters.specialty }, scope).then(setCategoryData).catch(() => {})
-    if (tab === 'teaching' && teachingData.length === 0) getPLChartTeachingValue(filters).then(setTeachingData).catch(() => {})
+    if (tab === 'teaching' && teachingData.length === 0) getPLChartTeachingValue(filters, scope).then(setTeachingData).catch(() => {})
     if ((tab === 'matrix' || tab === 'coder') && !matrixData) getPLCoderMatrix(filters).then(setMatrixData).catch(() => {})
   }, [tab, filterVersion])
 
   // Topic Mastery honours the scope switch now, so a change has to refetch it
   // rather than leaving stale rows under a new scope label.
+  // Teaching Value honours the scope switch now — it always excluded direct
+  // assignments, so it could disagree with every other tab without saying so.
+  useEffect(() => {
+    if (tab === 'teaching') getPLChartTeachingValue(filters, scope).then(setTeachingData).catch(() => {})
+  }, [scope, tab, filterVersion])
+
   useEffect(() => {
     if (tab === 'category') {
       getPLAnalyticsByCategory({ ...filters, specialty: topicSpecialty || filters.specialty }, scope)
@@ -352,7 +364,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
     { key: 'batch', label: 'By Batch' },
     { key: 'coder', label: 'Coder Profile' },
     { key: 'category', label: 'Topic Mastery' },
-    { key: 'teaching', label: 'Chart Value' },
+    { key: 'teaching', label: 'Teaching Value' },
     { key: 'matrix', label: 'Coder Matrix' },
     { key: 'chart', label: 'By Chart' },
     { key: 'em_mdm', label: 'E/M MDM' },
@@ -422,7 +434,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
           driven by the same state: it lived inside Overview, so By Specialty
           silently inherited whatever had been picked there with nothing on
           screen saying so. */}
-      {(tab === 'overview' || tab === 'specialty' || tab === 'batch' || tab === 'category') && (
+      {(tab === 'overview' || tab === 'specialty' || tab === 'batch' || tab === 'category' || tab === 'teaching') && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' as const, marginBottom: 16 }}>
           <div style={{ display: 'flex', border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
             {([['formal', 'Batches'], ['direct', 'Direct Assignments'], ['all', 'Both']] as const).map(([k, label]) => (
@@ -1428,7 +1440,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                                   <div key={c.coder_name} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #f3f4f6', fontSize: 12 }}>
                                     {coderLink(c.coder_name)}
                                     <span style={{ color: '#6b7280' }}>{c.attempt_count} charts</span>
-                                    <span style={{ fontWeight: 700, color: sc(c.avg_score) }}>{c.avg_score}%</span>
+                                    <span style={{ fontWeight: 700, color: sc(c.avg_score, c.specialty) }}>{c.avg_score}%</span>
                                   </div>
                                 ))}
                                 {catCoders.length > 10 && (
@@ -1669,7 +1681,9 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                             <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 6 }}>{c.specialty} · {c.category}</div>
                             <div style={{ display: 'flex', gap: 12, fontSize: 12 }}>
                               <span><b style={{ color: '#111' }}>{c.attempt_count}</b> attempts</span>
-                              <span><b style={{ color: sc(c.avg_score) }}>{c.avg_score}%</b> avg</span>
+                              <span title={c.pass_threshold ? `Pass mark ${c.pass_threshold}%` : undefined}>
+                                <b style={{ color: cc(c.avg_score, c.pass_threshold) }}>{c.avg_score}%</b> avg
+                              </span>
                               <span><b style={{ color: rc(c.pass_rate) }}>{c.pass_rate}%</b> pass</span>
                             </div>
                             {c.error_variety > 0 && <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>{c.error_variety} distinct error type{c.error_variety > 1 ? 's' : ''}</div>}

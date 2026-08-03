@@ -328,8 +328,8 @@ export async function getPLAnalyticsByCategory(f: PLFilters = {}, scope: 'formal
   return data as { team: any[]; coder_category: any[] }
 }
 
-export async function getPLChartTeachingValue(f: PLFilters = {}) {
-  const { data } = await api.get('/practicelab/analytics/chart-teaching-value', { params: fp(f) })
+export async function getPLChartTeachingValue(f: PLFilters = {}, scope: 'formal' | 'direct' | 'all' = 'formal') {
+  const { data } = await api.get('/practicelab/analytics/chart-teaching-value', { params: { ...fp(f), scope } })
   return data as any[]
 }
 

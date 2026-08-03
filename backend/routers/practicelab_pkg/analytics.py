@@ -911,21 +911,50 @@ def analytics_by_category(
     }
 
 
+# What a teaching label means, in one place, so the UI describes the rule that
+# actually ran rather than a remembered version of it.
+TEACHING_MIN_ATTEMPTS = 2          # below this, one result decides the label
+TEACHING_YIELD_MIN_ATTEMPTS = 3
+TEACHING_FAIL_SHARE = 50           # share of attempts passing, NOT a score
+TEACHING_STRONG_SHARE = 80
+
+
 @router.get("/analytics/chart-teaching-value")
 def analytics_chart_teaching_value(
     from_date: Optional[str] = None, to_date: Optional[str] = None, specialty: Optional[str] = None,
+    scope: str = "formal",
     db: Session = Depends(get_db),
 ):
-    results = _gr_base(db, from_date, to_date, specialty, exclude_direct=True).join(Chart).all()
+    """
+    Which charts are worth teaching with, from what coders actually did on them.
+
+    Two things this gets right that it previously did not:
+
+    ONE THRESHOLD PER CHART, not one per request. The rule used to pick a
+    single IP-or-OP threshold for the whole response based on whether ANY
+    IP result was present — so in an all-specialty view every SDS and Surgery
+    chart was labelled against IP's 80 when their own bar is 90. A chart's
+    label is now decided by its own specialty's pass mark.
+
+    SHARES COMPARED TO SHARES. "How many attempts passed" is a population
+    figure; the pass threshold is a per-chart score. The old rule compared them
+    directly (`pass_rate <= tv_threshold`), which is the same units error that
+    coloured healthy specialties red on the Overview tab — it just labelled
+    charts instead of colouring them.
+    """
+    scope = (scope or "formal").lower()
+    if scope not in ("formal", "direct", "all"):
+        raise HTTPException(status_code=400, detail="scope must be formal, direct or all")
+
+    results = _gr_base(db, from_date, to_date, specialty,
+                       exclude_direct=(scope == "formal")).join(Chart).all()
+    if scope == "direct":
+        results = [r for r in results if r.batch and r.batch.is_direct_assignment]
 
     if not results:
         return []
 
-    # Use specialty-appropriate pass threshold for teaching value labels
-    has_ip = any(r.specialty and r.specialty.value == "IP-DRG" for r in results)
-    spec_type = "IP" if (has_ip and not specialty) or (specialty and specialty == "IP-DRG") else "OP"
-    tv_cfg = db.query(ScoringConfig).filter(ScoringConfig.specialty_type == spec_type).first()
-    tv_threshold = (tv_cfg.pass_threshold or 80) if tv_cfg else 80
+    thresholds = _pass_thresholds(db)
 
     chart_map: dict = {}
     for r in results:
@@ -954,17 +983,20 @@ def analytics_chart_teaching_value(
         error_variety = len(d["error_variety"])
         attempts = d["total"]
 
-        high_cutoff = tv_threshold + max(5, (100 - tv_threshold) // 2)
-        low_cutoff = tv_threshold * 60 // 100  # ~60% of threshold = fail zone
-        if attempts < 2:
+        # This chart's own pass mark, not the request's.
+        pt = thresholds.get(d["specialty"]) or 80
+        too_easy_at = pt + max(5, (100 - pt) // 2)
+
+        if attempts < TEACHING_MIN_ATTEMPTS:
             label = "Underused"
-        elif avg >= high_cutoff:
+        elif avg >= too_easy_at:
             label = "Too Easy"
-        elif pass_rate < low_cutoff and error_variety >= 3:
+        elif pass_rate < TEACHING_FAIL_SHARE and error_variety >= 3:
             label = "High Confusion"
-        elif low_cutoff <= pass_rate <= tv_threshold and error_variety >= 2 and attempts >= 3:
+        elif (TEACHING_FAIL_SHARE <= pass_rate <= TEACHING_STRONG_SHARE
+              and error_variety >= 2 and attempts >= TEACHING_YIELD_MIN_ATTEMPTS):
             label = "High Yield"
-        elif pass_rate < low_cutoff:
+        elif pass_rate < TEACHING_FAIL_SHARE:
             label = "High Fail"
         else:
             label = "Standard"
@@ -979,9 +1011,17 @@ def analytics_chart_teaching_value(
             "attempt_count": attempts,
             "error_variety": error_variety,
             "teaching_label": label,
+            # The bar this chart was judged against, so the UI can colour and
+            # explain it without re-deriving a rule it might get wrong.
+            "pass_threshold": pt,
+            "too_easy_at": too_easy_at,
         })
 
-    return sorted(out, key=lambda x: (x["teaching_label"], -x["attempt_count"]))
+    # Ordered by what a trainer should look at first. Alphabetical put
+    # "High Confusion" above "High Yield" for no reason beyond the letter C.
+    priority = {"High Confusion": 0, "High Fail": 1, "High Yield": 2,
+                "Standard": 3, "Too Easy": 4, "Underused": 5}
+    return sorted(out, key=lambda x: (priority.get(x["teaching_label"], 9), -x["attempt_count"]))
 
 
 @router.get("/analytics/coder-matrix")
