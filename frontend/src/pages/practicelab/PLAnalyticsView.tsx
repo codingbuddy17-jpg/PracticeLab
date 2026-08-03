@@ -471,12 +471,16 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
    * year ago is still a row. Searching a client-side slice would stop finding
    * things exactly when the list got long enough to need searching.
    */
-  function loadErrors(page = errorPage) {
+  function loadErrors() {
     return getPLErrorAnalysis(filters, scope, {
       section: errorSection, issueType: errorIssue,
       codeSearch: errorSearch, pattern: errorPattern,
-      limit: page * ERROR_PAGE,
-    }).then(setErrorData).catch(() => {})
+      limit: 200,
+    })
+      .then(setErrorData)
+      // Was swallowed. A failed refetch left the previous, shorter response on
+      // screen with nothing to say so — which reads as data disappearing.
+      .catch(() => toast.error('Could not load error analysis'))
   }
 
   // Debounced — a code search should not fire a request per keystroke.
@@ -484,7 +488,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
     if (tab !== 'errors') return
     const t = setTimeout(() => loadErrors(), 250)
     return () => clearTimeout(t)
-  }, [errorSearch, errorPattern, errorPage, errorSection, errorIssue])
+  }, [errorSearch, errorPattern, errorSection, errorIssue])
 
   function toggleCodeDetail(code: string) {
     if (expandedCode === code) { setExpandedCode(null); return }
@@ -1163,10 +1167,13 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
           'One coder': { color: '#1d4ed8', bg: '#dbeafe' },
           'Scattered': { color: '#6b7280', bg: '#f3f4f6' },
         }
-        // What arrives IS the page — searched, pattern-filtered and cut on
-        // the server. Filtering again here would only hide rows it chose to send.
-        const codes = d?.codes ?? []
-        const matching = d?.matching_codes ?? codes.length
+        // Search and pattern ran on the server, so they reach every code, not
+        // just the loaded ones. Paging is back in the browser: it is instant,
+        // and no round trip can fail halfway through and look like a shorter
+        // list.
+        const returned = d?.codes ?? []
+        const codes = returned.slice(0, errorPage * ERROR_PAGE)
+        const matching = d?.matching_codes ?? returned.length
         return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
@@ -1397,9 +1404,9 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                   )
                 })}
               </div>
-              {matching > codes.length && (
+              {returned.length > codes.length && (
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
-                  <span style={{ fontSize: 11, color: '#9ca3af' }}>{matching - codes.length} more</span>
+                  <span style={{ fontSize: 11, color: '#9ca3af' }}>{returned.length - codes.length} more</span>
                   <button onClick={() => setErrorPage(n => n + 1)} style={{ ...styles.outlineBtn, fontSize: 12, padding: '5px 14px' }}>
                     Load more
                   </button>

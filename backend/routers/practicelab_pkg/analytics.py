@@ -1117,7 +1117,7 @@ def analytics_error_analysis(
     from_date: Optional[str] = None, to_date: Optional[str] = None, specialty: Optional[str] = None,
     scope: str = "formal", section: Optional[str] = None, issue_type: Optional[str] = None,
     code_search: Optional[str] = None, pattern: Optional[str] = None,
-    limit: int = 25, offset: int = 0,
+    limit: int = 200, offset: int = 0,
     db: Session = Depends(get_db),
 ):
     """
@@ -1234,8 +1234,12 @@ def analytics_error_analysis(
     if pattern:
         filtered = [c for c in filtered if c["pattern"] == pattern]
 
+    # Default 200, as before server-side paging existed. Paging down to 25 per
+    # request made every "Load more" a round trip that could fail quietly and
+    # look like a shorter list — the search and filter now run here, which was
+    # the actual point, and the page size does not need to be small to get it.
     matching_codes = len(filtered)
-    limit = max(1, min(limit, 200))
+    limit = max(1, min(limit, 500))
     page = filtered[offset:offset + limit]
 
     # Counts for the pattern chips, over the whole set rather than the page —

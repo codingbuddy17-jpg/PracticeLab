@@ -497,3 +497,42 @@ class TestZeroErrorSpecialty:
         texts = " ".join(n["text"] for n in client.get(URL).json()["commentary"])
         assert "no recorded errors at all" in texts
         assert "SDS" in texts and "IP-DRG" in texts
+
+
+class TestNothingIsHeldBackByDefault:
+    """
+    The code list must not shrink because of how it is fetched. Paging down to
+    25 per request turned every "Load more" into a round trip that could fail
+    quietly and leave a shorter list on screen with nothing explaining it.
+    """
+
+    def test_the_default_request_returns_the_whole_set(self, client, db):
+        b = _batch(db, "B")
+        for i in range(60):
+            _err(db, b, _chart(db, f"IPFULL{i}"), f"C{i}", f"E{i}", f"Z{i:03d}")
+        body = client.get(URL).json()
+        assert len(body["codes"]) == 60
+        assert body["total_codes"] == 60
+        assert body["matching_codes"] == 60
+
+    def test_search_still_reaches_the_whole_set(self, client, db):
+        """The reason paging moved server-side in the first place — keep it."""
+        b = _batch(db, "B")
+        for i in range(60):
+            _err(db, b, _chart(db, f"IPSCH{i}"), f"C{i}", f"E{i}", f"Z{i:03d}")
+        body = client.get(URL, params={"code_search": "Z059"}).json()
+        assert [c["code"] for c in body["codes"]] == ["Z059"]
+
+    def test_commentary_is_unaffected_by_the_code_page(self, client, db):
+        """
+        Insights are computed over every code, not the returned slice — a
+        smaller page must never mean fewer findings.
+        """
+        b = _batch(db, "B")
+        for i in range(6):
+            _err(db, b, _chart(db, f"IPCOM{i}"), f"C{i}", f"E{i}", "J18.9")
+        for i in range(40):
+            _err(db, b, _chart(db, f"IPPAD{i}"), f"D{i}", f"F{i}", f"Y{i:03d}")
+        full = client.get(URL).json()["commentary"]
+        paged = client.get(URL, params={"limit": 5}).json()["commentary"]
+        assert [n["text"] for n in full] == [n["text"] for n in paged]
