@@ -239,6 +239,31 @@ def analytics_by_specialty(
             )
             .group_by(GradingResult.specialty)
             .all())
+
+    # A CODER pass rate as well as a chart one. They answer different questions
+    # and the banner needs the second: "50% of charts passed" describes the
+    # work, "3 of 8 coders passed" describes the people you would train.
+    #
+    # A coder passes by passing MORE THAN HALF their charts — the same majority
+    # rule the batch results screen uses. Grouped in SQL by coder identity, so
+    # this stays one query rather than loading every result.
+    ident = func.coalesce(GradingResult.emp_id, GradingResult.coder_name)
+    per_coder = (base.with_entities(
+                     GradingResult.specialty,
+                     ident.label("cid"),
+                     func.count(GradingResult.id).label("n"),
+                     func.sum(func.cast(GradingResult.pass_fail == PassFail.PASS, Integer)).label("p"),
+                 )
+                 .group_by(GradingResult.specialty, ident)
+                 .all())
+    coder_tally: dict = {}
+    for r in per_coder:
+        if not r.specialty:
+            continue
+        t = coder_tally.setdefault(r.specialty.value, {"coders": 0, "passed": 0})
+        t["coders"] += 1
+        if (r.p or 0) > (r.n or 0) / 2:
+            t["passed"] += 1
     return [
         {
             "specialty": r.specialty.value,
@@ -248,6 +273,14 @@ def analytics_by_specialty(
             # summaries report a CODER pass rate under the same key.
             "pass_rate": round(float(r.passed or 0) / r.total * 100, 1) if r.total else 0,
             "pass_rate_basis": "chart",
+            "coders": coder_tally.get(r.specialty.value, {}).get("coders", 0),
+            "coders_passed": coder_tally.get(r.specialty.value, {}).get("passed", 0),
+            "coder_pass_rate": (
+                round(coder_tally[r.specialty.value]["passed"]
+                      / coder_tally[r.specialty.value]["coders"] * 100, 1)
+                if coder_tally.get(r.specialty.value, {}).get("coders") else 0
+            ),
+            "coder_pass_rule": "majority of charts passed",
         }
         for r in rows
     ]

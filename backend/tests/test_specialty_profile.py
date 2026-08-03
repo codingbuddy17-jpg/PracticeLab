@@ -229,3 +229,74 @@ class TestStanding:
         assert body["standing"]["peers"] == 2
         assert body["standing"]["rank_by_avg_score"] == 2, "40 is behind 95"
         assert body["standing"]["peer_avg_score"] == 67.5
+
+
+class TestCoderPassRateBySpecialty:
+    """
+    The Needs-attention banner reports COoDERS, not charts. They answer
+    different questions and can disagree sharply: "50% of charts passed"
+    describes the work; "3 of 8 coders passed" describes the people you would
+    put in a room, which is what an attention banner is for.
+
+    A coder passes by passing MORE THAN HALF their charts — the same majority
+    rule the batch results screen uses.
+    """
+
+    URL = "/practicelab/analytics/by-specialty"
+
+    def _row(self, client):
+        return next(r for r in client.get(self.URL).json() if r["specialty"] == "IP-DRG")
+
+    def test_the_two_rates_can_disagree(self, client, db):
+        """
+        One coder passing 2 of 3 charts: 66.7% of charts, but 100% of coders.
+        Reporting the chart figure as though it were people is the error this
+        exists to prevent.
+        """
+        b = _batch(db, "B")
+        _result(db, b, _chart(db, "IPB1", key=True), "Asha R", "E1", 90)
+        _result(db, b, _chart(db, "IPB2", key=True), "Asha R", "E1", 90)
+        _result(db, b, _chart(db, "IPB3", key=True), "Asha R", "E1", 10)
+        row = self._row(client)
+        assert row["pass_rate"] == pytest.approx(66.7, abs=0.1)
+        assert row["coder_pass_rate"] == 100.0
+        assert row["coders_passed"] == 1 and row["coders"] == 1
+
+    def test_a_coder_failing_the_majority_does_not_pass(self, client, db):
+        b = _batch(db, "B")
+        _result(db, b, _chart(db, "IPB4", key=True), "A", "E1", 90)
+        _result(db, b, _chart(db, "IPB5", key=True), "A", "E1", 10)
+        _result(db, b, _chart(db, "IPB6", key=True), "A", "E1", 10)
+        row = self._row(client)
+        assert row["coders_passed"] == 0
+        assert row["coder_pass_rate"] == 0.0
+
+    def test_exactly_half_is_not_a_majority(self, client, db):
+        b = _batch(db, "B")
+        _result(db, b, _chart(db, "IPB7", key=True), "A", "E1", 90)
+        _result(db, b, _chart(db, "IPB8", key=True), "A", "E1", 10)
+        assert self._row(client)["coders_passed"] == 0
+
+    def test_coders_are_counted_by_emp_id(self, client, db):
+        """Two spellings of one person must not double the denominator."""
+        b = _batch(db, "B")
+        _result(db, b, _chart(db, "IPB9", key=True), "Asha R", "E1", 90)
+        _result(db, b, _chart(db, "IPB10", key=True), "asha  r", "E1", 90)
+        row = self._row(client)
+        assert row["coders"] == 1
+
+    def test_the_rule_is_named_in_the_payload(self, client, db):
+        b = _batch(db, "B")
+        _result(db, b, _chart(db, "IPB11", key=True), "A", "E1", 90)
+        assert self._row(client)["coder_pass_rule"] == "majority of charts passed"
+
+    def test_several_coders_are_tallied_independently(self, client, db):
+        b = _batch(db, "B")
+        for i in range(3):                       # three pass outright
+            _result(db, b, _chart(db, f"IPP{i}", key=True), f"Good {i}", f"G{i}", 95)
+        for i in range(2):                       # two fail outright
+            _result(db, b, _chart(db, f"IPF{i}", key=True), f"Weak {i}", f"W{i}", 20)
+        row = self._row(client)
+        assert row["coders"] == 5
+        assert row["coders_passed"] == 3
+        assert row["coder_pass_rate"] == 60.0

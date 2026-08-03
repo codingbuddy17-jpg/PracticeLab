@@ -742,7 +742,13 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                   const out: string[] = []
                   const pt = thresholdFor(s.specialty)
                   if (s.avg_score < pt) out.push(`average score ${s.avg_score}% is below the ${pt}% pass mark`)
-                  if (s.pass_rate < PASS_RATE_TARGET) out.push(`only ${s.pass_rate}% of charts passed`)
+                  // Coders, not charts. "50% of charts passed" describes the
+                  // work; "3 of 8 coders passed" describes the people you would
+                  // put in a room — which is what an attention banner is for.
+                  // A coder passes by passing more than half their charts.
+                  if (s.coders > 0 && s.coder_pass_rate < PASS_RATE_TARGET) {
+                    out.push(`only ${s.coders_passed} of ${s.coders} coders passed (${s.coder_pass_rate}%)`)
+                  }
                   return out
                 }
                 const atRisk = bySpecialty
@@ -755,7 +761,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                     {atRisk.map((s: any) => (
                       <div key={s.specialty} style={{ fontSize: 13, color: '#92400e' }}>
                         <strong>{s.specialty}</strong> — {s.why.join('; ')}
-                        {s.pass_rate < 50 && <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, background: '#fecaca', color: '#991b1b', padding: '1px 8px', borderRadius: 10 }}>Critical</span>}
+                        {s.coder_pass_rate < 50 && s.coders > 0 && <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, background: '#fecaca', color: '#991b1b', padding: '1px 8px', borderRadius: 10 }}>Critical</span>}
                       </div>
                     ))}
                   </div>
