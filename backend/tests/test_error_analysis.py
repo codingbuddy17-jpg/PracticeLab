@@ -130,7 +130,10 @@ class TestFilters:
         b = _batch(db, "B")
         _err(db, b, _chart(db, "IPN1"), "A", "E1", "J18.9", issue="Missed")
         _err(db, b, _chart(db, "IPN2"), "A", "E1", "27447", issue="Over_coded")
-        body = client.get(URL, params={"issue_type": "Over_coded"}).json()
+        # A single occurrence is "Scattered", which is held back by default —
+        # ask for it to prove the issue filter itself works.
+        body = client.get(URL, params={"issue_type": "Over_coded",
+                                       "include_scattered": True}).json()
         assert body["total_errors"] == 1
         assert body["codes"][0]["code"] == "27447"
 
@@ -506,11 +509,15 @@ class TestNothingIsHeldBackByDefault:
     quietly and leave a shorter list on screen with nothing explaining it.
     """
 
-    def test_the_default_request_returns_the_whole_set(self, client, db):
+    def test_the_default_request_returns_the_whole_actionable_set(self, client, db):
+        """
+        No cap on what comes back — but codes seen once each are "Scattered"
+        and held out of the default view, so this asks for them.
+        """
         b = _batch(db, "B")
         for i in range(60):
             _err(db, b, _chart(db, f"IPFULL{i}"), f"C{i}", f"E{i}", f"Z{i:03d}")
-        body = client.get(URL).json()
+        body = client.get(URL, params={"include_scattered": True}).json()
         assert len(body["codes"]) == 60
         assert body["total_codes"] == 60
         assert body["matching_codes"] == 60
@@ -536,3 +543,59 @@ class TestNothingIsHeldBackByDefault:
         full = client.get(URL).json()["commentary"]
         paged = client.get(URL, params={"limit": 5}).json()["commentary"]
         assert [n["text"] for n in full] == [n["text"] for n in paged]
+
+
+class TestScatteredHeldBack:
+    """
+    "Scattered" is the endpoint's own label for too few occurrences to call a
+    pattern — by definition the rows a trainer cannot act on. On real data they
+    are most of the list and none of the decisions, so they are held back by
+    default. Held back, never dropped: the count is always reported.
+    """
+
+    @pytest.fixture()
+    def mixed(self, db):
+        b = _batch(db, "B")
+        for i in range(5):                       # actionable: team-wide
+            _err(db, b, _chart(db, f"IPACT{i}"), f"C{i}", f"E{i}", "J18.9")
+        for i in range(30):                      # noise: one sighting each
+            _err(db, b, _chart(db, f"IPNOI{i}"), f"D{i}", f"F{i}", f"N{i:03d}")
+        return b
+
+    def test_the_default_view_holds_scattered_back(self, client, mixed):
+        body = client.get(URL).json()
+        assert [c["code"] for c in body["codes"]] == ["J18.9"]
+        assert body["scattered_hidden"] is True
+
+    def test_the_hidden_count_is_always_reported(self, client, mixed):
+        """Nothing may be missing without the screen saying so."""
+        assert client.get(URL).json()["scattered_codes"] == 30
+
+    def test_they_can_be_shown(self, client, mixed):
+        body = client.get(URL, params={"include_scattered": True}).json()
+        assert len(body["codes"]) == 31
+        assert body["scattered_hidden"] is False
+
+    def test_search_finds_a_scattered_code_without_asking(self, client, mixed):
+        """
+        Looking up a code and being told it does not exist — because it
+        happened twice — would be worse than a long list. An explicit search
+        is not overruled.
+        """
+        body = client.get(URL, params={"code_search": "N007"}).json()
+        assert [c["code"] for c in body["codes"]] == ["N007"]
+
+    def test_picking_the_scattered_pattern_shows_them(self, client, mixed):
+        body = client.get(URL, params={"pattern": "Scattered"}).json()
+        assert len(body["codes"]) == 30
+
+    def test_totals_still_count_everything(self, client, mixed):
+        """Hiding rows must not change the arithmetic above them."""
+        body = client.get(URL).json()
+        assert body["total_codes"] == 31
+        assert body["total_errors"] == 35
+
+    def test_commentary_still_sees_every_code(self, client, mixed):
+        with_them = client.get(URL, params={"include_scattered": True}).json()["commentary"]
+        without = client.get(URL).json()["commentary"]
+        assert [n["text"] for n in with_them] == [n["text"] for n in without]

@@ -533,7 +533,9 @@ class TestErrorAnalysisExport:
             db.add(GradingFeedback(result_id=r.id, section="SDx", issue_type="Missed",
                                    ak_code=f"Q{i:03d}", coder_code=None, detail=""))
             db.commit()
-        ws = _is_workbook(client.get(self.URL))["Codes"]
+        # Those 40 are one-sighting codes — "Scattered", held back by default
+        # in the app and therefore in the export too. Ask for them.
+        ws = _is_workbook(client.get(self.URL, params={"include_scattered": True}))["Codes"]
         assert ws.max_row > 26, "more than one page of codes"
 
     def test_an_issue_filter_narrows_the_export(self, client, errors):

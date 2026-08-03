@@ -1117,6 +1117,7 @@ def analytics_error_analysis(
     from_date: Optional[str] = None, to_date: Optional[str] = None, specialty: Optional[str] = None,
     scope: str = "formal", section: Optional[str] = None, issue_type: Optional[str] = None,
     code_search: Optional[str] = None, pattern: Optional[str] = None,
+    include_scattered: bool = False,
     limit: int = 200, offset: int = 0,
     db: Session = Depends(get_db),
 ):
@@ -1228,6 +1229,18 @@ def analytics_error_analysis(
     #
     # Search and pattern therefore run HERE, before the cut.
     filtered = code_rows
+    # "Scattered" means too few occurrences to call a pattern — by definition
+    # the rows a trainer cannot act on. They are most of the list on real data
+    # and none of the decisions, so they are held back rather than dropped, and
+    # the count is always reported.
+    #
+    # Searching or picking a pattern is an explicit request, so neither is
+    # overruled: looking up a code and being told it does not exist — because
+    # it happened twice — would be worse than a long list.
+    scattered_count = sum(1 for c in code_rows if c["pattern"] == "Scattered")
+    asked_for_specifics = bool(pattern) or bool(code_search and code_search.strip())
+    if not include_scattered and not asked_for_specifics:
+        filtered = [c for c in filtered if c["pattern"] != "Scattered"]
     if code_search and code_search.strip():
         term = code_search.strip().lower()
         filtered = [c for c in filtered if term in c["code"].lower()]
@@ -1451,6 +1464,8 @@ def analytics_error_analysis(
         # thousand codes.
         "total_codes": len(code_rows),
         "matching_codes": matching_codes,
+        "scattered_codes": scattered_count,
+        "scattered_hidden": (not include_scattered) and not asked_for_specifics,
         "returned_codes": len(page),
         "pattern_counts": dict(pattern_counts),
         "trend": trend,
@@ -1463,6 +1478,7 @@ def error_analysis_export(
     from_date: Optional[str] = None, to_date: Optional[str] = None, specialty: Optional[str] = None,
     scope: str = "formal", section: Optional[str] = None, issue_type: Optional[str] = None,
     code_search: Optional[str] = None, pattern: Optional[str] = None,
+    include_scattered: bool = False,
     db: Session = Depends(get_db),
 ):
     """
@@ -1479,7 +1495,8 @@ def error_analysis_export(
     data = analytics_error_analysis(
         from_date=from_date, to_date=to_date, specialty=specialty, scope=scope,
         section=section, issue_type=issue_type, code_search=code_search,
-        pattern=pattern, limit=500, offset=0, db=db,
+        pattern=pattern, include_scattered=include_scattered,
+        limit=500, offset=0, db=db,
     )
 
     # The per-code drilldown — who missed it and where. On screen this opens

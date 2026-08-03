@@ -559,6 +559,7 @@ export function downloadChartSignalsXlsx(f: PLFilters = {}, scope = 'formal') {
 export async function getPLErrorAnalysis(f: PLFilters = {}, scope = 'formal',
                                          opts: { section?: string; issueType?: string;
                                                  codeSearch?: string; pattern?: string;
+                                                 includeScattered?: boolean;
                                                  limit?: number } = {}) {
   const { data } = await api.get('/practicelab/analytics/error-analysis', {
     params: {
@@ -567,6 +568,7 @@ export async function getPLErrorAnalysis(f: PLFilters = {}, scope = 'formal',
       issue_type: opts.issueType || undefined,
       code_search: opts.codeSearch?.trim() || undefined,
       pattern: opts.pattern || undefined,
+      include_scattered: opts.includeScattered || undefined,
       limit: opts.limit ?? 25,
     },
   })
@@ -583,11 +585,13 @@ export async function getPLErrorDetail(code: string, f: PLFilters = {}, scope = 
 /** Error analysis as Excel — same filters as the screen, without its paging. */
 export function downloadErrorAnalysisXlsx(f: PLFilters = {}, scope = 'formal',
                                           opts: { section?: string; issueType?: string;
-                                                  codeSearch?: string; pattern?: string } = {}) {
+                                                  codeSearch?: string; pattern?: string;
+                                                  includeScattered?: boolean } = {}) {
   const p = new URLSearchParams({ ...fp(f), scope })
   if (opts.section) p.set('section', opts.section)
   if (opts.issueType) p.set('issue_type', opts.issueType)
   if (opts.codeSearch?.trim()) p.set('code_search', opts.codeSearch.trim())
   if (opts.pattern) p.set('pattern', opts.pattern)
+  if (opts.includeScattered) p.set('include_scattered', 'true')
   window.open(`${import.meta.env.VITE_API_URL || '/api'}/practicelab/analytics/error-analysis.xlsx?` + p.toString(), '_blank')
 }

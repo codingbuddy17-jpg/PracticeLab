@@ -287,6 +287,9 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
   const [errorSearch, setErrorSearch] = useState('')
   const [errorPage, setErrorPage] = useState(1)
   const [errorPattern, setErrorPattern] = useState('')
+  // "Scattered" is, by definition, the codes with too few occurrences to act
+  // on. They are most of the list and none of the decisions.
+  const [showScattered, setShowScattered] = useState(false)
   const [expandedCode, setExpandedCode] = useState<string | null>(null)
   const [codeDetail, setCodeDetail] = useState<Record<string, any>>({})
   const ERROR_PAGE = 25
@@ -475,7 +478,8 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
     return getPLErrorAnalysis(filters, scope, {
       section: errorSection, issueType: errorIssue,
       codeSearch: errorSearch, pattern: errorPattern,
-      limit: 200,
+      includeScattered: showScattered,
+      limit: 500,
     })
       .then(setErrorData)
       // Was swallowed. A failed refetch left the previous, shorter response on
@@ -488,7 +492,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
     if (tab !== 'errors') return
     const t = setTimeout(() => loadErrors(), 250)
     return () => clearTimeout(t)
-  }, [errorSearch, errorPattern, errorSection, errorIssue])
+  }, [errorSearch, errorPattern, errorSection, errorIssue, showScattered])
 
   function toggleCodeDetail(code: string) {
     if (expandedCode === code) { setExpandedCode(null); return }
@@ -1217,6 +1221,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                   onClick={() => downloadErrorAnalysisXlsx(filters, scope, {
                     section: errorSection, issueType: errorIssue,
                     codeSearch: errorSearch, pattern: errorPattern,
+                    includeScattered: showScattered,
                   })}
                   style={{ ...styles.outlineBtn, fontSize: 12, padding: '5px 12px' }}>
                   Export
@@ -1335,9 +1340,21 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                     {t && d.pattern_counts?.[t] != null && ` (${d.pattern_counts[t]})`}
                   </button>
                 ))}
-                <span style={{ fontSize: 11, color: '#9ca3af', marginLeft: 'auto' }}>
-                  Showing {codes.length} of {matching}
-                  {matching !== d.total_codes ? ` matching (${d.total_codes} codes in total)` : ' codes'}
+                <span style={{ fontSize: 11, color: '#9ca3af', marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  <span>
+                    Showing {codes.length} of {matching}
+                    {d.scattered_hidden ? ' actionable codes' : ' codes'}
+                  </span>
+                  {/* Held back, never dropped — and the count is always shown,
+                      so nothing is missing without saying so. */}
+                  {d.scattered_codes > 0 && (
+                    <button onClick={() => { setShowScattered(v => !v); setErrorPage(1) }}
+                      title="Codes seen too few times to call a pattern — counted, but nothing to act on yet"
+                      style={{ fontSize: 11, fontWeight: 700, color: '#4f46e5', background: 'none',
+                               border: '1px solid #e0e7ff', borderRadius: 6, padding: '3px 10px', cursor: 'pointer' }}>
+                      {showScattered ? `Hide ${d.scattered_codes} scattered` : `${d.scattered_codes} scattered hidden — show`}
+                    </button>
+                  )}
                 </span>
               </div>
 
