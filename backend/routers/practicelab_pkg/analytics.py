@@ -148,6 +148,46 @@ def analytics_overview(
         if _s:
             b_base = b_base.filter(Batch.specialty == _s)
 
+    # ── Which specialties are getting practice, and which are going wrong ────
+    # Two different questions that look alike:
+    #
+    #   Practice volume answers "where is the training effort going" — a
+    #   specialty nobody practises is a coverage gap, and it will never appear
+    #   in any performance view precisely because it has no results.
+    #
+    #   Error density answers "where is it going wrong". It must be per chart:
+    #   ranking specialties by raw error count ranks them by how much they were
+    #   practised, so the "cleanest" specialty is usually the one nobody
+    #   touched. Specialties under a minimum volume are excluded from the
+    #   best/worst pick rather than winning on a handful of charts.
+    MIN_CHARTS_TO_RANK = 5
+
+    vol_rows = (base.with_entities(GradingResult.specialty,
+                                   func.count(GradingResult.id).label("n"))
+                    .group_by(GradingResult.specialty).all())
+    practised = [{"specialty": r.specialty.value, "charts": r.n} for r in vol_rows if r.specialty]
+    practised.sort(key=lambda x: -x["charts"])
+
+    err_rows = (base.join(GradingFeedback, GradingFeedback.result_id == GradingResult.id)
+                    .with_entities(GradingResult.specialty,
+                                   func.count(GradingFeedback.id).label("n"))
+                    .group_by(GradingResult.specialty).all())
+    err_by_spec = {r.specialty.value: r.n for r in err_rows if r.specialty}
+
+    density = sorted(
+        [{"specialty": p["specialty"], "charts": p["charts"],
+          "errors": err_by_spec.get(p["specialty"], 0),
+          "errors_per_chart": round(err_by_spec.get(p["specialty"], 0) / p["charts"], 2)}
+         for p in practised if p["charts"] >= MIN_CHARTS_TO_RANK],
+        key=lambda x: -x["errors_per_chart"])
+
+    # A specialty with charts in the library but NO graded work is the coverage
+    # gap worth surfacing — it is invisible everywhere else by definition.
+    from models.charts import ChartStatus as _CS
+    lib_specs = {r[0].value for r in db.query(Chart.specialty)
+                 .filter(Chart.status == _CS.ACTIVE).distinct().all() if r[0]}
+    untouched = sorted(lib_specs - {p["specialty"] for p in practised})
+
     ip_cfg = db.query(ScoringConfig).filter(ScoringConfig.specialty_type == "IP").first()
     op_cfg = db.query(ScoringConfig).filter(ScoringConfig.specialty_type == "OP").first()
 
@@ -166,6 +206,12 @@ def analytics_overview(
         # The two tiles are filtered on DIFFERENT dates — batch counts on when
         # the batch was created, grading counts on when it was graded. Stated so
         # the UI can label them rather than leaving the mismatch to be inferred.
+        "most_practised": practised[0] if practised else None,
+        "least_practised": practised[-1] if len(practised) > 1 else None,
+        "most_errors": density[0] if density else None,
+        "least_errors": density[-1] if len(density) > 1 else None,
+        "untouched_specialties": untouched,
+        "min_charts_to_rank": MIN_CHARTS_TO_RANK,
         "batch_date_field": "created_at",
         "graded_date_field": "graded_at",
         "scope": scope,
@@ -1207,6 +1253,34 @@ def analytics_error_analysis(
               **{t: c.get(t, 0) for t in by_issue}}
              for m, c in sorted(months.items())]
 
+    # ── Per specialty ────────────────────────────────────────────────────────
+    # Raw error counts rank specialties by how much they were PRACTISED, so the
+    # "cleanest" specialty is usually just the one nobody touched. Density —
+    # errors per graded chart — is the comparable figure, and specialties under
+    # a minimum volume are excluded from best/worst rather than winning by
+    # having done almost nothing.
+    spec_errors: Counter = Counter()
+    for r, f in items:
+        if r.specialty:
+            spec_errors[r.specialty.value] += 1
+    spec_charts: Counter = Counter()
+    for r in results:
+        if r.specialty:
+            spec_charts[r.specialty.value] += 1
+
+    MIN_CHARTS_TO_RANK = 5
+    by_specialty = sorted(
+        [{"specialty": sp,
+          "errors": spec_errors.get(sp, 0),
+          "charts": n,
+          "errors_per_chart": round(spec_errors.get(sp, 0) / n, 2),
+          "rankable": n >= MIN_CHARTS_TO_RANK}
+         for sp, n in spec_charts.items()],
+        key=lambda x: -x["errors_per_chart"])
+    rankable = [x for x in by_specialty if x["rankable"]]
+    worst_specialty = rankable[0] if rankable else None
+    best_specialty = rankable[-1] if len(rankable) > 1 else None
+
     # ── Commentary ───────────────────────────────────────────────────────────
     # Written here rather than left to be inferred from four charts. Each line
     # names a finding AND what it implies, because "SDx is 62% of errors" is a
@@ -1299,6 +1373,10 @@ def analytics_error_analysis(
         "total_errors": total,
         "graded_charts": len(results),
         "commentary": notes,
+        "by_specialty": by_specialty,
+        "worst_specialty": worst_specialty,
+        "best_specialty": best_specialty,
+        "min_charts_to_rank": MIN_CHARTS_TO_RANK,
         # Errors per graded chart — the one figure that says whether things are
         # improving without needing to know how much practice happened.
         "errors_per_chart": round(total / len(results), 2) if results else 0,

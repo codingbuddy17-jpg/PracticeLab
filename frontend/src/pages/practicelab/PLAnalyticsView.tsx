@@ -92,6 +92,29 @@ function SearchBox({ value, onChange, placeholder, width = 220 }: {
   )
 }
 
+/**
+ * A tile whose value is a NAME rather than a number.
+ *
+ * statValue is 28px, built for "1,240". "ED Single Path" at that size wraps to
+ * three lines and the row of tiles stops lining up, so text values get their
+ * own smaller scale with the supporting figure beneath.
+ */
+function NameBox({ label, name, figure, color, hint }: {
+  label: string; name?: string | null; figure?: string; color?: string; hint?: string
+}) {
+  return (
+    <div style={styles.statCard}>
+      <div style={{ fontSize: 15, fontWeight: 800, color: color || '#111', lineHeight: 1.25,
+                    minHeight: 38, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        {name || '—'}
+      </div>
+      {figure && <div style={{ fontSize: 12, fontWeight: 700, color: color || '#6b7280' }}>{figure}</div>}
+      <div style={styles.statLabel}>{label}</div>
+      {hint && <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2 }}>{hint}</div>}
+    </div>
+  )
+}
+
 function Box({ label, value, color, hint }: { label: string; value: any; color?: string; hint?: string }) {
   return (
     <div style={styles.statCard}>
@@ -628,6 +651,32 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                   </div>
                 ))}
               </div>
+              {/* Where effort is going, and where it is going wrong. Two
+                  different questions that look alike — volume is a coverage
+                  question, error density is a quality one, and ranking either
+                  by raw count answers the other one by accident. */}
+              {(overview.most_practised || overview.most_errors) && (
+                <div style={styles.statsRow}>
+                  <NameBox label="Most Practised" color="#0f766e"
+                    name={overview.most_practised?.specialty}
+                    figure={overview.most_practised ? `${overview.most_practised.charts} charts` : undefined} />
+                  <NameBox label="Least Practised" color="#b45309"
+                    name={overview.least_practised?.specialty}
+                    figure={overview.least_practised ? `${overview.least_practised.charts} charts` : undefined}
+                    hint={overview.untouched_specialties?.length
+                      ? `${overview.untouched_specialties.length} specialty(s) with no graded work at all`
+                      : undefined} />
+                  <NameBox label="Most Errors" color="#dc2626"
+                    name={overview.most_errors?.specialty}
+                    figure={overview.most_errors ? `${overview.most_errors.errors_per_chart} per chart` : undefined}
+                    hint={overview.most_errors ? undefined : `needs ${overview.min_charts_to_rank}+ graded charts to rank`} />
+                  <NameBox label="Fewest Errors" color="#16a34a"
+                    name={overview.least_errors?.specialty}
+                    figure={overview.least_errors ? `${overview.least_errors.errors_per_chart} per chart` : undefined}
+                    hint="per chart, so volume does not decide it" />
+                </div>
+              )}
+
               {/* Attention banner */}
               {overview.total_graded > 0 && (() => {
                 // Two DIFFERENT signals, deliberately kept apart — they are not
@@ -1173,6 +1222,16 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                   hint="normalised for how much practice happened" />
                 <Box label="Distinct Codes" value={d.total_codes} />
                 <Box label="Graded Charts" value={d.graded_charts} />
+                {/* Ranked on errors PER CHART. On raw counts the "cleanest"
+                    specialty is just the least practised one. */}
+                <NameBox label="Most Errors" color="#dc2626"
+                  name={d.worst_specialty?.specialty}
+                  figure={d.worst_specialty ? `${d.worst_specialty.errors_per_chart} per chart` : undefined}
+                  hint={d.worst_specialty ? `${d.worst_specialty.errors} over ${d.worst_specialty.charts} charts` : 'not enough graded work to rank'} />
+                <NameBox label="Fewest Errors" color="#16a34a"
+                  name={d.best_specialty?.specialty}
+                  figure={d.best_specialty ? `${d.best_specialty.errors_per_chart} per chart` : undefined}
+                  hint={d.best_specialty ? `${d.best_specialty.errors} over ${d.best_specialty.charts} charts` : `needs ${d.min_charts_to_rank}+ graded charts`} />
               </div>
 
               {/* Where the errors are: by type and by section, side by side. */}

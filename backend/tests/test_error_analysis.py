@@ -313,3 +313,107 @@ class TestCodeTablePaging:
 
     def test_limit_is_capped(self, client, many_codes):
         assert len(client.get(URL, params={"limit": 100000}).json()["codes"]) <= 200
+
+
+class TestSpecialtyRanking:
+    """
+    Ranking specialties by RAW error count ranks them by how much they were
+    practised — the "cleanest" specialty comes out as whichever nobody touched.
+    Density is the comparable figure, and thin volume is excluded rather than
+    winning on three charts.
+    """
+
+    def _spread(self, db):
+        b = _batch(db, "B")
+        # Each _err() is its own graded result, so this is 20 graded charts
+        # each carrying one error -> 1.0 per chart.
+        for i in range(10):
+            c = _chart(db, f"IPR{i}")
+            _err(db, b, c, f"C{i}", f"E{i}", "J18.9")
+            _err(db, b, c, f"C{i}", f"E{i}", "E11.9")
+        # SDS: 10 charts, 5 errors -> 0.5 per chart, but MORE charts than IP had
+        for i in range(10):
+            c = _chart(db, f"SDR{i}", Specialty.SDS)
+            if i < 5:
+                _err(db, b, c, f"C{i}", f"E{i}", "M17.11")
+            else:
+                r = GradingResult(batch_id=b.id, coder_name=f"C{i}", emp_id=f"E{i}",
+                                  chart_id=c.id, specialty=Specialty.SDS,
+                                  total_score=95, pass_fail=PassFail.PASS)
+                db.add(r); db.commit()
+        return b
+
+    def test_worst_is_by_density_not_volume(self, client, db):
+        self._spread(db)
+        body = client.get(URL).json()
+        assert body["worst_specialty"]["specialty"] == "IP-DRG"
+        assert body["worst_specialty"]["errors_per_chart"] == 1.0
+
+    def test_best_is_by_density_too(self, client, db):
+        self._spread(db)
+        body = client.get(URL).json()
+        assert body["best_specialty"]["specialty"] == "SDS"
+        assert body["best_specialty"]["errors_per_chart"] < 1
+
+    def test_a_barely_practised_specialty_cannot_win_cleanest(self, client, db):
+        """One perfect chart is not evidence of a clean specialty."""
+        self._spread(db)
+        b = _batch(db, "Tiny")
+        c = _chart(db, "SURG1", Specialty.SURGERY)
+        db.add(GradingResult(batch_id=b.id, coder_name="Z", emp_id="EZ", chart_id=c.id,
+                             specialty=Specialty.SURGERY, total_score=100, pass_fail=PassFail.PASS))
+        db.commit()
+        body = client.get(URL).json()
+        assert body["best_specialty"]["specialty"] != "Surgery"
+        surgery = next(x for x in body["by_specialty"] if x["specialty"] == "Surgery")
+        assert surgery["rankable"] is False
+
+    def test_nothing_rankable_returns_none_rather_than_a_guess(self, client, db):
+        b = _batch(db, "B")
+        _err(db, b, _chart(db, "IPS9"), "A", "E1", "J18.9")
+        body = client.get(URL).json()
+        assert body["worst_specialty"] is None
+        assert body["best_specialty"] is None
+
+
+class TestOverviewSpecialtyTiles:
+    """Volume and error density answer different questions, and ranking either
+    by the other's measure answers the wrong one by accident."""
+
+    def test_most_and_least_practised_are_by_volume(self, client, db):
+        b = _batch(db, "B")
+        for i in range(6):
+            _err(db, b, _chart(db, f"IPV{i}"), f"C{i}", f"E{i}", "J18.9")
+        for i in range(2):
+            c = _chart(db, f"SDV{i}", Specialty.SDS)
+            db.add(GradingResult(batch_id=b.id, coder_name=f"D{i}", emp_id=f"F{i}",
+                                 chart_id=c.id, specialty=Specialty.SDS,
+                                 total_score=90, pass_fail=PassFail.PASS))
+        db.commit()
+        ov = client.get("/practicelab/analytics/overview").json()
+        assert ov["most_practised"]["specialty"] == "IP-DRG"
+        assert ov["most_practised"]["charts"] == 6
+        assert ov["least_practised"]["specialty"] == "SDS"
+
+    def test_error_tiles_use_density_and_respect_the_volume_floor(self, client, db):
+        b = _batch(db, "B")
+        for i in range(6):
+            _err(db, b, _chart(db, f"IPW{i}"), f"C{i}", f"E{i}", "J18.9")
+        for i in range(2):
+            c = _chart(db, f"SDW{i}", Specialty.SDS)
+            db.add(GradingResult(batch_id=b.id, coder_name=f"D{i}", emp_id=f"F{i}",
+                                 chart_id=c.id, specialty=Specialty.SDS,
+                                 total_score=90, pass_fail=PassFail.PASS))
+        db.commit()
+        ov = client.get("/practicelab/analytics/overview").json()
+        # SDS is spotless but only 2 charts — below the floor, so not "cleanest".
+        assert ov["most_errors"]["specialty"] == "IP-DRG"
+        assert ov["least_errors"] is None or ov["least_errors"]["specialty"] != "SDS"
+
+    def test_a_specialty_with_charts_but_no_practice_is_surfaced(self, client, db):
+        """Invisible in every performance view by definition — no results."""
+        b = _batch(db, "B")
+        _err(db, b, _chart(db, "IPX1"), "A", "E1", "J18.9")
+        _chart(db, "SURGX1", Specialty.SURGERY)      # library only, never graded
+        ov = client.get("/practicelab/analytics/overview").json()
+        assert "Surgery" in ov["untouched_specialties"]
