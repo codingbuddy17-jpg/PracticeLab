@@ -1777,8 +1777,26 @@ def analytics_error_coders(
             })
         return out
 
+    # Rank on the cheap figures FIRST, then build the expensive ones only for
+    # the cards that will actually be shown. Advice, per-coder trends and code
+    # lists were computed for every coder to render ten of them — at a thousand
+    # coders that is a thousand analyses and most of a megabyte on the wire,
+    # all of it discarded by the UI.
+    def _rate(d):
+        return round(d["errors"] / d["charts"], 2) if d["charts"] else 0
+
+    ranked_light = sorted(
+        [d for d in coders.values() if d["charts"] >= MIN_CHARTS_FOR_CODER_RANK],
+        key=_rate)
+    top_n = max(1, min(top_n, 20))
+    n = top_n if len(ranked_light) >= top_n * 2 else max(1, len(ranked_light) // 2)
+    wanted = ranked_light[:n] + (ranked_light[-n:] if len(ranked_light) > 1 else [])
+    wanted_ids = {d["coder_id"] for d in wanted}
+
     rows = []
     for d in coders.values():
+        if d["coder_id"] not in wanted_ids:
+            continue
         rate = round(d["errors"] / d["charts"], 2) if d["charts"] else 0
         trend = [{"month": m, "errors": v["errors"], "charts": v["charts"],
                   "errors_per_chart": round(v["errors"] / v["charts"], 2) if v["charts"] else None}
@@ -1809,14 +1827,10 @@ def analytics_error_coders(
             "advice": _advice(d, rate),
         })
 
-    rankable = [r for r in rows if r["rankable"]]
-    by_rate = sorted(rankable, key=lambda r: r["errors_per_chart"])
-    top_n = max(1, min(top_n, 20))
-
     # Below twice the list size the two ends would overlap, and a coder shown
-    # as both best and worst is worse than a short list. Split down the middle
-    # instead; with one rankable coder there is no comparison to draw at all.
-    n = top_n if len(by_rate) >= top_n * 2 else max(1, len(by_rate) // 2)
+    # as both best and worst is worse than a short list. n was chosen above,
+    # where the ranking happened.
+    by_rate = sorted(rows, key=lambda r: r["errors_per_chart"])
 
     return {
         # "Top" is fewest errors per chart. Deliberately not "highest score" —
@@ -1827,10 +1841,12 @@ def analytics_error_coders(
         "bottom": list(reversed(by_rate[-n:])) if len(by_rate) > 1 else [],
         # Everyone rankable, so a caller wanting one coder need not guess which
         # end they landed on.
+        # The enriched rows actually returned — the two ends, not everyone.
+        # Ranking happens over every coder; only these carry advice and trends.
         "coders": by_rate,
         "team": {"errors_per_chart": team_rate, "charts": team_charts, "errors": team_errors},
-        "ranked_coders": len(rankable),
-        "excluded_thin": len(rows) - len(rankable),
+        "ranked_coders": len(ranked_light),
+        "excluded_thin": len(coders) - len(ranked_light),
         "min_charts": MIN_CHARTS_FOR_CODER_RANK,
         "scope": scope,
     }

@@ -226,3 +226,77 @@ class TestListShape:
             for i in range(6):
                 _graded(db, b, _chart(db, f"CAP{c}_{i}"), f"Coder {c}", f"E{c}", ["J18.9"])
         assert len(client.get(URL, params={"top_n": 9999}).json()["top"]) <= 20
+
+
+class TestScale:
+    """
+    The screen shows ten cards. Everything else is ranking, and ranking needs
+    only a count — so the expensive parts must not be built for coders nobody
+    will see.
+    """
+
+    @pytest.fixture()
+    def many(self, db):
+        b = _batch(db, "B")
+        for c in range(60):
+            for i in range(6):
+                _graded(db, b, _chart(db, f"SC{c}_{i}"), f"Coder {c:02d}", f"E{c:02d}",
+                        ["J18.9"] * (c % 4))
+        return b
+
+    def test_only_the_shown_coders_are_returned(self, client, many):
+        body = client.get(URL).json()
+        assert body["ranked_coders"] == 60, "all sixty are ranked"
+        assert len(body["coders"]) == 10, "only the two ends are built and sent"
+
+    def test_the_ranking_still_covers_everyone(self, client, many):
+        """Trimming the payload must not trim the comparison — the best and
+        worst have to be the real best and worst, not the best of a sample."""
+        body = client.get(URL).json()
+        assert body["top"][0]["errors_per_chart"] == 0.0
+        assert body["bottom"][0]["errors_per_chart"] == 3.0
+
+    def test_advice_and_trends_exist_only_where_they_are_shown(self, client, many):
+        body = client.get(URL).json()
+        for r in body["top"] + body["bottom"]:
+            assert r["advice"], "a shown card must carry its advice"
+            assert "trend" in r
+
+    def test_the_team_baseline_covers_everyone_not_the_shown_ten(self, client, many):
+        """
+        The advice compares each coder to the TEAM. If the baseline were built
+        from the ten shown, it would be a comparison against the extremes.
+        """
+        body = client.get(URL).json()
+        assert body["team"]["charts"] == 360
+
+
+class TestSpecialtyFilter:
+    """The page-level specialty filter reaches this element like everything else."""
+
+    @pytest.fixture()
+    def two(self, db):
+        b = _batch(db, "B")
+        for i in range(6):
+            _graded(db, b, _chart(db, f"FIP{i}"), "IP Coder", "E1", ["J18.9"])
+            _graded(db, b, _chart(db, f"FSD{i}", Specialty.SDS), "SDS Coder", "E2",
+                    ["M17.11", "M17.12"])
+        return b
+
+    def test_filtering_narrows_the_coders(self, client, two):
+        body = client.get(URL, params={"specialty": "SDS"}).json()
+        assert [c["coder_name"] for c in body["coders"]] == ["SDS Coder"]
+
+    def test_the_team_baseline_is_recomputed_for_the_filter(self, client, two):
+        """
+        Comparing an SDS coder against a team average that includes IP-DRG
+        would call them worse than a team they are not on.
+        """
+        unfiltered = client.get(URL).json()["team"]["errors_per_chart"]
+        sds = client.get(URL, params={"specialty": "SDS"}).json()["team"]["errors_per_chart"]
+        assert unfiltered == 1.5
+        assert sds == 2.0
+
+    def test_a_coder_with_no_work_in_that_specialty_disappears(self, client, two):
+        names = {c["coder_name"] for c in client.get(URL, params={"specialty": "IP-DRG"}).json()["coders"]}
+        assert names == {"IP Coder"}
