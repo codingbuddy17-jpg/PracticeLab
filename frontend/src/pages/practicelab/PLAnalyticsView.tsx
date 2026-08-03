@@ -574,21 +574,37 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
         </button>
       </div>
 
-      {/* One row, always. Wrapping split the strip into two ragged lines that
-          read as two groups of tabs rather than one set — and the tab that
-          fell to the second line looked demoted. Tighter padding fits ten;
-          past that it scrolls sideways rather than wrapping, so the shape of
-          the control never changes. */}
-      <div style={{ display: 'flex', border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'auto', alignSelf: 'flex-start', maxWidth: '100%', flexWrap: 'nowrap' as const }}>
+      {/*
+        Navigation, deliberately a DIFFERENT SHAPE from everything below it.
+
+        Main tabs and the filter chips inside a tab were both indigo pills, so
+        the only way to tell "move to another view" from "narrow this view" was
+        to know already. Shape carries the distinction now, not colour:
+
+          main tabs   underlined, transparent, sitting on a rule — a tab bar
+          sub-filters rounded pills that fill when active — a chip
+
+        One row always. Wrapping split the strip into two ragged lines reading
+        as two groups, with whatever fell to line two looking demoted; past ten
+        it scrolls sideways instead, so the control keeps its shape.
+      */}
+      <div style={{ display: 'flex', borderBottom: '2px solid #e5e7eb', overflow: 'auto',
+                    maxWidth: '100%', flexWrap: 'nowrap' as const, gap: 2 }}>
         {TABS.map(t => (
           <button key={t.key}
             style={{
-              ...styles.modeTab,
-              padding: '7px 11px',
+              padding: '9px 13px',
+              border: 'none',
+              background: 'none',
+              cursor: 'pointer',
               whiteSpace: 'nowrap' as const,
               flexShrink: 0,
-              borderRight: '1px solid #e5e7eb',
-              ...(tab === t.key ? { background: '#4f46e5', color: '#fff' } : {}),
+              fontSize: 13,
+              fontWeight: tab === t.key ? 800 : 600,
+              color: tab === t.key ? '#4f46e5' : '#6b7280',
+              // Sits ON the rule, so the active tab joins the content below it.
+              boxShadow: tab === t.key ? 'inset 0 -3px 0 #4f46e5' : 'none',
+              marginBottom: -2,
             }}
             onClick={() => setTab(t.key as any)}>{t.label}</button>
         ))}
@@ -1194,7 +1210,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                   it stays silent rather than narrating noise. */}
               {d.commentary?.length > 0 && (
                 <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <div style={sectionLabel}>What this is telling you</div>
+                  <div style={sectionLabel}>Error Insights</div>
                   {d.commentary.map((n: any, i: number) => {
                     const meta: Record<string, { c: string; bg: string; icon: string }> = {
                       curriculum: { c: '#991b1b', bg: '#fee2e2', icon: '👥' },

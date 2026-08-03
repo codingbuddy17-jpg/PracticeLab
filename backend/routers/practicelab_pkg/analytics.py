@@ -1364,6 +1364,62 @@ def analytics_error_analysis(
                         f"The long tail is noise; these are the list worth working through.",
             })
 
+    # ── Specialty nuance ─────────────────────────────────────────────────────
+    # Without this the commentary reads as if the team has one error profile.
+    # It usually does not: a "team-wide gap" that lives entirely inside one
+    # specialty is a session for that group, not for everyone.
+    if specialty:
+        notes.insert(0, {
+            "kind": "info",
+            "text": f"Filtered to {specialty}. Every figure and finding below describes "
+                    f"{specialty} only — clear the specialty filter above to compare across the team.",
+        })
+    elif len(rankable) >= 2:
+        hi, lo = rankable[0], rankable[-1]
+        gap = None
+        if lo["errors_per_chart"] == 0 and hi["errors_per_chart"] > 0:
+            # The starkest case, and the one a divide-by-zero guard written as
+            # a gate would have skipped: one specialty clean, another not.
+            gap = (f"{lo['specialty']} has no recorded errors at all over "
+                   f"{lo['charts']} graded charts, while {hi['specialty']} carries "
+                   f"{hi['errors_per_chart']} per chart")
+        elif lo["errors_per_chart"] > 0 and hi["errors_per_chart"] >= lo["errors_per_chart"] * 2:
+            ratio = round(hi["errors_per_chart"] / lo["errors_per_chart"], 1)
+            gap = (f"{hi['specialty']} carries {ratio}x the error density of "
+                   f"{lo['specialty']} ({hi['errors_per_chart']} vs "
+                   f"{lo['errors_per_chart']} per chart)")
+
+        if gap:
+            notes.append({
+                "kind": "focus",
+                "text": f"{gap}. Treat these as separate training problems — a single team "
+                        f"session would be aimed at the wrong half of the room.",
+            })
+        elif hi["errors_per_chart"] > 0:
+            notes.append({
+                "kind": "info",
+                "text": f"Error density is even across specialties ({lo['errors_per_chart']}–"
+                        f"{hi['errors_per_chart']} per chart), so the gaps below are team-wide "
+                        f"rather than specialty-specific.",
+            })
+
+    # A code confined to one specialty is a specialty session, not a team one —
+    # and the pattern label alone cannot tell you which.
+    if not specialty:
+        confined = [c for c in code_rows[:20]
+                    if c["count"] >= 4 and len(c["specialties"]) == 1
+                    and c["pattern"] in ("Team-wide", "One chart")]
+        if confined:
+            grouped: dict = {}
+            for c in confined[:5]:
+                grouped.setdefault(c["specialties"][0], []).append(c["code"])
+            bits = "; ".join(f"{sp}: {', '.join(cs)}" for sp, cs in grouped.items())
+            notes.append({
+                "kind": "curriculum",
+                "text": f"Some gaps sit inside a single specialty — {bits}. Those are sessions for "
+                        f"that group rather than the whole team.",
+            })
+
     if not notes:
         notes.append({"kind": "info",
                       "text": "No dominant pattern yet — errors are spread thinly across codes, "

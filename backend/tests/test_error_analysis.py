@@ -417,3 +417,83 @@ class TestOverviewSpecialtyTiles:
         _chart(db, "SURGX1", Specialty.SURGERY)      # library only, never graded
         ov = client.get("/practicelab/analytics/overview").json()
         assert "Surgery" in ov["untouched_specialties"]
+
+
+class TestSpecialtyNuanceInInsights:
+    """
+    Without specialty nuance the insights read as if the team has one error
+    profile. It usually does not — a "team-wide gap" living entirely inside one
+    specialty is a session for that group, not for everyone, and the pattern
+    label alone cannot tell you which.
+    """
+
+    def _two_specialties(self, db):
+        b = _batch(db, "B")
+        for i in range(8):                      # IP-DRG: dense
+            _err(db, b, _chart(db, f"IPN{i}"), f"C{i}", f"E{i}", "J18.9")
+        for i in range(8):                      # SDS: clean
+            c = _chart(db, f"SDN{i}", Specialty.SDS)
+            db.add(GradingResult(batch_id=b.id, coder_name=f"D{i}", emp_id=f"F{i}",
+                                 chart_id=c.id, specialty=Specialty.SDS,
+                                 total_score=95, pass_fail=PassFail.PASS))
+        db.commit()
+        return b
+
+    def test_a_density_gap_between_specialties_is_called_out(self, client, db):
+        self._two_specialties(db)
+        texts = " ".join(n["text"] for n in client.get(URL).json()["commentary"])
+        assert "IP-DRG" in texts and "SDS" in texts
+        assert "separate training problems" in texts
+
+    def test_a_gap_confined_to_one_specialty_is_named_as_such(self, client, db):
+        self._two_specialties(db)
+        notes = client.get(URL).json()["commentary"]
+        assert any("single specialty" in n["text"] for n in notes)
+
+    def test_an_active_specialty_filter_is_stated_first(self, client, db):
+        """
+        The insights describe the filtered slice. Saying so is the difference
+        between "the team misses J18.9" and "SDS coders miss J18.9".
+        """
+        self._two_specialties(db)
+        notes = client.get(URL, params={"specialty": "IP-DRG"}).json()["commentary"]
+        assert notes[0]["text"].startswith("Filtered to IP-DRG")
+        assert "IP-DRG only" in notes[0]["text"]
+
+    def test_a_filtered_view_does_not_compare_across_specialties(self, client, db):
+        """Cross-specialty commentary under a specialty filter would compare a
+        thing to itself."""
+        self._two_specialties(db)
+        texts = " ".join(n["text"] for n in
+                         client.get(URL, params={"specialty": "IP-DRG"}).json()["commentary"])
+        assert "separate training problems" not in texts
+
+    def test_even_density_is_reported_as_team_wide(self, client, db):
+        b = _batch(db, "B")
+        for i in range(6):
+            _err(db, b, _chart(db, f"IPE2{i}"), f"C{i}", f"E{i}", "J18.9")
+        for i in range(6):
+            _err(db, b, _chart(db, f"SDE2{i}", Specialty.SDS), f"D{i}", f"F{i}", "M17.11")
+        texts = " ".join(n["text"] for n in client.get(URL).json()["commentary"])
+        assert "team-wide rather than specialty-specific" in texts
+
+
+class TestZeroErrorSpecialty:
+    def test_a_spotless_specialty_is_the_starkest_gap_not_a_skipped_case(self, client, db):
+        """
+        A divide-by-zero guard written as a gate skipped exactly the clearest
+        finding: one specialty clean, another not. An infinite ratio is the
+        strongest version of the gap, not an absent one.
+        """
+        b = _batch(db, "B")
+        for i in range(8):
+            _err(db, b, _chart(db, f"IPZZ{i}"), f"C{i}", f"E{i}", "J18.9")
+        for i in range(8):
+            c = _chart(db, f"SDZZ{i}", Specialty.SDS)
+            db.add(GradingResult(batch_id=b.id, coder_name=f"D{i}", emp_id=f"F{i}",
+                                 chart_id=c.id, specialty=Specialty.SDS,
+                                 total_score=95, pass_fail=PassFail.PASS))
+        db.commit()
+        texts = " ".join(n["text"] for n in client.get(URL).json()["commentary"])
+        assert "no recorded errors at all" in texts
+        assert "SDS" in texts and "IP-DRG" in texts
