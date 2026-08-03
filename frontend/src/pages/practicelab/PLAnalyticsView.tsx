@@ -58,6 +58,38 @@ const sectionLabel: React.CSSProperties = {
   textTransform: 'uppercase', letterSpacing: 0.5,
 }
 
+/**
+ * Search input with a clear button.
+ *
+ * Every search on this page was a plain <input>: the only way out was to
+ * select the text and delete it. Typing is a filter you can see; an empty box
+ * you have to manufacture is not an undo. The batch list and the coder picker
+ * already had this — the ones added later did not, so the page taught two
+ * different habits for the same control.
+ */
+function SearchBox({ value, onChange, placeholder, width = 220 }: {
+  value: string; onChange: (v: string) => void; placeholder: string; width?: number
+}) {
+  return (
+    <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
+      <input
+        placeholder={placeholder}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Escape') onChange('') }}
+        style={{ padding: '5px 26px 5px 10px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 12, width }}
+      />
+      {value && (
+        <button onClick={() => onChange('')} title="Clear (Esc)"
+          style={{ position: 'absolute', right: 6, background: 'none', border: 'none', cursor: 'pointer',
+                   color: '#9ca3af', padding: 0, display: 'flex', alignItems: 'center', fontSize: 14, lineHeight: 1 }}>
+          ×
+        </button>
+      )}
+    </span>
+  )
+}
+
 function Box({ label, value, color, hint }: { label: string; value: any; color?: string; hint?: string }) {
   return (
     <div style={styles.statCard}>
@@ -1365,12 +1397,10 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                 </ResponsiveContainer>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' as const }}>
-                <input
+                <SearchBox width={240}
                   placeholder={`Search topics (${(categoryData.team || []).length} total)…`}
                   value={topicSearch}
-                  onChange={e => { setTopicSearch(e.target.value); setTopicShowAll(false) }}
-                  style={{ padding: '6px 10px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 12, width: 240 }}
-                />
+                  onChange={v => { setTopicSearch(v); setTopicShowAll(false) }} />
                 <span style={{ fontSize: 11, color: '#9ca3af' }}>
                   Showing {visibleTopics.length} of {topicRows.length}
                   {topicSpecialty ? ` in ${topicSpecialty}` : ''} · weakest first
@@ -1526,12 +1556,10 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                       </div>
                       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                         {allCoders.length > CODER_PAGE && (
-                          <input
+                          <SearchBox width={200}
                             placeholder={`Search coders (${allCoders.length} total)…`}
                             value={heatmapCoderSearch}
-                            onChange={e => { setHeatmapCoderSearch(e.target.value); setHeatmapShowAll(false) }}
-                            style={{ padding: '5px 10px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 12, width: 200 }}
-                          />
+                            onChange={v => { setHeatmapCoderSearch(v); setHeatmapShowAll(false) }} />
                         )}
                         <span style={{ fontSize: 11, color: '#9ca3af' }}>Showing {visibleCoders.length} of {filteredCoders.length}</span>
                       </div>
@@ -1670,12 +1698,29 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                       </button>
                     ))}
                     {/* At 2000 charts, scanning cards is not a way to find one. */}
-                    <input
-                      placeholder="Find a chart or topic…"
-                      value={chartValueSearch}
-                      onChange={e => { setChartValueSearch(e.target.value); setChartValuePage(1) }}
-                      style={{ marginLeft: 'auto', padding: '5px 10px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 12, width: 220 }}
-                    />
+                    <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                      <SearchBox placeholder="Find a chart or topic…"
+                        value={chartValueSearch}
+                        onChange={v => { setChartValueSearch(v); setChartValuePage(1) }} />
+                      {/* One undo for the strip. "All" resets the signal chips
+                          and clearing the box resets the search, but sort had
+                          no way back to its default at all — every option was
+                          a selection, none of them was "none". */}
+                      {(teachingFilter !== 'All' || chartValueSort !== 'score_asc' || chartValueSearch.trim()) && (
+                        <button
+                          title="Clear signal, sort and search on this tab"
+                          onClick={() => {
+                            setTeachingFilter('All')
+                            setChartValueSort('score_asc')
+                            setChartValueSearch('')
+                            setChartValuePage(1)
+                          }}
+                          style={{ fontSize: 12, fontWeight: 700, color: '#dc2626', background: 'none',
+                                   border: '1px solid #fecaca', borderRadius: 6, padding: '5px 11px', cursor: 'pointer' }}>
+                          Reset
+                        </button>
+                      )}
+                    </span>
                   </div>
                 </div>
                 {filtered.length === 0 ? (
@@ -1739,12 +1784,9 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                   Cross-batch performance grid — each cell shows the coder's avg score for that batch. Only closed batches are shown.
                 </div>
                 {matrixData.coders.length > CODER_PAGE && (
-                  <input
-                    placeholder={`Search coders (${matrixData.coders.length} total)…`}
+                  <SearchBox placeholder={`Search coders (${matrixData.coders.length} total)…`}
                     value={matrixCoderSearch}
-                    onChange={e => { setMatrixCoderSearch(e.target.value); setMatrixShowAll(false) }}
-                    style={{ padding: '5px 10px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 12, width: 220 }}
-                  />
+                    onChange={v => { setMatrixCoderSearch(v); setMatrixShowAll(false) }} />
                 )}
               </div>
               {(() => {
