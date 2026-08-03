@@ -290,6 +290,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
   // "Scattered" is, by definition, the codes with too few occurrences to act
   // on. They are most of the list and none of the decisions.
   const [showScattered, setShowScattered] = useState(false)
+  const [showAllInsights, setShowAllInsights] = useState(false)
   const [expandedCode, setExpandedCode] = useState<string | null>(null)
   const [codeDetail, setCodeDetail] = useState<Record<string, any>>({})
   const ERROR_PAGE = 25
@@ -1243,7 +1244,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
               {d.commentary?.length > 0 && (
                 <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
                   <div style={sectionLabel}>Error Insights</div>
-                  {d.commentary.map((n: any, i: number) => {
+                  {[...d.commentary, ...(showAllInsights ? (d.commentary_more || []) : [])].map((n: any, i: number) => {
                     const meta: Record<string, { c: string; bg: string; icon: string }> = {
                       curriculum: { c: '#991b1b', bg: '#fee2e2', icon: '👥' },
                       key:        { c: '#92400e', bg: '#fef3c7', icon: '🔑' },
@@ -1261,6 +1262,16 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                       </div>
                     )
                   })}
+                  {/* Ranked by what to act on first and cut to six — eleven
+                      lines of advice gets skimmed and acted on nowhere. The
+                      rest is held, not dropped. */}
+                  {d.commentary_more?.length > 0 && (
+                    <button onClick={() => setShowAllInsights(v => !v)}
+                      style={{ alignSelf: 'flex-start', fontSize: 11, fontWeight: 700, color: '#4f46e5',
+                               background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                      {showAllInsights ? 'Show fewer' : `${d.commentary_more.length} more finding${d.commentary_more.length !== 1 ? 's' : ''}`}
+                    </button>
+                  )}
                 </div>
               )}
 

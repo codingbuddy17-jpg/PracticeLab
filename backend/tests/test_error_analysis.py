@@ -599,3 +599,70 @@ class TestScatteredHeldBack:
         with_them = client.get(URL, params={"include_scattered": True}).json()["commentary"]
         without = client.get(URL).json()["commentary"]
         assert [n["text"] for n in with_them] == [n["text"] for n in without]
+
+
+class TestInsightsAtVolume:
+    """
+    How many findings appear, and which, once the data is heavy. Every rule is
+    independent, so at scale most of them fire at once — and eleven lines of
+    advice is skimmed and acted on nowhere.
+    """
+
+    @pytest.fixture()
+    def heavy(self, db):
+        b = _batch(db, "B")
+        for i in range(10):                       # team-wide
+            _err(db, b, _chart(db, f"HA{i}"), f"C{i}", f"E{i}", "J18.9")
+        c = _chart(db, "HSHARED")
+        for i in range(6):                        # one chart
+            _err(db, b, c, f"D{i}", f"F{i}", "E11.9")
+        for i in range(6):                        # one coder
+            _err(db, b, _chart(db, f"HB{i}"), "Solo", "S1", "I10")
+        for i in range(80):                       # long tail
+            _err(db, b, _chart(db, f"HT{i}"), f"G{i}", f"H{i}", f"T{i:03d}")
+        return b
+
+    def test_the_list_is_capped(self, client, heavy):
+        body = client.get(URL).json()
+        assert len(body["commentary"]) <= 6
+
+    def test_nothing_is_lost_only_held(self, client, heavy):
+        body = client.get(URL).json()
+        assert isinstance(body["commentary_more"], list)
+        shown = {n["text"] for n in body["commentary"]}
+        held = {n["text"] for n in body["commentary_more"]}
+        assert not shown & held, "a finding cannot be in both lists"
+
+    def test_the_most_actionable_findings_come_first(self, client, heavy):
+        """
+        Curriculum reaches a room; coaching reaches one person; a trend is
+        context. The order is what a trainer would do first, not the order the
+        rules happen to run in.
+        """
+        kinds = [n["kind"] for n in client.get(URL).json()["commentary"]]
+        if "curriculum" in kinds and "good" in kinds:
+            assert kinds.index("curriculum") < kinds.index("good")
+        if "key" in kinds and "focus" in kinds:
+            assert kinds.index("key") < kinds.index("focus")
+
+    def test_concentration_is_pareto_not_a_fixed_count(self, client, heavy):
+        """
+        "Codes seen 5+ times" dissolves with volume — at scale nearly every
+        code clears it and the line becomes "180 codes account for 97% of
+        errors": true, useless, unactionable. How many codes it takes to reach
+        HALF the errors stays meaningful at any size.
+        """
+        notes = client.get(URL, params={"include_scattered": True}).json()
+        allnotes = notes["commentary"] + notes["commentary_more"]
+        texts = " ".join(n["text"] for n in allnotes)
+        assert "account for half of" in texts or "to reach half the total" in texts
+        assert "account for 97" not in texts
+
+    def test_a_flat_distribution_says_there_is_no_short_list(self, client, db):
+        b = _batch(db, "B")
+        for i in range(40):
+            for _ in range(3):
+                _err(db, b, _chart(db, f"FL{i}_{_}"), f"C{i}", f"E{i}", f"F{i:03d}")
+        notes = client.get(URL).json()
+        texts = " ".join(n["text"] for n in notes["commentary"] + notes["commentary_more"])
+        assert "no short list to fix" in texts

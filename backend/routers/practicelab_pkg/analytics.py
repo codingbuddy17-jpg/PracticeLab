@@ -1371,14 +1371,32 @@ def analytics_error_analysis(
                                   f"{last} in {trend[-1]['month']}. Check whether new coders or a "
                                   f"new specialty entered the mix before reading this as decline."})
 
-    concentrated = [c for c in code_rows if c["count"] >= 5]
-    if concentrated:
-        share = round(sum(c["count"] for c in concentrated) / total * 100, 1)
-        if share >= 50:
+    # Pareto, not a fixed count. "Codes seen 5+ times" is a threshold that
+    # dissolves with volume — at scale almost every code clears it and the line
+    # becomes "180 codes account for 97% of errors", which is true, useless and
+    # says nothing a trainer can act on. How many codes it takes to reach HALF
+    # the errors stays meaningful at any size.
+    if len(code_rows) >= 5:
+        running, head = 0, 0
+        for c in code_rows:                      # already sorted by count desc
+            running += c["count"]
+            head += 1
+            if running >= total / 2:
+                break
+        head_share = round(head / len(code_rows) * 100)
+        if head_share <= 40:
             notes.append({
                 "kind": "focus",
-                "text": f"{len(concentrated)} codes account for {share}% of every error recorded. "
-                        f"The long tail is noise; these are the list worth working through.",
+                "text": f"{head} of {len(code_rows)} codes ({head_share}%) account for half of "
+                        f"every error recorded. The rest is a long tail — work down from the top "
+                        f"of the list rather than across it.",
+            })
+        else:
+            notes.append({
+                "kind": "info",
+                "text": f"Errors are spread evenly — it takes {head} of {len(code_rows)} codes to "
+                        f"reach half the total, so there is no short list to fix. Expect broad "
+                        f"revision rather than a targeted session.",
             })
 
     # ── Specialty nuance ─────────────────────────────────────────────────────
@@ -1437,6 +1455,25 @@ def analytics_error_analysis(
                         f"that group rather than the whole team.",
             })
 
+    # ── Rank and cap ────────────────────────────────────────────────────────
+    # Every rule is independent, so with heavy data most of them fire at once
+    # and eleven lines of advice becomes wallpaper — the reader skims it and
+    # acts on none of it. Ordered by what a trainer would act on FIRST, and cut
+    # to six, with the rest returned so nothing is lost.
+    ACTION_ORDER = {
+        "info": 0,          # scope statements: what am I even looking at
+        "curriculum": 1,    # reaches the most people per session
+        "key": 2,           # cheap to check, and invalidates other findings
+        "coaching": 3,      # one person at a time
+        "warn": 4,
+        "focus": 5,
+        "good": 6,
+    }
+    notes.sort(key=lambda n: ACTION_ORDER.get(n["kind"], 9))
+    MAX_NOTES = 6
+    extra_notes = notes[MAX_NOTES:]
+    notes = notes[:MAX_NOTES]
+
     if not notes:
         notes.append({"kind": "info",
                       "text": "No dominant pattern yet — errors are spread thinly across codes, "
@@ -1446,6 +1483,7 @@ def analytics_error_analysis(
         "total_errors": total,
         "graded_charts": len(results),
         "commentary": notes,
+        "commentary_more": extra_notes,
         "by_specialty": by_specialty,
         "worst_specialty": worst_specialty,
         "best_specialty": best_specialty,
