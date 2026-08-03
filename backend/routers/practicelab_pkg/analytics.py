@@ -4,7 +4,7 @@ from collections import Counter
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload, joinedload
 from sqlalchemy import func, Integer, text
 from database import get_db
 from models import Batch, BatchCoder, BatchStatus, GradingResult, GradingFeedback, Chart, PassFail, Specialty, ScoringConfig
@@ -13,6 +13,25 @@ from .shared import _uses_dpo
 from services.download_headers import content_disposition
 
 router = APIRouter()
+
+
+def _with_details(q):
+    """
+    Load the relationships these endpoints walk, in bulk.
+
+    Every analytics endpoint here iterates r.feedback, r.chart and r.batch.
+    Lazily, that is one query PER RESULT — at 20,000 graded charts the teaching
+    signals endpoint fired ~60,000 queries to answer one request. Invisible at
+    a few hundred results and the first thing to fall over at scale.
+
+    selectinload for the collection (one extra query for all of them),
+    joinedload for the many-to-ones (folded into the same query).
+    """
+    return q.options(
+        selectinload(GradingResult.feedback),
+        joinedload(GradingResult.chart),
+        joinedload(GradingResult.batch),
+    )
 
 
 def _gr_base(db: Session, from_date: Optional[str], to_date: Optional[str], specialty: Optional[str], exclude_direct: bool = False):
@@ -360,7 +379,7 @@ def analytics_by_chart(
     from_date: Optional[str] = None, to_date: Optional[str] = None, specialty: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
-    results = _gr_base(db, from_date, to_date, specialty, exclude_direct=True).join(Chart).all()
+    results = _with_details(_gr_base(db, from_date, to_date, specialty, exclude_direct=True)).join(Chart).all()
 
     chart_map: dict[int, dict] = {}
     for r in results:
@@ -577,7 +596,8 @@ def coder_summary(
         spec = next((s for s in Specialty if s.value == specialty), None)
         if spec:
             q = q.filter(GradingResult.specialty == spec)
-    results = q.all()
+    # build_coder_summary walks feedback, chart and batch on every row.
+    results = _with_details(q).all()
     return build_coder_summary(results, coder_name, db)
 
 
@@ -813,7 +833,7 @@ def analytics_by_category(
     if scope not in ("formal", "direct", "all"):
         raise HTTPException(status_code=400, detail="scope must be formal, direct or all")
 
-    results = _gr_base(db, from_date, to_date, specialty).join(Chart).all()
+    results = _with_details(_gr_base(db, from_date, to_date, specialty)).join(Chart).all()
     if scope == "direct":
         results = [r for r in results if r.batch and r.batch.is_direct_assignment]
 
@@ -946,8 +966,8 @@ def analytics_chart_teaching_value(
     if scope not in ("formal", "direct", "all"):
         raise HTTPException(status_code=400, detail="scope must be formal, direct or all")
 
-    results = _gr_base(db, from_date, to_date, specialty,
-                       exclude_direct=(scope == "formal")).join(Chart).all()
+    results = _with_details(_gr_base(db, from_date, to_date, specialty,
+                            exclude_direct=(scope == "formal"))).join(Chart).all()
     if scope == "direct":
         results = [r for r in results if r.batch and r.batch.is_direct_assignment]
 

@@ -195,7 +195,10 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
   const categoryChartRows = extremes(topicRows, (r: any) => r.avg_score)
   const [heatmapSort, setHeatmapSort] = useState<{ col: string; dir: 'asc' | 'desc' }>({ col: 'coder', dir: 'asc' })
   const [matrixSort, setMatrixSort] = useState<{ col: string; dir: 'asc' | 'desc' }>({ col: 'overall', dir: 'desc' })
-  const [chartValueShowAll, setChartValueShowAll] = useState(false)
+  // Pages forward in blocks rather than a "Show all" that mounts every card.
+  // At 2000 charts, "show all" is a request to render 2000 DOM subtrees.
+  const [chartValuePage, setChartValuePage] = useState(1)
+  const [chartValueSearch, setChartValueSearch] = useState('')
   const [chartValueSort, setChartValueSort] = useState<'score_asc' | 'attempts_desc' | 'score_desc'>('score_asc')
 
   const CODER_PAGE = 25
@@ -1600,7 +1603,11 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
           {teachingData.length === 0 ? <div style={styles.emptyState}>No chart grading data yet.</div> : (() => {
             const labels = Object.keys(TEACHING_LABEL_META)
             const filterOptions = ['All', ...labels]
+            const q = chartValueSearch.trim().toLowerCase()
             const filtered = (teachingFilter === 'All' ? teachingData : teachingData.filter((c: any) => c.teaching_label === teachingFilter))
+              .filter((c: any) => !q
+                || c.chart_number.toLowerCase().includes(q)
+                || (c.category || '').toLowerCase().includes(q))
               .slice()
               .sort((a: any, b: any) => {
                 if (chartValueSort === 'score_asc') return a.avg_score - b.avg_score
@@ -1629,48 +1636,58 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  {filterOptions.map(opt => (
-                    <button key={opt} onClick={() => { setTeachingFilter(opt); setChartValueShowAll(false) }}
-                      style={{ padding: '5px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                        background: teachingFilter === opt ? '#4f46e5' : '#f3f4f6',
-                        color: teachingFilter === opt ? '#fff' : '#374151',
-                        border: teachingFilter === opt ? '1px solid #4f46e5' : '1px solid #e5e7eb' }}>
-                      {opt}{opt !== 'All' && grouped[opt] ? ` (${grouped[opt].length})` : ''}
-                    </button>
-                  ))}
+                {/* One toolbar, each control labelled with the job it does.
+                    Three unlabelled rows of pills all looked like tabs, so it
+                    was never obvious which was navigation and which was a
+                    filter — they are visually identical and behave differently. */}
+                <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' as const }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase' as const, letterSpacing: 0.5, width: 52 }}>Signal</span>
+                    {filterOptions.map(opt => (
+                      <button key={opt} onClick={() => { setTeachingFilter(opt); setChartValuePage(1) }}
+                        title={TEACHING_LABEL_META[opt]?.desc}
+                        style={{ padding: '4px 11px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                          background: teachingFilter === opt ? '#4f46e5' : '#f3f4f6',
+                          color: teachingFilter === opt ? '#fff' : '#374151',
+                          border: teachingFilter === opt ? '1px solid #4f46e5' : '1px solid #e5e7eb' }}>
+                        {opt}{opt !== 'All' && grouped[opt] ? ` (${grouped[opt].length})` : ''}
+                      </button>
+                    ))}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' as const }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase' as const, letterSpacing: 0.5, width: 52 }}>Sort</span>
+                    {[
+                      { key: 'score_asc', label: 'Most problematic' },
+                      { key: 'attempts_desc', label: 'Most attempted' },
+                      { key: 'score_desc', label: 'Highest scoring' },
+                    ].map(opt => (
+                      <button key={opt.key} onClick={() => { setChartValueSort(opt.key as any); setChartValuePage(1) }}
+                        style={{ fontSize: 12, padding: '4px 11px', borderRadius: 20, cursor: 'pointer', fontWeight: 600, border: '1px solid',
+                          background: chartValueSort === opt.key ? '#4f46e5' : '#fff',
+                          color: chartValueSort === opt.key ? '#fff' : '#6b7280',
+                          borderColor: chartValueSort === opt.key ? '#4f46e5' : '#e5e7eb' }}>
+                        {opt.label}
+                      </button>
+                    ))}
+                    {/* At 2000 charts, scanning cards is not a way to find one. */}
+                    <input
+                      placeholder="Find a chart or topic…"
+                      value={chartValueSearch}
+                      onChange={e => { setChartValueSearch(e.target.value); setChartValuePage(1) }}
+                      style={{ marginLeft: 'auto', padding: '5px 10px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 12, width: 220 }}
+                    />
+                  </div>
                 </div>
                 {filtered.length === 0 ? (
                   <div style={styles.emptyState}>No charts in this category.</div>
                 ) : (
                   <>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4, flexWrap: 'wrap' as const, gap: 8 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{ fontSize: 12, color: '#9ca3af' }}>
-                          Showing {Math.min(chartValueShowAll ? filtered.length : CHART_VALUE_PAGE, filtered.length)} of {filtered.length} charts
-                        </span>
-                        {[
-                          { key: 'score_asc', label: 'Most problematic first' },
-                          { key: 'attempts_desc', label: 'Most attempted' },
-                          { key: 'score_desc', label: 'Highest scoring' },
-                        ].map(opt => (
-                          <button key={opt.key} onClick={() => { setChartValueSort(opt.key as any); setChartValueShowAll(false) }}
-                            style={{ fontSize: 11, padding: '3px 10px', borderRadius: 20, cursor: 'pointer', fontWeight: 600, border: '1px solid',
-                              background: chartValueSort === opt.key ? '#4f46e5' : '#fff',
-                              color: chartValueSort === opt.key ? '#fff' : '#6b7280',
-                              borderColor: chartValueSort === opt.key ? '#4f46e5' : '#e5e7eb' }}>
-                            {opt.label}
-                          </button>
-                        ))}
-                      </div>
-                      {filtered.length > CHART_VALUE_PAGE && (
-                        <button onClick={() => setChartValueShowAll(v => !v)} style={{ fontSize: 12, color: '#4f46e5', background: 'none', border: '1px solid #e5e7eb', borderRadius: 6, padding: '4px 12px', cursor: 'pointer', fontWeight: 600 }}>
-                          {chartValueShowAll ? `Collapse to ${CHART_VALUE_PAGE}` : `Show all ${filtered.length}`}
-                        </button>
-                      )}
+                    <div style={{ fontSize: 12, color: '#9ca3af' }}>
+                      Showing {Math.min(chartValuePage * CHART_VALUE_PAGE, filtered.length)} of {filtered.length} charts
+                      {chartValueSearch.trim() ? ` matching "${chartValueSearch.trim()}"` : ''}
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 10 }}>
-                      {(chartValueShowAll ? filtered : filtered.slice(0, CHART_VALUE_PAGE)).map((c: any, i: number) => {
+                      {filtered.slice(0, chartValuePage * CHART_VALUE_PAGE).map((c: any, i: number) => {
                         const meta = TEACHING_LABEL_META[c.teaching_label] || { color: '#374151', bg: '#f9fafb', desc: '' }
                         return (
                           <div key={i} style={{ background: meta.bg, border: `1px solid ${meta.color}30`, borderRadius: 8, padding: '12px 14px' }}>
@@ -1691,6 +1708,17 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                         )
                       })}
                     </div>
+                    {filtered.length > chartValuePage * CHART_VALUE_PAGE && (
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, paddingTop: 4 }}>
+                        <span style={{ fontSize: 11, color: '#9ca3af' }}>
+                          {filtered.length - chartValuePage * CHART_VALUE_PAGE} more
+                        </span>
+                        <button onClick={() => setChartValuePage(n => n + 1)}
+                          style={{ ...styles.outlineBtn, fontSize: 12, padding: '6px 14px' }}>
+                          Load more
+                        </button>
+                      </div>
+                    )}
                   </>
                 )}
               </>
