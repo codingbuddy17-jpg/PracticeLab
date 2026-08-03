@@ -1811,16 +1811,36 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                 )}
               </div>
               {(() => {
-                // Search by the displayed name, filter by identity.
-                const nameOfCoder = (cid: string) => matrixData.coder_names?.[cid] || cid
-                const searched = matrixCoderSearch.trim()
+                /**
+                 * Identity and display name, tolerant of either payload shape.
+                 *
+                 * This tab briefly showed emp IDs with no scores: the UI had
+                 * switched to keying rows on coder_id while a browser still
+                 * held the previous bundle, so it matched cells by name
+                 * against an id and found none. Nothing was wrong with either
+                 * side on its own — they simply had to ship together.
+                 *
+                 * Cells carry coder_name, so the name is derivable from the
+                 * data itself and the separate map is only a shortcut. Matching
+                 * on either key removes the lockstep requirement entirely.
+                 */
+                const cellId = (c: any) => c.coder_id ?? c.coder_name
+                const nameFromCells: Record<string, string> = {}
+                matrixData.cells.forEach((c: any) => { nameFromCells[cellId(c)] = c.coder_name })
+                const nameOfCoder = (cid: string) =>
+                  matrixData.coder_names?.[cid] || nameFromCells[cid] || cid
+                // Match name OR emp id — the row shows both, so either is a
+                // reasonable thing to type.
+                const mq = matrixCoderSearch.trim().toLowerCase()
+                const searched = mq
                   ? matrixData.coders.filter((cid: string) =>
-                      nameOfCoder(cid).toLowerCase().includes(matrixCoderSearch.toLowerCase()))
+                      nameOfCoder(cid).toLowerCase().includes(mq)
+                      || String(matrixData.coder_emp_ids?.[cid] || '').toLowerCase().includes(mq))
                   : matrixData.coders
                 // "Below target" is per cell against that batch's own mark —
                 // one blanket number would be wrong for half the columns.
                 const isBelow = (cid: string) => matrixData.cells.some((c: any) => {
-                  if (c.coder_id !== cid || c.avg_score == null) return false
+                  if (cellId(c) !== cid || c.avg_score == null) return false
                   const pt = matrixData.batches.find((b: any) => b.id === c.batch_id)?.pass_threshold
                   return pt != null && c.avg_score < pt
                 })
@@ -1831,20 +1851,20 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                 const batchCols = matrixShowAllCols ? allBatchCols : allBatchCols.slice(-MATRIX_COLS)
                 const weightedOverall = new Map<string, number>()
                 for (const coder of filteredCoders) {
-                  const cells = matrixData.cells.filter((c: any) => c.coder_id === coder && c.avg_score != null)
+                  const cells = matrixData.cells.filter((c: any) => cellId(c) === coder && c.avg_score != null)
                   const totalCharts = cells.reduce((s: number, c: any) => s + c.chart_count, 0)
                   const scoreSum = cells.reduce((s: number, c: any) => s + c.score_sum, 0)
                   weightedOverall.set(coder, totalCharts > 0 ? scoreSum / totalCharts : -1)
                 }
                 const sortedMatrixCoders = [...filteredCoders].sort((a: string, b: string) => {
                   const dir = matrixSort.dir === 'asc' ? 1 : -1
-                  if (matrixSort.col === 'coder') return a.localeCompare(b) * dir
+                  if (matrixSort.col === 'coder') return nameOfCoder(a).localeCompare(nameOfCoder(b)) * dir
                   if (matrixSort.col === 'overall') {
                     return ((weightedOverall.get(a) ?? -1) - (weightedOverall.get(b) ?? -1)) * dir
                   }
                   const batchId = Number(matrixSort.col)
-                  const sa = matrixData.cells.find((c: any) => c.coder_id === a && c.batch_id === batchId)?.avg_score ?? -1
-                  const sb = matrixData.cells.find((c: any) => c.coder_id === b && c.batch_id === batchId)?.avg_score ?? -1
+                  const sa = matrixData.cells.find((c: any) => cellId(c) === a && c.batch_id === batchId)?.avg_score ?? -1
+                  const sb = matrixData.cells.find((c: any) => cellId(c) === b && c.batch_id === batchId)?.avg_score ?? -1
                   return (sa - sb) * dir
                 })
                 const visibleCoders = matrixShowAll ? sortedMatrixCoders : sortedMatrixCoders.slice(0, CODER_PAGE)
@@ -1895,7 +1915,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                         </thead>
                         <tbody>
                           {visibleCoders.map((coder: string, i: number) => {
-                            const coderCells = matrixData.cells.filter((c: any) => c.coder_id === coder)
+                            const coderCells = matrixData.cells.filter((c: any) => cellId(c) === coder)
                             const scoredCells = coderCells.filter((c: any) => c.avg_score != null)
                             const totalCharts = scoredCells.reduce((s: number, c: any) => s + c.chart_count, 0)
                             const scoreSum = scoredCells.reduce((s: number, c: any) => s + c.score_sum, 0)
@@ -1908,8 +1928,8 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                                     batch columns push the grid sideways. */}
                                 <td style={{ padding: '7px 12px', fontWeight: 600, borderBottom: '1px solid #f3f4f6', whiteSpace: 'nowrap' as const,
                                              position: 'sticky', left: 0, zIndex: 1, background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
-                                  {coderLink(matrixData.coder_names?.[coder] || coder)}
-                                  {matrixData.coder_emp_ids?.[coder] && <div style={{ fontSize: 10, fontWeight: 400, color: '#9ca3af' }}>{matrixData.coder_emp_ids[coder]}</div>}
+                                  {coderLink(nameOfCoder(coder))}
+                                  {matrixData.coder_emp_ids?.[coder] && matrixData.coder_emp_ids[coder] !== nameOfCoder(coder) && <div style={{ fontSize: 10, fontWeight: 400, color: '#9ca3af' }}>{matrixData.coder_emp_ids[coder]}</div>}
                                 </td>
                                 {batchCols.map((b: any) => {
                                   const cell = cellMap[b.id]
