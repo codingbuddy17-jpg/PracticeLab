@@ -1350,14 +1350,26 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                         <span style={{ fontSize: 11, fontWeight: 800, color: '#9ca3af', width: 16 }}>{rank}</span>
                         <span style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontWeight: 700, fontSize: 13 }}>{coderLink(r.coder_name)}</div>
-                          <div style={{ fontSize: 10, color: '#9ca3af' }}>
-                            {r.emp_id && r.emp_id !== r.coder_name ? `${r.emp_id} · ` : ''}
-                            {r.charts} charts · {r.errors} errors
-                          </div>
+                          {r.emp_id && r.emp_id !== r.coder_name && (
+                            <div style={{ fontSize: 10, color: '#9ca3af' }}>{r.emp_id}</div>
+                          )}
                         </span>
-                        <span style={{ textAlign: 'right' as const }}>
-                          <div style={{ fontSize: 15, fontWeight: 800, color: tone }}>{r.errors_per_chart}</div>
-                          <div style={{ fontSize: 9, color: '#9ca3af' }}>per chart</div>
+                        {/* All three figures, labelled. The rate is what the
+                            ranking uses, but it hides its own denominator —
+                            1.0 reads very differently over 6 charts and 600. */}
+                        <span style={{ display: 'flex', gap: 14, textAlign: 'center' as const }}>
+                          <span>
+                            <div style={{ fontSize: 15, fontWeight: 800, color: tone }}>{r.errors_per_chart}</div>
+                            <div style={{ fontSize: 9, color: '#9ca3af' }}>per chart</div>
+                          </span>
+                          <span>
+                            <div style={{ fontSize: 15, fontWeight: 700, color: '#374151' }}>{r.errors}</div>
+                            <div style={{ fontSize: 9, color: '#9ca3af' }}>errors</div>
+                          </span>
+                          <span>
+                            <div style={{ fontSize: 15, fontWeight: 700, color: '#374151' }}>{r.charts}</div>
+                            <div style={{ fontSize: 9, color: '#9ca3af' }}>charts</div>
+                          </span>
                         </span>
                         {dir && <span style={{ fontSize: 10, fontWeight: 700, color: dir.c, whiteSpace: 'nowrap' as const }}>{dir.t}</span>}
                         <span style={{ fontSize: 11, color: '#9ca3af' }}>{open ? '▲' : '▼'}</span>
@@ -1409,7 +1421,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                       <div>
                         <div style={{ fontSize: 11, fontWeight: 700, color: '#166534', marginBottom: 8 }}>
-                          Fewest errors — candidates to teach from
+                          Coders with few errors
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                           {ec.top.map((r: any, i: number) => <CoderCard key={r.coder_id} r={r} rank={i + 1} tone="#16a34a" />)}
@@ -1417,7 +1429,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                       </div>
                       <div>
                         <div style={{ fontSize: 11, fontWeight: 700, color: '#991b1b', marginBottom: 8 }}>
-                          Most errors — where coaching pays
+                          Coders with most errors
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                           {ec.bottom.length === 0
