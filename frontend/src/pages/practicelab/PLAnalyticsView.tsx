@@ -514,16 +514,16 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
   )
 
   const TABS = [
-    { key: 'overview', label: 'Overview' },
-    { key: 'specialty', label: 'Specialty' },
-    { key: 'batch', label: 'Batches' },
-    { key: 'coder', label: 'Coder Profile' },
-    { key: 'category', label: 'Topic Mastery' },
-    { key: 'teaching', label: 'Chart Signals' },
-    { key: 'matrix', label: 'Coder Matrix' },
-    { key: 'chart', label: 'Chart Audit' },
-    { key: 'errors', label: 'Errors' },
-    { key: 'em_mdm', label: 'E/M MDM' },
+    { key: 'overview', label: 'Overview', title: 'Headline figures across the team' },
+    { key: 'specialty', label: 'Specialty', title: 'Performance by specialty, with a deep dive' },
+    { key: 'batch', label: 'Batches', title: 'How each batch went, over time' },
+    { key: 'coder', label: 'Coders', title: 'Coder Profile — one coder end to end' },
+    { key: 'category', label: 'Topics', title: 'Topic Mastery — performance by chart topic' },
+    { key: 'teaching', label: 'Signals', title: 'Chart Signals — which charts are worth teaching with' },
+    { key: 'matrix', label: 'Matrix', title: 'Coder Matrix — coders against batches or specialties' },
+    { key: 'chart', label: 'Charts', title: 'Chart Audit — everything that happened on one chart' },
+    { key: 'errors', label: 'Errors', title: 'Error Analysis — which mistakes, by whom, and what to do' },
+    { key: 'em_mdm', label: 'E/M MDM', title: 'E/M medical decision making breakdown' },
   ]
 
   // Only the very first load takes over the page. After that there is always
@@ -588,23 +588,34 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
         as two groups, with whatever fell to line two looking demoted; past ten
         it scrolls sideways instead, so the control keeps its shape.
       */}
-      <div style={{ display: 'flex', borderBottom: '2px solid #e5e7eb', overflow: 'auto',
-                    maxWidth: '100%', flexWrap: 'nowrap' as const, gap: 2 }}>
+      {/*
+        Navigation, in its own colour and its own shape.
+
+        Slate rather than indigo or teal: those two are spoken for by the
+        filter chips and the scope switch, so reusing either would put
+        navigation in the same visual language as the controls inside a view.
+        A dark bar reads as chrome — the thing you move around in, not a
+        setting you change.
+
+        Labels are short so all ten fit one row at ordinary widths, with the
+        full name on hover. A scrolling tab bar hides half the app behind a
+        gesture nobody thinks to make, and a wrapping one reads as two groups.
+      */}
+      <div style={{ display: 'flex', border: '1px solid #cbd5e1', borderRadius: 10,
+                    overflow: 'hidden', alignSelf: 'flex-start', maxWidth: '100%',
+                    flexWrap: 'wrap' as const, background: '#f8fafc' }}>
         {TABS.map(t => (
-          <button key={t.key}
+          <button key={t.key} title={(t as any).title}
             style={{
-              padding: '9px 13px',
+              padding: '8px 15px',
               border: 'none',
-              background: 'none',
               cursor: 'pointer',
               whiteSpace: 'nowrap' as const,
-              flexShrink: 0,
               fontSize: 13,
-              fontWeight: tab === t.key ? 800 : 600,
-              color: tab === t.key ? '#4f46e5' : '#6b7280',
-              // Sits ON the rule, so the active tab joins the content below it.
-              boxShadow: tab === t.key ? 'inset 0 -3px 0 #4f46e5' : 'none',
-              marginBottom: -2,
+              fontWeight: 700,
+              letterSpacing: 0.2,
+              background: tab === t.key ? '#334155' : 'transparent',
+              color: tab === t.key ? '#fff' : '#64748b',
             }}
             onClick={() => setTab(t.key as any)}>{t.label}</button>
         ))}
