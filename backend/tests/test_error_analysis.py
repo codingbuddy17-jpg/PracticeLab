@@ -256,3 +256,60 @@ class TestCommentary:
         body = client.get(URL).json()
         assert body["total_errors"] == 0
         assert "commentary" not in body or body.get("commentary") in (None, [])
+
+
+class TestCodeTablePaging:
+    """
+    This list only ever grows — a code missed once a year ago is still a row.
+    It was truncated at 200 with the client searching inside that slice, so a
+    code ranked 250th was unreachable AND unfindable, and the count on screen
+    described the slice rather than the data.
+    """
+
+    @pytest.fixture()
+    def many_codes(self, db):
+        b = _batch(db, "B")
+        # 60 distinct codes, descending frequency, so rank is predictable.
+        for i in range(60):
+            for _ in range(60 - i):
+                _err(db, b, _chart(db, f"IPPG{i}_{_}"), f"C{i}", f"E{i}", f"Z{i:03d}")
+        return b
+
+    def test_only_a_page_comes_back(self, client, many_codes):
+        body = client.get(URL, params={"limit": 25}).json()
+        assert len(body["codes"]) == 25
+        assert body["total_codes"] == 60
+
+    def test_offset_walks_the_rest(self, client, many_codes):
+        first = [c["code"] for c in client.get(URL, params={"limit": 25}).json()["codes"]]
+        second = [c["code"] for c in client.get(URL, params={"limit": 25, "offset": 25}).json()["codes"]]
+        assert not set(first) & set(second)
+
+    def test_search_reaches_a_code_far_past_the_page(self, client, many_codes):
+        """Z059 is rank 60 by frequency — client-side search never saw it."""
+        body = client.get(URL, params={"limit": 25, "code_search": "Z059"}).json()
+        assert [c["code"] for c in body["codes"]] == ["Z059"]
+        assert body["matching_codes"] == 1
+
+    def test_pattern_filter_runs_before_the_cut(self, client, many_codes):
+        body = client.get(URL, params={"limit": 25, "pattern": "One coder"}).json()
+        assert body["matching_codes"] > 0
+        assert all(c["pattern"] == "One coder" for c in body["codes"])
+
+    def test_the_three_totals_are_distinct_and_all_reported(self, client, many_codes):
+        """Collapsing them is how "Showing 25 of 25" appears over 60 codes."""
+        # "Z00" matches Z000-Z009 only; "Z0" would match all sixty and the
+        # test would prove nothing.
+        body = client.get(URL, params={"limit": 5, "code_search": "Z00"}).json()
+        assert body["returned_codes"] == 5
+        assert body["matching_codes"] == 10
+        assert body["total_codes"] == 60
+        assert body["matching_codes"] < body["total_codes"]
+
+    def test_pattern_counts_cover_the_whole_set_not_the_page(self, client, many_codes):
+        """A chip reading "One coder (3)" when there are 60 would be a lie."""
+        body = client.get(URL, params={"limit": 5}).json()
+        assert sum(body["pattern_counts"].values()) == body["total_codes"]
+
+    def test_limit_is_capped(self, client, many_codes):
+        assert len(client.get(URL, params={"limit": 100000}).json()["codes"]) <= 200

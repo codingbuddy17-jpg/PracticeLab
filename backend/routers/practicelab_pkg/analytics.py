@@ -1070,6 +1070,8 @@ def analytics_chart_teaching_value(
 def analytics_error_analysis(
     from_date: Optional[str] = None, to_date: Optional[str] = None, specialty: Optional[str] = None,
     scope: str = "formal", section: Optional[str] = None, issue_type: Optional[str] = None,
+    code_search: Optional[str] = None, pattern: Optional[str] = None,
+    limit: int = 25, offset: int = 0,
     db: Session = Depends(get_db),
 ):
     """
@@ -1170,6 +1172,29 @@ def analytics_error_analysis(
             "last_seen": d["last_seen"].isoformat() if d["last_seen"] else None,
         })
     code_rows.sort(key=lambda x: -x["count"])
+
+    # ── Which code rows come back ────────────────────────────────────────────
+    # This list grows with every graded chart and never shrinks — a code missed
+    # once a year ago is still a row. It used to be truncated at 200 with the
+    # client searching inside that slice, so a code ranked 250th was both
+    # unreachable and unfindable, and the count on screen described the slice
+    # rather than the data.
+    #
+    # Search and pattern therefore run HERE, before the cut.
+    filtered = code_rows
+    if code_search and code_search.strip():
+        term = code_search.strip().lower()
+        filtered = [c for c in filtered if term in c["code"].lower()]
+    if pattern:
+        filtered = [c for c in filtered if c["pattern"] == pattern]
+
+    matching_codes = len(filtered)
+    limit = max(1, min(limit, 200))
+    page = filtered[offset:offset + limit]
+
+    # Counts for the pattern chips, over the whole set rather than the page —
+    # a chip reading "Team-wide (3)" when there are 40 would be a lie.
+    pattern_counts = Counter(c["pattern"] for c in code_rows)
 
     # ── Trend by month, so "are we fixing it" is answerable ──────────────────
     months: dict = {}
@@ -1281,8 +1306,15 @@ def analytics_error_analysis(
                           for t, c in by_issue.most_common()],
         "by_section": [{"section": sec, "count": c, "pct": _share(c)}
                        for sec, c in by_section.most_common()],
-        "codes": code_rows[:200],
+        "codes": page,
+        # Three different totals, all of them needed: every distinct code seen,
+        # how many match the current search/pattern, and how many are on this
+        # page. Collapsing them is how "Showing 25 of 25" appears over a
+        # thousand codes.
         "total_codes": len(code_rows),
+        "matching_codes": matching_codes,
+        "returned_codes": len(page),
+        "pattern_counts": dict(pattern_counts),
         "trend": trend,
         "scope": scope,
     }

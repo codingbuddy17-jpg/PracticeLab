@@ -385,11 +385,8 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
     if (tab === 'teaching') getPLChartTeachingValue(filters, scope).then(setTeachingData).catch(() => {})
     if (tab === 'matrix') loadMatrix()
     if (tab === 'chart') getPLAnalyticsByChart(filters, scope).then(setByChart).catch(() => {})
-    if (tab === 'errors') {
-      getPLErrorAnalysis(filters, scope, { section: errorSection, issueType: errorIssue })
-        .then(setErrorData).catch(() => {})
-    }
-  }, [scope, tab, filterVersion, matrixGroupBy, errorSection, errorIssue])
+    if (tab === 'errors') loadErrors()
+  }, [scope, tab, filterVersion, matrixGroupBy])
 
   useEffect(() => {
     if (tab === 'category') {
@@ -444,6 +441,28 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
   }, [filterVersion])
 
   /** Lazy, like the chart drilldown: only fetch a code's spread when asked. */
+  /**
+   * The code table is filtered, searched and paged on the SERVER.
+   *
+   * It grows with every graded chart and never shrinks — a code missed once a
+   * year ago is still a row. Searching a client-side slice would stop finding
+   * things exactly when the list got long enough to need searching.
+   */
+  function loadErrors(page = errorPage) {
+    return getPLErrorAnalysis(filters, scope, {
+      section: errorSection, issueType: errorIssue,
+      codeSearch: errorSearch, pattern: errorPattern,
+      limit: page * ERROR_PAGE,
+    }).then(setErrorData).catch(() => {})
+  }
+
+  // Debounced — a code search should not fire a request per keystroke.
+  useEffect(() => {
+    if (tab !== 'errors') return
+    const t = setTimeout(() => loadErrors(), 250)
+    return () => clearTimeout(t)
+  }, [errorSearch, errorPattern, errorPage, errorSection, errorIssue])
+
   function toggleCodeDetail(code: string) {
     if (expandedCode === code) { setExpandedCode(null); return }
     setExpandedCode(code)
@@ -1068,11 +1087,10 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
           'One coder': { color: '#1d4ed8', bg: '#dbeafe' },
           'Scattered': { color: '#6b7280', bg: '#f3f4f6' },
         }
-        const q = errorSearch.trim().toLowerCase()
-        const allCodes = (d?.codes ?? [])
-          .filter((c: any) => !q || c.code.toLowerCase().includes(q))
-          .filter((c: any) => !errorPattern || c.pattern === errorPattern)
-        const codes = allCodes.slice(0, errorPage * ERROR_PAGE)
+        // What arrives IS the page — searched, pattern-filtered and cut on
+        // the server. Filtering again here would only hide rows it chose to send.
+        const codes = d?.codes ?? []
+        const matching = d?.matching_codes ?? codes.length
         return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
@@ -1206,15 +1224,18 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                 <span style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase' as const, letterSpacing: 0.5 }}>Pattern</span>
                 {['', 'Team-wide', 'One chart', 'One coder', 'Scattered'].map(t => (
                   <button key={t || 'all'} onClick={() => { setErrorPattern(t); setErrorPage(1) }}
+                    title={t ? `${d.pattern_counts?.[t] ?? 0} code(s)` : `${d.total_codes} codes in total`}
                     style={{ padding: '4px 11px', borderRadius: 20, fontSize: 12, fontWeight: 700, cursor: 'pointer',
                       background: errorPattern === t ? (PATTERN_META[t]?.color || '#374151') : (PATTERN_META[t]?.bg || '#f3f4f6'),
                       color: errorPattern === t ? '#fff' : (PATTERN_META[t]?.color || '#374151'),
                       border: '1px solid ' + (PATTERN_META[t]?.color || '#e5e7eb') + '40' }}>
                     {t || 'All patterns'}
+                    {t && d.pattern_counts?.[t] != null && ` (${d.pattern_counts[t]})`}
                   </button>
                 ))}
                 <span style={{ fontSize: 11, color: '#9ca3af', marginLeft: 'auto' }}>
-                  Showing {codes.length} of {allCodes.length} codes
+                  Showing {codes.length} of {matching}
+                  {matching !== d.total_codes ? ` matching (${d.total_codes} codes in total)` : ' codes'}
                 </span>
               </div>
 
@@ -1281,9 +1302,9 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                   )
                 })}
               </div>
-              {allCodes.length > codes.length && (
+              {matching > codes.length && (
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
-                  <span style={{ fontSize: 11, color: '#9ca3af' }}>{allCodes.length - codes.length} more</span>
+                  <span style={{ fontSize: 11, color: '#9ca3af' }}>{matching - codes.length} more</span>
                   <button onClick={() => setErrorPage(n => n + 1)} style={{ ...styles.outlineBtn, fontSize: 12, padding: '5px 14px' }}>
                     Load more
                   </button>

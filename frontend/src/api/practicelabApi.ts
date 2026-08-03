@@ -557,9 +557,18 @@ export function downloadChartSignalsXlsx(f: PLFilters = {}, scope = 'formal') {
 
 /** Errors as the unit — which mistakes, by whom, on what, and trending how. */
 export async function getPLErrorAnalysis(f: PLFilters = {}, scope = 'formal',
-                                         opts: { section?: string; issueType?: string } = {}) {
+                                         opts: { section?: string; issueType?: string;
+                                                 codeSearch?: string; pattern?: string;
+                                                 limit?: number } = {}) {
   const { data } = await api.get('/practicelab/analytics/error-analysis', {
-    params: { ...fp(f), scope, section: opts.section || undefined, issue_type: opts.issueType || undefined },
+    params: {
+      ...fp(f), scope,
+      section: opts.section || undefined,
+      issue_type: opts.issueType || undefined,
+      code_search: opts.codeSearch?.trim() || undefined,
+      pattern: opts.pattern || undefined,
+      limit: opts.limit ?? 25,
+    },
   })
   return data as any
 }
