@@ -1066,6 +1066,183 @@ def analytics_chart_teaching_value(
     return sorted(out, key=lambda x: (priority.get(x["teaching_label"], 9), -x["attempt_count"]))
 
 
+@router.get("/analytics/error-analysis")
+def analytics_error_analysis(
+    from_date: Optional[str] = None, to_date: Optional[str] = None, specialty: Optional[str] = None,
+    scope: str = "formal", section: Optional[str] = None, issue_type: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """
+    Errors as the unit, not coders or charts.
+
+    Every other tab is keyed on a THING — a coder, a chart, a batch, a topic —
+    and reports errors as an attribute of it. That answers "how did X do" and
+    cannot answer "what is this team getting wrong", because the same mistake
+    is scattered across every row that happened to contain it.
+
+    The figure this exists for is CONCENTRATION. A code missed forty times is
+    meaningless on its own:
+
+      40 misses by 1 coder   -> coaching. One person has a habit.
+      40 misses by 20 coders -> curriculum. The team was never taught it.
+      40 misses on 1 chart   -> the chart or its answer key is the problem.
+
+    Same count, three different actions. So every row carries how many distinct
+    coders and charts it touches, and a concentration ratio that says which of
+    the three it is.
+    """
+    scope = (scope or "formal").lower()
+    if scope not in ("formal", "direct", "all"):
+        raise HTTPException(status_code=400, detail="scope must be formal, direct or all")
+
+    results = _with_details(_gr_base(db, from_date, to_date, specialty,
+                                     exclude_direct=(scope == "formal"))).join(Chart).all()
+    if scope == "direct":
+        results = [r for r in results if r.batch and r.batch.is_direct_assignment]
+
+    items = []
+    for r in results:
+        for f in r.feedback:
+            if section and f.section.value != section:
+                continue
+            if issue_type and f.issue_type.value != issue_type:
+                continue
+            items.append((r, f))
+
+    total = len(items)
+    if not total:
+        return {"total_errors": 0, "graded_charts": len(results), "by_issue_type": [],
+                "by_section": [], "codes": [], "trend": [], "scope": scope}
+
+    def _share(n):
+        return round(n / total * 100, 1)
+
+    by_issue = Counter(f.issue_type.value for _, f in items)
+    by_section = Counter(f.section.value for _, f in items)
+
+    # ── Per code ─────────────────────────────────────────────────────────────
+    codes: dict = {}
+    for r, f in items:
+        code = f.ak_code or f.coder_code
+        if not code:
+            continue
+        d = codes.setdefault(code, {
+            "code": code, "count": 0, "coders": set(), "charts": set(),
+            "specialties": set(), "sections": Counter(), "issues": Counter(),
+            "last_seen": None,
+        })
+        d["count"] += 1
+        d["coders"].add(r.emp_id or r.coder_name)
+        d["charts"].add(r.chart.chart_number if r.chart else r.chart_id)
+        if r.specialty:
+            d["specialties"].add(r.specialty.value)
+        d["sections"][f.section.value] += 1
+        d["issues"][f.issue_type.value] += 1
+        if r.graded_at and (d["last_seen"] is None or r.graded_at > d["last_seen"]):
+            d["last_seen"] = r.graded_at
+
+    def _verdict(d):
+        """Which of the three problems this is — the point of the whole tab."""
+        n_coders, n_charts = len(d["coders"]), len(d["charts"])
+        if n_coders == 1 and d["count"] >= 3:
+            return "One coder", "Repeated by a single coder — coaching, not curriculum"
+        if n_charts == 1 and n_coders >= 3:
+            return "One chart", "Many coders miss it on the same chart — check that chart's answer key"
+        if n_coders >= 3 and n_charts >= 2:
+            return "Team-wide", "Missed by several coders across several charts — a teaching gap"
+        return "Scattered", "Too few occurrences to call a pattern yet"
+
+    code_rows = []
+    for d in codes.values():
+        label, why = _verdict(d)
+        code_rows.append({
+            "code": d["code"],
+            "count": d["count"],
+            "coders_affected": len(d["coders"]),
+            "charts_affected": len(d["charts"]),
+            "specialties": sorted(d["specialties"]),
+            "top_section": d["sections"].most_common(1)[0][0],
+            "issue_breakdown": [{"type": t, "count": c} for t, c in d["issues"].most_common()],
+            # Errors per coder: high means concentrated in few people.
+            "per_coder": round(d["count"] / len(d["coders"]), 1) if d["coders"] else 0,
+            "pattern": label,
+            "pattern_reason": why,
+            "last_seen": d["last_seen"].isoformat() if d["last_seen"] else None,
+        })
+    code_rows.sort(key=lambda x: -x["count"])
+
+    # ── Trend by month, so "are we fixing it" is answerable ──────────────────
+    months: dict = {}
+    for r, f in items:
+        if not r.graded_at:
+            continue
+        key = r.graded_at.strftime("%Y-%m")
+        months.setdefault(key, Counter())[f.issue_type.value] += 1
+    trend = [{"month": m, "total": sum(c.values()),
+              **{t: c.get(t, 0) for t in by_issue}}
+             for m, c in sorted(months.items())]
+
+    return {
+        "total_errors": total,
+        "graded_charts": len(results),
+        # Errors per graded chart — the one figure that says whether things are
+        # improving without needing to know how much practice happened.
+        "errors_per_chart": round(total / len(results), 2) if results else 0,
+        "by_issue_type": [{"type": t, "count": c, "pct": _share(c)}
+                          for t, c in by_issue.most_common()],
+        "by_section": [{"section": sec, "count": c, "pct": _share(c)}
+                       for sec, c in by_section.most_common()],
+        "codes": code_rows[:200],
+        "total_codes": len(code_rows),
+        "trend": trend,
+        "scope": scope,
+    }
+
+
+@router.get("/analytics/error-detail")
+def analytics_error_detail(
+    code: str,
+    from_date: Optional[str] = None, to_date: Optional[str] = None, specialty: Optional[str] = None,
+    scope: str = "formal",
+    db: Session = Depends(get_db),
+):
+    """Who missed this code, on which charts — the drilldown behind a row."""
+    scope = (scope or "formal").lower()
+    results = _with_details(_gr_base(db, from_date, to_date, specialty,
+                                     exclude_direct=(scope == "formal"))).join(Chart).all()
+    if scope == "direct":
+        results = [r for r in results if r.batch and r.batch.is_direct_assignment]
+
+    by_coder: dict = {}
+    by_chart: dict = {}
+    for r in results:
+        for f in r.feedback:
+            if (f.ak_code or f.coder_code) != code:
+                continue
+            cid = r.emp_id or r.coder_name
+            c = by_coder.setdefault(cid, {"coder_name": r.coder_name, "emp_id": r.emp_id,
+                                          "count": 0, "charts": set()})
+            c["count"] += 1
+            c["charts"].add(r.chart.chart_number if r.chart else "")
+            ch = r.chart.chart_number if r.chart else "—"
+            d = by_chart.setdefault(ch, {"chart_number": ch, "count": 0, "coders": set(),
+                                         "specialty": r.specialty.value if r.specialty else None,
+                                         "category": r.chart.category if r.chart else None})
+            d["count"] += 1
+            d["coders"].add(cid)
+
+    return {
+        "code": code,
+        "coders": sorted([{"coder_name": v["coder_name"], "emp_id": v["emp_id"],
+                           "count": v["count"], "charts": len(v["charts"])}
+                          for v in by_coder.values()], key=lambda x: -x["count"]),
+        "charts": sorted([{"chart_number": v["chart_number"], "count": v["count"],
+                           "coders": len(v["coders"]), "specialty": v["specialty"],
+                           "category": v["category"]}
+                          for v in by_chart.values()], key=lambda x: -x["count"]),
+    }
+
+
 @router.get("/analytics/coder-matrix")
 def analytics_coder_matrix(
     from_date: Optional[str] = None, to_date: Optional[str] = None, specialty: Optional[str] = None,

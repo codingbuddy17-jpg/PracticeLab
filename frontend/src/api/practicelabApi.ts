@@ -554,3 +554,19 @@ export function downloadChartSignalsXlsx(f: PLFilters = {}, scope = 'formal') {
   const p = new URLSearchParams({ ...fp(f), scope })
   window.open(`${import.meta.env.VITE_API_URL || '/api'}/practicelab/analytics/chart-signals.xlsx?` + p.toString(), '_blank')
 }
+
+/** Errors as the unit — which mistakes, by whom, on what, and trending how. */
+export async function getPLErrorAnalysis(f: PLFilters = {}, scope = 'formal',
+                                         opts: { section?: string; issueType?: string } = {}) {
+  const { data } = await api.get('/practicelab/analytics/error-analysis', {
+    params: { ...fp(f), scope, section: opts.section || undefined, issue_type: opts.issueType || undefined },
+  })
+  return data as any
+}
+
+export async function getPLErrorDetail(code: string, f: PLFilters = {}, scope = 'formal') {
+  const { data } = await api.get('/practicelab/analytics/error-detail', {
+    params: { ...fp(f), scope, code },
+  })
+  return data as any
+}

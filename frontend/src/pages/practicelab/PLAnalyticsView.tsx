@@ -10,6 +10,7 @@ import {
   getPLAnalyticsByBatch, getCoderTrend, getCoderSummary, downloadCoderReportPdf,
   downloadCoderPerformanceXlsx, downloadBatchReportPdf, downloadBatchAnalyticsXlsx,
   downloadCoderMatrixXlsx, downloadTopicHeatmapXlsx, downloadChartSignalsXlsx,
+  getPLErrorAnalysis, getPLErrorDetail,
   getPLAnalyticsByCategory, getPLChartTeachingValue, getPLCoderMatrix, getPLChartDetail,
   getBatchEMBreakdown, getPLSpecialtyProfile,
   type PLFilters,
@@ -102,7 +103,7 @@ function Box({ label, value, color, hint }: { label: string; value: any; color?:
 }
 
 export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: number) => void } = {}) {
-  const [tab, setTab] = useState<'overview' | 'specialty' | 'chart' | 'batch' | 'coder' | 'category' | 'teaching' | 'matrix' | 'em_mdm'>(
+  const [tab, setTab] = useState<'overview' | 'specialty' | 'chart' | 'batch' | 'coder' | 'category' | 'teaching' | 'matrix' | 'errors' | 'em_mdm'>(
     () => (localStorage.getItem(TAB_STORAGE_KEY) as any) || 'overview'
   )
 
@@ -257,6 +258,15 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
   // charts that is 2000 expandable rows mounted before you can look at one.
   const [byChartSearch, setByChartSearch] = useState('')
   const [byChartPage, setByChartPage] = useState(1)
+  const [errorData, setErrorData] = useState<any>(null)
+  const [errorSection, setErrorSection] = useState('')
+  const [errorIssue, setErrorIssue] = useState('')
+  const [errorSearch, setErrorSearch] = useState('')
+  const [errorPage, setErrorPage] = useState(1)
+  const [errorPattern, setErrorPattern] = useState('')
+  const [expandedCode, setExpandedCode] = useState<string | null>(null)
+  const [codeDetail, setCodeDetail] = useState<Record<string, any>>({})
+  const ERROR_PAGE = 25
   const BY_CHART_PAGE = 30
   const [chartValueSort, setChartValueSort] = useState<'score_asc' | 'attempts_desc' | 'score_desc'>('score_asc')
 
@@ -375,7 +385,11 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
     if (tab === 'teaching') getPLChartTeachingValue(filters, scope).then(setTeachingData).catch(() => {})
     if (tab === 'matrix') loadMatrix()
     if (tab === 'chart') getPLAnalyticsByChart(filters, scope).then(setByChart).catch(() => {})
-  }, [scope, tab, filterVersion, matrixGroupBy])
+    if (tab === 'errors') {
+      getPLErrorAnalysis(filters, scope, { section: errorSection, issueType: errorIssue })
+        .then(setErrorData).catch(() => {})
+    }
+  }, [scope, tab, filterVersion, matrixGroupBy, errorSection, errorIssue])
 
   useEffect(() => {
     if (tab === 'category') {
@@ -429,6 +443,17 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterVersion])
 
+  /** Lazy, like the chart drilldown: only fetch a code's spread when asked. */
+  function toggleCodeDetail(code: string) {
+    if (expandedCode === code) { setExpandedCode(null); return }
+    setExpandedCode(code)
+    if (!codeDetail[code]) {
+      getPLErrorDetail(code, filters, scope)
+        .then(dd => setCodeDetail(prev => ({ ...prev, [code]: dd })))
+        .catch(() => {})
+    }
+  }
+
   async function toggleChartDetail(chartNumber: string) {
     if (expandedChart === chartNumber) { setExpandedChart(null); return }
     if (chartDetail[chartNumber]) { setExpandedChart(chartNumber); return }
@@ -455,6 +480,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
     { key: 'teaching', label: 'Chart Signals' },
     { key: 'matrix', label: 'Coder Matrix' },
     { key: 'chart', label: 'By Chart' },
+    { key: 'errors', label: 'Error Analysis' },
     { key: 'em_mdm', label: 'E/M MDM' },
   ]
 
@@ -522,7 +548,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
           driven by the same state: it lived inside Overview, so By Specialty
           silently inherited whatever had been picked there with nothing on
           screen saying so. */}
-      {(tab === 'overview' || tab === 'specialty' || tab === 'batch' || tab === 'category' || tab === 'teaching' || tab === 'matrix' || tab === 'chart') && (
+      {(tab === 'overview' || tab === 'specialty' || tab === 'batch' || tab === 'category' || tab === 'teaching' || tab === 'matrix' || tab === 'chart' || tab === 'errors') && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' as const, marginBottom: 16 }}>
           <div style={{ display: 'flex', border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
             {([['formal', 'Batches'], ['direct', 'Direct Assignments'], ['all', 'Both']] as const).map(([k, label]) => (
@@ -1016,6 +1042,214 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                 Load more
               </button>
             </div>
+          )}
+        </div>
+        )
+      })()}
+
+      {/* Error Analysis — the unit is the ERROR, not a coder or a chart. */}
+      {tab === 'errors' && (() => {
+        const d = errorData
+        const PATTERN_META: Record<string, { color: string; bg: string }> = {
+          'Team-wide': { color: '#991b1b', bg: '#fee2e2' },
+          'One chart': { color: '#92400e', bg: '#fef3c7' },
+          'One coder': { color: '#1d4ed8', bg: '#dbeafe' },
+          'Scattered': { color: '#6b7280', bg: '#f3f4f6' },
+        }
+        const q = errorSearch.trim().toLowerCase()
+        const allCodes = (d?.codes ?? [])
+          .filter((c: any) => !q || c.code.toLowerCase().includes(q))
+          .filter((c: any) => !errorPattern || c.pattern === errorPattern)
+        const codes = allCodes.slice(0, errorPage * ERROR_PAGE)
+        return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+          {/* Controls above the gate — a filter that empties the tab must not
+              take itself with it. */}
+          <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' as const }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase' as const, letterSpacing: 0.5, width: 56 }}>Issue</span>
+              {['', 'Missed', 'Wrong_Code', 'Over_coded', 'Wrong_POA', 'Wrong_Modifier', 'Wrong_Pointer'].map(t => (
+                <button key={t || 'all'} onClick={() => { setErrorIssue(t); setErrorPage(1) }}
+                  style={{ padding: '4px 11px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                    background: errorIssue === t ? '#4f46e5' : '#f3f4f6',
+                    color: errorIssue === t ? '#fff' : '#374151',
+                    border: '1px solid ' + (errorIssue === t ? '#4f46e5' : '#e5e7eb') }}>
+                  {t ? t.replace(/_/g, ' ') : 'All'}
+                </button>
+              ))}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' as const }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase' as const, letterSpacing: 0.5, width: 56 }}>Section</span>
+              {['', 'PDx', 'SDx', 'PCS', 'CPT', 'DRG', 'POA', 'Modifier'].map(t => (
+                <button key={t || 'all'} onClick={() => { setErrorSection(t); setErrorPage(1) }}
+                  style={{ padding: '4px 11px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                    background: errorSection === t ? '#0f766e' : '#f3f4f6',
+                    color: errorSection === t ? '#fff' : '#374151',
+                    border: '1px solid ' + (errorSection === t ? '#0f766e' : '#e5e7eb') }}>
+                  {t || 'All'}
+                </button>
+              ))}
+              <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 8, alignItems: 'center' }}>
+                <SearchBox width={180} placeholder="Find a code…" value={errorSearch}
+                  onChange={v => { setErrorSearch(v); setErrorPage(1) }} />
+                {(errorIssue || errorSection || errorSearch || errorPattern) && (
+                  <button onClick={() => { setErrorIssue(''); setErrorSection(''); setErrorSearch(''); setErrorPattern(''); setErrorPage(1) }}
+                    style={{ fontSize: 12, fontWeight: 700, color: '#dc2626', background: 'none', border: '1px solid #fecaca', borderRadius: 6, padding: '5px 11px', cursor: 'pointer' }}>
+                    Reset
+                  </button>
+                )}
+              </span>
+            </div>
+          </div>
+
+          {!d ? <div style={styles.emptyState}>Loading…</div> : d.total_errors === 0 ? (
+            <div style={styles.emptyState}>
+              {errorIssue || errorSection ? 'No errors match these filters.' : 'No graded errors yet.'}
+            </div>
+          ) : (
+            <>
+              <div style={styles.statsRow}>
+                <Box label="Total Errors" value={d.total_errors} />
+                <Box label="Errors per Chart" value={d.errors_per_chart}
+                  hint="normalised for how much practice happened" />
+                <Box label="Distinct Codes" value={d.total_codes} />
+                <Box label="Graded Charts" value={d.graded_charts} />
+              </div>
+
+              {/* Where the errors are: by type and by section, side by side. */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '14px 16px' }}>
+                  <div style={sectionLabel}>By Issue Type</div>
+                  <ResponsiveContainer width="100%" height={barHeight(d.by_issue_type.length, 34, 120)}>
+                    <BarChart data={d.by_issue_type.map((e: any) => ({ ...e, label: e.type.replace(/_/g, ' ') }))}
+                      layout="vertical" margin={{ left: 8, right: 40, top: 2, bottom: 2 }}>
+                      <XAxis type="number" tick={{ fontSize: 10 }} />
+                      <YAxis type="category" dataKey="label" width={110} tick={{ fontSize: 11 }} />
+                      <Tooltip formatter={(v: any, _n: any, p: any) => [`${v} (${p.payload.pct}%)`, 'Errors']}
+                        contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                      <Bar dataKey="count" radius={[0, 6, 6, 0]} fill="#4f46e5" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+                <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '14px 16px' }}>
+                  <div style={sectionLabel}>By Section</div>
+                  <ResponsiveContainer width="100%" height={barHeight(d.by_section.length, 34, 120)}>
+                    <BarChart data={d.by_section} layout="vertical" margin={{ left: 8, right: 40, top: 2, bottom: 2 }}>
+                      <XAxis type="number" tick={{ fontSize: 10 }} />
+                      <YAxis type="category" dataKey="section" width={110} tick={{ fontSize: 11 }} />
+                      <Tooltip formatter={(v: any, _n: any, p: any) => [`${v} (${p.payload.pct}%)`, 'Errors']}
+                        contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                      <Bar dataKey="count" radius={[0, 6, 6, 0]} fill="#0f766e" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {d.trend.length > 1 && (
+                <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '14px 16px' }}>
+                  <div style={sectionLabel}>Errors Over Time — is it getting better?</div>
+                  <ResponsiveContainer width="100%" height={160}>
+                    <LineChart data={recent(d.trend, 12)} margin={{ left: 0, right: 16, top: 4, bottom: 4 }}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="month" tick={{ fontSize: 10 }} />
+                      <YAxis tick={{ fontSize: 10 }} width={36} />
+                      <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                      <Line type="monotone" dataKey="total" stroke="#dc2626" strokeWidth={2.5} dot={{ r: 4 }} name="Errors" />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+
+              {/* The heart of it: what each code's spread means to do about it. */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' as const }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase' as const, letterSpacing: 0.5 }}>Pattern</span>
+                {['', 'Team-wide', 'One chart', 'One coder', 'Scattered'].map(t => (
+                  <button key={t || 'all'} onClick={() => { setErrorPattern(t); setErrorPage(1) }}
+                    style={{ padding: '4px 11px', borderRadius: 20, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                      background: errorPattern === t ? (PATTERN_META[t]?.color || '#374151') : (PATTERN_META[t]?.bg || '#f3f4f6'),
+                      color: errorPattern === t ? '#fff' : (PATTERN_META[t]?.color || '#374151'),
+                      border: '1px solid ' + (PATTERN_META[t]?.color || '#e5e7eb') + '40' }}>
+                    {t || 'All patterns'}
+                  </button>
+                ))}
+                <span style={{ fontSize: 11, color: '#9ca3af', marginLeft: 'auto' }}>
+                  Showing {codes.length} of {allCodes.length} codes
+                </span>
+              </div>
+
+              <div style={styles.table}>
+                <div style={{ ...styles.tableHeader, gridTemplateColumns: '130px 70px 80px 80px 1fr 130px' }}>
+                  <span>Code</span><span>Times</span><span>Coders</span><span>Charts</span>
+                  <span>What it means</span><span>Section</span>
+                </div>
+                {codes.map((c: any, i: number) => {
+                  const meta = PATTERN_META[c.pattern] || PATTERN_META['Scattered']
+                  const open = expandedCode === c.code
+                  return (
+                    <div key={c.code}>
+                      <div className={!open ? (i % 2 === 1 ? 'pl-tr-alt' : 'pl-tr') : ''}
+                        onClick={() => toggleCodeDetail(c.code)}
+                        style={{ ...styles.tableRow, gridTemplateColumns: '130px 70px 80px 80px 1fr 130px', cursor: 'pointer', alignItems: 'center', background: open ? '#f5f3ff' : undefined }}>
+                        <span style={{ fontWeight: 700, color: '#4f46e5' }}>{open ? '▾ ' : '▸ '}{c.code}</span>
+                        <span style={{ fontWeight: 700 }}>{c.count}</span>
+                        <span>{c.coders_affected}</span>
+                        <span>{c.charts_affected}</span>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' as const }}>
+                          <span style={{ fontSize: 10, fontWeight: 700, background: meta.bg, color: meta.color, padding: '2px 8px', borderRadius: 10, whiteSpace: 'nowrap' as const }}>
+                            {c.pattern}
+                          </span>
+                          <span style={{ fontSize: 11, color: '#6b7280' }}>{c.pattern_reason}</span>
+                        </span>
+                        <span style={{ fontSize: 11, color: '#6b7280' }}>
+                          {c.top_section}
+                          {c.last_seen && <div style={{ fontSize: 10, color: '#9ca3af' }}>last {c.last_seen.slice(0, 10)}</div>}
+                        </span>
+                      </div>
+                      {open && (
+                        <div style={{ padding: '12px 16px', background: '#fafafa', borderBottom: '1px solid #ede9fe', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                          <div>
+                            <div style={sectionLabel}>Who</div>
+                            {!codeDetail[c.code] ? <div style={{ fontSize: 12, color: '#9ca3af' }}>Loading…</div>
+                              : codeDetail[c.code].coders.slice(0, 8).map((x: any) => (
+                                <div key={(x.emp_id || x.coder_name)} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #f3f4f6', fontSize: 12 }}>
+                                  {coderLink(x.coder_name)}
+                                  <span style={{ color: '#6b7280' }}>{x.count}× on {x.charts} chart{x.charts !== 1 ? 's' : ''}</span>
+                                </div>
+                              ))}
+                          </div>
+                          <div>
+                            <div style={sectionLabel}>Where</div>
+                            {!codeDetail[c.code] ? <div style={{ fontSize: 12, color: '#9ca3af' }}>Loading…</div>
+                              : codeDetail[c.code].charts.slice(0, 8).map((x: any) => (
+                                <div key={x.chart_number} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #f3f4f6', fontSize: 12 }}>
+                                  <span style={{ fontWeight: 700, color: '#4f46e5', cursor: 'pointer' }}
+                                    onClick={e => { e.stopPropagation(); setByChartSearch(x.chart_number); setTab('chart') }}>
+                                    {x.chart_number}
+                                  </span>
+                                  <span style={{ color: '#6b7280' }}>{x.count}× by {x.coders} coder{x.coders !== 1 ? 's' : ''}</span>
+                                </div>
+                              ))}
+                          </div>
+                          <div style={{ gridColumn: '1 / -1', fontSize: 11, color: '#6b7280' }}>
+                            Issue mix: {c.issue_breakdown.map((b: any) => `${b.type.replace(/_/g, ' ')} ${b.count}`).join(' · ')}
+                            {c.specialties.length > 0 && ` · ${c.specialties.join(', ')}`}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+              {allCodes.length > codes.length && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
+                  <span style={{ fontSize: 11, color: '#9ca3af' }}>{allCodes.length - codes.length} more</span>
+                  <button onClick={() => setErrorPage(n => n + 1)} style={{ ...styles.outlineBtn, fontSize: 12, padding: '5px 14px' }}>
+                    Load more
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </div>
         )
