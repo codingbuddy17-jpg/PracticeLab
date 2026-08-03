@@ -333,8 +333,8 @@ export async function getPLChartTeachingValue(f: PLFilters = {}, scope: 'formal'
   return data as any[]
 }
 
-export async function getPLCoderMatrix(f: PLFilters = {}) {
-  const { data } = await api.get('/practicelab/analytics/coder-matrix', { params: fp(f) })
+export async function getPLCoderMatrix(f: PLFilters = {}, scope: 'formal' | 'direct' | 'all' = 'formal') {
+  const { data } = await api.get('/practicelab/analytics/coder-matrix', { params: { ...fp(f), scope } })
   return data as { batches: any[]; coders: string[]; coder_emp_ids?: Record<string, string>; cells: any[] }
 }
 

@@ -106,4 +106,54 @@ class TestScope:
         b = _batch(db, "B")
         _result(db, b, _chart(db, "IPM9"), 90)
         note = client.get(URL).json()["scope_note"]
-        assert "closed" in note.lower() and "direct" in note.lower()
+        assert "closed" in note.lower()
+
+
+class TestDirectAssignments:
+    """
+    Direct assignments cannot be columns — each is typically one chart for one
+    coder, so a column apiece would be hundreds of columns holding one cell.
+    Excluding them outright made a coder who works mainly that way look absent
+    from the grid with nothing explaining why. They aggregate into one column.
+    """
+
+    @pytest.fixture()
+    def mixed(self, db):
+        formal = _batch(db, "Formal")
+        direct = _batch(db, "One Off", direct=True, status=BatchStatus.OPEN)
+        _result(db, formal, _chart(db, "IPD1"), 90)
+        _result(db, direct, _chart(db, "IPD2"), 40)
+        _result(db, direct, _chart(db, "IPD3"), 60)
+        return formal, direct
+
+    def test_the_default_view_says_what_it_is_hiding(self, client, mixed):
+        body = client.get(URL).json()
+        assert body["excluded_direct_results"] == 2
+        assert "not shown" in body["scope_note"]
+
+    def test_scope_all_adds_one_aggregated_column(self, client, mixed):
+        cols = client.get(URL, params={"scope": "all"}).json()["batches"]
+        assert [c["name"] for c in cols] == ["Formal", "Direct work"]
+        assert cols[-1]["is_direct"] is True
+
+    def test_the_direct_column_aggregates_the_whole_history(self, client, mixed):
+        body = client.get(URL, params={"scope": "all"}).json()
+        cell = next(c for c in body["cells"] if c["batch_id"] == -1)
+        assert cell["chart_count"] == 2, "both direct charts in one cell"
+        assert cell["avg_score"] == 50.0
+
+    def test_a_coder_with_only_direct_work_still_appears(self, client, db):
+        """The case that made this worth fixing."""
+        d = _batch(db, "Direct Only", direct=True, status=BatchStatus.OPEN)
+        _result(db, d, _chart(db, "IPD9"), 70, coder="Direct Only Coder", emp="E9")
+        assert client.get(URL).json()["coders"] == []
+        body = client.get(URL, params={"scope": "all"}).json()
+        assert len(body["coders"]) == 1
+
+    def test_mixed_specialty_direct_work_gets_no_single_pass_mark(self, client, db):
+        d = _batch(db, "D", direct=True, status=BatchStatus.OPEN)
+        _result(db, d, _chart(db, "IPD5"), 85)
+        _result(db, d, _chart(db, "SDSD1", Specialty.SDS), 85)
+        col = next(c for c in client.get(URL, params={"scope": "all"}).json()["batches"]
+                   if c["is_direct"])
+        assert col["pass_threshold"] is None

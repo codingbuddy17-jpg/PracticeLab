@@ -1044,11 +1044,31 @@ def analytics_chart_teaching_value(
     return sorted(out, key=lambda x: (priority.get(x["teaching_label"], 9), -x["attempt_count"]))
 
 
+DIRECT_COLUMN_ID = -1
+
+
 @router.get("/analytics/coder-matrix")
 def analytics_coder_matrix(
     from_date: Optional[str] = None, to_date: Optional[str] = None, specialty: Optional[str] = None,
+    scope: str = "formal",
     db: Session = Depends(get_db),
 ):
+    """
+    Coders down, closed formal batches across.
+
+    Direct assignments cannot be columns. Each is typically one chart for one
+    coder, so a column per assignment would produce hundreds of columns holding
+    a single cell each and destroy the comparison the grid exists for. But
+    excluding them entirely made a coder who works mainly that way look absent.
+
+    So they fold into ONE aggregated column under scope=all or scope=direct —
+    their whole direct history as a single figure — and the default view now
+    reports how much work it is leaving out rather than silently dropping it.
+    """
+    scope = (scope or "formal").lower()
+    if scope not in ("formal", "direct", "all"):
+        raise HTTPException(status_code=400, detail="scope must be formal, direct or all")
+
     b_q = db.query(Batch).filter(Batch.status == BatchStatus.CLOSED, Batch.is_direct_assignment == False)
     if from_date:
         b_q = b_q.filter(Batch.closed_at >= from_date)
@@ -1060,15 +1080,28 @@ def analytics_coder_matrix(
             b_q = b_q.filter(Batch.specialty == spec)
     batches = b_q.order_by(Batch.created_at).all()
 
-    if not batches:
-        return {"batches": [], "coders": [], "cells": []}
-
     thresholds = _pass_thresholds(db)
     batch_ids = [b.id for b in batches]
-    results = (db.query(GradingResult)
-               .filter(GradingResult.batch_id.in_(batch_ids),
-                       GradingResult.total_score.isnot(None))
-               .all())
+    results = ([] if not batch_ids else
+               db.query(GradingResult)
+                 .filter(GradingResult.batch_id.in_(batch_ids),
+                         GradingResult.total_score.isnot(None))
+                 .all())
+    if scope == "direct":
+        results = []
+        batches = []
+
+    # Direct work, aggregated per coder into a single column.
+    direct_q = (db.query(GradingResult)
+                .join(Batch, GradingResult.batch_id == Batch.id)
+                .filter(Batch.is_direct_assignment == True,
+                        GradingResult.total_score.isnot(None)))
+    if specialty:
+        _s = next((sp for sp in Specialty if sp.value == specialty), None)
+        if _s:
+            direct_q = direct_q.filter(GradingResult.specialty == _s)
+    direct_results = direct_q.all() if scope in ("all", "direct") else []
+    excluded_direct = 0 if scope in ("all", "direct") else direct_q.count()
 
     # Identity is emp_id where present, as everywhere else. Keyed on the typed
     # name, one person entered two ways occupied two rows of the matrix, each
@@ -1077,15 +1110,19 @@ def analytics_coder_matrix(
     def _cid(r):
         return r.emp_id or r.coder_name
 
+    direct_set = set(direct_results)
+
     cell_map: dict = {}
     display_name: dict = {}
     emp_of: dict = {}
-    for r in results:
+    for r in results + direct_results:
         cid = _cid(r)
         display_name.setdefault(cid, r.coder_name)
         if r.emp_id:
             emp_of[cid] = r.emp_id
-        key = (cid, r.batch_id)
+        # Every direct assignment lands in one synthetic column.
+        col = DIRECT_COLUMN_ID if r in direct_set else r.batch_id
+        key = (cid, col)
         if key not in cell_map:
             cell_map[key] = {"scores": [], "passed": 0, "total": 0}
         cell_map[key]["scores"].append(r.total_score)
@@ -1109,15 +1146,35 @@ def analytics_coder_matrix(
                 if display_name[cid] == name and cid not in coder_emp_ids and emp_id:
                     coder_emp_ids[cid] = emp_id
 
+    # The synthetic direct column, appended last so it reads as "and also".
+    columns = [{"id": b.id, "name": b.name, "specialty": b.specialty.value,
+                "pass_threshold": thresholds.get(b.specialty.value),
+                "is_direct": False,
+                "closed_at": b.closed_at.isoformat() if b.closed_at else None}
+               for b in batches]
+    if direct_results:
+        direct_specs = {r.specialty.value for r in direct_results if r.specialty}
+        marks = {thresholds.get(sp) for sp in direct_specs} - {None}
+        columns.append({
+            "id": DIRECT_COLUMN_ID,
+            "name": "Direct work",
+            "specialty": ", ".join(sorted(direct_specs)) or "—",
+            # Only one mark if every direct chart shares it; otherwise none,
+            # rather than colouring mixed work against an arbitrary bar.
+            "pass_threshold": marks.pop() if len(marks) == 1 else None,
+            "is_direct": True,
+            "closed_at": None,
+        })
+
     cells = []
     for coder in all_coders:
-        for b in batches:
-            data = cell_map.get((coder, b.id))
+        for b in columns:
+            data = cell_map.get((coder, b["id"]))
             if data:
                 cells.append({
                     "coder_id": coder,
                     "coder_name": display_name[coder],
-                    "batch_id": b.id,
+                    "batch_id": b["id"],
                     "avg_score": round(sum(data["scores"]) / len(data["scores"]), 1),
                     "pass_rate": round(data["passed"] / data["total"] * 100, 1),
                     "charts_passed": data["passed"],
@@ -1129,17 +1186,25 @@ def analytics_coder_matrix(
         # Each column carries its own pass mark. The grid used to colour every
         # cell against a hardcoded 80, so an SDS batch — bar 90 — showed green
         # at 82, and an ED Single Path one did the same.
-        "batches": [{"id": b.id, "name": b.name, "specialty": b.specialty.value,
-                     "pass_threshold": thresholds.get(b.specialty.value),
-                     "closed_at": b.closed_at.isoformat() if b.closed_at else None}
-                    for b in batches],
+        "batches": columns,
         "coders": all_coders,
         "coder_names": display_name,
         "coder_emp_ids": coder_emp_ids,
         "cells": cells,
         # Stated rather than left to be inferred: this grid compares like with
         # like, which means finished formal batches only.
-        "scope_note": "Closed formal batches only — open batches and direct assignments are excluded so every column is a completed, comparable set.",
+        "scope": scope,
+        # Says what is missing rather than leaving it to be noticed. A coder
+        # who works mainly on direct assignments looked absent from this grid
+        # with nothing on screen explaining why.
+        "excluded_direct_results": excluded_direct,
+        "scope_note": (
+            f"Closed formal batches only — every column is a completed, comparable set."
+            + (f" {excluded_direct} graded direct-assignment charts are not shown; switch scope to include them."
+               if excluded_direct else "")
+            if scope == "formal" else
+            "Direct assignments are aggregated into a single column — one per assignment would be hundreds of columns holding one cell each."
+        ),
     }
 
 

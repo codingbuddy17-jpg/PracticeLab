@@ -318,7 +318,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
     if ((tab === 'chart' || tab === 'category') && byChart.length === 0) getPLAnalyticsByChart(filters).then(setByChart).catch(() => {})
     if (tab === 'category' && !categoryData) getPLAnalyticsByCategory({ ...filters, specialty: topicSpecialty || filters.specialty }, scope).then(setCategoryData).catch(() => {})
     if (tab === 'teaching' && teachingData.length === 0) getPLChartTeachingValue(filters, scope).then(setTeachingData).catch(() => {})
-    if ((tab === 'matrix' || tab === 'coder') && !matrixData) getPLCoderMatrix(filters).then(setMatrixData).catch(() => {})
+    if ((tab === 'matrix' || tab === 'coder') && !matrixData) getPLCoderMatrix(filters, scope).then(setMatrixData).catch(() => {})
   }, [tab, filterVersion])
 
   // Topic Mastery honours the scope switch now, so a change has to refetch it
@@ -327,6 +327,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
   // assignments, so it could disagree with every other tab without saying so.
   useEffect(() => {
     if (tab === 'teaching') getPLChartTeachingValue(filters, scope).then(setTeachingData).catch(() => {})
+    if (tab === 'matrix') getPLCoderMatrix(filters, scope).then(setMatrixData).catch(() => {})
   }, [scope, tab, filterVersion])
 
   useEffect(() => {
@@ -474,7 +475,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
           driven by the same state: it lived inside Overview, so By Specialty
           silently inherited whatever had been picked there with nothing on
           screen saying so. */}
-      {(tab === 'overview' || tab === 'specialty' || tab === 'batch' || tab === 'category' || tab === 'teaching') && (
+      {(tab === 'overview' || tab === 'specialty' || tab === 'batch' || tab === 'category' || tab === 'teaching' || tab === 'matrix') && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' as const, marginBottom: 16 }}>
           <div style={{ display: 'flex', border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
             {([['formal', 'Batches'], ['direct', 'Direct Assignments'], ['all', 'Both']] as const).map(([k, label]) => (
@@ -1873,9 +1874,18 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                               Coder{sortIcon('coder', matrixSort)}
                             </th>
                             {batchCols.map((b: any) => (
-                              <th key={b.id} onClick={() => toggleSort(String(b.id), matrixSort, setMatrixSort)} style={{ padding: '7px 10px', background: '#f9fafb', borderBottom: '2px solid #e5e7eb', whiteSpace: 'nowrap' as const, textAlign: 'center', fontWeight: 600, color: '#374151', minWidth: 80, cursor: 'pointer', userSelect: 'none' as const }}>
+                              /* The aggregated direct column is styled apart
+                                 so it is not read as just another batch. */
+                              <th key={b.id} onClick={() => toggleSort(String(b.id), matrixSort, setMatrixSort)}
+                                title={b.is_direct
+                                  ? 'All direct-assignment work, aggregated — one column per assignment would be hundreds holding a single cell'
+                                  : `${b.specialty}${b.pass_threshold ? ` · pass mark ${b.pass_threshold}%` : ''}`}
+                                style={{ padding: '7px 10px', background: b.is_direct ? '#ede9fe' : '#f9fafb', borderBottom: '2px solid #e5e7eb', whiteSpace: 'nowrap' as const, textAlign: 'center', fontWeight: 600, color: b.is_direct ? '#5b21b6' : '#374151', minWidth: 80, cursor: 'pointer', userSelect: 'none' as const }}>
                                 <div>{b.name.length > 14 ? b.name.slice(0, 14) + '…' : b.name}</div>
-                                <div style={{ fontSize: 10, fontWeight: 400, color: '#9ca3af' }}>{b.closed_at ? new Date(b.closed_at).toLocaleDateString() : ''}{sortIcon(String(b.id), matrixSort)}</div>
+                                <div style={{ fontSize: 10, fontWeight: 400, color: b.is_direct ? '#7c3aed' : '#9ca3af' }}>
+                                  {b.is_direct ? 'aggregated' : (b.closed_at ? new Date(b.closed_at).toLocaleDateString() : '')}
+                                  {sortIcon(String(b.id), matrixSort)}
+                                </div>
                               </th>
                             ))}
                             <th onClick={() => toggleSort('overall', matrixSort, setMatrixSort)} style={{ padding: '7px 10px', background: '#f1f5f9', borderBottom: '2px solid #e5e7eb', textAlign: 'center', fontWeight: 700, color: '#374151', minWidth: 70, cursor: 'pointer', userSelect: 'none' as const }}>
