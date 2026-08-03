@@ -377,9 +377,25 @@ def specialty_profile(
 @router.get("/analytics/by-chart")
 def analytics_by_chart(
     from_date: Optional[str] = None, to_date: Optional[str] = None, specialty: Optional[str] = None,
+    scope: str = "formal",
     db: Session = Depends(get_db),
 ):
-    results = _with_details(_gr_base(db, from_date, to_date, specialty, exclude_direct=True)).join(Chart).all()
+    """
+    Every attempted chart, worst first — the inspection view.
+
+    Distinct from Chart Signals, which classifies charts so you know WHICH to
+    look at. This one is what you open once you know: the score, the codes
+    people miss on it, and which coders those were.
+    """
+    scope = (scope or "formal").lower()
+    if scope not in ("formal", "direct", "all"):
+        raise HTTPException(status_code=400, detail="scope must be formal, direct or all")
+    results = _with_details(_gr_base(db, from_date, to_date, specialty,
+                                     exclude_direct=(scope == "formal"))).join(Chart).all()
+    if scope == "direct":
+        results = [r for r in results if r.batch and r.batch.is_direct_assignment]
+
+    thresholds = _pass_thresholds(db)
 
     chart_map: dict[int, dict] = {}
     for r in results:
@@ -389,9 +405,11 @@ def analytics_by_chart(
                 "chart_number": r.chart.chart_number,
                 "specialty": r.chart.specialty.value,
                 "category": r.chart.category,
-                "scores": [], "missed": {},
+                "scores": [], "missed": {}, "passed": 0,
             }
         chart_map[cid]["scores"].append(r.total_score)
+        if r.pass_fail and r.pass_fail.value == "PASS":
+            chart_map[cid]["passed"] += 1
         for f in r.feedback:
             if f.issue_type.value == "Missed" and f.ak_code:
                 chart_map[cid]["missed"][f.ak_code] = chart_map[cid]["missed"].get(f.ak_code, 0) + 1
@@ -403,6 +421,10 @@ def analytics_by_chart(
             "category": d["category"],
             "attempt_count": len(d["scores"]),
             "avg_score": round(sum(d["scores"]) / len(d["scores"]), 1),
+            "pass_rate": round(d["passed"] / len(d["scores"]) * 100, 1),
+            # The bar this chart is judged against, so a score is readable
+            # without knowing the specialty's threshold by heart.
+            "pass_threshold": thresholds.get(d["specialty"]),
             "top_missed": sorted(d["missed"].items(), key=lambda x: -x[1])[:5],
         }
         for d in sorted(chart_map.values(), key=lambda x: sum(x["scores"]) / len(x["scores"]))
@@ -1409,13 +1431,17 @@ def topic_heatmap_export(
 
 @router.get("/analytics/chart-detail/{chart_number:path}")
 def chart_detail(chart_number: str, db: Session = Depends(get_db)):
-    results = (db.query(GradingResult)
-               .join(Chart, GradingResult.chart_id == Chart.id)
-               .join(Batch, GradingResult.batch_id == Batch.id)
-               .filter(Chart.chart_number == chart_number,
-                       GradingResult.total_score.isnot(None),
-                       Batch.is_direct_assignment == False)
-               .all())
+    # This walks r.feedback and r.batch on every row. Built its own query, so
+    # it never picked up the eager loading added to _gr_base — one query per
+    # result, on the endpoint that fires every time a chart row is expanded.
+    results = _with_details(
+        db.query(GradingResult)
+          .join(Chart, GradingResult.chart_id == Chart.id)
+          .join(Batch, GradingResult.batch_id == Batch.id)
+          .filter(Chart.chart_number == chart_number,
+                  GradingResult.total_score.isnot(None),
+                  Batch.is_direct_assignment == False)
+    ).all()
     coders = []
     for r in results:
         missed = [f.ak_code for f in r.feedback if f.issue_type.value == "Missed" and f.ak_code]
@@ -1428,6 +1454,7 @@ def chart_detail(chart_number: str, db: Session = Depends(get_db)):
         })
     return {
         "chart_number": chart_number,
+        "total_coders": len(coders),
         "coders": sorted(coders, key=lambda x: x["total_score"] or 0),
     }
 

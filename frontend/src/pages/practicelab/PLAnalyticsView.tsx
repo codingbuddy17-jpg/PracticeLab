@@ -253,6 +253,11 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
   // At 2000 charts, "show all" is a request to render 2000 DOM subtrees.
   const [chartValuePage, setChartValuePage] = useState(1)
   const [chartValueSearch, setChartValueSearch] = useState('')
+  // By Chart rendered EVERY attempted chart — no cap, no search. At 2000
+  // charts that is 2000 expandable rows mounted before you can look at one.
+  const [byChartSearch, setByChartSearch] = useState('')
+  const [byChartPage, setByChartPage] = useState(1)
+  const BY_CHART_PAGE = 30
   const [chartValueSort, setChartValueSort] = useState<'score_asc' | 'attempts_desc' | 'score_desc'>('score_asc')
 
   const CODER_PAGE = 25
@@ -332,7 +337,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
   }, [profileSpecialty, filters, scope])
 
   useEffect(() => {
-    if ((tab === 'chart' || tab === 'category') && byChart.length === 0) getPLAnalyticsByChart(filters).then(setByChart).catch(() => {})
+    if ((tab === 'chart' || tab === 'category') && byChart.length === 0) getPLAnalyticsByChart(filters, scope).then(setByChart).catch(() => {})
     if (tab === 'category' && !categoryData) getPLAnalyticsByCategory({ ...filters, specialty: topicSpecialty || filters.specialty }, scope).then(setCategoryData).catch(() => {})
     if (tab === 'teaching' && teachingData.length === 0) getPLChartTeachingValue(filters, scope).then(setTeachingData).catch(() => {})
     if ((tab === 'matrix' || tab === 'coder') && !matrixData) loadMatrix()
@@ -369,6 +374,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
   useEffect(() => {
     if (tab === 'teaching') getPLChartTeachingValue(filters, scope).then(setTeachingData).catch(() => {})
     if (tab === 'matrix') loadMatrix()
+    if (tab === 'chart') getPLAnalyticsByChart(filters, scope).then(setByChart).catch(() => {})
   }, [scope, tab, filterVersion, matrixGroupBy])
 
   useEffect(() => {
@@ -516,7 +522,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
           driven by the same state: it lived inside Overview, so By Specialty
           silently inherited whatever had been picked there with nothing on
           screen saying so. */}
-      {(tab === 'overview' || tab === 'specialty' || tab === 'batch' || tab === 'category' || tab === 'teaching' || tab === 'matrix') && (
+      {(tab === 'overview' || tab === 'specialty' || tab === 'batch' || tab === 'category' || tab === 'teaching' || tab === 'matrix' || tab === 'chart') && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' as const, marginBottom: 16 }}>
           <div style={{ display: 'flex', border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
             {([['formal', 'Batches'], ['direct', 'Direct Assignments'], ['all', 'Both']] as const).map(([k, label]) => (
@@ -907,16 +913,36 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
         </div>
       )}
 
-      {tab === 'chart' && (
-        <div>
-          {byChart.length === 0 ? <div style={styles.emptyState}>No chart data yet — charts appear here once grading results are submitted.</div> : (
+      {tab === 'chart' && (() => {
+        const q = byChartSearch.trim().toLowerCase()
+        const rows = byChart.filter((r: any) => !q
+          || r.chart_number.toLowerCase().includes(q)
+          || (r.category || '').toLowerCase().includes(q)
+          || (r.specialty || '').toLowerCase().includes(q))
+        const shown = rows.slice(0, byChartPage * BY_CHART_PAGE)
+        return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {/* Above the gate: a search that empties the list must not vanish
+              with it. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' as const }}>
+            <SearchBox width={260} placeholder="Find a chart, topic or specialty…"
+              value={byChartSearch} onChange={v => { setByChartSearch(v); setByChartPage(1) }} />
+            <span style={{ fontSize: 11, color: '#9ca3af' }}>
+              Showing {shown.length} of {rows.length} charts · worst scoring first
+            </span>
+            <span style={{ fontSize: 11, color: '#9ca3af', marginLeft: 'auto' }}>
+              Chart Signals says which charts to look at; this is what happened on one.
+            </span>
+          </div>
+          {byChart.length === 0 ? <div style={styles.emptyState}>No chart data yet — charts appear here once grading results are submitted.</div>
+           : rows.length === 0 ? <div style={styles.emptyState}>No charts match "{byChartSearch.trim()}"</div> : (
             <div style={styles.table}>
               <div style={{ ...styles.tableHeader, gridTemplateColumns: '120px 1fr 1fr 80px 90px' }}>
                 <span>Chart</span><span>Category</span><span>Specialty</span>
                 <span style={{ textAlign: 'center' as const }}>Attempts</span>
                 <span style={{ textAlign: 'center' as const }}>Avg Grading Score</span>
               </div>
-              {byChart.map((r: any, i: number) => (
+              {shown.map((r: any, i: number) => (
                 <div key={r.chart_number} style={{ borderBottom: '1px solid #f3f4f6', background: expandedChart === r.chart_number ? '#f5f3ff' : i % 2 === 1 ? '#f9fafb' : '#fff' }}>
                   {/* Main data row */}
                   <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr 1fr 80px 90px', padding: '10px 16px', alignItems: 'center', cursor: 'pointer' }}
@@ -925,7 +951,10 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                     <span style={{ fontSize: 12, color: '#374151' }}>{r.category}</span>
                     <span style={{ fontSize: 12, color: '#6b7280' }}>{r.specialty}</span>
                     <span style={{ fontSize: 13, textAlign: 'center' as const }}>{r.attempt_count}</span>
-                    <span style={{ fontWeight: 700, fontSize: 13, textAlign: 'center' as const, color: sc(r.avg_score, r.specialty) }}>{r.avg_score}%</span>
+                    <span title={r.pass_threshold ? `Pass mark ${r.pass_threshold}% · ${r.pass_rate}% of attempts passed` : undefined}
+                      style={{ fontWeight: 700, fontSize: 13, textAlign: 'center' as const, color: cc(r.avg_score, r.pass_threshold) }}>
+                      {r.avg_score}%
+                    </span>
                   </div>
                   {/* Top missed badges — only when collapsed */}
                   {r.top_missed?.length > 0 && expandedChart !== r.chart_number && (
@@ -967,14 +996,30 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                           )}
                         </div>
                       )}
+                      {chartDetail[r.chart_number].total_coders > 8 && (
+                        <div style={{ fontSize: 11, color: '#6b7280', marginTop: 6 }}>
+                          + {chartDetail[r.chart_number].total_coders - 8} more coder
+                          {chartDetail[r.chart_number].total_coders - 8 !== 1 ? 's' : ''} — lowest eight shown
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
               ))}
             </div>
           )}
+          {rows.length > shown.length && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
+              <span style={{ fontSize: 11, color: '#9ca3af' }}>{rows.length - shown.length} more</span>
+              <button onClick={() => setByChartPage(n => n + 1)}
+                style={{ ...styles.outlineBtn, fontSize: 12, padding: '5px 14px' }}>
+                Load more
+              </button>
+            </div>
+          )}
         </div>
-      )}
+        )
+      })()}
 
       {tab === 'batch' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
