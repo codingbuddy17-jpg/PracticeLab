@@ -1128,11 +1128,29 @@ def analytics_coder_matrix(
                      .filter(GradingResult.batch_id.in_(batch_ids),
                              GradingResult.total_score.isnot(None))
                      .all())
+        # Closed is not the same as graded. A batch can be closed with nothing
+        # graded in it, and that produced a column of dashes taking a column's
+        # width to say nothing — the more of them, the further the columns that
+        # DO carry results get pushed off screen.
+        graded_ids = {r.batch_id for r in results}
+        rostered = dict(db.query(BatchCoder.batch_id, func.count(BatchCoder.id))
+                          .filter(BatchCoder.batch_id.in_(batch_ids))
+                          .group_by(BatchCoder.batch_id).all()) if batch_ids else {}
+        graded_coders = {}
+        for r in results:
+            graded_coders.setdefault(r.batch_id, set()).add(r.emp_id or r.coder_name)
+
         columns = [{"id": b.id, "name": b.name, "specialty": b.specialty.value,
                     "pass_threshold": thresholds.get(b.specialty.value),
                     "is_direct": False,
+                    # Coverage, so a half-graded column is not read as a batch
+                    # where most coders scored nothing. A blank cell means
+                    # "not graded", which is not the same as "did badly".
+                    "graded_coders": len(graded_coders.get(b.id, ())),
+                    "rostered_coders": rostered.get(b.id, 0),
                     "closed_at": b.closed_at.isoformat() if b.closed_at else None}
-                   for b in batches]
+                   for b in batches if b.id in graded_ids]
+        skipped_ungraded = len(batches) - len(columns)
 
         def col_of(r):
             return r.batch_id
@@ -1244,7 +1262,9 @@ def analytics_coder_matrix(
                    "direct": "Direct assignments only.",
                    "all": "Batch work and direct assignments together."}[scope])
     else:
-        note = "Columns are closed formal batches - each one a finished, comparable set."
+        note = "Columns are closed formal batches that have graded results."
+        if skipped_ungraded:
+            note += f" {skipped_ungraded} closed batch(es) with nothing graded are not shown."
         if excluded_direct:
             note += (f" {excluded_direct} graded direct-assignment charts have no comparable column here; "
                      "group by specialty to include them.")

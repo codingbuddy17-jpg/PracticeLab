@@ -2001,7 +2001,13 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                               /* The aggregated direct column is styled apart
                                  so it is not read as just another batch. */
                               <th key={b.id} onClick={() => toggleSort(String(b.id), matrixSort, setMatrixSort)}
-                                title={`${b.specialty}${b.pass_threshold ? ` · pass mark ${b.pass_threshold}%` : ''}`}
+                                title={[
+                                  b.specialty,
+                                  b.pass_threshold ? `pass mark ${b.pass_threshold}%` : null,
+                                  b.rostered_coders
+                                    ? `${b.graded_coders} of ${b.rostered_coders} coders graded`
+                                    : null,
+                                ].filter(Boolean).join(' · ')}
                                 style={{ padding: '7px 10px', background: '#f9fafb', borderBottom: '2px solid #e5e7eb', whiteSpace: 'nowrap' as const, textAlign: 'center', fontWeight: 600, color: '#374151', minWidth: 80, cursor: 'pointer', userSelect: 'none' as const }}>
                                 <div>{b.name.length > 14 ? b.name.slice(0, 14) + '…' : b.name}</div>
                                 {/* Specialty on every batch column, so two
@@ -2013,6 +2019,14 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                                     : (b.pass_threshold ? `pass mark ${b.pass_threshold}%` : '')}
                                   {sortIcon(String(b.id), matrixSort)}
                                 </div>
+                                {/* Partly graded columns are flagged: a blank
+                                    cell there means "not graded", not "scored
+                                    nothing", and the two look identical. */}
+                                {b.rostered_coders > 0 && b.graded_coders < b.rostered_coders && (
+                                  <div style={{ fontSize: 9, fontWeight: 700, color: '#b45309' }}>
+                                    {b.graded_coders}/{b.rostered_coders} graded
+                                  </div>
+                                )}
                               </th>
                             ))}
                             <th onClick={() => toggleSort('overall', matrixSort, setMatrixSort)} style={{ padding: '7px 10px', background: '#f1f5f9', borderBottom: '2px solid #e5e7eb', textAlign: 'center', fontWeight: 700, color: '#374151', minWidth: 70, cursor: 'pointer', userSelect: 'none' as const }}>
@@ -2098,7 +2112,8 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                     )}
                     <div style={{ fontSize: 11, color: '#9ca3af' }}>
                       Each cell is coloured against its own column's pass mark — green at or above it,
-                      amber within 25% below, red under that. Hover a column header for its mark.
+                      amber within 25% below, red under that. A dash means not graded, which is not the
+                      same as a low score. Hover a column header for its pass mark and grading coverage.
                     </div>
                   </>
                 )

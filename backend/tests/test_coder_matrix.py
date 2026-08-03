@@ -260,3 +260,56 @@ class TestServerSidePaging:
         """A caller asking for everything still gets a page."""
         body = client.get(URL, params={**BATCH, "limit": 100000}).json()
         assert len(body["coders"]) <= 200
+
+
+class TestClosedIsNotGraded:
+    """
+    "Closed" and "graded" are different states, and the column axis only ever
+    checked the first. A closed batch with nothing graded became a column of
+    dashes — a column's width spent saying nothing, and every one of them
+    pushes the columns that DO carry results further off screen.
+    """
+
+    def _closed(self, db, name, day):
+        from datetime import datetime
+        b = _batch(db, name)
+        b.closed_at = datetime(2026, 6, day)
+        db.commit()
+        return b
+
+    def test_a_closed_batch_with_no_grading_is_not_a_column(self, client, db):
+        graded = self._closed(db, "Graded", 1)
+        self._closed(db, "Closed Empty", 2)
+        _result(db, graded, _chart(db, "IPZZ1"), 90)
+        body = client.get(URL, params=BATCH).json()
+        assert [b["name"] for b in body["batches"]] == ["Graded"]
+
+    def test_the_skipped_ones_are_reported(self, client, db):
+        """Dropped for being empty, not for being unimportant — so say so."""
+        graded = self._closed(db, "Graded", 1)
+        self._closed(db, "Closed Empty", 2)
+        _result(db, graded, _chart(db, "IPZZ2"), 90)
+        assert "nothing graded are not shown" in client.get(URL, params=BATCH).json()["scope_note"]
+
+    def test_a_column_reports_its_grading_coverage(self, client, db):
+        """
+        A blank cell means "not graded", which is not the same as "did badly".
+        Without coverage on the column there is no way to tell a half-graded
+        batch from one where most coders scored nothing.
+        """
+        b = self._closed(db, "Half Graded", 1)
+        db.add_all([BatchCoder(batch_id=b.id, coder_name="A", emp_id="E1"),
+                    BatchCoder(batch_id=b.id, coder_name="B", emp_id="E2")])
+        db.commit()
+        _result(db, b, _chart(db, "IPZZ3"), 90, coder="A", emp="E1")
+        col = client.get(URL, params=BATCH).json()["batches"][0]
+        assert col["graded_coders"] == 1
+        assert col["rostered_coders"] == 2
+
+    def test_a_fully_graded_column_says_so(self, client, db):
+        b = self._closed(db, "Full", 1)
+        db.add(BatchCoder(batch_id=b.id, coder_name="A", emp_id="E1"))
+        db.commit()
+        _result(db, b, _chart(db, "IPZZ4"), 90, coder="A", emp="E1")
+        col = client.get(URL, params=BATCH).json()["batches"][0]
+        assert col["graded_coders"] == col["rostered_coders"] == 1
