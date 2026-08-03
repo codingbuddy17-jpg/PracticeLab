@@ -1369,3 +1369,87 @@ def export_chart_signals(rows: list) -> bytes:
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
+
+
+def export_error_analysis(data: dict) -> bytes:
+    """
+    Error analysis across five sheets.
+
+    Deliberately not one flat table. The tab answers several questions that
+    have different shapes — what the findings are, where errors concentrate,
+    which codes matter and how each is spread — and flattening them into one
+    sheet would mean a column set that fits none of them.
+
+    The Codes sheet carries the pattern verdict, because a code's count without
+    its spread cannot be acted on, and that is the whole point of the tab.
+    """
+    wb = Workbook()
+
+    # ── 1. Insights ──
+    ws = wb.active
+    ws.title = "Insights"
+    _header(ws, 1, 1, "Finding")
+    _header(ws, 2, 1, "Type")
+    ws.column_dimensions["A"].width = 120
+    ws.column_dimensions["B"].width = 14
+    ws.freeze_panes = "A2"
+    r = 2
+    for n in (data.get("commentary") or []):
+        cell = ws.cell(r, 1, n.get("text"))
+        cell.alignment = Alignment(wrap_text=True, vertical="top")
+        ws.cell(r, 2, n.get("kind"))
+        ws.row_dimensions[r].height = 30
+        r += 1
+    if r == 2:
+        ws.cell(2, 1, "No findings — not enough graded work yet.")
+
+    r += 1
+    for label, key in [("Total errors", "total_errors"), ("Graded charts", "graded_charts"),
+                       ("Errors per chart", "errors_per_chart"), ("Distinct codes", "total_codes")]:
+        ws.cell(r, 1, label)
+        ws.cell(r, 2, data.get(key))
+        r += 1
+
+    def _sheet(title, cols, rows, keys):
+        w = wb.create_sheet(title[:31])
+        for i, (label, width) in enumerate(cols, start=1):
+            _header(w, i, 1, label)
+            w.column_dimensions[get_column_letter(i)].width = width
+        w.freeze_panes = "A2"
+        w.auto_filter.ref = f"A1:{get_column_letter(len(cols))}1"
+        for ri, row in enumerate(rows, start=2):
+            for ci, k in enumerate(keys, start=1):
+                v = row.get(k)
+                w.cell(ri, ci, ", ".join(v) if isinstance(v, list) else v)
+        if not rows:
+            w.cell(2, 1, "No data for the selected filters.")
+        return w
+
+    _sheet("By Issue Type", [("Issue Type", 22), ("Errors", 12), ("Share %", 12)],
+           data.get("by_issue_type") or [], ["type", "count", "pct"])
+    _sheet("By Section", [("Section", 18), ("Errors", 12), ("Share %", 12)],
+           data.get("by_section") or [], ["section", "count", "pct"])
+    _sheet("By Specialty",
+           [("Specialty", 20), ("Errors", 12), ("Graded Charts", 15),
+            ("Errors per Chart", 18), ("Enough to Rank", 15)],
+           data.get("by_specialty") or [],
+           ["specialty", "errors", "charts", "errors_per_chart", "rankable"])
+
+    codes = data.get("codes") or []
+    w = _sheet("Codes",
+               [("Code", 16), ("Times", 10), ("Coders", 10), ("Charts", 10),
+                ("Pattern", 14), ("What it means", 62), ("Section", 12),
+                ("Specialties", 22), ("Per Coder", 12), ("Last Seen", 13)],
+               codes,
+               ["code", "count", "coders_affected", "charts_affected", "pattern",
+                "pattern_reason", "top_section", "specialties", "per_coder", "last_seen"])
+    for ri in range(2, len(codes) + 2):
+        w.cell(ri, 6).alignment = Alignment(wrap_text=True, vertical="top")
+
+    if data.get("trend"):
+        _sheet("Trend", [("Month", 12), ("Errors", 12)],
+               data["trend"], ["month", "total"])
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()

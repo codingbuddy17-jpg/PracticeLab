@@ -579,3 +579,15 @@ export async function getPLErrorDetail(code: string, f: PLFilters = {}, scope = 
   })
   return data as any
 }
+
+/** Error analysis as Excel — same filters as the screen, without its paging. */
+export function downloadErrorAnalysisXlsx(f: PLFilters = {}, scope = 'formal',
+                                          opts: { section?: string; issueType?: string;
+                                                  codeSearch?: string; pattern?: string } = {}) {
+  const p = new URLSearchParams({ ...fp(f), scope })
+  if (opts.section) p.set('section', opts.section)
+  if (opts.issueType) p.set('issue_type', opts.issueType)
+  if (opts.codeSearch?.trim()) p.set('code_search', opts.codeSearch.trim())
+  if (opts.pattern) p.set('pattern', opts.pattern)
+  window.open(`${import.meta.env.VITE_API_URL || '/api'}/practicelab/analytics/error-analysis.xlsx?` + p.toString(), '_blank')
+}

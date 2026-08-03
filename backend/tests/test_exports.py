@@ -461,3 +461,81 @@ class TestGridExports:
         ws = _is_workbook(client.get("/practicelab/analytics/coder-matrix.xlsx",
                                      params={"search": "nobody"})).worksheets[0]
         assert ws.cell(2, 1).value == "No data matches the selected filters."
+
+
+class TestErrorAnalysisExport:
+    """
+    Five sheets rather than one flat table: the tab answers several questions
+    with different shapes, and a single sheet would need a column set that fits
+    none of them.
+    """
+
+    URL = "/practicelab/analytics/error-analysis.xlsx"
+
+    @pytest.fixture()
+    def errors(self, db):
+        from models import GradingFeedback
+        b = Batch(name="Err Batch", specialty=Specialty.IP_DRG, status=BatchStatus.OPEN,
+                  created_by="t", charts_per_coder=1, is_direct_assignment=False,
+                  use_weighted=True, use_dpo=False, force_closed=False)
+        db.add(b); db.commit()
+        for i in range(6):
+            c = _chart(db, f"IPXP{i}")
+            r = GradingResult(batch_id=b.id, coder_name=f"Coder {i}", emp_id=f"E{i}",
+                              chart_id=c.id, specialty=Specialty.IP_DRG,
+                              total_score=40, pass_fail=PassFail.FAIL)
+            db.add(r); db.commit()
+            db.add(GradingFeedback(result_id=r.id, section="SDx", issue_type="Missed",
+                                   ak_code="J18.9", coder_code=None, detail=""))
+            db.commit()
+        return b
+
+    def test_the_five_sheets_are_present(self, client, errors):
+        wb = _is_workbook(client.get(self.URL))
+        for name in ("Insights", "By Issue Type", "By Section", "By Specialty", "Codes"):
+            assert name in wb.sheetnames
+
+    def test_insights_carry_the_written_findings(self, client, errors):
+        ws = _is_workbook(client.get(self.URL))["Insights"]
+        assert ws.cell(1, 1).value == "Finding"
+        assert any("J18.9" in str(ws.cell(r, 1).value) or "SDx" in str(ws.cell(r, 1).value)
+                   for r in range(2, 8))
+
+    def test_codes_sheet_carries_the_pattern_verdict(self, client, errors):
+        """A count without its spread cannot be acted on — the whole point."""
+        ws = _is_workbook(client.get(self.URL))["Codes"]
+        headers = [c.value for c in ws[1]]
+        for expected in ("Code", "Times", "Coders", "Charts", "Pattern", "What it means"):
+            assert expected in headers
+        row = {c.value: ws.cell(2, i + 1).value for i, c in enumerate(ws[1])}
+        assert row["Code"] == "J18.9"
+        assert row["Coders"] == 6
+        assert row["Pattern"] == "Team-wide"
+
+    def test_the_specialty_filter_carries_into_the_export(self, client, errors):
+        """An export taken while looking at SDS must describe SDS."""
+        ws = _is_workbook(client.get(self.URL, params={"specialty": "SDS"}))["Codes"]
+        assert ws.cell(2, 1).value == "No data for the selected filters."
+
+    def test_the_filename_names_the_specialty(self, client, errors):
+        r = client.get(self.URL, params={"specialty": "IP-DRG"})
+        assert "IP-DRG" in r.headers.get("content-disposition", "")
+
+    def test_paging_is_not_inherited(self, client, db, errors):
+        """25 codes is a screenful; the reason to open Excel is the whole list."""
+        from models import GradingFeedback
+        b = db.query(Batch).first()
+        for i in range(40):
+            c = _chart(db, f"IPXQ{i}")
+            r = GradingResult(batch_id=b.id, coder_name="Z", emp_id="EZ", chart_id=c.id,
+                              specialty=Specialty.IP_DRG, total_score=40, pass_fail=PassFail.FAIL)
+            db.add(r); db.commit()
+            db.add(GradingFeedback(result_id=r.id, section="SDx", issue_type="Missed",
+                                   ak_code=f"Q{i:03d}", coder_code=None, detail=""))
+            db.commit()
+        ws = _is_workbook(client.get(self.URL))["Codes"]
+        assert ws.max_row > 26, "more than one page of codes"
+
+    def test_an_issue_filter_narrows_the_export(self, client, errors):
+        ws = _is_workbook(client.get(self.URL, params={"issue_type": "Over_coded"}))["Codes"]
+        assert ws.cell(2, 1).value == "No data for the selected filters."

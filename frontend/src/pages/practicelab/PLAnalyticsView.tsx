@@ -10,7 +10,7 @@ import {
   getPLAnalyticsByBatch, getCoderTrend, getCoderSummary, downloadCoderReportPdf,
   downloadCoderPerformanceXlsx, downloadBatchReportPdf, downloadBatchAnalyticsXlsx,
   downloadCoderMatrixXlsx, downloadTopicHeatmapXlsx, downloadChartSignalsXlsx,
-  getPLErrorAnalysis, getPLErrorDetail,
+  getPLErrorAnalysis, getPLErrorDetail, downloadErrorAnalysisXlsx,
   getPLAnalyticsByCategory, getPLChartTeachingValue, getPLCoderMatrix, getPLChartDetail,
   getBatchEMBreakdown, getPLSpecialtyProfile,
   type PLFilters,
@@ -1194,6 +1194,15 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                     Reset
                   </button>
                 )}
+                <button
+                  title="Excel: insights, breakdowns and every matching code — same filters, without the paging"
+                  onClick={() => downloadErrorAnalysisXlsx(filters, scope, {
+                    section: errorSection, issueType: errorIssue,
+                    codeSearch: errorSearch, pattern: errorPattern,
+                  })}
+                  style={{ ...styles.outlineBtn, fontSize: 12, padding: '5px 12px' }}>
+                  Export
+                </button>
               </span>
             </div>
           </div>

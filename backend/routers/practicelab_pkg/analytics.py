@@ -1454,6 +1454,37 @@ def analytics_error_analysis(
     }
 
 
+@router.get("/analytics/error-analysis.xlsx")
+def error_analysis_export(
+    from_date: Optional[str] = None, to_date: Optional[str] = None, specialty: Optional[str] = None,
+    scope: str = "formal", section: Optional[str] = None, issue_type: Optional[str] = None,
+    code_search: Optional[str] = None, pattern: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """
+    The whole analysis, not the page.
+
+    Same filters as the screen — including the specialty filter, so an export
+    taken while looking at SDS describes SDS. The paging is deliberately not
+    inherited: 25 codes is a screenful, and the reason to take this to Excel is
+    to work through the list.
+    """
+    from services.excel_service import export_error_analysis
+    from services.download_headers import content_disposition
+
+    data = analytics_error_analysis(
+        from_date=from_date, to_date=to_date, specialty=specialty, scope=scope,
+        section=section, issue_type=issue_type, code_search=code_search,
+        pattern=pattern, limit=200, offset=0, db=db,
+    )
+    name = f"Error_Analysis{'_' + specialty.replace('/', '-') if specialty else ''}.xlsx"
+    return StreamingResponse(
+        io.BytesIO(export_error_analysis(data)),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=content_disposition(name, "Error_Analysis.xlsx"),
+    )
+
+
 @router.get("/analytics/error-detail")
 def analytics_error_detail(
     code: str,
