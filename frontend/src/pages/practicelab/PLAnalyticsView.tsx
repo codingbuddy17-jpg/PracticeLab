@@ -208,7 +208,14 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
   const [profileSpecialty, setProfileSpecialty] = useState<string | null>(null)
   const [profile, setProfile] = useState<any>(null)
   const [profileLoading, setProfileLoading] = useState(false)
-  const [matrixShowAll, setMatrixShowAll] = useState(false)
+  /**
+   * Coder rows, paged forward.
+   *
+   * Both grids showed 25 and offered "Show all" — which at a thousand coders
+   * is a request to mount a thousand rows times every column, in one render.
+   * The cap was doing its job; the escape hatch undid it.
+   */
+  const [matrixPage, setMatrixPage] = useState(1)
   const [matrixBelowOnly, setMatrixBelowOnly] = useState(false)
   /**
    * What a column IS. Batches are events; specialties are buckets.
@@ -223,7 +230,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
   // only ordering that needs no explanation, so the window takes the latest N.
   const [matrixColWindow, setMatrixColWindow] = useState<number | 'all'>(10)
   const [heatmapCoderSearch, setHeatmapCoderSearch] = useState('')
-  const [heatmapShowAll, setHeatmapShowAll] = useState(false)
+  const [heatmapPage, setHeatmapPage] = useState(1)
   // Tab-local, like the Overview trend's picker: narrowing this tab should not
   // re-scope the other seven.
   const [topicSpecialty, setTopicSpecialty] = useState('')
@@ -1551,7 +1558,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                   const sb = cellMap[b]?.[heatmapSort.col]?.avg_score ?? -1
                   return (sa - sb) * dir
                 })
-                const visibleCoders = heatmapShowAll ? sortedCoders : sortedCoders.slice(0, CODER_PAGE)
+                const visibleCoders = sortedCoders.slice(0, heatmapPage * CODER_PAGE)
                 const hiddenCount = sortedCoders.length - visibleCoders.length
                 return (
                   <div>
@@ -1573,7 +1580,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                           <SearchBox width={200}
                             placeholder={`Search coders (${allCoders.length} total)…`}
                             value={heatmapCoderSearch}
-                            onChange={v => { setHeatmapCoderSearch(v); setHeatmapShowAll(false) }} />
+                            onChange={v => { setHeatmapCoderSearch(v); setHeatmapPage(1) }} />
                         )}
                         <span style={{ fontSize: 11, color: '#9ca3af' }}>Showing {visibleCoders.length} of {filteredCoders.length}</span>
                       </div>
@@ -1618,17 +1625,12 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                       </table>
                     </div>
                     {hiddenCount > 0 && (
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 10 }}>
-                        <span style={{ fontSize: 12, color: '#6b7280' }}>{hiddenCount} more coder{hiddenCount !== 1 ? 's' : ''} not shown</span>
-                        <button onClick={() => setHeatmapShowAll(true)} style={{ fontSize: 12, color: '#4f46e5', background: 'none', border: '1px solid #e5e7eb', borderRadius: 6, padding: '4px 12px', cursor: 'pointer', fontWeight: 600 }}>
-                          Show all {filteredCoders.length}
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 10 }}>
+                        <span style={{ fontSize: 12, color: '#6b7280' }}>{hiddenCount} more coder{hiddenCount !== 1 ? 's' : ''}</span>
+                        <button onClick={() => setHeatmapPage(n => n + 1)} style={{ ...styles.outlineBtn, fontSize: 12, padding: '5px 14px' }}>
+                          Load more
                         </button>
                       </div>
-                    )}
-                    {heatmapShowAll && allCoders.length > CODER_PAGE && (
-                      <button onClick={() => setHeatmapShowAll(false)} style={{ marginTop: 8, fontSize: 12, color: '#6b7280', background: 'none', border: '1px solid #e5e7eb', borderRadius: 6, padding: '4px 12px', cursor: 'pointer' }}>
-                        Collapse to {CODER_PAGE}
-                      </button>
                     )}
                     <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 8 }}>Green ≥{ipThreshold}% · Yellow {Math.round(ipThreshold * 0.75)}–{ipThreshold - 1}% · Red &lt;{Math.round(ipThreshold * 0.75)}% · — no data</div>
                   </div>
@@ -1808,7 +1810,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                   <span style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase' as const, letterSpacing: 0.5 }}>Columns</span>
                   <div style={{ display: 'flex', border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
                     {([['specialty', 'Specialty'], ['batch', 'Batch']] as const).map(([k, label]) => (
-                      <button key={k} onClick={() => { setMatrixGroupBy(k); setMatrixShowAll(false) }}
+                      <button key={k} onClick={() => { setMatrixGroupBy(k); setMatrixPage(1) }}
                         title={k === 'batch'
                           ? 'Closed formal batches — each column a finished set. Readable for the last dozen or so.'
                           : 'One column per specialty — bounded, and the only axis direct assignments fit on'}
@@ -1837,7 +1839,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                   )}
                   {/* Finding who needs attention in a thousand rows is not a
                       scrolling job. */}
-                  <button onClick={() => { setMatrixBelowOnly(v => !v); setMatrixShowAll(false) }}
+                  <button onClick={() => { setMatrixBelowOnly(v => !v); setMatrixPage(1) }}
                     style={{ fontSize: 12, fontWeight: 700, padding: '5px 12px', borderRadius: 20, cursor: 'pointer',
                              border: '1px solid ' + (matrixBelowOnly ? '#dc2626' : '#e5e7eb'),
                              background: matrixBelowOnly ? '#dc2626' : '#fff',
@@ -1848,7 +1850,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                 {matrixData.coders.length > CODER_PAGE && (
                   <SearchBox placeholder={`Search coders (${matrixData.coders.length} total)…`}
                     value={matrixCoderSearch}
-                    onChange={v => { setMatrixCoderSearch(v); setMatrixShowAll(false) }} />
+                    onChange={v => { setMatrixCoderSearch(v); setMatrixPage(1) }} />
                 )}
               </div>
               {(() => {
@@ -1910,7 +1912,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                   const sb = matrixData.cells.find((c: any) => cellId(c) === b && c.batch_id === batchId)?.avg_score ?? -1
                   return (sa - sb) * dir
                 })
-                const visibleCoders = matrixShowAll ? sortedMatrixCoders : sortedMatrixCoders.slice(0, CODER_PAGE)
+                const visibleCoders = sortedMatrixCoders.slice(0, matrixPage * CODER_PAGE)
                 const hiddenCount = sortedMatrixCoders.length - visibleCoders.length
                 return (
                   <>
@@ -2017,19 +2019,17 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                       </table>
                     </div>
                     {hiddenCount > 0 && (
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <span style={{ fontSize: 12, color: '#6b7280' }}>{hiddenCount} more coder{hiddenCount !== 1 ? 's' : ''} not shown</span>
-                        <button onClick={() => setMatrixShowAll(true)} style={{ fontSize: 12, color: '#4f46e5', background: 'none', border: '1px solid #e5e7eb', borderRadius: 6, padding: '4px 12px', cursor: 'pointer', fontWeight: 600 }}>
-                          Show all {filteredCoders.length}
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
+                        <span style={{ fontSize: 12, color: '#6b7280' }}>{hiddenCount} more coder{hiddenCount !== 1 ? 's' : ''}</span>
+                        <button onClick={() => setMatrixPage(n => n + 1)} style={{ ...styles.outlineBtn, fontSize: 12, padding: '5px 14px' }}>
+                          Load more
                         </button>
                       </div>
                     )}
-                    {matrixShowAll && matrixData.coders.length > CODER_PAGE && (
-                      <button onClick={() => setMatrixShowAll(false)} style={{ fontSize: 12, color: '#6b7280', background: 'none', border: '1px solid #e5e7eb', borderRadius: 6, padding: '4px 12px', cursor: 'pointer' }}>
-                        Collapse to {CODER_PAGE}
-                      </button>
-                    )}
-                    <div style={{ fontSize: 11, color: '#9ca3af' }}>Green ≥80% · Yellow 60–79% · Red &lt;60%</div>
+                    <div style={{ fontSize: 11, color: '#9ca3af' }}>
+                      Each cell is coloured against its own column's pass mark — green at or above it,
+                      amber within 25% below, red under that. Hover a column header for its mark.
+                    </div>
                   </>
                 )
               })()}
