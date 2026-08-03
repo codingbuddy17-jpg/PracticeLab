@@ -190,3 +190,73 @@ class TestColumnAxisIsOneKindOfThing:
 
     def test_a_bad_group_by_is_rejected(self, client):
         assert client.get(URL, params={"group_by": "sideways"}).status_code == 400
+
+
+class TestServerSidePaging:
+    """
+    A thousand coders must not cross the wire so the browser can show 25.
+    Filtering, ordering and paging all happen here, in that order — a filter
+    applied after paging would only ever search the rows already on screen.
+    """
+
+    @pytest.fixture()
+    def many(self, db):
+        from datetime import datetime
+        b = _batch(db, "Wide")
+        for i in range(40):
+            c = _chart(db, f"IPP{i:03d}")
+            _result(db, b, c, 50 + (i % 40), coder=f"Coder {i:03d}", emp=f"E{i:03d}")
+        # Distinct grading dates, oldest first, so "recent" has something to sort on.
+        for n, r in enumerate(db.query(GradingResult).order_by(GradingResult.id).all()):
+            r.graded_at = datetime(2026, 1, 1 + (n % 28), 9, 0)
+        db.commit()
+        return b
+
+    def test_only_one_page_comes_back(self, client, many):
+        body = client.get(URL, params={**BATCH, "limit": 25}).json()
+        assert len(body["coders"]) == 25
+        assert body["total_coders"] == 40
+        assert {c["coder_id"] for c in body["cells"]} <= set(body["coders"]), \
+            "cells must not describe coders that were not returned"
+
+    def test_offset_walks_the_rest(self, client, many):
+        first = client.get(URL, params={**BATCH, "limit": 25}).json()["coders"]
+        second = client.get(URL, params={**BATCH, "limit": 25, "offset": 25}).json()["coders"]
+        assert len(second) == 15
+        assert not set(first) & set(second), "no row appears on two pages"
+
+    def test_default_order_is_most_recent_activity(self, client, many):
+        """
+        Alphabetical made the first screenful an accident of surnames. The
+        people who have been working recently are the ones worth seeing first.
+        """
+        body = client.get(URL, params={**BATCH, "limit": 5}).json()
+        dates = [body["coder_last_activity"][c] for c in body["coders"]]
+        assert dates == sorted(dates, reverse=True)
+
+    def test_name_order_is_still_available(self, client, many):
+        body = client.get(URL, params={**BATCH, "limit": 5, "sort": "name"}).json()
+        names = [body["coder_names"][c] for c in body["coders"]]
+        assert names == sorted(names)
+
+    def test_search_runs_before_paging(self, client, many):
+        """Otherwise it would only ever match the 25 rows already loaded."""
+        body = client.get(URL, params={**BATCH, "limit": 25, "search": "Coder 039"}).json()
+        assert body["total_coders"] == 1
+        assert body["coder_names"][body["coders"][0]] == "Coder 039"
+
+    def test_search_matches_emp_id_too(self, client, many):
+        body = client.get(URL, params={**BATCH, "search": "E039"}).json()
+        assert body["total_coders"] == 1
+
+    def test_below_target_filters_the_whole_set(self, client, many):
+        body = client.get(URL, params={**BATCH, "below_target_only": True}).json()
+        assert 0 < body["total_coders"] < 40
+        for cid in body["coders"]:
+            cells = [c for c in body["cells"] if c["coder_id"] == cid]
+            assert any(c["avg_score"] < 80 for c in cells)
+
+    def test_limit_is_capped(self, client, many):
+        """A caller asking for everything still gets a page."""
+        body = client.get(URL, params={**BATCH, "limit": 100000}).json()
+        assert len(body["coders"]) <= 200

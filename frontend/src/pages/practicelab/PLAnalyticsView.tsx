@@ -123,7 +123,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
   const [coderLoading, setCoderLoading] = useState(false)
   const [categoryData, setCategoryData] = useState<{ team: any[]; coder_category: any[]; coder_scope_note?: string } | null>(null)
   const [teachingData, setTeachingData] = useState<any[]>([])
-  const [matrixData, setMatrixData] = useState<{ batches: any[]; coders: string[]; coder_emp_ids?: Record<string, string>; coder_names?: Record<string, string>; scope_note?: string; cells: any[] } | null>(null)
+  const [matrixData, setMatrixData] = useState<{ batches: any[]; coders: string[]; coder_emp_ids?: Record<string, string>; coder_names?: Record<string, string>; scope_note?: string; total_coders?: number; coder_last_activity?: Record<string, string>; cells: any[] } | null>(null)
   const [teachingFilter, setTeachingFilter] = useState<string>('All')
   const [refreshing, setRefreshing] = useState(false)
   const [expandedCategory, setExpandedCategory] = useState<string | null>(null)
@@ -216,6 +216,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
    * The cap was doing its job; the escape hatch undid it.
    */
   const [matrixPage, setMatrixPage] = useState(1)
+  const [matrixSortMode, setMatrixSortMode] = useState<'recent' | 'name'>('recent')
   const [matrixBelowOnly, setMatrixBelowOnly] = useState(false)
   /**
    * What a column IS. Batches are events; specialties are buckets.
@@ -333,16 +334,40 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
     if ((tab === 'chart' || tab === 'category') && byChart.length === 0) getPLAnalyticsByChart(filters).then(setByChart).catch(() => {})
     if (tab === 'category' && !categoryData) getPLAnalyticsByCategory({ ...filters, specialty: topicSpecialty || filters.specialty }, scope).then(setCategoryData).catch(() => {})
     if (tab === 'teaching' && teachingData.length === 0) getPLChartTeachingValue(filters, scope).then(setTeachingData).catch(() => {})
-    if ((tab === 'matrix' || tab === 'coder') && !matrixData) getPLCoderMatrix(filters, scope, matrixGroupBy).then(setMatrixData).catch(() => {})
+    if ((tab === 'matrix' || tab === 'coder') && !matrixData) loadMatrix()
   }, [tab, filterVersion])
 
   // Topic Mastery honours the scope switch now, so a change has to refetch it
   // rather than leaving stale rows under a new scope label.
   // Chart Signals honours the scope switch now — it always excluded direct
   // assignments, so it could disagree with every other tab without saying so.
+  /**
+   * Rows come from the server, filtered, ordered and paged there.
+   *
+   * The grid used to receive every coder and slice them in the browser, which
+   * is not paging — a thousand rows still crossed the wire before 25 were
+   * drawn. Everything that decides WHICH rows qualify has to travel with the
+   * request, or it would only ever filter the page already loaded.
+   */
+  function loadMatrix(page = matrixPage) {
+    return getPLCoderMatrix(filters, scope, matrixGroupBy, {
+      limit: page * CODER_PAGE,
+      search: matrixCoderSearch,
+      belowOnly: matrixBelowOnly,
+      sort: matrixSortMode,
+    }).then(setMatrixData).catch(() => {})
+  }
+
+  // Debounced: typing a coder name should not fire a request per keystroke.
+  useEffect(() => {
+    if (tab !== 'matrix') return
+    const t = setTimeout(() => loadMatrix(), 250)
+    return () => clearTimeout(t)
+  }, [matrixCoderSearch, matrixBelowOnly, matrixSortMode, matrixPage, matrixGroupBy])
+
   useEffect(() => {
     if (tab === 'teaching') getPLChartTeachingValue(filters, scope).then(setTeachingData).catch(() => {})
-    if (tab === 'matrix') getPLCoderMatrix(filters, scope, matrixGroupBy).then(setMatrixData).catch(() => {})
+    if (tab === 'matrix') loadMatrix()
   }, [scope, tab, filterVersion, matrixGroupBy])
 
   useEffect(() => {
@@ -1807,6 +1832,21 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                   {/* The column axis. Choosing it is the point: a batch is an
                       event and a specialty is a bucket, so they cannot share
                       one row of headers. */}
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase' as const, letterSpacing: 0.5 }}>Rows</span>
+                  <div style={{ display: 'flex', border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
+                    {([['recent', 'Recent'], ['name', 'A–Z']] as const).map(([k, label]) => (
+                      <button key={k} onClick={() => { setMatrixSortMode(k); setMatrixPage(1) }}
+                        title={k === 'recent'
+                          ? 'Most recently graded coders first — the first screenful is people who have been working'
+                          : 'Alphabetical by coder name'}
+                        style={{ padding: '5px 12px', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700,
+                                 borderRight: k === 'name' ? 'none' : '1px solid #e5e7eb',
+                                 background: matrixSortMode === k ? '#0f766e' : '#fff',
+                                 color: matrixSortMode === k ? '#fff' : '#6b7280' }}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
                   <span style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase' as const, letterSpacing: 0.5 }}>Columns</span>
                   <div style={{ display: 'flex', border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
                     {([['specialty', 'Specialty'], ['batch', 'Batch']] as const).map(([k, label]) => (
@@ -1847,11 +1887,9 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                     Below target only
                   </button>
                 </div>
-                {matrixData.coders.length > CODER_PAGE && (
-                  <SearchBox placeholder={`Search coders (${matrixData.coders.length} total)…`}
-                    value={matrixCoderSearch}
-                    onChange={v => { setMatrixCoderSearch(v); setMatrixPage(1) }} />
-                )}
+                <SearchBox placeholder={`Search all ${matrixData.total_coders ?? ''} coders…`}
+                  value={matrixCoderSearch}
+                  onChange={v => { setMatrixCoderSearch(v); setMatrixPage(1) }} />
               </div>
               {(() => {
                 /**
@@ -1872,22 +1910,11 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                 matrixData.cells.forEach((c: any) => { nameFromCells[cellId(c)] = c.coder_name })
                 const nameOfCoder = (cid: string) =>
                   matrixData.coder_names?.[cid] || nameFromCells[cid] || cid
-                // Match name OR emp id — the row shows both, so either is a
-                // reasonable thing to type.
-                const mq = matrixCoderSearch.trim().toLowerCase()
-                const searched = mq
-                  ? matrixData.coders.filter((cid: string) =>
-                      nameOfCoder(cid).toLowerCase().includes(mq)
-                      || String(matrixData.coder_emp_ids?.[cid] || '').toLowerCase().includes(mq))
-                  : matrixData.coders
-                // "Below target" is per cell against that batch's own mark —
-                // one blanket number would be wrong for half the columns.
-                const isBelow = (cid: string) => matrixData.cells.some((c: any) => {
-                  if (cellId(c) !== cid || c.avg_score == null) return false
-                  const pt = matrixData.batches.find((b: any) => b.id === c.batch_id)?.pass_threshold
-                  return pt != null && c.avg_score < pt
-                })
-                const filteredCoders = matrixBelowOnly ? searched.filter(isBelow) : searched
+                // Search, below-target and paging all ran on the server, so
+                // what arrives IS the page. Filtering again here would only
+                // hide rows the server already decided to send.
+                const searched = matrixData.coders
+                const filteredCoders = searched
                 // Newest columns first when capped: a wide grid is read for
                 // what happened lately, not for what happened first.
                 const allBatchCols = matrixData.batches
@@ -1912,13 +1939,13 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                   const sb = matrixData.cells.find((c: any) => cellId(c) === b && c.batch_id === batchId)?.avg_score ?? -1
                   return (sa - sb) * dir
                 })
-                const visibleCoders = sortedMatrixCoders.slice(0, matrixPage * CODER_PAGE)
-                const hiddenCount = sortedMatrixCoders.length - visibleCoders.length
+                const visibleCoders = sortedMatrixCoders
+                const hiddenCount = (matrixData.total_coders ?? visibleCoders.length) - visibleCoders.length
                 return (
                   <>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                       <span style={{ fontSize: 12, color: '#9ca3af' }}>
-                        Showing {visibleCoders.length} of {filteredCoders.length} coders
+                        Showing {visibleCoders.length} of {matrixData.total_coders ?? visibleCoders.length} coders
                         {matrixBelowOnly ? ' below target' : ''}
                         {batchCols.length < allBatchCols.length && (
                           <>{' · latest '}{batchCols.length} of {allBatchCols.length} batches</>
@@ -1971,7 +1998,12 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                                 <td style={{ padding: '7px 12px', fontWeight: 600, borderBottom: '1px solid #f3f4f6', whiteSpace: 'nowrap' as const,
                                              position: 'sticky', left: 0, zIndex: 1, background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
                                   {coderLink(nameOfCoder(coder))}
-                                  {matrixData.coder_emp_ids?.[coder] && matrixData.coder_emp_ids[coder] !== nameOfCoder(coder) && <div style={{ fontSize: 10, fontWeight: 400, color: '#9ca3af' }}>{matrixData.coder_emp_ids[coder]}</div>}
+                                  <div style={{ fontSize: 10, fontWeight: 400, color: '#9ca3af' }}>
+                                    {matrixData.coder_emp_ids?.[coder] && matrixData.coder_emp_ids[coder] !== nameOfCoder(coder)
+                                      ? matrixData.coder_emp_ids[coder] : ''}
+                                    {matrixData.coder_last_activity?.[coder] &&
+                                      ` · ${matrixData.coder_last_activity[coder].slice(0, 10)}`}
+                                  </div>
                                 </td>
                                 {batchCols.map((b: any) => {
                                   const cell = cellMap[b.id]

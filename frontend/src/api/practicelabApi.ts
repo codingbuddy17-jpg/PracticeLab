@@ -334,8 +334,17 @@ export async function getPLChartTeachingValue(f: PLFilters = {}, scope: 'formal'
 }
 
 export async function getPLCoderMatrix(f: PLFilters = {}, scope: 'formal' | 'direct' | 'all' = 'formal',
-                                      groupBy: 'batch' | 'specialty' = 'batch') {
-  const { data } = await api.get('/practicelab/analytics/coder-matrix', { params: { ...fp(f), scope, group_by: groupBy } })
+                                      groupBy: 'batch' | 'specialty' = 'specialty',
+                                      opts: { limit?: number; search?: string; belowOnly?: boolean; sort?: string } = {}) {
+  const { data } = await api.get('/practicelab/analytics/coder-matrix', {
+    params: {
+      ...fp(f), scope, group_by: groupBy,
+      limit: opts.limit ?? 25,
+      search: opts.search?.trim() || undefined,
+      below_target_only: opts.belowOnly || undefined,
+      sort: opts.sort,
+    },
+  })
   return data as { batches: any[]; coders: string[]; coder_emp_ids?: Record<string, string>; cells: any[] }
 }
 

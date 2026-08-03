@@ -1048,6 +1048,8 @@ def analytics_chart_teaching_value(
 def analytics_coder_matrix(
     from_date: Optional[str] = None, to_date: Optional[str] = None, specialty: Optional[str] = None,
     scope: str = "formal", group_by: str = "specialty",
+    limit: int = 25, offset: int = 0, sort: str = "recent",
+    search: Optional[str] = None, below_target_only: bool = False,
     db: Session = Depends(get_db),
 ):
     """
@@ -1163,9 +1165,52 @@ def analytics_coder_matrix(
         if r.pass_fail and r.pass_fail.value == "PASS":
             cell_map[key]["passed"] += 1
 
-    all_coders = sorted(display_name, key=lambda cid: display_name[cid].lower())
+    # ── Which coders come back ───────────────────────────────────────────────
+    # The grid used to receive EVERY coder and page them in the browser, which
+    # is not paging — a thousand rows still crossed the wire and were held in
+    # memory before 25 of them were drawn.
+    #
+    # Default order is most recent activity, not alphabetical: the first
+    # screenful should be the people who have been working, and alphabetical
+    # makes the first 25 an accident of surnames.
+    last_seen: dict = {}
+    for r in results:
+        cid = _cid(r)
+        if r.graded_at and (cid not in last_seen or r.graded_at > last_seen[cid]):
+            last_seen[cid] = r.graded_at
 
-    coder_emp_ids: dict = dict(emp_of)
+    # Search and the below-target filter decide WHICH coders qualify, so they
+    # have to run before paging — filtering a page would only ever search the
+    # 25 rows already on screen.
+    ordered = list(display_name)
+    if search and search.strip():
+        term = search.strip().lower()
+        ordered = [cid for cid in ordered
+                   if term in display_name[cid].lower()
+                   or term in str(emp_of.get(cid, "")).lower()]
+    if below_target_only:
+        col_mark = {c["id"]: c["pass_threshold"] for c in columns}
+        def _below(cid):
+            for col in columns:
+                d = cell_map.get((cid, col["id"]))
+                pt = col_mark.get(col["id"])
+                if d and pt is not None and (sum(d["scores"]) / len(d["scores"])) < pt:
+                    return True
+            return False
+        ordered = [cid for cid in ordered if _below(cid)]
+    if sort == "name":
+        ordered.sort(key=lambda cid: display_name[cid].lower())
+    else:
+        # Anyone with no graded_at sorts last rather than first.
+        ordered.sort(key=lambda cid: (last_seen.get(cid) is not None, last_seen.get(cid)),
+                     reverse=True)
+
+    total_coders = len(ordered)
+    limit = max(1, min(limit, 200))          # a page, not an accidental dump
+    all_coders = ordered[offset:offset + limit]
+    shown = set(all_coders)
+
+    coder_emp_ids: dict = {cid: emp_of[cid] for cid in all_coders if cid in emp_of}
     missing = [cid for cid in all_coders if cid not in coder_emp_ids]
     if missing:
         names = [display_name[c] for c in missing]
@@ -1208,7 +1253,12 @@ def analytics_coder_matrix(
         "batches": columns,
         "group_by": group_by,
         "coders": all_coders,
-        "coder_names": display_name,
+        "total_coders": total_coders,
+        "returned_coders": len(all_coders),
+        "sort": sort,
+        "coder_last_activity": {cid: last_seen[cid].isoformat()
+                                for cid in all_coders if cid in last_seen},
+        "coder_names": {cid: display_name[cid] for cid in all_coders},
         "coder_emp_ids": coder_emp_ids,
         "cells": cells,
         "scope": scope,
