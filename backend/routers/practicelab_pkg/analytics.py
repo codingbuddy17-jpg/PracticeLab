@@ -1063,15 +1063,29 @@ def analytics_coder_matrix(
     if not batches:
         return {"batches": [], "coders": [], "cells": []}
 
+    thresholds = _pass_thresholds(db)
     batch_ids = [b.id for b in batches]
     results = (db.query(GradingResult)
                .filter(GradingResult.batch_id.in_(batch_ids),
                        GradingResult.total_score.isnot(None))
                .all())
 
+    # Identity is emp_id where present, as everywhere else. Keyed on the typed
+    # name, one person entered two ways occupied two rows of the matrix, each
+    # holding part of their history — on a grid that reads worse than a wrong
+    # number, because both rows look like sparse participation.
+    def _cid(r):
+        return r.emp_id or r.coder_name
+
     cell_map: dict = {}
+    display_name: dict = {}
+    emp_of: dict = {}
     for r in results:
-        key = (r.coder_name, r.batch_id)
+        cid = _cid(r)
+        display_name.setdefault(cid, r.coder_name)
+        if r.emp_id:
+            emp_of[cid] = r.emp_id
+        key = (cid, r.batch_id)
         if key not in cell_map:
             cell_map[key] = {"scores": [], "passed": 0, "total": 0}
         cell_map[key]["scores"].append(r.total_score)
@@ -1079,15 +1093,21 @@ def analytics_coder_matrix(
         if r.pass_fail and r.pass_fail.value == "PASS":
             cell_map[key]["passed"] += 1
 
-    all_coders = sorted(set(r.coder_name for r in results))
+    all_coders = sorted(display_name, key=lambda cid: display_name[cid].lower())
 
-    coder_emp_ids: dict[str, str] = {}
-    for name, emp_id in (db.query(BatchCoder.coder_name, BatchCoder.emp_id)
-                          .filter(BatchCoder.coder_name.in_(all_coders))
-                          .order_by(BatchCoder.id.desc())
-                          .all()):
-        if name not in coder_emp_ids and emp_id:
-            coder_emp_ids[name] = emp_id
+    coder_emp_ids: dict[str, str] = dict(emp_of)
+    missing = [cid for cid in all_coders if cid not in coder_emp_ids]
+    if missing:
+        # Rows written before emp_id existed on GradingResult: fall back to the
+        # roster, matching on the name they were keyed by.
+        names = [display_name[c] for c in missing]
+        for name, emp_id in (db.query(BatchCoder.coder_name, BatchCoder.emp_id)
+                              .filter(BatchCoder.coder_name.in_(names))
+                              .order_by(BatchCoder.id.desc())
+                              .all()):
+            for cid in missing:
+                if display_name[cid] == name and cid not in coder_emp_ids and emp_id:
+                    coder_emp_ids[cid] = emp_id
 
     cells = []
     for coder in all_coders:
@@ -1095,19 +1115,31 @@ def analytics_coder_matrix(
             data = cell_map.get((coder, b.id))
             if data:
                 cells.append({
-                    "coder_name": coder,
+                    "coder_id": coder,
+                    "coder_name": display_name[coder],
                     "batch_id": b.id,
                     "avg_score": round(sum(data["scores"]) / len(data["scores"]), 1),
                     "pass_rate": round(data["passed"] / data["total"] * 100, 1),
+                    "charts_passed": data["passed"],
                     "chart_count": data["total"],
                     "score_sum": sum(data["scores"]),
                 })
 
     return {
-        "batches": [{"id": b.id, "name": b.name, "specialty": b.specialty.value, "closed_at": b.closed_at.isoformat() if b.closed_at else None} for b in batches],
+        # Each column carries its own pass mark. The grid used to colour every
+        # cell against a hardcoded 80, so an SDS batch — bar 90 — showed green
+        # at 82, and an ED Single Path one did the same.
+        "batches": [{"id": b.id, "name": b.name, "specialty": b.specialty.value,
+                     "pass_threshold": thresholds.get(b.specialty.value),
+                     "closed_at": b.closed_at.isoformat() if b.closed_at else None}
+                    for b in batches],
         "coders": all_coders,
+        "coder_names": display_name,
         "coder_emp_ids": coder_emp_ids,
         "cells": cells,
+        # Stated rather than left to be inferred: this grid compares like with
+        # like, which means finished formal batches only.
+        "scope_note": "Closed formal batches only — open batches and direct assignments are excluded so every column is a completed, comparable set.",
     }
 
 

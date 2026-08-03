@@ -123,7 +123,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
   const [coderLoading, setCoderLoading] = useState(false)
   const [categoryData, setCategoryData] = useState<{ team: any[]; coder_category: any[]; coder_scope_note?: string } | null>(null)
   const [teachingData, setTeachingData] = useState<any[]>([])
-  const [matrixData, setMatrixData] = useState<{ batches: any[]; coders: string[]; coder_emp_ids?: Record<string, string>; cells: any[] } | null>(null)
+  const [matrixData, setMatrixData] = useState<{ batches: any[]; coders: string[]; coder_emp_ids?: Record<string, string>; coder_names?: Record<string, string>; scope_note?: string; cells: any[] } | null>(null)
   const [teachingFilter, setTeachingFilter] = useState<string>('All')
   const [refreshing, setRefreshing] = useState(false)
   const [expandedCategory, setExpandedCategory] = useState<string | null>(null)
@@ -209,6 +209,11 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
   const [profile, setProfile] = useState<any>(null)
   const [profileLoading, setProfileLoading] = useState(false)
   const [matrixShowAll, setMatrixShowAll] = useState(false)
+  // Rows were paged and searchable; COLUMNS were every closed batch ever.
+  // At a batch a week that is a grid nobody can read across.
+  const MATRIX_COLS = 10
+  const [matrixShowAllCols, setMatrixShowAllCols] = useState(false)
+  const [matrixBelowOnly, setMatrixBelowOnly] = useState(false)
   const [heatmapCoderSearch, setHeatmapCoderSearch] = useState('')
   const [heatmapShowAll, setHeatmapShowAll] = useState(false)
   // Tab-local, like the Overview trend's picker: narrowing this tab should not
@@ -1781,7 +1786,22 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
             <>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' as const, gap: 8 }}>
                 <div style={{ fontSize: 13, color: '#6b7280' }}>
-                  Cross-batch performance grid — each cell shows the coder's avg score for that batch. Only closed batches are shown.
+                  Cross-batch performance grid — each cell is a coder's avg score for that batch, coloured against
+                  that batch's own pass mark.
+                  <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>
+                    {matrixData.scope_note || 'Closed formal batches only.'}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' as const }}>
+                  {/* Finding who needs attention in a thousand rows is not a
+                      scrolling job. */}
+                  <button onClick={() => { setMatrixBelowOnly(v => !v); setMatrixShowAll(false) }}
+                    style={{ fontSize: 12, fontWeight: 700, padding: '5px 12px', borderRadius: 20, cursor: 'pointer',
+                             border: '1px solid ' + (matrixBelowOnly ? '#dc2626' : '#e5e7eb'),
+                             background: matrixBelowOnly ? '#dc2626' : '#fff',
+                             color: matrixBelowOnly ? '#fff' : '#6b7280' }}>
+                    Below target only
+                  </button>
                 </div>
                 {matrixData.coders.length > CODER_PAGE && (
                   <SearchBox placeholder={`Search coders (${matrixData.coders.length} total)…`}
@@ -1790,12 +1810,27 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                 )}
               </div>
               {(() => {
-                const filteredCoders = matrixCoderSearch.trim()
-                  ? matrixData.coders.filter((n: string) => n.toLowerCase().includes(matrixCoderSearch.toLowerCase()))
+                // Search by the displayed name, filter by identity.
+                const nameOfCoder = (cid: string) => matrixData.coder_names?.[cid] || cid
+                const searched = matrixCoderSearch.trim()
+                  ? matrixData.coders.filter((cid: string) =>
+                      nameOfCoder(cid).toLowerCase().includes(matrixCoderSearch.toLowerCase()))
                   : matrixData.coders
+                // "Below target" is per cell against that batch's own mark —
+                // one blanket number would be wrong for half the columns.
+                const isBelow = (cid: string) => matrixData.cells.some((c: any) => {
+                  if (c.coder_id !== cid || c.avg_score == null) return false
+                  const pt = matrixData.batches.find((b: any) => b.id === c.batch_id)?.pass_threshold
+                  return pt != null && c.avg_score < pt
+                })
+                const filteredCoders = matrixBelowOnly ? searched.filter(isBelow) : searched
+                // Newest columns first when capped: a wide grid is read for
+                // what happened lately, not for what happened first.
+                const allBatchCols = matrixData.batches
+                const batchCols = matrixShowAllCols ? allBatchCols : allBatchCols.slice(-MATRIX_COLS)
                 const weightedOverall = new Map<string, number>()
                 for (const coder of filteredCoders) {
-                  const cells = matrixData.cells.filter((c: any) => c.coder_name === coder && c.avg_score != null)
+                  const cells = matrixData.cells.filter((c: any) => c.coder_id === coder && c.avg_score != null)
                   const totalCharts = cells.reduce((s: number, c: any) => s + c.chart_count, 0)
                   const scoreSum = cells.reduce((s: number, c: any) => s + c.score_sum, 0)
                   weightedOverall.set(coder, totalCharts > 0 ? scoreSum / totalCharts : -1)
@@ -1807,8 +1842,8 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                     return ((weightedOverall.get(a) ?? -1) - (weightedOverall.get(b) ?? -1)) * dir
                   }
                   const batchId = Number(matrixSort.col)
-                  const sa = matrixData.cells.find((c: any) => c.coder_name === a && c.batch_id === batchId)?.avg_score ?? -1
-                  const sb = matrixData.cells.find((c: any) => c.coder_name === b && c.batch_id === batchId)?.avg_score ?? -1
+                  const sa = matrixData.cells.find((c: any) => c.coder_id === a && c.batch_id === batchId)?.avg_score ?? -1
+                  const sb = matrixData.cells.find((c: any) => c.coder_id === b && c.batch_id === batchId)?.avg_score ?? -1
                   return (sa - sb) * dir
                 })
                 const visibleCoders = matrixShowAll ? sortedMatrixCoders : sortedMatrixCoders.slice(0, CODER_PAGE)
@@ -1816,7 +1851,19 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                 return (
                   <>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                      <span style={{ fontSize: 12, color: '#9ca3af' }}>Showing {visibleCoders.length} of {filteredCoders.length} coders</span>
+                      <span style={{ fontSize: 12, color: '#9ca3af' }}>
+                        Showing {visibleCoders.length} of {filteredCoders.length} coders
+                        {matrixBelowOnly ? ' below target' : ''}
+                        {batchCols.length < allBatchCols.length && (
+                          <>
+                            {' · latest '}{batchCols.length} of {allBatchCols.length} batches
+                            <button onClick={() => setMatrixShowAllCols(true)}
+                              style={{ marginLeft: 6, fontSize: 11, color: '#4f46e5', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700, padding: 0 }}>
+                              show all
+                            </button>
+                          </>
+                        )}
+                      </span>
                     </div>
                     <div style={{ overflowX: 'auto' }}>
                       <table style={{ borderCollapse: 'collapse', fontSize: 12, minWidth: '100%' }}>
@@ -1825,7 +1872,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                             <th onClick={() => toggleSort('coder', matrixSort, setMatrixSort)} style={{ textAlign: 'left', padding: '7px 12px', background: '#f9fafb', borderBottom: '2px solid #e5e7eb', whiteSpace: 'nowrap' as const, fontWeight: 700, color: '#374151', cursor: 'pointer', userSelect: 'none' as const }}>
                               Coder{sortIcon('coder', matrixSort)}
                             </th>
-                            {matrixData.batches.map((b: any) => (
+                            {batchCols.map((b: any) => (
                               <th key={b.id} onClick={() => toggleSort(String(b.id), matrixSort, setMatrixSort)} style={{ padding: '7px 10px', background: '#f9fafb', borderBottom: '2px solid #e5e7eb', whiteSpace: 'nowrap' as const, textAlign: 'center', fontWeight: 600, color: '#374151', minWidth: 80, cursor: 'pointer', userSelect: 'none' as const }}>
                                 <div>{b.name.length > 14 ? b.name.slice(0, 14) + '…' : b.name}</div>
                                 <div style={{ fontSize: 10, fontWeight: 400, color: '#9ca3af' }}>{b.closed_at ? new Date(b.closed_at).toLocaleDateString() : ''}{sortIcon(String(b.id), matrixSort)}</div>
@@ -1838,7 +1885,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                         </thead>
                         <tbody>
                           {visibleCoders.map((coder: string, i: number) => {
-                            const coderCells = matrixData.cells.filter((c: any) => c.coder_name === coder)
+                            const coderCells = matrixData.cells.filter((c: any) => c.coder_id === coder)
                             const scoredCells = coderCells.filter((c: any) => c.avg_score != null)
                             const totalCharts = scoredCells.reduce((s: number, c: any) => s + c.chart_count, 0)
                             const scoreSum = scoredCells.reduce((s: number, c: any) => s + c.score_sum, 0)
@@ -1847,17 +1894,27 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                             coderCells.forEach((c: any) => { cellMap[c.batch_id] = c })
                             return (
                               <tr key={coder} style={{ background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
-                                <td style={{ padding: '7px 12px', fontWeight: 600, borderBottom: '1px solid #f3f4f6', whiteSpace: 'nowrap' as const }}>
-                                  {coderLink(coder)}
+                                {/* Sticky, so the name stays visible once the
+                                    batch columns push the grid sideways. */}
+                                <td style={{ padding: '7px 12px', fontWeight: 600, borderBottom: '1px solid #f3f4f6', whiteSpace: 'nowrap' as const,
+                                             position: 'sticky', left: 0, zIndex: 1, background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
+                                  {coderLink(matrixData.coder_names?.[coder] || coder)}
                                   {matrixData.coder_emp_ids?.[coder] && <div style={{ fontSize: 10, fontWeight: 400, color: '#9ca3af' }}>{matrixData.coder_emp_ids[coder]}</div>}
                                 </td>
-                                {matrixData.batches.map((b: any) => {
+                                {batchCols.map((b: any) => {
                                   const cell = cellMap[b.id]
                                   const score = cell?.avg_score
-                                  const bg = score == null ? 'transparent' : score >= 80 ? '#dcfce7' : score >= 60 ? '#fef3c7' : '#fee2e2'
-                                  const color = score == null ? '#d1d5db' : score >= 80 ? '#166534' : score >= 60 ? '#92400e' : '#991b1b'
+                                  // Against THIS batch's pass mark. A flat 80
+                                  // showed an SDS batch green at 82 when its
+                                  // bar is 90, and did the same for Surgery
+                                  // and ED Single Path.
+                                  const _c = cc(score, b.pass_threshold)
+                                  const bg = score == null ? 'transparent' : _c === '#16a34a' ? '#dcfce7' : _c === '#d97706' ? '#fef3c7' : '#fee2e2'
+                                  const color = score == null ? '#d1d5db' : _c === '#16a34a' ? '#166534' : _c === '#d97706' ? '#92400e' : '#991b1b'
                                   return (
-                                    <td key={b.id} style={{ padding: '7px 10px', textAlign: 'center', background: bg, color, fontWeight: 700, borderBottom: '1px solid #f3f4f6', borderLeft: '1px solid #f3f4f6' }}>
+                                    <td key={b.id}
+                                      title={cell ? `${cell.charts_passed}/${cell.chart_count} charts passed (${cell.pass_rate}%) · pass mark ${b.pass_threshold ?? '—'}%` : undefined}
+                                      style={{ padding: '7px 10px', textAlign: 'center', background: bg, color, fontWeight: 700, borderBottom: '1px solid #f3f4f6', borderLeft: '1px solid #f3f4f6' }}>
                                       {score != null ? (
                                         <div>
                                           <div>{score}%</div>
@@ -1867,9 +1924,22 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                                     </td>
                                   )
                                 })}
-                                <td style={{ padding: '7px 10px', textAlign: 'center', background: overall == null ? 'transparent' : overall >= 80 ? '#bbf7d0' : overall >= 60 ? '#fde68a' : '#fecaca', color: overall == null ? '#d1d5db' : overall >= 80 ? '#14532d' : overall >= 60 ? '#78350f' : '#7f1d1d', fontWeight: 800, borderBottom: '1px solid #f3f4f6', borderLeft: '2px solid #e5e7eb' }}>
+                                {/* Overall spans whatever specialties this
+                                    coder worked in, so it is coloured against
+                                    a single mark only when they all agree. */}
+                                {(() => {
+                                  const marks = new Set(coderCells.map((c: any) =>
+                                    matrixData.batches.find((bb: any) => bb.id === c.batch_id)?.pass_threshold).filter(Boolean))
+                                  const oc = marks.size === 1 ? cc(overall, [...marks][0] as number) : cc(overall, undefined)
+                                  const obg = overall == null ? 'transparent' : oc === '#16a34a' ? '#bbf7d0' : oc === '#d97706' ? '#fde68a' : '#fecaca'
+                                  const ofg = overall == null ? '#d1d5db' : oc === '#16a34a' ? '#14532d' : oc === '#d97706' ? '#78350f' : '#7f1d1d'
+                                  return (
+                                <td title={marks.size > 1 ? 'Spans specialties with different pass marks' : undefined}
+                                  style={{ padding: '7px 10px', textAlign: 'center', background: obg, color: ofg, fontWeight: 800, borderBottom: '1px solid #f3f4f6', borderLeft: '2px solid #e5e7eb' }}>
                                   {overall != null ? `${overall}%` : '—'}
                                 </td>
+                                  )
+                                })()}
                               </tr>
                             )
                           })}
