@@ -229,7 +229,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
   const [matrixGroupBy, setMatrixGroupBy] = useState<'batch' | 'specialty'>('specialty')
   // How many batch columns to show when the axis is batches. Recency is the
   // only ordering that needs no explanation, so the window takes the latest N.
-  const [matrixColWindow, setMatrixColWindow] = useState<number | 'all'>(10)
+  const [matrixColWindow, setMatrixColWindow] = useState<number>(10)
   const [heatmapCoderSearch, setHeatmapCoderSearch] = useState('')
   const [heatmapPage, setHeatmapPage] = useState(1)
   // Tab-local, like the Overview trend's picker: narrowing this tab should not
@@ -1816,10 +1816,11 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
       {/* E: Coder Matrix */}
       {tab === 'matrix' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {!matrixData ? <div style={styles.emptyState}>Loading…</div> : matrixData.coders.length === 0 ? (
-            <div style={styles.emptyState}>No closed batch results yet — close a batch to see the coder matrix.</div>
-          ) : (
-            <>
+          {/* Toolbar ABOVE the empty-state gate. Search runs on the server
+              now, so it can legitimately return no coders — and inside the
+              gate it would have removed the box that caused the empty result,
+              leaving no way back. Same trap as the Topic Mastery picker. */}
+          {matrixData && (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' as const, gap: 8 }}>
                 <div style={{ fontSize: 13, color: '#6b7280' }}>
                   Cross-batch performance grid — each cell is a coder's avg score for that batch, coloured against
@@ -1862,17 +1863,26 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                       </button>
                     ))}
                   </div>
-                  {/* Only batch columns need a window; specialties are bounded. */}
+                  {/* Only batch columns need a window; specialties are bounded
+                      at ten and always fit.
+
+                      About fourteen columns fit a laptop viewport, so 25 is
+                      already two screens of sideways scrolling and a year of
+                      weekly batches would be four. There is deliberately no
+                      "All": it would render an 18,000px table nobody can read,
+                      and offering it would repeat the "Show all" trap one
+                      control over. Past 25, the date range is the right tool —
+                      a period, not a count. */}
                   {matrixGroupBy === 'batch' && (matrixData.batches?.length ?? 0) > 5 && (
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                       <span style={{ fontSize: 11, color: '#9ca3af' }}>Latest</span>
-                      {([5, 10, 25, 'all'] as const).map(w => (
-                        <button key={String(w)} onClick={() => setMatrixColWindow(w)}
+                      {([5, 10, 25] as const).map(w => (
+                        <button key={w} onClick={() => setMatrixColWindow(w)}
                           style={{ fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 6, cursor: 'pointer',
                                    border: '1px solid ' + (matrixColWindow === w ? '#0f766e' : '#e5e7eb'),
                                    background: matrixColWindow === w ? '#0f766e' : '#fff',
                                    color: matrixColWindow === w ? '#fff' : '#6b7280' }}>
-                          {w === 'all' ? 'All' : w}
+                          {w}
                         </button>
                       ))}
                     </span>
@@ -1887,10 +1897,30 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                     Below target only
                   </button>
                 </div>
-                <SearchBox placeholder={`Search all ${matrixData.total_coders ?? ''} coders…`}
+                <SearchBox width={240}
+                  placeholder="Find a coder by name or emp ID…"
                   value={matrixCoderSearch}
                   onChange={v => { setMatrixCoderSearch(v); setMatrixPage(1) }} />
               </div>
+          )}
+
+          {!matrixData ? <div style={styles.emptyState}>Loading…</div> : matrixData.coders.length === 0 ? (
+            <div style={{ ...styles.emptyState, lineHeight: 1.7 }}>
+              {matrixCoderSearch.trim() || matrixBelowOnly ? (
+                <>
+                  <div style={{ fontWeight: 700, color: '#b45309' }}>
+                    No coders match{matrixCoderSearch.trim() ? ` "${matrixCoderSearch.trim()}"` : ''}
+                    {matrixBelowOnly ? ' below target' : ''}
+                  </div>
+                  <button onClick={() => { setMatrixCoderSearch(''); setMatrixBelowOnly(false); setMatrixPage(1) }}
+                    style={{ background: 'none', border: 'none', color: '#4f46e5', cursor: 'pointer', fontWeight: 700, fontSize: 12, padding: 0 }}>
+                    Clear search and filters
+                  </button>
+                </>
+              ) : 'No closed batch results yet — close a batch to see the coder matrix.'}
+            </div>
+          ) : (
+            <>
               {(() => {
                 /**
                  * Identity and display name, tolerant of either payload shape.
@@ -1918,9 +1948,10 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                 // Newest columns first when capped: a wide grid is read for
                 // what happened lately, not for what happened first.
                 const allBatchCols = matrixData.batches
-                const batchCols = (matrixGroupBy === 'specialty' || matrixColWindow === 'all')
+                // Specialties are bounded (ten, ever) so they all show.
+                const batchCols = matrixGroupBy === 'specialty'
                   ? allBatchCols
-                  : allBatchCols.slice(-(matrixColWindow as number))
+                  : allBatchCols.slice(-matrixColWindow)
                 const weightedOverall = new Map<string, number>()
                 for (const coder of filteredCoders) {
                   const cells = matrixData.cells.filter((c: any) => cellId(c) === coder && c.avg_score != null)
@@ -1948,7 +1979,14 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                         Showing {visibleCoders.length} of {matrixData.total_coders ?? visibleCoders.length} coders
                         {matrixBelowOnly ? ' below target' : ''}
                         {batchCols.length < allBatchCols.length && (
-                          <>{' · latest '}{batchCols.length} of {allBatchCols.length} batches</>
+                          <>
+                            {' · latest '}{batchCols.length} of {allBatchCols.length} batches
+                            {allBatchCols.length > 25 && (
+                              <span style={{ color: '#b45309' }}>
+                                {' — set a date range above to see a specific period'}
+                              </span>
+                            )}
+                          </>
                         )}
                       </span>
                     </div>
