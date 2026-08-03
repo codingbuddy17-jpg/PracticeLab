@@ -1288,3 +1288,84 @@ def export_batch_analytics(rows: list) -> bytes:
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
+
+
+def export_grid(sheet_title: str, row_header: str, columns: list, rows: list) -> bytes:
+    """
+    A wide grid: one row per entity, one column per column, values in between.
+
+    Wide is the right shape here precisely because it is the wrong shape for
+    pivoting. These sheets exist so a trainer can read the whole grid at once —
+    every coder against every batch — which the screen cannot do past about
+    fourteen columns. The long-format export already covers slicing.
+
+    columns: [{"key": ..., "label": ..., "sub": ...}]
+    rows:    [{"label": ..., "sub": ..., "values": {key: value}, "overall": ...}]
+    """
+    wb = Workbook()
+    ws = wb.active
+    ws.title = sheet_title[:31]
+
+    _header(ws, 1, 1, row_header)
+    ws.column_dimensions["A"].width = 28
+    for i, col in enumerate(columns, start=2):
+        label = col["label"] + (f"\n{col['sub']}" if col.get("sub") else "")
+        _header(ws, i, 1, label)
+        ws.column_dimensions[get_column_letter(i)].width = 16
+    overall_col = len(columns) + 2
+    _header(ws, overall_col, 1, "Overall")
+    ws.column_dimensions[get_column_letter(overall_col)].width = 12
+
+    ws.row_dimensions[1].height = 30
+    # Both panes: the row labels and the header must survive scrolling in a
+    # grid that is wide and long at the same time.
+    ws.freeze_panes = "B2"
+
+    if not rows:
+        ws.cell(2, 1, "No data matches the selected filters.")
+        buf = io.BytesIO(); wb.save(buf); return buf.getvalue()
+
+    for r, row in enumerate(rows, start=2):
+        ws.cell(r, 1, row["label"] + (f" ({row['sub']})" if row.get("sub") else ""))
+        for i, col in enumerate(columns, start=2):
+            v = row["values"].get(col["key"])
+            # Blank, not zero: a coder with no result in a batch did not score
+            # nothing, and a 0 would drag any average taken over the column.
+            if v is not None:
+                ws.cell(r, i, v)
+        if row.get("overall") is not None:
+            ws.cell(r, overall_col, row["overall"])
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def export_chart_signals(rows: list) -> bytes:
+    """One row per chart, with the signal and the bar it was judged against."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Chart Signals"
+
+    cols = [("Chart", 14), ("Signal", 16), ("Specialty", 16), ("Topic", 24),
+            ("Attempts", 10), ("Avg Score %", 12), ("Pass Rate %", 12),
+            ("Pass Mark %", 12), ("Distinct Codes Missed", 21)]
+    for i, (label, width) in enumerate(cols, start=1):
+        _header(ws, i, 1, label)
+        ws.column_dimensions[get_column_letter(i)].width = width
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = f"A1:{get_column_letter(len(cols))}1"
+
+    if not rows:
+        ws.cell(2, 1, "No charts match the selected filters.")
+        buf = io.BytesIO(); wb.save(buf); return buf.getvalue()
+
+    keys = ["chart_number", "teaching_label", "specialty", "category",
+            "attempt_count", "avg_score", "pass_rate", "pass_threshold", "error_variety"]
+    for r, row in enumerate(rows, start=2):
+        for i, key in enumerate(keys, start=1):
+            ws.cell(r, i, row.get(key))
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()

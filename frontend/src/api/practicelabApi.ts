@@ -528,3 +528,29 @@ export function downloadBatchAnalyticsXlsx(f: PLFilters = {}, scope: 'formal' | 
   const qs = p.toString() ? `?${p.toString()}` : ''
   window.open(`${import.meta.env.VITE_API_URL || '/api'}/practicelab/analytics/by-batch.xlsx` + qs, '_blank')
 }
+
+/**
+ * Grid exports: the WHOLE grid, not the page on screen.
+ *
+ * The screen caps columns and pages rows because that is what stays readable.
+ * These answer the other question — everything at once — so they take the same
+ * filters and deliberately ignore the paging.
+ */
+export function downloadCoderMatrixXlsx(f: PLFilters = {}, scope = 'formal',
+                                        groupBy: 'batch' | 'specialty' = 'specialty',
+                                        opts: { search?: string; belowOnly?: boolean } = {}) {
+  const p = new URLSearchParams({ ...fp(f), scope, group_by: groupBy })
+  if (opts.search?.trim()) p.set('search', opts.search.trim())
+  if (opts.belowOnly) p.set('below_target_only', 'true')
+  window.open(`${import.meta.env.VITE_API_URL || '/api'}/practicelab/analytics/coder-matrix.xlsx?` + p.toString(), '_blank')
+}
+
+export function downloadTopicHeatmapXlsx(f: PLFilters = {}, scope = 'formal') {
+  const p = new URLSearchParams({ ...fp(f), scope })
+  window.open(`${import.meta.env.VITE_API_URL || '/api'}/practicelab/analytics/topic-heatmap.xlsx?` + p.toString(), '_blank')
+}
+
+export function downloadChartSignalsXlsx(f: PLFilters = {}, scope = 'formal') {
+  const p = new URLSearchParams({ ...fp(f), scope })
+  window.open(`${import.meta.env.VITE_API_URL || '/api'}/practicelab/analytics/chart-signals.xlsx?` + p.toString(), '_blank')
+}

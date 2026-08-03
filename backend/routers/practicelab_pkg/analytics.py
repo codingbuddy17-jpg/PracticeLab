@@ -1286,6 +1286,127 @@ def analytics_coder_matrix(
         "scope_note": note,
     }
 
+@router.get("/analytics/chart-signals.xlsx")
+def chart_signals_export(
+    from_date: Optional[str] = None, to_date: Optional[str] = None, specialty: Optional[str] = None,
+    scope: str = "formal",
+    db: Session = Depends(get_db),
+):
+    """
+    Every chart with its signal — the curriculum-planning sheet.
+
+    A list rather than a grid, because that is what it is: one row per chart.
+    The screen pages these 24 at a time; building a practice pack means having
+    all of them in front of you at once.
+    """
+    from services.excel_service import export_chart_signals
+    from services.download_headers import content_disposition
+
+    rows = analytics_chart_teaching_value(from_date=from_date, to_date=to_date,
+                                          specialty=specialty, scope=scope, db=db)
+    payload = export_chart_signals(rows)
+    return StreamingResponse(
+        io.BytesIO(payload),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=content_disposition("Chart_Signals.xlsx", "Chart_Signals.xlsx"),
+    )
+
+
+@router.get("/analytics/coder-matrix.xlsx")
+def coder_matrix_export(
+    from_date: Optional[str] = None, to_date: Optional[str] = None, specialty: Optional[str] = None,
+    scope: str = "formal", group_by: str = "specialty",
+    search: Optional[str] = None, below_target_only: bool = False, sort: str = "recent",
+    db: Session = Depends(get_db),
+):
+    """
+    The whole grid, not the page.
+
+    The screen shows about fourteen columns and a page of rows because that is
+    what stays readable; this exists for the other question — the full picture,
+    every coder against every column. So it takes the same filters and the same
+    axis, and deliberately ignores the paging.
+    """
+    from services.excel_service import export_grid
+    from services.download_headers import content_disposition
+
+    data = analytics_coder_matrix(
+        from_date=from_date, to_date=to_date, specialty=specialty,
+        scope=scope, group_by=group_by, limit=200, offset=0,
+        search=search, below_target_only=below_target_only, sort=sort, db=db,
+    )
+
+    by_coder: dict = {}
+    for c in data["cells"]:
+        by_coder.setdefault(c["coder_id"], {})[c["batch_id"]] = c
+
+    rows = []
+    for cid in data["coders"]:
+        cells = by_coder.get(cid, {})
+        charts = sum(c["chart_count"] for c in cells.values())
+        score_sum = sum(c["score_sum"] for c in cells.values())
+        rows.append({
+            "label": data["coder_names"].get(cid, cid),
+            "sub": data["coder_emp_ids"].get(cid),
+            "values": {bid: c["avg_score"] for bid, c in cells.items()},
+            "overall": round(score_sum / charts, 1) if charts else None,
+        })
+
+    columns = [{"key": c["id"], "label": c["name"],
+                "sub": (f"pass {c['pass_threshold']}%" if c.get("pass_threshold") else None)}
+               for c in data["batches"]]
+
+    title = "By Specialty" if group_by == "specialty" else "By Batch"
+    payload = export_grid(f"Coder Matrix {title}", "Coder", columns, rows)
+    return StreamingResponse(
+        io.BytesIO(payload),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=content_disposition(f"Coder_Matrix_{title.replace(' ', '_')}.xlsx",
+                                    "Coder_Matrix.xlsx"),
+    )
+
+
+@router.get("/analytics/topic-heatmap.xlsx")
+def topic_heatmap_export(
+    from_date: Optional[str] = None, to_date: Optional[str] = None, specialty: Optional[str] = None,
+    scope: str = "formal",
+    db: Session = Depends(get_db),
+):
+    """Coder x Topic, the whole grid — the on-screen heatmap caps its columns."""
+    from services.excel_service import export_grid
+    from services.download_headers import content_disposition
+
+    data = analytics_by_category(from_date=from_date, to_date=to_date,
+                                 specialty=specialty, scope=scope, db=db)
+    topics = [t["category"] for t in data["team"]]
+    columns = [{"key": t["category"], "label": t["category"],
+                "sub": (f"pass {t['pass_threshold']}%" if t.get("pass_threshold") else "mixed")}
+               for t in data["team"]]
+
+    by_coder: dict = {}
+    for r in data["coder_category"]:
+        cid = r.get("emp_id") or r["coder_name"]
+        by_coder.setdefault(cid, {"name": r["coder_name"], "emp": r.get("emp_id"), "v": {}})
+        by_coder[cid]["v"][r["category"]] = r
+
+    rows = []
+    for cid, d in sorted(by_coder.items(), key=lambda kv: kv[1]["name"].lower()):
+        charts = sum(x["attempt_count"] for x in d["v"].values())
+        total = sum(x["avg_score"] * x["attempt_count"] for x in d["v"].values())
+        rows.append({
+            "label": d["name"], "sub": d["emp"],
+            "values": {t: d["v"][t]["avg_score"] for t in topics if t in d["v"]},
+            "overall": round(total / charts, 1) if charts else None,
+        })
+
+    payload = export_grid("Coder x Topic", "Coder", columns, rows)
+    return StreamingResponse(
+        io.BytesIO(payload),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=content_disposition("Coder_Topic_Matrix.xlsx", "Coder_Topic_Matrix.xlsx"),
+    )
+
+
 @router.get("/analytics/chart-detail/{chart_number:path}")
 def chart_detail(chart_number: str, db: Session = Depends(get_db)):
     results = (db.query(GradingResult)

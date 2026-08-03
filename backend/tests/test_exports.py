@@ -372,3 +372,92 @@ class TestBatchAnalyticsExport:
         ws = _is_workbook(client.get("/practicelab/analytics/by-batch.xlsx",
                                      params={"specialty": "SDS"})).worksheets[0]
         assert ws.cell(2, 1).value == "No batches match the selected filters."
+
+
+class TestGridExports:
+    """
+    The screen caps columns and pages rows because that is what stays readable.
+    These sheets answer the other question — everything at once — so the one
+    thing they must not do is inherit the paging.
+    """
+
+    @pytest.fixture()
+    def wide(self, db):
+        from datetime import datetime
+        from models.practicelab import BatchStatus
+        b = Batch(name="Closed Wave", specialty=Specialty.IP_DRG, status=BatchStatus.CLOSED,
+                  created_by="t", charts_per_coder=1, is_direct_assignment=False,
+                  use_weighted=True, use_dpo=False, force_closed=False)
+        db.add(b); db.commit()
+        b.closed_at = datetime(2026, 6, 1); db.commit()
+        for i in range(30):
+            c = _chart(db, f"IPG{i:03d}")
+            db.add(GradingResult(batch_id=b.id, coder_name=f"Coder {i:03d}", emp_id=f"G{i:03d}",
+                                 chart_id=c.id, specialty=Specialty.IP_DRG,
+                                 total_score=50 + i, pass_fail=PassFail.FAIL))
+        db.commit()
+        return b
+
+    def test_matrix_grid_ignores_the_on_screen_paging(self, client, wide):
+        """25 rows on screen; the sheet has all 30."""
+        ws = _is_workbook(client.get("/practicelab/analytics/coder-matrix.xlsx",
+                                     params={"group_by": "batch"})).worksheets[0]
+        assert ws.max_row == 31, "header plus every coder"
+
+    def test_matrix_grid_is_wide_not_long(self, client, wide):
+        ws = _is_workbook(client.get("/practicelab/analytics/coder-matrix.xlsx",
+                                     params={"group_by": "batch"})).worksheets[0]
+        assert ws.cell(1, 1).value == "Coder"
+        assert ws.cell(1, 2).value.startswith("Closed Wave")
+        assert ws.cell(1, ws.max_column).value == "Overall"
+
+    def test_a_missing_cell_is_blank_not_zero(self, client, db, wide):
+        """A coder with no result in a batch did not score nothing, and a 0
+        would drag any average taken down the column."""
+        from datetime import datetime
+        from models.practicelab import BatchStatus
+        b2 = Batch(name="Second Wave", specialty=Specialty.IP_DRG, status=BatchStatus.CLOSED,
+                   created_by="t", charts_per_coder=1, is_direct_assignment=False,
+                   use_weighted=True, use_dpo=False, force_closed=False)
+        db.add(b2); db.commit()
+        b2.closed_at = datetime(2026, 6, 2); db.commit()
+        c = _chart(db, "IPG900")
+        db.add(GradingResult(batch_id=b2.id, coder_name="Coder 000", emp_id="G000",
+                             chart_id=c.id, specialty=Specialty.IP_DRG,
+                             total_score=90, pass_fail=PassFail.PASS))
+        db.commit()
+        ws = _is_workbook(client.get("/practicelab/analytics/coder-matrix.xlsx",
+                                     params={"group_by": "batch"})).worksheets[0]
+        # Headers carry the pass mark on a second line, so match the prefix.
+        col = next(i for i, c in enumerate(ws[1], start=1)
+                   if str(c.value).startswith("Second Wave"))
+        blanks = [ws.cell(r, col).value for r in range(2, ws.max_row + 1)]
+        assert None in blanks, "coders absent from that batch must be blank"
+
+    def test_matrix_grid_filters_carry_over(self, client, wide):
+        ws = _is_workbook(client.get("/practicelab/analytics/coder-matrix.xlsx",
+                                     params={"group_by": "batch", "search": "Coder 001"})).worksheets[0]
+        assert ws.max_row == 2
+
+    def test_topic_heatmap_grid(self, client, wide):
+        ws = _is_workbook(client.get("/practicelab/analytics/topic-heatmap.xlsx")).worksheets[0]
+        assert ws.cell(1, 1).value == "Coder"
+        assert ws.max_row == 31
+
+    def test_chart_signals_is_a_list_not_a_grid(self, client, wide):
+        """One row per chart — it is a list, so it exports as one."""
+        ws = _is_workbook(client.get("/practicelab/analytics/chart-signals.xlsx")).worksheets[0]
+        headers = [c.value for c in ws[1]]
+        for expected in ("Chart", "Signal", "Pass Mark %", "Distinct Codes Missed"):
+            assert expected in headers
+        assert ws.max_row == 31, "all 30 charts, not the 24 the screen pages"
+
+    def test_grid_exports_freeze_both_panes(self, client, wide):
+        """Wide and long at once — row labels and headers must both survive."""
+        ws = _is_workbook(client.get("/practicelab/analytics/coder-matrix.xlsx")).worksheets[0]
+        assert ws.freeze_panes == "B2"
+
+    def test_empty_selection_says_so(self, client):
+        ws = _is_workbook(client.get("/practicelab/analytics/coder-matrix.xlsx",
+                                     params={"search": "nobody"})).worksheets[0]
+        assert ws.cell(2, 1).value == "No data matches the selected filters."

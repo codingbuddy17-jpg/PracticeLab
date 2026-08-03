@@ -9,6 +9,7 @@ import {
   getPLAnalyticsOverview, getPLAnalyticsBySpecialty, getPLAnalyticsByChart,
   getPLAnalyticsByBatch, getCoderTrend, getCoderSummary, downloadCoderReportPdf,
   downloadCoderPerformanceXlsx, downloadBatchReportPdf, downloadBatchAnalyticsXlsx,
+  downloadCoderMatrixXlsx, downloadTopicHeatmapXlsx, downloadChartSignalsXlsx,
   getPLAnalyticsByCategory, getPLChartTeachingValue, getPLCoderMatrix, getPLChartDetail,
   getBatchEMBreakdown, getPLSpecialtyProfile,
   type PLFilters,
@@ -1608,6 +1609,12 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                             onChange={v => { setHeatmapCoderSearch(v); setHeatmapPage(1) }} />
                         )}
                         <span style={{ fontSize: 11, color: '#9ca3af' }}>Showing {visibleCoders.length} of {filteredCoders.length}</span>
+                        <button
+                          title="Excel: every coder against every topic, not just the columns shown"
+                          onClick={() => downloadTopicHeatmapXlsx(filters, scope)}
+                          style={{ ...styles.outlineBtn, fontSize: 12, padding: '5px 12px' }}>
+                          Export Grid
+                        </button>
                       </div>
                     </div>
                     <div style={{ overflowX: 'auto' }}>
@@ -1761,6 +1768,12 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                           Reset
                         </button>
                       )}
+                      <button
+                        title="Excel: every chart with its signal — the curriculum-planning sheet"
+                        onClick={() => downloadChartSignalsXlsx(filters, scope)}
+                        style={{ ...styles.outlineBtn, fontSize: 12, padding: '5px 12px' }}>
+                        Export
+                      </button>
                     </span>
                   </div>
                 </div>
@@ -1897,10 +1910,19 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                     Below target only
                   </button>
                 </div>
-                <SearchBox width={240}
-                  placeholder="Find a coder by name or emp ID…"
-                  value={matrixCoderSearch}
-                  onChange={v => { setMatrixCoderSearch(v); setMatrixPage(1) }} />
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  <SearchBox width={240}
+                    placeholder="Find a coder by name or emp ID…"
+                    value={matrixCoderSearch}
+                    onChange={v => { setMatrixCoderSearch(v); setMatrixPage(1) }} />
+                  <button
+                    title="Excel: the whole grid — every coder against every column, ignoring the on-screen paging"
+                    onClick={() => downloadCoderMatrixXlsx(filters, scope, matrixGroupBy,
+                                                           { search: matrixCoderSearch, belowOnly: matrixBelowOnly })}
+                    style={{ ...styles.outlineBtn, fontSize: 12, padding: '5px 12px' }}>
+                    Export Grid
+                  </button>
+                </span>
               </div>
           )}
 
