@@ -13,6 +13,8 @@ from models.charts import ChartStatus, Difficulty
 from models.practicelab import BatchStatus
 
 URL = "/practicelab/analytics/coder-matrix"
+# The default axis is specialties; batch-axis behaviour has to be asked for.
+BATCH = {"group_by": "batch"}
 
 
 def _chart(db, n, sp=Specialty.IP_DRG):
@@ -50,14 +52,14 @@ class TestIdentity:
         b1, b2 = _batch(db, "B1"), _batch(db, "B2")
         _result(db, b1, _chart(db, "IPM1"), 90, coder="Asha R", emp="E1")
         _result(db, b2, _chart(db, "IPM2"), 70, coder="asha  r", emp="E1")
-        body = client.get(URL).json()
+        body = client.get(URL, params=BATCH).json()
         assert len(body["coders"]) == 1
         assert len(body["cells"]) == 2, "both batches on the one row"
 
     def test_the_row_still_shows_a_readable_name(self, client, db):
         b = _batch(db, "B")
         _result(db, b, _chart(db, "IPM3"), 90, coder="Asha R", emp="E7")
-        body = client.get(URL).json()
+        body = client.get(URL, params=BATCH).json()
         cid = body["coders"][0]
         assert body["coder_names"][cid] == "Asha R"
         assert body["coder_emp_ids"][cid] == "E7"
@@ -73,7 +75,7 @@ class TestPerBatchThresholds:
         sds = _batch(db, "SDS Batch", sp=Specialty.SDS)
         _result(db, ip, _chart(db, "IPM4"), 82)
         _result(db, sds, _chart(db, "SDSM1", Specialty.SDS), 82, emp="E2", coder="B")
-        marks = {b["name"]: b["pass_threshold"] for b in client.get(URL).json()["batches"]}
+        marks = {b["name"]: b["pass_threshold"] for b in client.get(URL, params=BATCH).json()["batches"]}
         assert marks == {"IP Batch": 80, "SDS Batch": 90}
 
 
@@ -84,7 +86,7 @@ class TestCellContents:
         b = _batch(db, "B")
         _result(db, b, _chart(db, "IPM5"), 90)
         _result(db, b, _chart(db, "IPM6"), 40)
-        cell = client.get(URL).json()["cells"][0]
+        cell = client.get(URL, params=BATCH).json()["cells"][0]
         assert cell["chart_count"] == 2
         assert cell["charts_passed"] == 1
         assert cell["pass_rate"] == 50.0
@@ -94,7 +96,7 @@ class TestScope:
     def test_open_batches_are_excluded(self, client, db):
         b = _batch(db, "Still Open", status=BatchStatus.OPEN)
         _result(db, b, _chart(db, "IPM7"), 90)
-        assert client.get(URL).json()["batches"] == []
+        assert client.get(URL, params=BATCH).json()["batches"] == []
 
     def test_direct_assignments_are_excluded(self, client, db):
         b = _batch(db, "Direct", direct=True)
@@ -105,8 +107,22 @@ class TestScope:
         """Deliberate exclusion, so it has to be visible rather than inferred."""
         b = _batch(db, "B")
         _result(db, b, _chart(db, "IPM9"), 90)
-        note = client.get(URL).json()["scope_note"]
+        note = client.get(URL, params=BATCH).json()["scope_note"]
         assert "closed" in note.lower()
+
+
+class TestDefaultAxis:
+    def test_specialties_are_the_default(self, client, db):
+        """
+        Specialty columns are bounded — ten, ever — while batch columns grow
+        with every wave and are readable for about a dozen. The view that
+        stays usable is the one to land on.
+        """
+        b = _batch(db, "Formal")
+        _result(db, b, _chart(db, "IPDEF1"), 90)
+        body = client.get(URL).json()
+        assert body["group_by"] == "specialty"
+        assert [c["name"] for c in body["batches"]] == ["IP-DRG"]
 
 
 class TestColumnAxisIsOneKindOfThing:
@@ -130,13 +146,13 @@ class TestColumnAxisIsOneKindOfThing:
         return formal, direct
 
     def test_batch_columns_are_only_batches(self, client, mixed):
-        cols = client.get(URL).json()["batches"]
+        cols = client.get(URL, params=BATCH).json()["batches"]
         assert [c["name"] for c in cols] == ["Formal"]
 
     def test_batch_view_says_what_it_cannot_show(self, client, mixed):
         """Excluded because there is no comparable column, not because the
         work does not matter — so it has to point somewhere."""
-        body = client.get(URL).json()
+        body = client.get(URL, params=BATCH).json()
         assert body["excluded_direct_results"] == 2
         assert "group by specialty" in body["scope_note"]
 
@@ -159,7 +175,7 @@ class TestColumnAxisIsOneKindOfThing:
         """The case that made the exclusion worth fixing at all."""
         d = _batch(db, "Direct Only", direct=True, status=BatchStatus.OPEN)
         _result(db, d, _chart(db, "IPD9"), 70, coder="Direct Only Coder", emp="E9")
-        assert client.get(URL).json()["coders"] == []
+        assert client.get(URL, params=BATCH).json()["coders"] == []
         body = client.get(URL, params={"group_by": "specialty", "scope": "all"}).json()
         assert len(body["coders"]) == 1
 

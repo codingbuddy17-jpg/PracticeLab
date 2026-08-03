@@ -1047,7 +1047,7 @@ def analytics_chart_teaching_value(
 @router.get("/analytics/coder-matrix")
 def analytics_coder_matrix(
     from_date: Optional[str] = None, to_date: Optional[str] = None, specialty: Optional[str] = None,
-    scope: str = "formal", group_by: str = "batch",
+    scope: str = "formal", group_by: str = "specialty",
     db: Session = Depends(get_db),
 ):
     """
@@ -1061,20 +1061,24 @@ def analytics_coder_matrix(
 
     So the axis is chosen rather than mixed:
 
-      group_by=batch      columns are closed formal batches — events. Direct
-                          work has no place on this axis, so it is excluded
-                          and the amount excluded is reported.
-
-      group_by=specialty  columns are specialties — buckets. Every column is
-                          then the same kind of thing, cells are directly
+      group_by=specialty  DEFAULT. Columns are specialties — buckets. Every
+                          column is the same kind of thing, cells are directly
                           comparable, and direct assignments belong naturally
                           because a specialty bucket does not care which route
-                          the work arrived by.
+                          the work arrived by. It is also the only axis with a
+                          natural ceiling: ten specialties, ever.
+
+      group_by=batch      Columns are closed formal batches — events. Useful
+                          for "how did the last few waves go", and readable
+                          for about that long: batch columns grow without
+                          limit, so the client windows them to the latest N.
+                          Direct work has no comparable column here, so it is
+                          excluded and the amount excluded is reported.
     """
     scope = (scope or "formal").lower()
     if scope not in ("formal", "direct", "all"):
         raise HTTPException(status_code=400, detail="scope must be formal, direct or all")
-    group_by = (group_by or "batch").lower()
+    group_by = (group_by or "specialty").lower()
     if group_by not in ("batch", "specialty"):
         raise HTTPException(status_code=400, detail="group_by must be batch or specialty")
 

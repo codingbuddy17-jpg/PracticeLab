@@ -209,14 +209,19 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
   const [profile, setProfile] = useState<any>(null)
   const [profileLoading, setProfileLoading] = useState(false)
   const [matrixShowAll, setMatrixShowAll] = useState(false)
-  // Rows were paged and searchable; COLUMNS were every closed batch ever.
-  // At a batch a week that is a grid nobody can read across.
-  const MATRIX_COLS = 10
-  const [matrixShowAllCols, setMatrixShowAllCols] = useState(false)
   const [matrixBelowOnly, setMatrixBelowOnly] = useState(false)
-  // What a column IS. Batches are events; specialties are buckets. Mixing the
-  // two on one axis makes unlike things look comparable.
-  const [matrixGroupBy, setMatrixGroupBy] = useState<'batch' | 'specialty'>('batch')
+  /**
+   * What a column IS. Batches are events; specialties are buckets.
+   *
+   * Specialties by default: that axis has a natural ceiling — ten of them,
+   * ever — while batch columns grow forever and are readable for about as
+   * long as the last dozen. Specialty is also the only view where direct
+   * assignments have a column to sit in.
+   */
+  const [matrixGroupBy, setMatrixGroupBy] = useState<'batch' | 'specialty'>('specialty')
+  // How many batch columns to show when the axis is batches. Recency is the
+  // only ordering that needs no explanation, so the window takes the latest N.
+  const [matrixColWindow, setMatrixColWindow] = useState<number | 'all'>(10)
   const [heatmapCoderSearch, setHeatmapCoderSearch] = useState('')
   const [heatmapShowAll, setHeatmapShowAll] = useState(false)
   // Tab-local, like the Overview trend's picker: narrowing this tab should not
@@ -1800,20 +1805,36 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                   {/* The column axis. Choosing it is the point: a batch is an
                       event and a specialty is a bucket, so they cannot share
                       one row of headers. */}
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase' as const, letterSpacing: 0.5 }}>Columns</span>
                   <div style={{ display: 'flex', border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
-                    {([['batch', 'Columns: Batches'], ['specialty', 'Columns: Specialties']] as const).map(([k, label]) => (
-                      <button key={k} onClick={() => { setMatrixGroupBy(k); setMatrixShowAll(false); setMatrixShowAllCols(false) }}
+                    {([['specialty', 'Specialty'], ['batch', 'Batch']] as const).map(([k, label]) => (
+                      <button key={k} onClick={() => { setMatrixGroupBy(k); setMatrixShowAll(false) }}
                         title={k === 'batch'
-                          ? 'Closed formal batches — each column a finished, comparable set'
-                          : 'One column per specialty — includes direct assignments when scope allows'}
-                        style={{ padding: '5px 12px', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700,
-                                 borderRight: k === 'specialty' ? 'none' : '1px solid #e5e7eb',
+                          ? 'Closed formal batches — each column a finished set. Readable for the last dozen or so.'
+                          : 'One column per specialty — bounded, and the only axis direct assignments fit on'}
+                        style={{ padding: '5px 14px', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700,
+                                 borderRight: k === 'batch' ? 'none' : '1px solid #e5e7eb',
                                  background: matrixGroupBy === k ? '#0f766e' : '#fff',
                                  color: matrixGroupBy === k ? '#fff' : '#6b7280' }}>
                         {label}
                       </button>
                     ))}
                   </div>
+                  {/* Only batch columns need a window; specialties are bounded. */}
+                  {matrixGroupBy === 'batch' && (matrixData.batches?.length ?? 0) > 5 && (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                      <span style={{ fontSize: 11, color: '#9ca3af' }}>Latest</span>
+                      {([5, 10, 25, 'all'] as const).map(w => (
+                        <button key={String(w)} onClick={() => setMatrixColWindow(w)}
+                          style={{ fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 6, cursor: 'pointer',
+                                   border: '1px solid ' + (matrixColWindow === w ? '#0f766e' : '#e5e7eb'),
+                                   background: matrixColWindow === w ? '#0f766e' : '#fff',
+                                   color: matrixColWindow === w ? '#fff' : '#6b7280' }}>
+                          {w === 'all' ? 'All' : w}
+                        </button>
+                      ))}
+                    </span>
+                  )}
                   {/* Finding who needs attention in a thousand rows is not a
                       scrolling job. */}
                   <button onClick={() => { setMatrixBelowOnly(v => !v); setMatrixShowAll(false) }}
@@ -1868,7 +1889,9 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                 // Newest columns first when capped: a wide grid is read for
                 // what happened lately, not for what happened first.
                 const allBatchCols = matrixData.batches
-                const batchCols = matrixShowAllCols ? allBatchCols : allBatchCols.slice(-MATRIX_COLS)
+                const batchCols = (matrixGroupBy === 'specialty' || matrixColWindow === 'all')
+                  ? allBatchCols
+                  : allBatchCols.slice(-(matrixColWindow as number))
                 const weightedOverall = new Map<string, number>()
                 for (const coder of filteredCoders) {
                   const cells = matrixData.cells.filter((c: any) => cellId(c) === coder && c.avg_score != null)
@@ -1896,13 +1919,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                         Showing {visibleCoders.length} of {filteredCoders.length} coders
                         {matrixBelowOnly ? ' below target' : ''}
                         {batchCols.length < allBatchCols.length && (
-                          <>
-                            {' · latest '}{batchCols.length} of {allBatchCols.length} batches
-                            <button onClick={() => setMatrixShowAllCols(true)}
-                              style={{ marginLeft: 6, fontSize: 11, color: '#4f46e5', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700, padding: 0 }}>
-                              show all
-                            </button>
-                          </>
+                          <>{' · latest '}{batchCols.length} of {allBatchCols.length} batches</>
                         )}
                       </span>
                     </div>
