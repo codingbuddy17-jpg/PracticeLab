@@ -1261,27 +1261,47 @@ def regrade_practice_session(session_id: int, db: Session = Depends(get_db)):
 
 # ── E/M MDM analytics for a batch ────────────────────────────────────────────
 
-@router.get("/practice-sessions/batch/{batch_id}/em-breakdown")
-def batch_em_breakdown(batch_id: int, db: Session = Depends(get_db)):
+def _em_breakdown(db, batch_id=None, specialty=None, from_date=None, to_date=None):
     """
-    Aggregate E/M MDM component scores for a batch.
-    Parses feedback JSON stored in practice_results for EM/ED Profee sessions.
-    Returns per-coder and team-level Coding Accuracy / Reasoning Accuracy breakdown.
+    E/M MDM component scores — for one batch, or across all of them.
+
+    Batch-only was the shape of the original tab, and it made every E/M
+    question a per-batch question: no cumulative picture, no trend, nothing
+    answerable about the specialty as a whole. The aggregation never needed the
+    batch; only the WHERE clause did.
     """
     from sqlalchemy import text
     import json
 
-    rows = db.execute(text("""
+    where = ["(pr.specialty IN ('E/M', 'ED Profee', 'ED_PROFEE'))",
+             "pr.total_score IS NOT NULL"]
+    params: dict = {}
+    if batch_id is not None:
+        where.append("ps.batch_id = :b")
+        params["b"] = batch_id
+    if specialty:
+        where.append("pr.specialty = :sp")
+        params["sp"] = specialty
+    # practice_results has no date of its own — the session carries it.
+    if from_date:
+        where.append("ps.submitted_at >= :fd")
+        params["fd"] = from_date
+    if to_date:
+        where.append("ps.submitted_at <= :td")
+        params["td"] = to_date + "T23:59:59"
+
+    rows = db.execute(text(f"""
         SELECT ps.coder_name, pr.chart_id, c.chart_number,
-               pr.total_score, pr.pass_fail, pr.feedback
+               pr.total_score, pr.pass_fail, pr.feedback,
+               pr.specialty, bc.emp_id, ps.submitted_at
         FROM practice_results pr
         JOIN practice_sessions ps ON pr.session_id = ps.id
         JOIN charts c ON c.id = pr.chart_id
-        WHERE ps.batch_id = :b
-          AND (pr.specialty IN ('E/M', 'ED Profee', 'ED_PROFEE'))
-          AND pr.total_score IS NOT NULL
+        LEFT JOIN batch_coders bc
+               ON bc.batch_id = ps.batch_id AND bc.coder_name = ps.coder_name
+        WHERE {' AND '.join(where)}
         ORDER BY ps.coder_name, c.chart_number
-    """), {"b": batch_id}).fetchall()
+    """), params).fetchall()
 
     def _extract_pts(issue: str) -> float:
         import re
@@ -1295,7 +1315,21 @@ def batch_em_breakdown(batch_id: int, db: Session = Depends(get_db)):
         return m.group(1) if m else ""
 
     coder_map: dict[str, dict] = {}
-    for coder_name, chart_id, chart_number, total_score, pass_fail, fb_raw in rows:
+    # Reasoning is worth this many points, read from the E/M scoring config
+    # rather than assumed. The rule below was "< 15", hardcoded as half of an
+    # assumed 30 — change the config and the count silently means something
+    # else.
+    ra_max = 30.0
+    try:
+        row = db.execute(text("SELECT reasoning_weight FROM em_scoring_configs WHERE id=1")).fetchone()
+        if row and row[0]:
+            ra_max = float(row[0])
+    except Exception:
+        pass
+    ra_half = ra_max / 2
+
+    for (coder_name, chart_id, chart_number, total_score, pass_fail, fb_raw,
+         row_specialty, emp_id, submitted_at) in rows:
         try:
             fb = json.loads(fb_raw) if isinstance(fb_raw, str) else (fb_raw or [])
         except Exception:
@@ -1332,7 +1366,9 @@ def batch_em_breakdown(batch_id: int, db: Session = Depends(get_db)):
         em_level_match = _matched(em_row)
 
         # "Right level, wrong reasoning" = E/M code correct but RA < threshold
-        right_code_wrong_reasoning = em_level_match and ra_total < 15  # rough threshold: 50% of 30 pts
+        # Right level, wrong reasoning: the code is correct but under half the
+        # reasoning points were earned.
+        right_code_wrong_reasoning = em_level_match and ra_total < ra_half
 
         chart_entry = {
             "chart_id": chart_id, "chart_number": chart_number,
@@ -1343,17 +1379,25 @@ def batch_em_breakdown(batch_id: int, db: Session = Depends(get_db)):
             "em_level_match": em_level_match,
             "right_code_wrong_reasoning": right_code_wrong_reasoning,
         }
-        if coder_name not in coder_map:
-            coder_map[coder_name] = {"coder_name": coder_name, "charts": []}
-        coder_map[coder_name]["charts"].append(chart_entry)
+        # emp_id is the coder identity everywhere else. Keyed on the typed
+        # name, one person entered two ways became two coders here — and on a
+        # per-coder table that reads as two people each doing half the work.
+        cid = emp_id or coder_name
+        chart_entry["specialty"] = row_specialty
+        if cid not in coder_map:
+            coder_map[cid] = {"coder_id": cid, "coder_name": coder_name,
+                              "emp_id": emp_id, "charts": []}
+        coder_map[cid]["charts"].append(chart_entry)
 
     # Build per-coder summaries
     coder_summaries = []
-    for coder_name, data in coder_map.items():
+    for cid, data in coder_map.items():
         charts = data["charts"]
         n = len(charts)
         coder_summaries.append({
-            "coder_name": coder_name,
+            "coder_id": cid,
+            "coder_name": data["coder_name"],
+            "emp_id": data["emp_id"],
             "chart_count": n,
             "avg_total": round(sum(c["total_score"] for c in charts) / n, 1),
             "avg_coding_accuracy": round(sum(c["coding_accuracy"] for c in charts) / n, 1),
@@ -1381,11 +1425,63 @@ def batch_em_breakdown(batch_id: int, db: Session = Depends(get_db)):
         "pass_count": sum(1 for c in all_charts if c["pass_fail"] == "PASS"),
     }
 
+    # Which of the three reasoning components is weakest. The three percentages
+    # are already on screen; naming the lowest is the step a reader would take
+    # next, and it is the thing a session gets built around.
+    weakest = None
+    if all_charts:
+        comps = [("COPA", team["copa_pct"]), ("Data Review", team["dr_pct"]),
+                 ("Risk", team["risk_pct"])]
+        comps.sort(key=lambda x: x[1])
+        if comps[0][1] < comps[-1][1]:
+            weakest = {"component": comps[0][0], "match_pct": comps[0][1],
+                       "strongest": comps[-1][0], "strongest_pct": comps[-1][1]}
+
     return {
         "team": team,
         "coders": sorted(coder_summaries, key=lambda x: x["avg_total"], reverse=True),
         "has_data": len(all_charts) > 0,
+        "weakest_component": weakest,
+        # Both specialties share this structure, so a cumulative view can hold
+        # a mix — the reader needs to know which.
+        "specialties": sorted({c.get("specialty") for c in all_charts if c.get("specialty")}),
+        # Points are hard to compare without their maximum.
+        "reasoning_max": ra_max,
+        "pass_threshold": _em_pass_threshold(db),
     }
+
+
+def _em_pass_threshold(db) -> int:
+    from sqlalchemy import text
+    try:
+        row = db.execute(text("SELECT pass_threshold FROM em_scoring_configs WHERE id=1")).fetchone()
+        if row and row[0]:
+            return int(row[0])
+    except Exception:
+        pass
+    return 80
+
+
+@router.get("/practice-sessions/batch/{batch_id}/em-breakdown")
+def batch_em_breakdown(batch_id: int, db: Session = Depends(get_db)):
+    """One batch — the drilldown behind a batch."""
+    return _em_breakdown(db, batch_id=batch_id)
+
+
+@router.get("/analytics/em-mdm")
+def em_mdm_cumulative(
+    specialty: Optional[str] = None, from_date: Optional[str] = None,
+    to_date: Optional[str] = None, db: Session = Depends(get_db),
+):
+    """
+    E/M MDM across every batch, honouring the page filters.
+
+    The tab could only ever answer per-batch questions because its only entry
+    point was a batch id. Nothing about the aggregation required that — the
+    batch was in the WHERE clause, not the maths.
+    """
+    return _em_breakdown(db, batch_id=None, specialty=specialty,
+                         from_date=from_date, to_date=to_date)
 
 
 @router.get("/practice-sessions/{session_id}/coder-report.pdf")

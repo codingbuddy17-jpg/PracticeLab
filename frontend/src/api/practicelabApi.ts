@@ -409,6 +409,12 @@ export async function uploadEMAnswerKeys(
   }
 }
 
+/** E/M MDM across every batch, honouring the page filters. */
+export async function getEMMdmCumulative(f: PLFilters = {}) {
+  const { data } = await api.get('/practicelab/analytics/em-mdm', { params: fp(f) })
+  return data as any
+}
+
 export async function getBatchEMBreakdown(batchId: number) {
   const { data } = await api.get(`/practicelab/practice-sessions/batch/${batchId}/em-breakdown`)
   return data as {

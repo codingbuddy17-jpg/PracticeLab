@@ -12,7 +12,7 @@ import {
   downloadCoderMatrixXlsx, downloadTopicHeatmapXlsx, downloadChartSignalsXlsx,
   getPLErrorAnalysis, getPLErrorDetail, downloadErrorAnalysisXlsx, getPLErrorCoders,
   getPLAnalyticsByCategory, getPLChartTeachingValue, getPLCoderMatrix, getPLChartDetail,
-  getBatchEMBreakdown, getPLSpecialtyProfile,
+  getBatchEMBreakdown, getEMMdmCumulative, getPLSpecialtyProfile,
   type PLFilters,
 } from '../../api'
 import { CoderPicker } from '../../components/CoderPicker'
@@ -428,11 +428,18 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
   }, [scope, tab, filterVersion, topicSpecialty])
 
   useEffect(() => {
+    if (tab === 'em_mdm' && emBatchId === null) {
+      // "All batches" — the default now. The tab used to require a batch, so
+      // every E/M question was a per-batch question and nothing about the
+      // specialty as a whole was answerable.
+      setEmLoading(true)
+      getEMMdmCumulative(filters).then(setEmBreakdown).catch(() => {}).finally(() => setEmLoading(false))
+    }
     if (tab === 'em_mdm' && emBatchId) {
       setEmLoading(true)
       getBatchEMBreakdown(emBatchId).then(setEmBreakdown).catch(() => {}).finally(() => setEmLoading(false))
     }
-  }, [tab, emBatchId])
+  }, [tab, emBatchId, filterVersion])
 
   async function fetchCoder(name: string, empId: string | null = coderEmpId) {
     if (!name && !empId) return
@@ -2779,22 +2786,31 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
       {/* E/M MDM tab */}
       {tab === 'em_mdm' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {/* Batch selector — filter byBatch for E/M specialty */}
+          {/* Batch selector — all batches by default */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' as const }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>Select E/M Batch:</span>
+            <span style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>E/M &amp; ED Profee:</span>
             <select
-              style={{ ...styles.input, width: 320, fontSize: 13 }}
+              style={{ ...styles.input, width: 340, fontSize: 13 }}
               value={emBatchId ?? ''}
               onChange={e => { setEmBatchId(e.target.value ? Number(e.target.value) : null); setEmBreakdown(null) }}
             >
-              <option value="">— choose a batch —</option>
+              {/* All batches is the default. A batch is a drilldown, not the
+                  only way in. */}
+              <option value="">All batches — cumulative</option>
               {byBatch.filter((b: any) => (b.specialty || '').toUpperCase().includes('E/M') || (b.specialty || '').toUpperCase().includes('ED PROFEE')).map((b: any) => (
                 <option key={b.batch_id || b.id} value={b.batch_id || b.id}>{b.batch_name || b.name} ({b.specialty})</option>
               ))}
             </select>
-            {emBatchId && (
-              <button onClick={() => { setEmLoading(true); getBatchEMBreakdown(emBatchId).then(setEmBreakdown).catch(() => {}).finally(() => setEmLoading(false)) }}
-                style={{ ...styles.outlineBtn, fontSize: 12 }}>Refresh</button>
+            <button onClick={() => {
+              setEmLoading(true)
+              const req = emBatchId ? getBatchEMBreakdown(emBatchId) : getEMMdmCumulative(filters)
+              req.then(setEmBreakdown).catch(() => {}).finally(() => setEmLoading(false))
+            }} style={{ ...styles.outlineBtn, fontSize: 12 }}>Refresh</button>
+            {emBreakdown?.specialties?.length > 0 && (
+              <span style={{ fontSize: 11, color: '#6b7280' }}>
+                {emBreakdown.specialties.join(' · ')}
+                {emBreakdown.pass_threshold ? ` · pass mark ${emBreakdown.pass_threshold}%` : ''}
+              </span>
             )}
           </div>
 
@@ -2805,10 +2821,12 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
           {emBatchId && emLoading && <div style={styles.center}><Loader size={20} /></div>}
 
           {emBatchId && !emLoading && emBreakdown && !emBreakdown.has_data && (
-            <div style={styles.emptyState}>No submitted E/M results found for this batch yet.</div>
+            <div style={styles.emptyState}>
+              {emBatchId ? 'No submitted E/M results in this batch yet.' : 'No submitted E/M or ED Profee results yet.'}
+            </div>
           )}
 
-          {emBatchId && !emLoading && emBreakdown?.has_data && (() => {
+          {!emLoading && emBreakdown?.has_data && (() => {
             const t = emBreakdown.team
             const componentData = [
               { name: 'COPA', pct: t.copa_pct, fill: '#7c3aed' },
@@ -2818,10 +2836,22 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
             ]
             return (
               <>
+                {emBreakdown.weakest_component && (
+                  <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 10, padding: '11px 14px', fontSize: 12.5, color: '#92400e', lineHeight: 1.5 }}>
+                    <strong>Weakest reasoning component: {emBreakdown.weakest_component.component}</strong>
+                    {' '}at {emBreakdown.weakest_component.match_pct}% match, against
+                    {' '}{emBreakdown.weakest_component.strongest} at {emBreakdown.weakest_component.strongest_pct}%.
+                    {' '}A session on {emBreakdown.weakest_component.component} moves the number the
+                    other two already show is movable.
+                  </div>
+                )}
+
                 {/* Team KPI tiles */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
                   {[
-                    { label: 'Avg Total Score', value: `${t.avg_total}%`, color: t.avg_total >= 80 ? '#059669' : '#dc2626' },
+                    // Against the configured E/M pass mark, not a fixed 80.
+                    { label: 'Avg Total Score', value: `${t.avg_total}%`,
+                      color: cc(t.avg_total, emBreakdown.pass_threshold) },
                     { label: 'Coding Accuracy', value: `${t.avg_coding_accuracy.toFixed(1)} pts`, color: '#7c3aed' },
                     { label: 'Reasoning Accuracy', value: `${t.avg_reasoning_accuracy.toFixed(1)} pts`, color: '#0891b2' },
                     { label: 'Right Code, Wrong Reasoning', value: `${t.right_code_wrong_reasoning_count}`, color: '#f59e0b', sub: 'charts' },
@@ -2866,8 +2896,15 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                       </thead>
                       <tbody>
                         {emBreakdown.coders.map((c: any, i: number) => (
-                          <tr key={c.coder_name} style={{ background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
-                            <td style={{ padding: '7px 10px', fontWeight: 600, borderBottom: '1px solid #f3f4f6', whiteSpace: 'nowrap' as const }}>{c.coder_name}</td>
+                          <tr key={c.coder_id || c.coder_name} style={{ background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
+                            {/* Clicks through to the coder's full profile —
+                                this table is a dead end otherwise. */}
+                            <td style={{ padding: '7px 10px', fontWeight: 600, borderBottom: '1px solid #f3f4f6', whiteSpace: 'nowrap' as const }}>
+                              {coderLink(c.coder_name)}
+                              {c.emp_id && c.emp_id !== c.coder_name && (
+                                <div style={{ fontSize: 10, fontWeight: 400, color: '#9ca3af' }}>{c.emp_id}</div>
+                              )}
+                            </td>
                             <td style={{ padding: '7px 10px', textAlign: 'center', borderBottom: '1px solid #f3f4f6', color: '#6b7280' }}>{c.chart_count}</td>
                             <td style={{ padding: '7px 10px', textAlign: 'center', borderBottom: '1px solid #f3f4f6', fontWeight: 700, color: c.avg_total >= 80 ? '#059669' : '#dc2626' }}>{c.avg_total}%</td>
                             <td style={{ padding: '7px 10px', textAlign: 'center', borderBottom: '1px solid #f3f4f6', color: '#7c3aed', fontWeight: 600 }}>{c.avg_coding_accuracy.toFixed(1)}</td>
