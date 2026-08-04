@@ -1,21 +1,25 @@
 import { useState, useEffect } from 'react'
 import toast from 'react-hot-toast'
 import { getAssessmentAnalyticsCoderMatrix } from '../../../api'
+import type { AFilters } from '../../../api'
+
+const NO_FILTERS: AFilters = {}
 import { scoreColor, fmt, Panel, LoadingSpinner, EmptyState } from './helpers'
 import { usePagination } from '../../../components/Paginator'
 
 const PAGE_SIZE = 15
 
-export function CoderMatrixTab() {
+export function CoderMatrixTab({ filters = NO_FILTERS }: { filters?: AFilters }) {
   const [data, setData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    getAssessmentAnalyticsCoderMatrix()
+    setLoading(true)
+    getAssessmentAnalyticsCoderMatrix(filters)
       .then(setData)
       .catch(() => toast.error('Failed to load coder matrix'))
       .finally(() => setLoading(false))
-  }, [])
+  }, [filters])
 
   if (loading) return <LoadingSpinner />
   if (!data || !data.coders || data.coders.length === 0)

@@ -247,8 +247,27 @@ export async function submitSession(token: string, autoSubmitted = false) {
   return data
 }
 
-export async function getAssessmentAnalyticsOverview() {
-  const { data } = await api.get('/assessment/analytics/overview')
+/**
+ * The window the trainer is looking through. Shared by every analytics tab so
+ * one selection means the same thing everywhere.
+ */
+export interface AFilters {
+  dateFrom?: string
+  dateTo?: string
+  batchName?: string
+}
+
+/** AFilters -> query params, omitting anything unset. */
+export function afp(f: AFilters = {}) {
+  return {
+    ...(f.dateFrom ? { date_from: f.dateFrom } : {}),
+    ...(f.dateTo ? { date_to: f.dateTo } : {}),
+    ...(f.batchName ? { batch_name: f.batchName } : {}),
+  }
+}
+
+export async function getAssessmentAnalyticsOverview(f: AFilters = {}) {
+  const { data } = await api.get('/assessment/analytics/overview', { params: afp(f) })
   return data
 }
 
@@ -274,13 +293,13 @@ export async function getAssessmentAnalyticsCoder(
   return data
 }
 
-export async function getAssessmentAnalyticsBySpecialty() {
-  const { data } = await api.get('/assessment/analytics/by-specialty')
+export async function getAssessmentAnalyticsBySpecialty(f: AFilters = {}) {
+  const { data } = await api.get('/assessment/analytics/by-specialty', { params: afp(f) })
   return data
 }
 
-export async function getAssessmentAnalyticsByTopic() {
-  const { data } = await api.get('/assessment/analytics/by-topic')
+export async function getAssessmentAnalyticsByTopic(f: AFilters = {}) {
+  const { data } = await api.get('/assessment/analytics/by-topic', { params: afp(f) })
   return data
 }
 
@@ -294,8 +313,8 @@ export async function getAssessmentAnalyticsBatchDrill(batchName: string) {
   return data
 }
 
-export async function getAssessmentAnalyticsCoderMatrix() {
-  const { data } = await api.get('/assessment/analytics/coder-matrix')
+export async function getAssessmentAnalyticsCoderMatrix(f: AFilters = {}) {
+  const { data } = await api.get('/assessment/analytics/coder-matrix', { params: afp(f) })
   return data
 }
 

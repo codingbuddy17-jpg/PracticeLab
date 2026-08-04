@@ -3,18 +3,22 @@ import { Layers, Award, AlertCircle, TrendingUp } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell } from 'recharts'
 import { getAssessmentAnalyticsBySpecialty } from '../../../api'
+import type { AFilters } from '../../../api'
+
+const NO_FILTERS: AFilters = {}
 import { scoreColor, fmt, KpiCard, Panel, LoadingSpinner, EmptyState } from './helpers'
 
-export function BySpecialtyTab() {
+export function BySpecialtyTab({ filters = NO_FILTERS }: { filters?: AFilters }) {
   const [data, setData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    getAssessmentAnalyticsBySpecialty()
+    setLoading(true)
+    getAssessmentAnalyticsBySpecialty(filters)
       .then(setData)
       .catch(() => toast.error('Failed to load specialty analytics'))
       .finally(() => setLoading(false))
-  }, [])
+  }, [filters])
 
   if (loading) return <LoadingSpinner />
   if (!data || !data.specialties || data.specialties.length === 0)

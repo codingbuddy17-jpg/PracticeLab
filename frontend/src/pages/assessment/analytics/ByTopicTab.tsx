@@ -3,22 +3,26 @@ import { Tag } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell } from 'recharts'
 import { getAssessmentAnalyticsByTopic } from '../../../api'
+import type { AFilters } from '../../../api'
+
+const NO_FILTERS: AFilters = {}
 import { scoreColor, Panel, LoadingSpinner, EmptyState, inputStyle } from './helpers'
 import { usePagination } from '../../../components/Paginator'
 
 const PAGE_SIZE = 20
 
-export function ByTopicTab() {
+export function ByTopicTab({ filters = NO_FILTERS }: { filters?: AFilters }) {
   const [data, setData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('')
 
   useEffect(() => {
-    getAssessmentAnalyticsByTopic()
+    setLoading(true)
+    getAssessmentAnalyticsByTopic(filters)
       .then(setData)
       .catch(() => toast.error('Failed to load topic analytics'))
       .finally(() => setLoading(false))
-  }, [])
+  }, [filters])
 
   if (loading) return <LoadingSpinner />
   if (!data || !data.topics || data.topics.length === 0)

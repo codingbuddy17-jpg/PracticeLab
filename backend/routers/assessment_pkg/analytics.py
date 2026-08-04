@@ -2,6 +2,8 @@
 import json
 from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException
+from datetime import timedelta
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -19,6 +21,84 @@ router = APIRouter()
 # figures do not move underneath anyone.
 DEFAULT_PASS_THRESHOLD = 90.0
 PASS_THRESHOLD = DEFAULT_PASS_THRESHOLD          # legacy alias
+
+
+class AFilters:
+    """
+    The window a trainer is looking through: a date range and a batch.
+
+    Deliberately NOT a specialty. A paper carries a specialty MIX — a 50/50
+    IP-DRG and E&M assessment is not "an IP-DRG assessment", and specialty
+    lives per-question inside questions_json rather than on the session, so a
+    session-level specialty filter would be both unexpressible in SQL and
+    wrong in meaning. The tabs that group BY specialty already answer that
+    question at the level where it is well defined: the response.
+    """
+
+    def __init__(self, date_from: Optional[str] = None, date_to: Optional[str] = None,
+                 batch_name: Optional[str] = None):
+        self.date_from = date_from
+        self.date_to = date_to
+        self.batch_name = batch_name
+
+    @property
+    def active(self) -> bool:
+        return bool(self.date_from or self.date_to or self.batch_name)
+
+
+def filters(
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    batch_name: Optional[str] = None,
+) -> AFilters:
+    """FastAPI dependency — one filter contract for every analytics endpoint."""
+    return AFilters(date_from, date_to, batch_name)
+
+
+def _session_q(db: Session, f: AFilters):
+    """
+    A filtered AssessmentSession query.
+
+    Every analytics endpoint starts here rather than loading the table. The
+    overview used to do `db.query(AssessmentSession).all()` and
+    `db.query(AssessmentResult).all()`, pulling every session and every result
+    into Python to filter them with list comprehensions — no date bound at all.
+    That is fine on a few hundred rows and fatal on a year of them, and it is
+    why the filters had to be pushed into SQL rather than added on top.
+    """
+    from datetime import date as date_cls, datetime as dt_cls, timezone
+
+    q = db.query(AssessmentSession)
+
+    if f.batch_name:
+        ids = [a.id for a in db.query(GeneratedAssessment.id).filter(
+            GeneratedAssessment.batch_name.is_(None) if f.batch_name == "Ungrouped"
+            else GeneratedAssessment.batch_name == f.batch_name
+        ).all()]
+        q = q.filter(AssessmentSession.assessment_id.in_(ids or [-1]))
+
+    # Dated by submission where there is one, falling back to when the session
+    # was issued. Filtering on submitted_at alone would drop every pending,
+    # expired and abandoned session — precisely the rows completion rate and
+    # abandonment exist to count, so the metric would have reported 100%
+    # completion for any window.
+    when = func.coalesce(AssessmentSession.submitted_at, AssessmentSession.created_at)
+
+    if f.date_from:
+        try:
+            d = date_cls.fromisoformat(f.date_from)
+            q = q.filter(when >= dt_cls(d.year, d.month, d.day, tzinfo=timezone.utc))
+        except ValueError:
+            pass
+    if f.date_to:
+        try:
+            d = date_cls.fromisoformat(f.date_to)
+            # Inclusive of the end date: a trainer picking 1–31 March means all
+            # of the 31st, not up to its opening instant.
+            q = q.filter(when < dt_cls(d.year, d.month, d.day, tzinfo=timezone.utc) + timedelta(days=1))
+        except ValueError:
+            pass
+    return q
 
 
 def _thresholds(db) -> Dict[int, float]:
@@ -77,18 +157,26 @@ def _score_band(score: float) -> str:
 
 
 @router.get("/analytics/overview")
-def analytics_overview(db: Session = Depends(get_db)):
-    """High-level KPIs across all assessments."""
-    total_assessments = db.query(GeneratedAssessment).count()
-
-    all_sessions = db.query(AssessmentSession).all()
+def analytics_overview(db: Session = Depends(get_db), f: AFilters = Depends(filters)):
+    """High-level KPIs across the selected window."""
+    all_sessions = _session_q(db, f).all()
     total_sessions = len(all_sessions)
     submitted_sessions = [s for s in all_sessions if s.status == "submitted"]
     expired_sessions = [s for s in all_sessions if s.status == "expired"]
     total_submitted = len(submitted_sessions)
 
-    # Pass rate — each result against its own assessment's bar.
-    results = db.query(AssessmentResult).all()
+    # Assessments represented in this window, not every assessment ever made —
+    # otherwise the headline count contradicts every figure beside it.
+    assessment_ids = sorted({s.assessment_id for s in all_sessions})
+    total_assessments = (len(assessment_ids) if f.active
+                         else db.query(GeneratedAssessment).count())
+
+    # Pass rate — each result against its own assessment's bar. Scoped to this
+    # window's sessions rather than every result in the table.
+    session_ids = [s.id for s in all_sessions]
+    results = (db.query(AssessmentResult)
+               .filter(AssessmentResult.session_id.in_(session_ids)).all()
+               if session_ids else [])
     marks = _thresholds(db)
     sess_assessment = {s.id: s.assessment_id for s in all_sessions}
     passed = sum(1 for r in results if _passed(r, marks, sess_assessment))
@@ -108,13 +196,9 @@ def analytics_overview(db: Session = Depends(get_db)):
     submitted_session_ids = [s.id for s in submitted_sessions]
     specialty_counts: Dict[str, int] = {}
     if submitted_session_ids:
-        sessions_with_slots = (
-            db.query(AssessmentSession)
-            .filter(AssessmentSession.id.in_(submitted_session_ids),
-                    AssessmentSession.student_slot_id.isnot(None))
-            .all()
-        )
-        slot_ids = list(set(s.student_slot_id for s in sessions_with_slots if s.student_slot_id))
+        # The sessions are already loaded; re-querying them by id fetched the
+        # same rows a second time.
+        slot_ids = list({s.student_slot_id for s in submitted_sessions if s.student_slot_id})
         if slot_ids:
             slots = (
                 db.query(GeneratedAssessmentStudent)
@@ -129,9 +213,14 @@ def analytics_overview(db: Session = Depends(get_db)):
 
     top_specialties = sorted(specialty_counts.items(), key=lambda x: -x[1])[:3]
 
-    # Per-assessment pass rates for bar chart (last 10 assessments with results)
+    # Per-assessment pass rates for bar chart (last 10 assessments with results
+    # IN THIS WINDOW — an unscoped list would chart papers the rest of the page
+    # has filtered out).
+    recent_q = db.query(GeneratedAssessment)
+    if f.active:
+        recent_q = recent_q.filter(GeneratedAssessment.id.in_(assessment_ids or [-1]))
     assessments = (
-        db.query(GeneratedAssessment)
+        recent_q
         .order_by(GeneratedAssessment.generated_at.desc())
         .limit(10)
         .all()
@@ -563,14 +652,15 @@ def analytics_coder(
     }
 
 
-def _build_response_meta(db: Session) -> tuple:
+def _build_response_meta(db: Session, f: Optional[AFilters] = None) -> tuple:
     """
-    Build two dicts across ALL submitted sessions:
+    Build two dicts across the submitted sessions IN THE SELECTED WINDOW:
       qid_specialty: Dict[str, str]  — question_id -> specialty
       qid_topic:     Dict[str, str]  — question_id -> topic
     Returns (qid_specialty, qid_topic, submitted_session_ids)
     """
-    submitted_sessions = db.query(AssessmentSession).filter(
+    base = _session_q(db, f) if f else db.query(AssessmentSession)
+    submitted_sessions = base.filter(
         AssessmentSession.status == "submitted"
     ).all()
     submitted_session_ids = [s.id for s in submitted_sessions]
@@ -616,9 +706,9 @@ def _build_response_meta(db: Session) -> tuple:
 
 
 @router.get("/analytics/by-specialty")
-def analytics_by_specialty(db: Session = Depends(get_db)):
+def analytics_by_specialty(db: Session = Depends(get_db), f: AFilters = Depends(filters)):
     """Aggregate accuracy and volume metrics grouped by specialty across all assessments."""
-    qid_specialty, _qid_topic, submitted_session_ids = _build_response_meta(db)
+    qid_specialty, _qid_topic, submitted_session_ids = _build_response_meta(db, f)
 
     if not submitted_session_ids:
         return {"specialties": []}
@@ -658,9 +748,9 @@ def analytics_by_specialty(db: Session = Depends(get_db)):
 
 
 @router.get("/analytics/by-topic")
-def analytics_by_topic(db: Session = Depends(get_db)):
+def analytics_by_topic(db: Session = Depends(get_db), f: AFilters = Depends(filters)):
     """Aggregate accuracy and volume metrics grouped by topic across all assessments."""
-    qid_specialty, qid_topic, submitted_session_ids = _build_response_meta(db)
+    qid_specialty, qid_topic, submitted_session_ids = _build_response_meta(db, f)
 
     if not submitted_session_ids:
         return {"topics": []}
@@ -1004,8 +1094,8 @@ def assessment_batch_coder_reports_zip(batch_name: str, db: Session = Depends(ge
 
 
 @router.get("/analytics/coder-matrix")
-def analytics_coder_matrix(db: Session = Depends(get_db)):
-    qid_specialty, _qid_topic, submitted_session_ids = _build_response_meta(db)
+def analytics_coder_matrix(db: Session = Depends(get_db), f: AFilters = Depends(filters)):
+    qid_specialty, _qid_topic, submitted_session_ids = _build_response_meta(db, f)
     if not submitted_session_ids:
         return {"coders": [], "specialties": []}
 

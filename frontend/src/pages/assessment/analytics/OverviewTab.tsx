@@ -3,18 +3,22 @@ import { BarChart2, User, Award, TrendingUp, CheckCircle, Clock } from 'lucide-r
 import toast from 'react-hot-toast'
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell } from 'recharts'
 import { getAssessmentAnalyticsOverview } from '../../../api'
+import type { AFilters } from '../../../api'
+
+const NO_FILTERS: AFilters = {}
 import { rateColor, scoreColor, fmt, KpiCard, Panel, LoadingSpinner, EmptyState, PASS_RATE_TARGET } from './helpers'
 
-export function OverviewTab() {
+export function OverviewTab({ filters = NO_FILTERS }: { filters?: AFilters }) {
   const [data, setData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    getAssessmentAnalyticsOverview()
+    setLoading(true)
+    getAssessmentAnalyticsOverview(filters)
       .then(setData)
       .catch(() => toast.error('Failed to load overview'))
       .finally(() => setLoading(false))
-  }, [])
+  }, [filters])
 
   if (loading) return <LoadingSpinner />
   if (!data) return <EmptyState message="No analytics data available yet." />

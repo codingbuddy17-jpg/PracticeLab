@@ -7,11 +7,22 @@ import { BySpecialtyTab } from './analytics/BySpecialtyTab'
 import { ByTopicTab } from './analytics/ByTopicTab'
 import { BatchAnalysisTab } from './analytics/BatchAnalysisTab'
 import { CoderMatrixTab } from './analytics/CoderMatrixTab'
+import { FilterBar } from './analytics/FilterBar'
+import type { AFilters } from '../../api'
 
 type AnalyticsTab = 'overview' | 'drill' | 'coder' | 'specialty' | 'topic' | 'batch' | 'matrix'
 
+/**
+ * Tabs that read the shared window. The others answer a question the window
+ * does not apply to — Batch Analysis IS the batch view, and the drill and coder
+ * tabs are already scoped to one paper or one person — so showing the bar there
+ * would imply a filter that does nothing.
+ */
+const FILTERED: AnalyticsTab[] = ['overview', 'specialty', 'topic', 'matrix']
+
 export function AnalyticsView() {
   const [tab, setTab] = useState<AnalyticsTab>('overview')
+  const [filters, setFilters] = useState<AFilters>({})
 
   const tabs: { id: AnalyticsTab; label: string; icon: React.ReactNode }[] = [
     { id: 'overview', label: 'Overview', icon: <BarChart2 size={14} /> },
@@ -47,12 +58,16 @@ export function AnalyticsView() {
         ))}
       </div>
 
-      {tab === 'overview' && <OverviewTab />}
+      {/* Above the tab content, never inside it: a filter that empties the view
+          must not take its own control down with it. */}
+      {FILTERED.includes(tab) && <FilterBar value={filters} onChange={setFilters} />}
+
+      {tab === 'overview' && <OverviewTab filters={filters} />}
       {tab === 'batch' && <BatchAnalysisTab />}
       {tab === 'drill' && <AssessmentDrillTab />}
-      {tab === 'specialty' && <BySpecialtyTab />}
-      {tab === 'topic' && <ByTopicTab />}
-      {tab === 'matrix' && <CoderMatrixTab />}
+      {tab === 'specialty' && <BySpecialtyTab filters={filters} />}
+      {tab === 'topic' && <ByTopicTab filters={filters} />}
+      {tab === 'matrix' && <CoderMatrixTab filters={filters} />}
       {tab === 'coder' && <CoderHistoryTab />}
     </div>
   )
