@@ -95,26 +95,28 @@ export function TrainerHome() {
           </Link>
 
           <Link to="/trainer/chart-management" style={{ ...styles.bentoCell, ...styles.bentoCellPassRate, background: 'rgba(238,242,255,0.45)' }}>
+            {/* Matches the two other wide chips: a figure on the left, a bar
+                on the right. The specialty NAMES lived here as a run-on list —
+                accurate, unreadable at a glance, and out of step with every
+                other tile on the page. Key coverage is the figure worth the
+                space: charts without a key are inventory that looks like
+                capacity until someone tries to build a batch from it. */}
             <div style={styles.bentoPassRateRow}>
               <div>
                 <div style={styles.bentoPassRateNum}>{chartStats?.total_specialties ?? '—'}</div>
                 <div style={styles.bentoStatLabel}>Specialties Covered</div>
-                {/* Charts without a key are inventory that looks like capacity
-                    until someone tries to build a batch from it. */}
-                {chartStats?.charts_without_keys > 0 && (
-                  <div style={{ ...styles.bentoStatSub, color: '#b45309' }}>
-                    {chartStats.charts_without_keys} chart{chartStats.charts_without_keys !== 1 ? 's' : ''} awaiting an answer key
-                  </div>
-                )}
+                <div style={styles.bentoStatSub}>
+                  {chartStats ? `${chartStats.charts_with_keys} of ${chartStats.total_charts} charts keyed` : '—'}
+                </div>
               </div>
-              {/* Named from the data. The old list was hardcoded and had gone
-                  stale — it named ICD-10, which is a code set, not a specialty. */}
-              <div style={{ fontSize: 11, color: '#4f46e5', fontWeight: 600, textAlign: 'right' as const, maxWidth: 210 }}>
-                {chartStats?.specialties?.length
-                  ? chartStats.specialties.slice(0, 4).map((x: any) => x.specialty).join(' · ')
-                    + (chartStats.specialties.length > 4 ? ` · +${chartStats.specialties.length - 4}` : '')
-                  : '—'}
-              </div>
+              {chartStats?.total_charts > 0 && (
+                <div style={{ ...styles.bentoBarWrap, background: '#e0e7ff' }}>
+                  <div style={{
+                    ...styles.bentoBar, background: '#4f46e5',
+                    width: `${Math.round(chartStats.charts_with_keys / chartStats.total_charts * 100)}%`,
+                  }} />
+                </div>
+              )}
             </div>
           </Link>
         </div>
