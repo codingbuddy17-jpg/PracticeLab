@@ -84,6 +84,10 @@ class GeneratedAssessment(Base):
     generated_at = Column(DateTime(timezone=True), server_default=func.now())
     randomisation_stats = Column(JSON, nullable=True)
     is_standalone = Column(Boolean, default=False, nullable=False)
+    # The bar THIS assessment is judged against. Was a module constant of 90,
+    # which is a punishing mark for MCQs and invisible to the trainer setting
+    # the paper. Different assessments legitimately have different bars.
+    pass_threshold = Column(Integer, nullable=True)
 
     config = relationship("AssessmentConfig", back_populates="assessments")
     students = relationship("GeneratedAssessmentStudent", back_populates="assessment", cascade="all, delete-orphan")

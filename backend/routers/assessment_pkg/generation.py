@@ -77,6 +77,8 @@ class GenerateRequest(BaseModel):
     save_config: bool = True
     config_name: Optional[str] = None
     randomise: bool = True                                    # per-coder independent sampling
+    # The bar this paper is judged against. Omitted means the platform default.
+    pass_threshold: Optional[int] = None
     standalone_questions: Optional[List[StandaloneQuestion]] = None  # standalone mode
 
 
@@ -334,6 +336,7 @@ def generate_assessment(req: GenerateRequest, db: Session = Depends(get_db)):
         batch_name=req.batch_name,
         student_count=len(coders),
         generated_by=req.generated_by,
+        pass_threshold=req.pass_threshold,
         is_standalone=is_standalone,
     )
     db.add(assessment)

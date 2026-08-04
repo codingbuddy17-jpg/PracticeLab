@@ -312,6 +312,7 @@ def _run_migrations():
     )""")
     _add_col("generated_assessments", "batch_name", "VARCHAR(100)")
     _add_col("generated_assessments", "randomisation_stats", "TEXT")
+    _add_col("generated_assessments", "pass_threshold", "INTEGER")
     _add_col("generated_assessments", "is_standalone", "BOOLEAN DEFAULT FALSE")
 
     # ── generated_assessment_students table ───────────────────────────────────

@@ -14,7 +14,40 @@ from services.download_headers import content_disposition
 
 router = APIRouter()
 
-PASS_THRESHOLD = 90.0
+# Fallback only — used for assessments generated before the bar became a
+# property of the paper. 90 was the hardcoded value; keeping it means existing
+# figures do not move underneath anyone.
+DEFAULT_PASS_THRESHOLD = 90.0
+PASS_THRESHOLD = DEFAULT_PASS_THRESHOLD          # legacy alias
+
+
+def _thresholds(db) -> Dict[int, float]:
+    """
+    Each assessment's own pass mark, by id.
+
+    A single module constant made every paper share one bar, and nothing on
+    screen said what it was. Different assessments legitimately differ — a
+    refresher and a certification gate are not the same test.
+    """
+    rows = db.query(GeneratedAssessment.id, GeneratedAssessment.pass_threshold).all()
+    return {r[0]: float(r[1]) if r[1] else DEFAULT_PASS_THRESHOLD for r in rows}
+
+
+def _passed(result, marks: Dict[int, float], session_assessment: Dict[int, int]) -> bool:
+    """Did this result clear ITS OWN assessment's bar."""
+    aid = session_assessment.get(result.session_id)
+    return result.score_pct >= marks.get(aid, DEFAULT_PASS_THRESHOLD)
+
+
+def coder_key(session) -> str:
+    """
+    Coder identity: employee id where present, else the typed name.
+
+    The id was already captured at generation and stored on the session — the
+    aggregations simply grouped by name, so one person entered two ways counted
+    as two coders.
+    """
+    return (session.employee_id or "").strip() or session.coder_name.strip()
 
 
 def _parse_questions(questions_json: Any) -> List[Dict]:
@@ -54,9 +87,11 @@ def analytics_overview(db: Session = Depends(get_db)):
     expired_sessions = [s for s in all_sessions if s.status == "expired"]
     total_submitted = len(submitted_sessions)
 
-    # Pass rate
+    # Pass rate — each result against its own assessment's bar.
     results = db.query(AssessmentResult).all()
-    passed = sum(1 for r in results if r.score_pct >= PASS_THRESHOLD)
+    marks = _thresholds(db)
+    sess_assessment = {s.id: s.assessment_id for s in all_sessions}
+    passed = sum(1 for r in results if _passed(r, marks, sess_assessment))
     overall_pass_rate = round(passed / len(results) * 100, 1) if results else 0.0
     avg_score = round(sum(r.score_pct for r in results) / len(results), 1) if results else 0.0
 
@@ -107,7 +142,7 @@ def analytics_overview(db: Session = Depends(get_db)):
         a_results = [s.result for s in a_sessions if s.result]
         if not a_results:
             continue
-        a_passed = sum(1 for r in a_results if r.score_pct >= PASS_THRESHOLD)
+        a_passed = sum(1 for r in a_results if r.score_pct >= marks.get(a.id, DEFAULT_PASS_THRESHOLD))
         per_assessment.append({
             "assessment_id": a.id,
             "assessment_name": a.assessment_name,
@@ -116,7 +151,7 @@ def analytics_overview(db: Session = Depends(get_db)):
         })
 
     # Unique coders assessed
-    unique_coders = len(set(s.coder_name for s in submitted_sessions))
+    unique_coders = len({coder_key(s) for s in submitted_sessions})
 
     return {
         "total_assessments": total_assessments,
@@ -124,6 +159,10 @@ def analytics_overview(db: Session = Depends(get_db)):
         "total_submitted": total_submitted,
         "unique_coders_assessed": unique_coders,
         "overall_pass_rate": overall_pass_rate,
+        # A pass rate is not readable without its bar, and the bars can differ
+        # per assessment — say so rather than implying one number governs all.
+        "default_pass_threshold": DEFAULT_PASS_THRESHOLD,
+        "pass_thresholds_vary": len({m for m in marks.values()}) > 1,
         "avg_score": avg_score,
         "completion_rate": completion_rate,
         "auto_submit_rate": auto_submit_rate,
@@ -165,7 +204,8 @@ def analytics_by_assessment(assessment_id: int, db: Session = Depends(get_db)):
     auto_submitted_count = sum(1 for s in submitted_sessions if s.auto_submitted)
     auto_submit_rate = round(auto_submitted_count / total_submitted * 100, 1) if total_submitted else 0.0
 
-    # Per-coder table
+    # Per-coder table. One assessment, so one bar for the whole view.
+    mark = float(assessment.pass_threshold) if assessment.pass_threshold else DEFAULT_PASS_THRESHOLD
     coder_rows: List[Dict] = []
     results_list: List[float] = []
     for s in submitted_sessions:
@@ -181,13 +221,13 @@ def analytics_by_assessment(assessment_id: int, db: Session = Depends(get_db)):
                 "time_taken_seconds": r.time_taken_seconds,
                 "status": s.status,
                 "auto_submitted": s.auto_submitted,
-                "pass_fail": "PASS" if r.score_pct >= PASS_THRESHOLD else "FAIL",
+                "pass_fail": "PASS" if r.score_pct >= mark else "FAIL",
                 "submitted_at": r.submitted_at.isoformat() if r.submitted_at else None,
             })
     coder_rows.sort(key=lambda x: -x["score_pct"])
 
     # Stats
-    passed_count = sum(1 for sc in results_list if sc >= PASS_THRESHOLD)
+    passed_count = sum(1 for sc in results_list if sc >= mark)
     pass_rate = round(passed_count / len(results_list) * 100, 1) if results_list else 0.0
     avg_score = round(sum(results_list) / len(results_list), 1) if results_list else 0.0
     min_score = round(min(results_list), 1) if results_list else 0.0
@@ -371,7 +411,9 @@ def analytics_coder(
     if not sessions:
         return None
 
-    # Per-session history
+    # Per-session history. A coder's assessments can carry different bars, so
+    # each row is judged against its own paper rather than one global mark.
+    ch_marks = _thresholds(db)
     session_history: List[Dict] = []
     scores: List[float] = []
     times: List[int] = []
@@ -393,7 +435,8 @@ def analytics_coder(
             "total_questions": r.total_questions,
             "time_taken_seconds": r.time_taken_seconds,
             "submitted_at": r.submitted_at.isoformat() if r.submitted_at else None,
-            "pass_fail": "PASS" if score >= PASS_THRESHOLD else "FAIL",
+            "pass_fail": ("PASS" if score >= ch_marks.get(s.assessment_id, DEFAULT_PASS_THRESHOLD)
+                          else "FAIL"),
             "auto_submitted": s.auto_submitted,
         })
 
@@ -642,23 +685,30 @@ def analytics_by_batch(db: Session = Depends(get_db)):
     result_map = {r.session_id: r for r in all_results}
     all_sessions = db.query(AssessmentSession).all()
 
+    marks = _thresholds(db)
     batch_map: Dict[str, Dict] = {}
     for a in assessments:
         batch_key = a.batch_name or "Ungrouped"
         if batch_key not in batch_map:
-            batch_map[batch_key] = {"assessments": [], "all_scores": [], "coders": set()}
+            batch_map[batch_key] = {"assessments": [], "all_scores": [], "all_passes": [], "coders": set()}
 
+        a_mark = marks.get(a.id, DEFAULT_PASS_THRESHOLD)
         a_sessions = [s for s in all_sessions if s.assessment_id == a.id and s.status == "submitted"]
-        a_scores = []
+        a_scores, a_passes = [], []
         for s in a_sessions:
             r = result_map.get(s.id)
             if r:
                 a_scores.append(r.score_pct)
-                batch_map[batch_key]["coders"].add(s.coder_name)
+                # A batch can span assessments with different bars, so the pass
+                # flag has to travel with the score — a bare list of numbers
+                # cannot be re-judged later against one mark without lying.
+                a_passes.append(r.score_pct >= a_mark)
+                batch_map[batch_key]["coders"].add(coder_key(s))
 
-        a_pass_rate = round(sum(1 for sc in a_scores if sc >= PASS_THRESHOLD) / len(a_scores) * 100, 1) if a_scores else None
+        a_pass_rate = round(sum(a_passes) / len(a_passes) * 100, 1) if a_passes else None
         a_avg = round(sum(a_scores) / len(a_scores), 1) if a_scores else None
         batch_map[batch_key]["all_scores"].extend(a_scores)
+        batch_map[batch_key].setdefault("all_passes", []).extend(a_passes)
         batch_map[batch_key]["assessments"].append({
             "assessment_id": a.id,
             "assessment_name": a.assessment_name,
@@ -677,7 +727,8 @@ def analytics_by_batch(db: Session = Depends(get_db)):
             "total_coders": len(d["coders"]),
             "submitted_count": len(scores),
             "avg_score": round(sum(scores) / len(scores), 1) if scores else None,
-            "pass_rate": round(sum(1 for sc in scores if sc >= PASS_THRESHOLD) / len(scores) * 100, 1) if scores else None,
+            "pass_rate": (round(sum(d.get("all_passes", [])) / len(d["all_passes"]) * 100, 1)
+                          if d.get("all_passes") else None),
             "assessments": d["assessments"],
         })
 
@@ -732,7 +783,7 @@ def analytics_batch_drill(batch_name: str, db: Session = Depends(get_db)):
         s = session_map.get(resp.session_id)
         if not s:
             continue
-        coder = s.coder_name
+        coder = coder_key(s)
         topic = qid_topic.get(resp.question_id, "Unknown")
         coder_topic.setdefault(coder, {}).setdefault(topic, {"correct": 0, "total": 0})
         coder_topic[coder][topic]["total"] += 1
@@ -742,7 +793,7 @@ def analytics_batch_drill(batch_name: str, db: Session = Depends(get_db)):
     for s in sessions:
         r = result_map.get(s.id)
         if r:
-            coder_sessions.setdefault(s.coder_name, []).append({
+            coder_sessions.setdefault(coder_key(s), []).append({
                 "score_pct": r.score_pct,
                 "submitted_at": r.submitted_at,
                 "assessment_name": next((a.assessment_name for a in assessments if a.id == s.assessment_id), ""),
@@ -798,6 +849,10 @@ def analytics_batch_drill(batch_name: str, db: Session = Depends(get_db)):
     strong_topics.sort(key=lambda x: -(x["accuracy_pct"] or 0))
 
     all_scores = [result_map[s.id].score_pct for s in sessions if s.id in result_map]
+    # This view spans assessments, so each score keeps the bar it was judged on.
+    topic_marks = _thresholds(db)
+    all_passes = [result_map[s.id].score_pct >= topic_marks.get(s.assessment_id, DEFAULT_PASS_THRESHOLD)
+                  for s in sessions if s.id in result_map]
 
     return {
         "batch_name": batch_name,
@@ -805,7 +860,8 @@ def analytics_batch_drill(batch_name: str, db: Session = Depends(get_db)):
         "total_coders": len(coder_topic),
         "submitted_count": len(session_ids),
         "avg_score": round(sum(all_scores) / len(all_scores), 1) if all_scores else None,
-        "pass_rate": round(sum(1 for sc in all_scores if sc >= PASS_THRESHOLD) / len(all_scores) * 100, 1) if all_scores else None,
+        "pass_rate": (round(sum(all_passes) / len(all_passes) * 100, 1)
+                      if all_passes else None),
         "all_topics": all_topics,
         "coder_rows": coder_rows,
         "topic_summary": topic_summary,
