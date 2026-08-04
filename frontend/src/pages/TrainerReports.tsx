@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useSmartBack } from '../hooks/useSmartBack'
 import { ChevronLeft, Download } from 'lucide-react'
 import { getReportSummary, getReportCharts, buildExportUrl } from '../api'
 import type { Specialty, Difficulty, ChartStatus } from '../types'
 import { SPECIALTIES, DIFFICULTIES } from '../types'
 
 export function TrainerReports() {
-  const navigate = useNavigate()
+  const goBack = useSmartBack('/trainer/chart-management')
   const [summary, setSummary] = useState<{ active: number; retired: number; total: number } | null>(null)
   const [results, setResults] = useState<any[]>([])
   const [total, setTotal] = useState(0)
@@ -37,7 +37,7 @@ export function TrainerReports() {
   return (
     <div style={styles.container}>
       <div style={styles.topBar}>
-        <button style={styles.backBtn} onClick={() => navigate('/trainer')}><ChevronLeft size={16} /> Back</button>
+        <button style={styles.backBtn} onClick={() => goBack()}><ChevronLeft size={16} /> Back</button>
         <span style={styles.title}>Reports</span>
         <a href={exportUrl} download style={styles.exportBtn}><Download size={14} /> Export Excel</a>
       </div>

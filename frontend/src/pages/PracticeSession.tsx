@@ -212,6 +212,10 @@ export function PracticeSession() {
   const [entries, setEntries] = useState<Record<number, CodeEntry>>({})
   const [activeChartId, setActiveChartId] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
+  // Unsaved edits on the chart currently open — everything else is auto-saved
+  // when moving between charts.
+  const [dirty, setDirty] = useState(false)
+  const [exiting, setExiting] = useState(false)
   const [saveMsg, setSaveMsg] = useState('')
   const [view, setView] = useState<'coding' | 'review' | 'submitted'>('coding')
   const [submitting, setSubmitting] = useState(false)
@@ -284,10 +288,29 @@ export function PracticeSession() {
       await api.post(`/practicelab/practice-sessions/${session.session_id}/save-draft`, {
         entries: Object.values(entries),
       })
+      setDirty(false)
       if (showMsg) { setSaveMsg('Saved'); setTimeout(() => setSaveMsg(''), 2000) }
-    } catch { /* silent */ }
+    } catch {
+      // Was silent. A save that fails without saying so is the one case where
+      // a coder loses work believing it is safe.
+      showToast('Could not save — check your connection and try again')
+    }
     setSaving(false)
   }, [session, entries])
+
+  /**
+   * Warn before closing with unsaved edits.
+   *
+   * Drafts auto-save when moving BETWEEN charts, so the only work at risk is
+   * the chart currently open — which is exactly the chart someone is in the
+   * middle of when they close the tab.
+   */
+  useEffect(() => {
+    if (!dirty) return
+    const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = '' }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [dirty])
 
   // ── Navigate between charts — auto-save on leave ───────────────────────────
   const navigateTo = useCallback((chartId: number) => {
@@ -298,6 +321,7 @@ export function PracticeSession() {
 
   // ── Entry update helpers ────────────────────────────────────────────────────
   function updateEntry(chartId: number, patch: Partial<CodeEntry>) {
+    setDirty(true)
     setEntries(prev => ({ ...prev, [chartId]: { ...prev[chartId], ...patch } }))
   }
 
@@ -343,6 +367,33 @@ export function PracticeSession() {
     </div>
   )
   if (!session) return null
+
+  // ── Saved & exited ──────────────────────────────────────────────────────────
+  // The token IS the way back in, so an exit screen that does not show it
+  // leaves the coder holding a saved session they cannot reopen.
+  if (exiting) return (
+    <div style={s.center}>
+      <div style={{ ...s.card, maxWidth: 480, textAlign: 'center', gap: 14 }}>
+        <CheckCircle size={34} color="#059669" />
+        <div style={{ fontWeight: 700, fontSize: 17 }}>Your work is saved</div>
+        <div style={{ fontSize: 13, color: '#6b7280', lineHeight: 1.6 }}>
+          Nothing has been submitted yet. Open the same link again to carry on from
+          where you stopped — every chart you had entered will still be there.
+        </div>
+        <div style={{ background: '#f8fafc', border: '1px solid #e5e7eb', borderRadius: 8, padding: '10px 14px' }}>
+          <div style={{ fontSize: 11, color: '#9ca3af', marginBottom: 3 }}>Your session token</div>
+          <div style={{ fontFamily: 'monospace', fontSize: 15, fontWeight: 700, color: '#111' }}>{token}</div>
+        </div>
+        <button
+          onClick={() => setExiting(false)}
+          style={{ padding: '9px 18px', borderRadius: 8, border: '1px solid #e5e7eb',
+                   background: '#fff', color: '#4f46e5', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}
+        >
+          Back to my charts
+        </button>
+      </div>
+    </div>
+  )
 
   // ── Submitted view ──────────────────────────────────────────────────────────
   if (view === 'submitted') {
@@ -481,12 +532,26 @@ export function PracticeSession() {
           })}
         </div>
 
-        <div style={{ padding: '12px', borderTop: '1px solid #e5e7eb' }}>
+        <div style={{ padding: '12px', borderTop: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', gap: 8 }}>
           <button
             onClick={() => { saveDraft(); setView('review') }}
             style={s.reviewBtn}
           >
             <ChevronRight size={14} /> Review & Submit
+          </button>
+          {/* Resume already worked — drafts save and the token rehydrates them.
+              What was missing was any way to LEAVE, so a coder who had to stop
+              could only close the tab and hope. */}
+          <button
+            onClick={async () => { await saveDraft(); setExiting(true) }}
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+              padding: '9px 12px', borderRadius: 8, border: '1px solid #e5e7eb',
+              background: '#fff', color: '#6b7280', fontSize: 13, fontWeight: 600,
+              cursor: 'pointer',
+            }}
+          >
+            Save & Exit
           </button>
         </div>
       </div>

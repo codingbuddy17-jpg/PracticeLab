@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useSmartBack } from '../hooks/useSmartBack'
 import { ChevronLeft, BookOpen, CheckCircle, RotateCcw, Flag } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { getFeedback, resolveFeedback, reopenFeedback } from '../api'
@@ -21,7 +21,7 @@ interface FeedbackItem {
 }
 
 export function TrainerFeedback() {
-  const navigate = useNavigate()
+  const goBack = useSmartBack('/trainer/chart-management')
   const [trainerName] = useLocalStorage<string>('trainer_name', '')
   const [status, setStatus] = useState<FeedbackStatus | ''>('Open')
   const [chartFilter, setChartFilter] = useState('')
@@ -73,7 +73,7 @@ export function TrainerFeedback() {
   return (
     <div style={styles.container}>
       <div style={styles.topBar}>
-        <button style={styles.backBtn} onClick={() => navigate('/trainer')}><ChevronLeft size={16} /> Back</button>
+        <button style={styles.backBtn} onClick={() => goBack()}><ChevronLeft size={16} /> Back</button>
         <div style={styles.logo}><BookOpen size={18} color="#4f46e5" /><span style={styles.logoText}>PracticeLab</span></div>
         <span style={styles.title}>Feedback</span>
         {openCount > 0 && <span style={styles.badge}>{openCount} open</span>}

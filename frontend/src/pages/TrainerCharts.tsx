@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useSmartBack } from '../hooks/useSmartBack'
 import { ChevronLeft, Edit2, Archive, RotateCcw, PlusCircle, Eye, BookOpen, ChevronRight } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { searchCharts, updateChart, retireChart, restoreChart, addFilesToChart, getChartTrainer } from '../api'
@@ -12,7 +12,7 @@ import { SPECIALTY_COLORS, DIFFICULTY_COLORS } from '../theme'
 const PAGE_SIZE = 25
 
 export function TrainerCharts() {
-  const navigate = useNavigate()
+  const goBack = useSmartBack('/trainer/chart-management')
   const [trainerName] = useLocalStorage<string>('trainer_name', '')
   const [status, setStatus] = useState<ChartStatus>('Active')
   const [specialty, setSpecialty] = useState<Specialty | ''>('')
@@ -149,7 +149,7 @@ export function TrainerCharts() {
 
   return (
     <div style={styles.container}>
-      <PageHeader title="Manage Charts" onBack={() => navigate('/trainer')} />
+      <PageHeader title="Manage Charts" onBack={() => goBack()} />
 
       <div style={styles.content}>
         <div style={styles.toolbar}>

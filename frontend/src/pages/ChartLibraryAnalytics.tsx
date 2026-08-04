@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useSmartBack } from '../hooks/useSmartBack'
 import { ChevronLeft, TrendingUp, TrendingDown, PieChart } from 'lucide-react'
 import { getAnalytics } from '../api'
 
 export function ChartLibraryAnalytics() {
-  const navigate = useNavigate()
+  const goBack = useSmartBack('/trainer/chart-management')
   const [data, setData] = useState<any>(null)
 
   useEffect(() => { getAnalytics().then(setData) }, [])
@@ -14,7 +14,7 @@ export function ChartLibraryAnalytics() {
   return (
     <div style={styles.container}>
       <div style={styles.topBar}>
-        <button style={styles.backBtn} onClick={() => navigate('/trainer')}><ChevronLeft size={16} /> Back</button>
+        <button style={styles.backBtn} onClick={() => goBack()}><ChevronLeft size={16} /> Back</button>
         <span style={styles.title}>Analytics</span>
       </div>
       <div style={styles.content}>

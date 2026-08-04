@@ -41,6 +41,10 @@ def _run_migrations():
     Dialect-aware: works against both SQLite (local dev) and PostgreSQL (production).
     """
     is_sqlite = engine.dialect.name == "sqlite"
+    # NOW() is Postgres. SQLite rejects the whole CREATE TABLE on it, and _run()
+    # swallows DDL failures as non-fatal — so four assessment tables silently
+    # never existed under SQLite, which is what the test database is.
+    _NOW = "CURRENT_TIMESTAMP" if is_sqlite else "NOW()"
     insp = sa_inspect(engine)
 
     def _col_exists(table: str, col: str) -> bool:
@@ -319,17 +323,17 @@ def _run_migrations():
     )""")
 
     # ── assessment_audit_log table ────────────────────────────────────────────
-    _run("""CREATE TABLE IF NOT EXISTS assessment_audit_log (
+    _run(f"""CREATE TABLE IF NOT EXISTS assessment_audit_log (
         id INTEGER PRIMARY KEY,
         trainer_name VARCHAR(100) NOT NULL,
         action VARCHAR(50) NOT NULL,
         specialty VARCHAR(50),
         details TEXT,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT {_NOW}
     )""")
 
     # ── assessment_sessions table ─────────────────────────────────────────────
-    _run("""CREATE TABLE IF NOT EXISTS assessment_sessions (
+    _run(f"""CREATE TABLE IF NOT EXISTS assessment_sessions (
         id INTEGER PRIMARY KEY,
         session_token VARCHAR(20) NOT NULL UNIQUE,
         assessment_id INTEGER REFERENCES generated_assessments(id) NOT NULL,
@@ -344,13 +348,13 @@ def _run_migrations():
         status VARCHAR(20) NOT NULL DEFAULT 'pending',
         last_saved_at TIMESTAMP WITH TIME ZONE,
         student_slot_id INTEGER REFERENCES generated_assessment_students(id),
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT {_NOW}
     )""")
     # Idempotent migration for DBs created before student_slot_id was added
     _add_col("assessment_sessions", "student_slot_id", "INTEGER REFERENCES generated_assessment_students(id)")
 
     # ── assessment_responses table ────────────────────────────────────────────
-    _run("""CREATE TABLE IF NOT EXISTS assessment_responses (
+    _run(f"""CREATE TABLE IF NOT EXISTS assessment_responses (
         id INTEGER PRIMARY KEY,
         session_id INTEGER REFERENCES assessment_sessions(id) NOT NULL,
         question_index INTEGER NOT NULL,
@@ -362,14 +366,14 @@ def _run_migrations():
     )""")
 
     # ── assessment_results table ──────────────────────────────────────────────
-    _run("""CREATE TABLE IF NOT EXISTS assessment_results (
+    _run(f"""CREATE TABLE IF NOT EXISTS assessment_results (
         id INTEGER PRIMARY KEY,
         session_id INTEGER REFERENCES assessment_sessions(id) UNIQUE NOT NULL,
         total_questions INTEGER NOT NULL,
         correct_count INTEGER NOT NULL,
         score_pct FLOAT NOT NULL,
         time_taken_seconds INTEGER,
-        submitted_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        submitted_at TIMESTAMP WITH TIME ZONE DEFAULT {_NOW}
     )""")
 
     # ── Seed assessment sample questions if table is empty ────────────────────

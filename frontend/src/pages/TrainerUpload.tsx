@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useSmartBack } from '../hooks/useSmartBack'
 import { Upload, CheckCircle, XCircle, ChevronLeft, BookOpen, AlertTriangle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { bulkUpload, previewChartNumbers } from '../api'
@@ -18,7 +18,7 @@ const ALLOWED_EXTS = /\.(pdf|doc|docx|png|jpg|jpeg|tiff?|tif)$/i
 interface RowMeta extends BulkUploadMeta { file: File; complete: boolean; specialtyMismatch?: boolean }
 
 export function TrainerUpload() {
-  const navigate = useNavigate()
+  const goBack = useSmartBack('/trainer/chart-management')
   const [trainerName, setTrainerName] = useLocalStorage<string>('trainer_name', '')
   const [rows, setRows] = useState<RowMeta[]>([])
   const [results, setResults] = useState<BulkUploadResult[] | null>(null)
@@ -190,7 +190,7 @@ export function TrainerUpload() {
     const errors = results.filter(r => r.status === 'error')
     return (
       <div style={styles.container}>
-        <PageHeader title="Upload Results" onBack={() => navigate('/trainer')} />
+        <PageHeader title="Upload Results" onBack={() => goBack()} />
         <div style={styles.resultsWrap}>
           <div style={styles.resultsSummary}>
             <div style={{ ...styles.summaryChip, background: '#dcfce7', color: '#16a34a' }}>
@@ -221,7 +221,7 @@ export function TrainerUpload() {
 
   return (
     <div style={styles.container}>
-      <PageHeader title="Upload Charts" onBack={() => navigate('/trainer')} />
+      <PageHeader title="Upload Charts" onBack={() => goBack()} />
       <div style={styles.content}>
         <div style={styles.nameRow}>
           <label style={styles.label}>Your Name</label>
