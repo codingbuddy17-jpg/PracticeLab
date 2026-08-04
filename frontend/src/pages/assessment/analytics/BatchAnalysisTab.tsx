@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Loader, ChevronDown, ChevronRight, FileDown } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { getAssessmentAnalyticsByBatch, getAssessmentAnalyticsBatchDrill, downloadAssessmentBatchReport, downloadAssessmentBatchCoderReportsZip } from '../../../api'
-import { PASS, scoreColor, fmt, LoadingSpinner, EmptyState } from './helpers'
+import { rateColor, scoreColor, fmt, LoadingSpinner, EmptyState } from './helpers'
 import { usePagination } from '../../../components/Paginator'
 
 export function BatchAnalysisTab() {
@@ -83,7 +83,7 @@ function BatchList({ batches, expanded, setExpanded, drillData, drillLoading, to
                   <div style={{ fontSize: 11, color: '#9ca3af' }}>Avg Score</div>
                 </div>
                 <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: 20, fontWeight: 800, color: batch.pass_rate != null && batch.pass_rate >= PASS ? '#16a34a' : '#dc2626' }}>{fmt(batch.pass_rate)}</div>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: rateColor(batch.pass_rate) }}>{fmt(batch.pass_rate)}</div>
                   <div style={{ fontSize: 11, color: '#9ca3af' }}>Pass Rate</div>
                 </div>
                 <div style={{ textAlign: 'right' }}>

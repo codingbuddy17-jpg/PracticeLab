@@ -3,7 +3,7 @@ import { BarChart2, User, Award, TrendingUp, CheckCircle, Clock } from 'lucide-r
 import toast from 'react-hot-toast'
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell } from 'recharts'
 import { getAssessmentAnalyticsOverview } from '../../../api'
-import { PASS, scoreColor, fmt, KpiCard, Panel, LoadingSpinner, EmptyState } from './helpers'
+import { rateColor, scoreColor, fmt, KpiCard, Panel, LoadingSpinner, EmptyState, PASS_RATE_TARGET } from './helpers'
 
 export function OverviewTab() {
   const [data, setData] = useState<any>(null)
@@ -24,10 +24,21 @@ export function OverviewTab() {
       <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginBottom: 22 }}>
         <KpiCard label="Total Assessments" value={String(data.total_assessments)} icon={<BarChart2 size={14} />} />
         <KpiCard label="Coders Assessed" value={String(data.unique_coders_assessed)} icon={<User size={14} />} />
-        <KpiCard label="Overall Pass Rate" value={fmt(data.overall_pass_rate)} color={data.overall_pass_rate >= PASS ? '#16a34a' : '#dc2626'} icon={<Award size={14} />} />
-        <KpiCard label="Avg Score" value={fmt(data.avg_score)} color={scoreColor(data.avg_score)} icon={<TrendingUp size={14} />} />
+        <KpiCard label="Overall Pass Rate" value={fmt(data.overall_pass_rate)} color={rateColor(data.overall_pass_rate)} icon={<Award size={14} />} />
+        <KpiCard label="Avg Score" value={fmt(data.avg_score)} color={scoreColor(data.avg_score, data.default_pass_threshold)} icon={<TrendingUp size={14} />} />
         <KpiCard label="Completion Rate" value={fmt(data.completion_rate)} icon={<CheckCircle size={14} />} />
         <KpiCard label="Auto-submit Rate" value={fmt(data.auto_submit_rate)} color={data.auto_submit_rate > 20 ? '#d97706' : undefined} icon={<Clock size={14} />} />
+      </div>
+
+      {/* A pass rate means nothing without the bar it was measured against, and
+          the bars can differ per paper. Say which, rather than letting the
+          colours imply one number governs everything. */}
+      <div style={{ fontSize: 11, color: '#6b7280', marginTop: -10, marginBottom: 18 }}>
+        Scores are judged against each assessment's own pass mark
+        {data.pass_thresholds_vary
+          ? ' (these differ between assessments).'
+          : ` — currently ${data.default_pass_threshold}%.`}
+        {' '}Pass rates are shares of coders, measured against a {PASS_RATE_TARGET}% target.
       </div>
 
       {data.per_assessment_pass_rates && data.per_assessment_pass_rates.length > 0 ? (
@@ -40,7 +51,7 @@ export function OverviewTab() {
               <Tooltip formatter={(v: any) => [`${v}%`, 'Pass Rate']} />
               <Bar dataKey="pass_rate" radius={[4, 4, 0, 0]}>
                 {(data.per_assessment_pass_rates as any[]).map((entry: any, i: number) => (
-                  <Cell key={i} fill={entry.pass_rate >= PASS ? '#16a34a' : entry.pass_rate >= 80 ? '#d97706' : '#dc2626'} />
+                  <Cell key={i} fill={rateColor(entry.pass_rate)} />
                 ))}
               </Bar>
             </BarChart>

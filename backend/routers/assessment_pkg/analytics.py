@@ -351,6 +351,9 @@ def analytics_by_assessment(assessment_id: int, db: Session = Depends(get_db)):
         "completion_rate": completion_rate,
         "auto_submit_rate": auto_submit_rate,
         "pass_rate": pass_rate,
+        # The bar this paper was judged against. A pass rate cannot be read
+        # without it, and the UI was assuming a fixed 90.
+        "pass_threshold": mark,
         "avg_score": avg_score,
         "min_score": min_score,
         "max_score": max_score,
@@ -446,6 +449,9 @@ def analytics_coder(
             "total_questions": r.total_questions,
             "time_taken_seconds": r.time_taken_seconds,
             "submitted_at": r.submitted_at.isoformat() if r.submitted_at else None,
+            # The bar this particular paper set. Rows in one coder's history can
+            # carry different bars, so colouring them all against one is wrong.
+            "pass_threshold": ch_marks.get(s.assessment_id, DEFAULT_PASS_THRESHOLD),
             "pass_fail": ("PASS" if score >= ch_marks.get(s.assessment_id, DEFAULT_PASS_THRESHOLD)
                           else "FAIL"),
             "auto_submitted": s.auto_submitted,
@@ -543,6 +549,13 @@ def analytics_coder(
         "best_score": best_score,
         "worst_score": worst_score,
         "avg_time_seconds": avg_time,
+        # The bar for the trend line. A coder's papers can carry different
+        # bars, so say when they do rather than drawing one line as if it
+        # governed every point.
+        "default_pass_threshold": DEFAULT_PASS_THRESHOLD,
+        "pass_thresholds_vary": len({
+            ch_marks.get(s_.assessment_id, DEFAULT_PASS_THRESHOLD) for s_ in sessions
+        }) > 1,
         "session_history": session_history,
         "score_trend": score_trend,
         "topic_strength": topic_strength,

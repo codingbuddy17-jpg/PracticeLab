@@ -1,11 +1,43 @@
 import { Loader, AlertCircle, CheckCircle, XCircle } from 'lucide-react'
 
-export const PASS = 90
+/**
+ * Fallback bar for a SCORE, used only until the backend's resolved threshold
+ * arrives. Every assessment carries its own pass mark now, so prefer the
+ * `default_pass_threshold` / `pass_threshold` the API returns.
+ */
+export const DEFAULT_PASS = 90
 
-export function scoreColor(v: number | null | undefined): string {
+/**
+ * Share of coders expected to pass. A POPULATION target — deliberately not the
+ * per-paper pass mark, which is a score and a different scale.
+ */
+export const PASS_RATE_TARGET = 70
+
+/**
+ * Colour a SCORE (what one coder scored on one paper) against its own bar.
+ *
+ * Pass the threshold the backend resolved for that assessment; without one it
+ * falls back to DEFAULT_PASS so nothing moves underneath existing views.
+ */
+export function scoreColor(v: number | null | undefined, threshold?: number | null): string {
   if (v == null) return '#9ca3af'
-  if (v >= PASS) return '#16a34a'
-  if (v >= 80) return '#d97706'
+  const bar = threshold ?? DEFAULT_PASS
+  if (v >= bar) return '#16a34a'
+  if (v >= bar - 10) return '#d97706'
+  return '#dc2626'
+}
+
+/**
+ * Colour a POPULATION SHARE (what % of coders passed).
+ *
+ * Distinct from scoreColor() on purpose. A share and a score are different
+ * scales, and running a share through the 90 score bar painted a cohort red at
+ * 85% of coders passing — a good result — purely because 85 < 90.
+ */
+export function rateColor(v: number | null | undefined): string {
+  if (v == null) return '#9ca3af'
+  if (v >= PASS_RATE_TARGET) return '#16a34a'
+  if (v >= PASS_RATE_TARGET * 0.7) return '#d97706'
   return '#dc2626'
 }
 

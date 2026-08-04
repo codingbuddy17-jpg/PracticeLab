@@ -3,7 +3,7 @@ import { Loader, FileDown } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine } from 'recharts'
 import { getAssessmentAnalyticsCoder, downloadAssessmentCoderReport } from '../../../api'
-import { PASS, scoreColor, fmt, fmtTime, Panel, PassBadge, DiffBadge, LoadingSpinner, EmptyState, inputStyle, searchBtnStyle } from './helpers'
+import { rateColor, DEFAULT_PASS, scoreColor, fmt, fmtTime, Panel, PassBadge, DiffBadge, LoadingSpinner, EmptyState, inputStyle, searchBtnStyle } from './helpers'
 
 export function CoderHistoryTab() {
   const [coderName, setCoderName] = useState('')
@@ -101,11 +101,11 @@ function CoderHistoryContent({ data }: { data: any }) {
           </div>
           <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center' }}>
             <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 28, fontWeight: 900, color: scoreColor(data.avg_score) }}>{fmt(data.avg_score)}</div>
+              <div style={{ fontSize: 28, fontWeight: 900, color: scoreColor(data.avg_score, data.default_pass_threshold) }}>{fmt(data.avg_score)}</div>
               <div style={{ fontSize: 11, color: '#6b7280', fontWeight: 600 }}>Avg Score</div>
             </div>
             <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 28, fontWeight: 900, color: data.pass_rate >= PASS ? '#16a34a' : '#dc2626' }}>{fmt(data.pass_rate)}</div>
+              <div style={{ fontSize: 28, fontWeight: 900, color: rateColor(data.pass_rate) }}>{fmt(data.pass_rate)}</div>
               <div style={{ fontSize: 11, color: '#6b7280', fontWeight: 600 }}>Pass Rate</div>
             </div>
             <div style={{ textAlign: 'center' }}>
@@ -140,7 +140,7 @@ function CoderHistoryContent({ data }: { data: any }) {
                   <input type="checkbox" checked={!excludedIds.has(sh.session_id)} onChange={() => toggleExclude(sh.session_id)} style={{ accentColor: '#7c3aed', width: 15, height: 15 }} />
                   <span style={{ fontWeight: 600, color: '#111' }}>{sh.assessment_name}</span>
                   <span style={{ color: '#6b7280', fontSize: 11 }}>{sh.submitted_at ? new Date(sh.submitted_at).toLocaleDateString() : ''}</span>
-                  <span style={{ color: scoreColor(sh.score_pct), fontWeight: 700, fontSize: 12 }}>{fmt(sh.score_pct)}</span>
+                  <span style={{ color: scoreColor(sh.score_pct, sh.pass_threshold), fontWeight: 700, fontSize: 12 }}>{fmt(sh.score_pct)}</span>
                   <PassBadge pf={sh.pass_fail} />
                 </label>
               ))}
@@ -155,7 +155,7 @@ function CoderHistoryContent({ data }: { data: any }) {
 
         <div style={{ display: 'flex', gap: 14, marginTop: 14, flexWrap: 'wrap' }}>
           <div style={{ fontSize: 13, color: '#374151' }}>Best: <strong style={{ color: '#16a34a' }}>{fmt(data.best_score)}</strong></div>
-          <div style={{ fontSize: 13, color: '#374151' }}>Worst: <strong style={{ color: scoreColor(data.worst_score) }}>{fmt(data.worst_score)}</strong></div>
+          <div style={{ fontSize: 13, color: '#374151' }}>Worst: <strong style={{ color: scoreColor(data.worst_score, data.default_pass_threshold) }}>{fmt(data.worst_score)}</strong></div>
           {data.avg_time_seconds && <div style={{ fontSize: 13, color: '#374151' }}>Avg Time: <strong>{fmtTime(data.avg_time_seconds)}</strong></div>}
         </div>
       </Panel>
@@ -168,7 +168,7 @@ function CoderHistoryContent({ data }: { data: any }) {
               <XAxis dataKey="submitted_at" tick={{ fontSize: 10 }} tickFormatter={(v) => new Date(v).toLocaleDateString()} />
               <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} tickFormatter={(v) => `${v}%`} />
               <Tooltip labelFormatter={(v) => new Date(v as string).toLocaleDateString()} formatter={(v: any) => [`${v}%`, 'Score']} />
-              <ReferenceLine y={PASS} stroke="#dc2626" strokeDasharray="4 4" label={{ value: '90% pass line', fill: '#dc2626', fontSize: 11 }} />
+              <ReferenceLine y={data.default_pass_threshold ?? DEFAULT_PASS} stroke="#dc2626" strokeDasharray="4 4" label={{ value: data.pass_thresholds_vary ? 'typical pass line' : `${data.default_pass_threshold ?? DEFAULT_PASS}% pass line`, fill: '#dc2626', fontSize: 11 }} />
               <Line type="monotone" dataKey="score_pct" stroke="#7c3aed" strokeWidth={2.5} dot={{ r: 4, fill: '#7c3aed' }} activeDot={{ r: 6 }} />
             </LineChart>
           </ResponsiveContainer>
@@ -191,7 +191,7 @@ function CoderHistoryContent({ data }: { data: any }) {
                   <tr key={i} style={{ borderBottom: '1px solid #f3f4f6' }}>
                     <td style={{ padding: '9px 12px', fontWeight: 600, color: '#111' }}>{sh.assessment_name}</td>
                     <td style={{ padding: '9px 12px', color: '#6b7280', fontSize: 12 }}>{sh.submitted_at ? new Date(sh.submitted_at).toLocaleDateString() : '—'}</td>
-                    <td style={{ padding: '9px 12px', fontWeight: 800, color: scoreColor(sh.score_pct) }}>{fmt(sh.score_pct)}</td>
+                    <td style={{ padding: '9px 12px', fontWeight: 800, color: scoreColor(sh.score_pct, sh.pass_threshold) }}>{fmt(sh.score_pct)}</td>
                     <td style={{ padding: '9px 12px', color: '#374151' }}>{sh.correct_count}/{sh.total_questions}</td>
                     <td style={{ padding: '9px 12px', color: '#6b7280' }}>{fmtTime(sh.time_taken_seconds)}</td>
                     <td style={{ padding: '9px 12px' }}><PassBadge pf={sh.pass_fail} /></td>

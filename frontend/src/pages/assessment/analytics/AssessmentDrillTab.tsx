@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import toast from 'react-hot-toast'
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell } from 'recharts'
 import { getAssessmentAnalyticsByAssessment, listAssessmentHistory } from '../../../api'
-import { scoreColor, bandColor, fmt, fmtTime, KpiCard, Panel, DiffBadge, PassBadge, LoadingSpinner, EmptyState, PASS } from './helpers'
+import { scoreColor, bandColor, fmt, fmtTime, KpiCard, Panel, DiffBadge, PassBadge, LoadingSpinner, EmptyState, rateColor } from './helpers'
 import { usePagination } from '../../../components/Paginator'
 
 export function AssessmentDrillTab() {
@@ -61,7 +61,7 @@ export function AssessmentDrillTab() {
   )
 }
 
-function CoderResultsTable({ rows }: { rows: any[] }) {
+function CoderResultsTable({ rows, passThreshold }: { rows: any[]; passThreshold?: number }) {
   const { pageData, Paginator } = usePagination(rows, 15)
   return (
     <>
@@ -79,7 +79,7 @@ function CoderResultsTable({ rows }: { rows: any[] }) {
               <tr key={i} style={{ borderBottom: '1px solid #f3f4f6' }}>
                 <td style={{ padding: '9px 12px', fontWeight: 600 }}>{row.coder_name}</td>
                 <td style={{ padding: '9px 12px', color: '#6b7280' }}>{row.employee_id || '—'}</td>
-                <td style={{ padding: '9px 12px', fontWeight: 800, color: scoreColor(row.score_pct) }}>{fmt(row.score_pct)}</td>
+                <td style={{ padding: '9px 12px', fontWeight: 800, color: scoreColor(row.score_pct, passThreshold) }}>{fmt(row.score_pct)}</td>
                 <td style={{ padding: '9px 12px', color: '#374151' }}>{row.correct_count}/{row.total_questions}</td>
                 <td style={{ padding: '9px 12px', color: '#6b7280' }}>{fmtTime(row.time_taken_seconds)}</td>
                 <td style={{ padding: '9px 12px' }}><PassBadge pf={row.pass_fail} /></td>
@@ -165,10 +165,10 @@ function AssessmentDrillContent({ data }: { data: any }) {
       </Panel>
 
       <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginBottom: 22 }}>
-        <KpiCard label="Avg Score" value={fmt(data.avg_score)} color={scoreColor(data.avg_score)} />
-        <KpiCard label="Pass Rate" value={fmt(data.pass_rate)} color={data.pass_rate >= PASS ? '#16a34a' : '#dc2626'} />
-        <KpiCard label="Min Score" value={fmt(data.min_score)} color={scoreColor(data.min_score)} />
-        <KpiCard label="Max Score" value={fmt(data.max_score)} color={scoreColor(data.max_score)} />
+        <KpiCard label="Avg Score" value={fmt(data.avg_score)} color={scoreColor(data.avg_score, data.pass_threshold)} />
+        <KpiCard label="Pass Rate" value={fmt(data.pass_rate)} color={rateColor(data.pass_rate)} />
+        <KpiCard label="Min Score" value={fmt(data.min_score)} color={scoreColor(data.min_score, data.pass_threshold)} />
+        <KpiCard label="Max Score" value={fmt(data.max_score)} color={scoreColor(data.max_score, data.pass_threshold)} />
         <KpiCard label="Completion" value={fmt(data.completion_rate)} />
         <KpiCard label="Auto-submits" value={fmt(data.auto_submit_rate)} color={data.auto_submit_rate > 20 ? '#d97706' : undefined} />
       </div>
@@ -193,7 +193,7 @@ function AssessmentDrillContent({ data }: { data: any }) {
 
       {data.coder_rows && data.coder_rows.length > 0 && (
         <Panel title="Coder Results">
-          <CoderResultsTable rows={data.coder_rows} />
+          <CoderResultsTable rows={data.coder_rows} passThreshold={data.pass_threshold} />
         </Panel>
       )}
 
