@@ -716,8 +716,20 @@ def get_batch(batch_id: int, db: Session = Depends(get_db)):
         """), {"b": batch_id}).fetchall()
         direct_graded_count = len(graded_rows)
         for gr in graded_rows:
-            coder_map.setdefault(gr[0], []).append({
-                "chart_id": gr[1],
+            coder_name, chart_id = gr[0], gr[1]
+            rows = coder_map.setdefault(coder_name, [])
+            # A direct assignment already has a BatchChart row for this coder and
+            # chart — the practice result describes the SAME work, not a second
+            # chart. Appending it listed every graded chart twice and doubled the
+            # assigned count. Merge onto the existing row instead, so the
+            # assignment's detail (difficulty) and the result's status both
+            # survive.
+            existing = next((r for r in rows if r["chart_id"] == chart_id), None)
+            if existing:
+                existing["submission_status"] = "Submitted"
+                continue
+            rows.append({
+                "chart_id": chart_id,
                 "chart_number": gr[2],
                 "specialty": gr[4] if isinstance(gr[4], str) else (gr[4].value if gr[4] else None),
                 "category": gr[3],
