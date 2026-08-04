@@ -58,6 +58,10 @@ function CoderHistoryContent({ data }: { data: any }) {
   const allSessionIds: number[] = (data.session_history || []).map((sh: any) => sh.session_id)
   const [excludedIds, setExcludedIds] = useState<Set<number>>(new Set())
   const [showFilter, setShowFilter] = useState(false)
+  // The download is a fetch now, so a failure is a message rather than a blank
+  // tab showing raw JSON.
+  const [downloadError, setDownloadError] = useState('')
+  const [downloading, setDownloading] = useState(false)
 
   function toggleExclude(id: number) {
     setExcludedIds(prev => {
@@ -68,8 +72,16 @@ function CoderHistoryContent({ data }: { data: any }) {
     })
   }
 
-  function handleDownloadPdf() {
-    downloadAssessmentCoderReport(data.coder_name, data.employee_id || undefined, undefined, undefined, excludedIds.size > 0 ? Array.from(excludedIds) : undefined)
+  async function handleDownloadPdf() {
+    setDownloadError('')
+    setDownloading(true)
+    try {
+      await downloadAssessmentCoderReport(data.coder_name, data.employee_id || undefined, undefined, undefined, excludedIds.size > 0 ? Array.from(excludedIds) : undefined)
+    } catch (e: any) {
+      setDownloadError(e.message || 'Could not download the report.')
+    } finally {
+      setDownloading(false)
+    }
   }
 
   const includedCount = allSessionIds.length - excludedIds.size
@@ -101,11 +113,14 @@ function CoderHistoryContent({ data }: { data: any }) {
               <div style={{ fontSize: 11, color: '#6b7280', fontWeight: 600 }}>Assessments</div>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>
-              <button onClick={handleDownloadPdf} disabled={includedCount === 0}
+              <button onClick={handleDownloadPdf} disabled={includedCount === 0 || downloading}
                 style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 10, background: includedCount === 0 ? '#e5e7eb' : 'linear-gradient(135deg, #7c3aed, #4f46e5)', color: includedCount === 0 ? '#9ca3af' : '#fff', border: 'none', cursor: includedCount === 0 ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 700 }}>
                 <FileDown size={13} />
-                {excludedIds.size > 0 ? `PDF (${includedCount} assessments)` : 'Download PDF Report'}
+                {downloading ? 'Preparing…' : excludedIds.size > 0 ? `PDF (${includedCount} assessments)` : 'Download PDF Report'}
               </button>
+              {downloadError && (
+                <div style={{ fontSize: 11, color: '#b91c1c', fontWeight: 600, maxWidth: 260, textAlign: 'right' }}>{downloadError}</div>
+              )}
               {allSessionIds.length > 1 && (
                 <button onClick={() => setShowFilter(v => !v)}
                   style={{ fontSize: 11, color: '#7c3aed', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, textDecoration: 'underline', padding: 0 }}>

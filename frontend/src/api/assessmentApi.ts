@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 import api from './client'
+import { downloadFile } from './download'
 
 export interface AssessmentQuestionStat {
   specialty: string
@@ -72,16 +73,32 @@ export async function getAssessmentPoolSummary(specialty: string) {
   }
 }
 
-export function exportAssessmentQuestions(specialty: string, passphrase: string, trainerName: string): void {
-  const base = import.meta.env.VITE_API_URL || '/api'
-  window.open(`${base}/assessment/questions/export?specialty=${encodeURIComponent(specialty)}&passphrase=${encodeURIComponent(passphrase)}&trainer_name=${encodeURIComponent(trainerName)}`, '_blank')
+/**
+ * Blob downloads rather than window.open().
+ *
+ * Two gains. A failed export (wrong passphrase) now raises a message instead of
+ * opening a blank tab showing the raw JSON error. And because this is an XHR
+ * rather than a navigation, the passphrase no longer enters the browser's
+ * history or the tab's address bar.
+ *
+ * It is still a query parameter on the wire, so it still reaches server access
+ * logs. Moving it to a header would fix that, and needs the backend endpoints
+ * to accept it there.
+ */
+export function exportAssessmentQuestions(specialty: string, passphrase: string, trainerName: string) {
+  return downloadFile(
+    '/assessment/questions/export',
+    `${specialty.replace(/\s+/g, '_')}_Questions.xlsx`,
+    { specialty, passphrase, trainer_name: trainerName },
+  )
 }
 
-export function exportAllAssessmentQuestions(passphrase: string, trainerName: string, specialty?: string): void {
-  const base = import.meta.env.VITE_API_URL || '/api'
-  const params = new URLSearchParams({ passphrase, trainer_name: trainerName })
-  if (specialty) params.set('specialty', specialty)
-  window.open(`${base}/assessment/questions/export-all?${params}`, '_blank')
+export function exportAllAssessmentQuestions(passphrase: string, trainerName: string, specialty?: string) {
+  return downloadFile(
+    '/assessment/questions/export-all',
+    specialty ? `${specialty.replace(/\s+/g, '_')}_Questions.xlsx` : 'Assessment_Question_Bank.xlsx',
+    { passphrase, trainer_name: trainerName, specialty: specialty || undefined },
+  )
 }
 
 export async function uploadAssessmentQuestions(specialty: string, uploadedBy: string, file: File) {
@@ -288,27 +305,36 @@ export function downloadAssessmentCoderReport(
   dateFrom?: string,
   dateTo?: string,
   excludeSessionIds?: number[],
+  batchName?: string,
 ) {
-  const base = import.meta.env.VITE_API_URL || '/api'
-  const params = new URLSearchParams({ coder_name: coderName })
-  if (employeeId) params.set('employee_id', employeeId)
-  if (dateFrom) params.set('date_from', dateFrom)
-  if (dateTo) params.set('date_to', dateTo)
-  if (excludeSessionIds && excludeSessionIds.length > 0)
-    params.set('exclude_session_ids', excludeSessionIds.join(','))
-  window.open(`${base}/assessment/analytics/coder-report.pdf?${params}`)
+  return downloadFile(
+    '/assessment/analytics/coder-report.pdf',
+    `${coderName.replace(/\s+/g, '_')}_Assessment_Report.pdf`,
+    {
+      coder_name: coderName,
+      employee_id: employeeId || undefined,
+      date_from: dateFrom || undefined,
+      date_to: dateTo || undefined,
+      batch_name: batchName || undefined,
+      exclude_session_ids: excludeSessionIds?.length ? excludeSessionIds.join(',') : undefined,
+    },
+  )
 }
 
 export function downloadAssessmentBatchReport(batchName: string) {
-  const base = import.meta.env.VITE_API_URL || '/api'
-  const params = new URLSearchParams({ batch_name: batchName })
-  window.open(`${base}/assessment/analytics/batch-report.pdf?${params}`)
+  return downloadFile(
+    '/assessment/analytics/batch-report.pdf',
+    `${batchName.replace(/\s+/g, '_')}_Batch_Report.pdf`,
+    { batch_name: batchName },
+  )
 }
 
 export function downloadAssessmentBatchCoderReportsZip(batchName: string) {
-  const base = import.meta.env.VITE_API_URL || '/api'
-  const params = new URLSearchParams({ batch_name: batchName })
-  window.open(`${base}/assessment/analytics/batch-coder-reports.zip?${params}`)
+  return downloadFile(
+    '/assessment/analytics/batch-coder-reports.zip',
+    `${batchName.replace(/\s+/g, '_')}_Coder_Reports.zip`,
+    { batch_name: batchName },
+  )
 }
 
 export async function parseStandaloneQuestions(file: File): Promise<{ questions: object[]; count: number; errors: string[] }> {

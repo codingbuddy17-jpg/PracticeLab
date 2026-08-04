@@ -241,7 +241,7 @@ export function QuestionBankView() {
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' as const, alignItems: 'center' }}>
               <button
                 style={{ ...s.btnPrimary, gap: 7 }}
-                onClick={() => exportAllAssessmentQuestions(passphrase, trainerName)}
+                onClick={() => exportAllAssessmentQuestions(passphrase, trainerName).catch(e => toast.error(e.message))}
               >
                 <Layers size={13} /> Download Full Inventory (All Specialties)
               </button>
@@ -252,7 +252,7 @@ export function QuestionBankView() {
                   defaultValue=""
                   onChange={(e) => {
                     if (e.target.value) {
-                      exportAllAssessmentQuestions(passphrase, trainerName, e.target.value)
+                      exportAllAssessmentQuestions(passphrase, trainerName, e.target.value).catch(err => toast.error(err.message))
                       e.target.value = ''
                     }
                   }}
