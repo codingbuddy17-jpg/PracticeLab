@@ -453,6 +453,15 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
   }
   const canClose = isOpen && closeBlockers.length === 0 && (hasResults || isDirectAssignment)
 
+  // A direct assignment may be closed with nothing submitted — that is how a
+  // trainer cancels one sent to the wrong coder, so it must stay possible.
+  // What it must not be is silent: closing discards assigned work, and the
+  // generic "Mark this assignment as complete?" read as a routine tidy-up.
+  const closingDiscardsWork = isDirectAssignment && !hasResults && totalAssigned > 0
+  const closePrompt = closingDiscardsWork
+    ? `${totalAssigned} chart${totalAssigned === 1 ? '' : 's'} assigned, nothing submitted. Close anyway?`
+    : isDirectAssignment ? 'Mark this assignment as complete?' : 'Lock all results?'
+
   // Progression steps
   const steps = [
     { label: 'Run Cycle', done: hasCycles, active: !hasCycles },
@@ -623,9 +632,9 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
         )}
         {isOpen && closeBlockers.length === 0 && confirmingClose && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 'auto', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 8, padding: '6px 12px' }}>
-            <span style={{ fontSize: 12, color: '#92400e', fontWeight: 600 }}>{isDirectAssignment ? 'Mark this assignment as complete?' : 'Lock all results?'}</span>
+            <span style={{ fontSize: 12, color: '#92400e', fontWeight: 600 }}>{closePrompt}</span>
             <button style={{ ...styles.destructiveBtn, padding: '5px 12px', fontSize: 12 }} disabled={closing} onClick={handleClose}>
-              {closing ? 'Closing…' : 'Yes, Close'}
+              {closing ? 'Closing…' : closingDiscardsWork ? 'Yes, Close Unworked' : 'Yes, Close'}
             </button>
             <button style={{ ...styles.outlineBtn, padding: '5px 12px', fontSize: 12 }} onClick={() => setConfirmingClose(false)}>Cancel</button>
           </div>
