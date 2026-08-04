@@ -134,48 +134,7 @@ function BatchList({ batches, expanded, setExpanded, drillData, drillLoading, to
                     </div>
 
                     {drill.all_topics && drill.all_topics.length > 0 && drill.coder_rows && drill.coder_rows.length > 0 && (
-                      <div>
-                        <div style={{ fontSize: 13, fontWeight: 800, color: '#111', marginBottom: 10 }}>Coder × Topic Accuracy Matrix</div>
-                        <div style={{ overflowX: 'auto' }}>
-                          <table style={{ borderCollapse: 'collapse', fontSize: 12, minWidth: '100%' }}>
-                            <thead>
-                              <tr style={{ borderBottom: '2px solid #e5e7eb' }}>
-                                <th style={{ textAlign: 'left', padding: '8px 12px', color: '#6b7280', fontWeight: 700, fontSize: 11, whiteSpace: 'nowrap' as const }}>Coder</th>
-                                {(drill.all_topics as string[]).map((tp: string) => (
-                                  <th key={tp} style={{ padding: '8px 10px', color: '#6b7280', fontWeight: 700, fontSize: 10, whiteSpace: 'nowrap' as const, maxWidth: 100 }}>
-                                    <div style={{ maxWidth: 90, overflow: 'hidden', textOverflow: 'ellipsis' }}>{tp}</div>
-                                  </th>
-                                ))}
-                                <th style={{ textAlign: 'center', padding: '8px 10px', color: '#6b7280', fontWeight: 700, fontSize: 11 }}>Score</th>
-                                <th style={{ textAlign: 'center', padding: '8px 10px', color: '#6b7280', fontWeight: 700, fontSize: 11 }}>Δ</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {(drill.coder_rows as any[]).map((row: any, i: number) => (
-                                <tr key={i} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                                  <td style={{ padding: '7px 12px', fontWeight: 700, color: '#111', whiteSpace: 'nowrap' as const }}>{row.coder_name}</td>
-                                  {(drill.all_topics as string[]).map((tp: string) => {
-                                    const acc = row.topics[tp]
-                                    const bg = acc == null ? '#f9fafb' : acc >= 90 ? 'rgba(22,163,74,0.14)' : acc >= 80 ? 'rgba(217,119,6,0.12)' : 'rgba(220,38,38,0.1)'
-                                    return (
-                                      <td key={tp} style={{ padding: '7px 10px', textAlign: 'center', background: bg, fontWeight: 700, fontSize: 12, color: scoreColor(acc) }}>
-                                        {acc != null ? `${acc}%` : '—'}
-                                      </td>
-                                    )
-                                  })}
-                                  <td style={{ padding: '7px 10px', textAlign: 'center', fontWeight: 800, color: scoreColor(row.latest_score) }}>
-                                    {row.latest_score != null ? `${row.latest_score}%` : '—'}
-                                  </td>
-                                  <td style={{ padding: '7px 10px', textAlign: 'center', fontWeight: 700, fontSize: 12, color: row.delta == null ? '#9ca3af' : row.delta > 0 ? '#16a34a' : row.delta < 0 ? '#dc2626' : '#6b7280' }}>
-                                    {row.delta == null ? '—' : row.delta > 0 ? `↑${row.delta}` : row.delta < 0 ? `↓${Math.abs(row.delta)}` : '0'}
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                        <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 8 }}>Δ = score change across assessments in this batch. Green = improved, Red = regressed.</div>
-                      </div>
+                      <CoderTopicMatrix drill={drill} />
                     )}
 
                     {drill.assessments && drill.assessments.length > 0 && (
@@ -200,5 +159,137 @@ function BatchList({ batches, expanded, setExpanded, drillData, drillLoading, to
     </div>
     <Paginator />
     </>
+  )
+}
+
+/** Topics shown before the trainer asks for the rest. */
+const TOPIC_CAP = 20
+const MATRIX_PAGE = 15
+
+/**
+ * Coder × topic accuracy.
+ *
+ * This grid is the one place in Assessment analytics that grows in BOTH
+ * directions: a row per coder and a column per topic. At 200 coders and 80
+ * topics that is 16,000 cells in one scroll container — unreadable, and slow
+ * to paint.
+ *
+ * So it is capped on both axes by default. Columns show the weakest topics
+ * first, because a topic the cohort already knows is not what a trainer opened
+ * this for; rows are searchable and paged. Both caps are liftable, but the
+ * default is the useful view rather than the complete one.
+ */
+function CoderTopicMatrix({ drill }: { drill: any }) {
+  const [showAllTopics, setShowAllTopics] = useState(false)
+  const [search, setSearch] = useState('')
+
+  const allTopics: string[] = drill.all_topics || []
+
+  // Weakest first, using the team accuracy the backend already computed.
+  // Topics it could not score sort last rather than being dropped — an
+  // unanswered topic is a gap, not an absence.
+  const ranked: string[] = (() => {
+    const acc = new Map<string, number>()
+    for (const t of (drill.topic_summary || [])) {
+      if (t.accuracy_pct != null) acc.set(t.topic, t.accuracy_pct)
+    }
+    return [...allTopics].sort((a, b) => {
+      const av = acc.get(a), bv = acc.get(b)
+      if (av == null && bv == null) return a.localeCompare(b)
+      if (av == null) return 1
+      if (bv == null) return -1
+      return av - bv
+    })
+  })()
+
+  const topics = showAllTopics ? ranked : ranked.slice(0, TOPIC_CAP)
+  const hiddenTopics = ranked.length - topics.length
+
+  const q = search.trim().toLowerCase()
+  const rows = q
+    ? (drill.coder_rows as any[]).filter((r: any) =>
+        (r.coder_name || '').toLowerCase().includes(q) ||
+        (r.employee_id || '').toLowerCase().includes(q))
+    : (drill.coder_rows as any[])
+
+  const { pageData, Paginator } = usePagination(rows, MATRIX_PAGE)
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
+        <div style={{ fontSize: 13, fontWeight: 800, color: '#111' }}>Coder × Topic Accuracy Matrix</div>
+        <input
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Escape') setSearch('') }}
+          placeholder="Find a coder…"
+          style={{ padding: '5px 10px', borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 12, minWidth: 160 }}
+        />
+        {q && (
+          <span style={{ fontSize: 11, color: '#6b7280' }}>
+            {rows.length} of {drill.coder_rows.length} coders
+          </span>
+        )}
+        {hiddenTopics > 0 && (
+          <button onClick={() => setShowAllTopics(true)}
+            style={{ marginLeft: 'auto', fontSize: 11, color: '#7c3aed', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, textDecoration: 'underline', padding: 0 }}>
+            Showing the {TOPIC_CAP} weakest topics — show all {ranked.length}
+          </button>
+        )}
+        {showAllTopics && ranked.length > TOPIC_CAP && (
+          <button onClick={() => setShowAllTopics(false)}
+            style={{ marginLeft: 'auto', fontSize: 11, color: '#7c3aed', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, textDecoration: 'underline', padding: 0 }}>
+            Show weakest {TOPIC_CAP} only
+          </button>
+        )}
+      </div>
+
+      {rows.length === 0 ? (
+        <div style={{ fontSize: 12, color: '#6b7280', padding: '14px 0' }}>No coder matches “{search}”.</div>
+      ) : (
+        <>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ borderCollapse: 'collapse', fontSize: 12, minWidth: '100%' }}>
+              <thead>
+                <tr style={{ borderBottom: '2px solid #e5e7eb' }}>
+                  <th style={{ textAlign: 'left', padding: '8px 12px', color: '#6b7280', fontWeight: 700, fontSize: 11, whiteSpace: 'nowrap' as const }}>Coder</th>
+                  {topics.map((tp: string) => (
+                    <th key={tp} title={tp} style={{ padding: '8px 10px', color: '#6b7280', fontWeight: 700, fontSize: 10, whiteSpace: 'nowrap' as const, maxWidth: 100 }}>
+                      <div style={{ maxWidth: 90, overflow: 'hidden', textOverflow: 'ellipsis' }}>{tp}</div>
+                    </th>
+                  ))}
+                  <th style={{ textAlign: 'center', padding: '8px 10px', color: '#6b7280', fontWeight: 700, fontSize: 11 }}>Score</th>
+                  <th style={{ textAlign: 'center', padding: '8px 10px', color: '#6b7280', fontWeight: 700, fontSize: 11 }}>Δ</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pageData.map((row: any, i: number) => (
+                  <tr key={i} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                    <td style={{ padding: '7px 12px', fontWeight: 700, color: '#111', whiteSpace: 'nowrap' as const }}>{row.coder_name}</td>
+                    {topics.map((tp: string) => {
+                      const acc = row.topics[tp]
+                      const bg = acc == null ? '#f9fafb' : acc >= 90 ? 'rgba(22,163,74,0.14)' : acc >= 80 ? 'rgba(217,119,6,0.12)' : 'rgba(220,38,38,0.1)'
+                      return (
+                        <td key={tp} style={{ padding: '7px 10px', textAlign: 'center', background: bg, fontWeight: 700, fontSize: 12, color: scoreColor(acc) }}>
+                          {acc != null ? `${acc}%` : '—'}
+                        </td>
+                      )
+                    })}
+                    <td style={{ padding: '7px 10px', textAlign: 'center', fontWeight: 800, color: scoreColor(row.latest_score) }}>
+                      {row.latest_score != null ? `${row.latest_score}%` : '—'}
+                    </td>
+                    <td style={{ padding: '7px 10px', textAlign: 'center', fontWeight: 700, fontSize: 12, color: row.delta == null ? '#9ca3af' : row.delta > 0 ? '#16a34a' : row.delta < 0 ? '#dc2626' : '#6b7280' }}>
+                      {row.delta == null ? '—' : row.delta > 0 ? `↑${row.delta}` : row.delta < 0 ? `↓${Math.abs(row.delta)}` : '0'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <Paginator />
+        </>
+      )}
+      <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 8 }}>Δ = score change across assessments in this batch. Green = improved, Red = regressed.</div>
+    </div>
   )
 }

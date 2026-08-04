@@ -3,6 +3,8 @@ import { Loader, FileDown } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine } from 'recharts'
 import { getAssessmentAnalyticsCoder, downloadAssessmentCoderReport } from '../../../api'
+import { usePagination } from '../../../components/Paginator'
+import { recent, tickInterval, TREND_WINDOWS } from '../../practicelab/chartScale'
 import { rateColor, DEFAULT_PASS, scoreColor, fmt, fmtTime, Panel, PassBadge, DiffBadge, LoadingSpinner, EmptyState, inputStyle, searchBtnStyle } from './helpers'
 
 export function CoderHistoryTab() {
@@ -62,6 +64,12 @@ function CoderHistoryContent({ data }: { data: any }) {
   // tab showing raw JSON.
   const [downloadError, setDownloadError] = useState('')
   const [downloading, setDownloading] = useState(false)
+  // A long-serving coder can have a hundred papers. The trend showed every one
+  // as a dot in a 200px chart, and the table mapped all of them.
+  const [trendWindow, setTrendWindow] = useState<(typeof TREND_WINDOWS)[number] | 'all'>(TREND_WINDOWS[1])
+  const trendData = recent(data.score_trend || [], trendWindow)
+  const { pageData: historyPage, Paginator: HistoryPaginator } =
+    usePagination(data.session_history || [], 15)
 
   function toggleExclude(id: number) {
     setExcludedIds(prev => {
@@ -162,14 +170,31 @@ function CoderHistoryContent({ data }: { data: any }) {
 
       {data.score_trend && data.score_trend.length > 1 && (
         <Panel title="Score Trend Over Time">
+          {data.score_trend.length > TREND_WINDOWS[0] && (
+            <div style={{ display: 'flex', gap: 6, marginBottom: 8, alignItems: 'center' }}>
+              <span style={{ fontSize: 11, color: '#6b7280', fontWeight: 600 }}>Show</span>
+              {[...TREND_WINDOWS, 'all' as const].map(w => {
+                const on = trendWindow === w
+                return (
+                  <button key={String(w)} onClick={() => setTrendWindow(w)}
+                    style={{ padding: '3px 9px', borderRadius: 7, fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                             border: on ? '1px solid rgba(124,58,237,0.35)' : '1px solid #e5e7eb',
+                             background: on ? 'rgba(124,58,237,0.1)' : '#fff',
+                             color: on ? '#7c3aed' : '#6b7280' }}>
+                    {w === 'all' ? `All ${data.score_trend.length}` : `Last ${w}`}
+                  </button>
+                )
+              })}
+            </div>
+          )}
           <ResponsiveContainer width="100%" height={200}>
-            <LineChart data={data.score_trend} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+            <LineChart data={trendData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" />
-              <XAxis dataKey="submitted_at" tick={{ fontSize: 10 }} tickFormatter={(v) => new Date(v).toLocaleDateString()} />
+              <XAxis dataKey="submitted_at" tick={{ fontSize: 10 }} interval={tickInterval(trendData.length)} tickFormatter={(v) => new Date(v).toLocaleDateString()} />
               <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} tickFormatter={(v) => `${v}%`} />
               <Tooltip labelFormatter={(v) => new Date(v as string).toLocaleDateString()} formatter={(v: any) => [`${v}%`, 'Score']} />
               <ReferenceLine y={data.default_pass_threshold ?? DEFAULT_PASS} stroke="#dc2626" strokeDasharray="4 4" label={{ value: data.pass_thresholds_vary ? 'typical pass line' : `${data.default_pass_threshold ?? DEFAULT_PASS}% pass line`, fill: '#dc2626', fontSize: 11 }} />
-              <Line type="monotone" dataKey="score_pct" stroke="#7c3aed" strokeWidth={2.5} dot={{ r: 4, fill: '#7c3aed' }} activeDot={{ r: 6 }} />
+              <Line type="monotone" dataKey="score_pct" stroke="#7c3aed" strokeWidth={2.5} dot={trendData.length <= 25 ? { r: 4, fill: '#7c3aed' } : false} activeDot={{ r: 6 }} />
             </LineChart>
           </ResponsiveContainer>
         </Panel>
@@ -187,7 +212,7 @@ function CoderHistoryContent({ data }: { data: any }) {
                 </tr>
               </thead>
               <tbody>
-                {(data.session_history as any[]).map((sh: any, i: number) => (
+                {historyPage.map((sh: any, i: number) => (
                   <tr key={i} style={{ borderBottom: '1px solid #f3f4f6' }}>
                     <td style={{ padding: '9px 12px', fontWeight: 600, color: '#111' }}>{sh.assessment_name}</td>
                     <td style={{ padding: '9px 12px', color: '#6b7280', fontSize: 12 }}>{sh.submitted_at ? new Date(sh.submitted_at).toLocaleDateString() : '—'}</td>
@@ -203,6 +228,7 @@ function CoderHistoryContent({ data }: { data: any }) {
               </tbody>
             </table>
           </div>
+          <HistoryPaginator />
         </Panel>
       )}
 
