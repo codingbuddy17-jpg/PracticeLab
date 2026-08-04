@@ -985,6 +985,41 @@ def analytics_batch_drill(batch_name: str, db: Session = Depends(get_db)):
     }
 
 
+@router.get("/analytics/coder-matrix.xlsx")
+def coder_matrix_export(db: Session = Depends(get_db), f: AFilters = Depends(filters)):
+    """
+    The whole grid, not the page.
+
+    The screen pages the rows because that is what stays readable; this answers
+    the other question — every coder against every specialty in one sheet. It
+    takes the same window as the screen, and deliberately ignores the paging.
+    """
+    import io
+    from fastapi.responses import StreamingResponse
+    from services.excel_service import export_grid
+
+    data = analytics_coder_matrix(db=db, f=f)
+    specialties = data["specialties"]
+
+    rows = [{
+        "label": c["coder_name"],
+        "sub": c.get("employee_id"),
+        "values": {sp: c["specialties"].get(sp) for sp in specialties},
+        "overall": c["avg_score"],
+    } for c in data["coders"]]
+
+    payload = export_grid(
+        "Coder Matrix", "Coder",
+        [{"key": sp, "label": sp, "sub": None} for sp in specialties],
+        rows,
+    )
+    return StreamingResponse(
+        io.BytesIO(payload),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=content_disposition("Assessment_Coder_Matrix.xlsx", "Coder_Matrix.xlsx"),
+    )
+
+
 @router.get("/analytics/coder-report.pdf")
 def assessment_coder_report_pdf(
     coder_name: str,
@@ -1112,9 +1147,12 @@ def analytics_coder_matrix(db: Session = Depends(get_db), f: AFilters = Depends(
     session_map = {s.id: s for s in sessions}
     result_map = {r.session_id: r for r in results}
 
-    # coder → specialty → {correct, total}
+    # coder → specialty → {correct, total}. Keyed by coder_key, not by name:
+    # grouping on the typed name alone merged two people who share one into a
+    # single row, which is the identity rule the rest of this module follows.
     coder_spec: Dict[str, Dict[str, Dict]] = {}
     coder_overall: Dict[str, List[float]] = {}
+    coder_label: Dict[str, Dict[str, Any]] = {}
 
     for resp in responses:
         if resp.is_correct is None:
@@ -1122,22 +1160,29 @@ def analytics_coder_matrix(db: Session = Depends(get_db), f: AFilters = Depends(
         s = session_map.get(resp.session_id)
         if not s:
             continue
+        key = coder_key(s)
+        coder_label.setdefault(key, {"coder_name": s.coder_name, "employee_id": s.employee_id})
         sp = qid_specialty.get(resp.question_id, "Unknown")
-        coder_spec.setdefault(s.coder_name, {}).setdefault(sp, {"correct": 0, "total": 0})
-        coder_spec[s.coder_name][sp]["total"] += 1
+        coder_spec.setdefault(key, {}).setdefault(sp, {"correct": 0, "total": 0})
+        coder_spec[key][sp]["total"] += 1
         if resp.is_correct:
-            coder_spec[s.coder_name][sp]["correct"] += 1
+            coder_spec[key][sp]["correct"] += 1
 
     for s in sessions:
         r = result_map.get(s.id)
         if r:
-            coder_overall.setdefault(s.coder_name, []).append(r.score_pct)
+            coder_overall.setdefault(coder_key(s), []).append(r.score_pct)
 
     all_specialties = sorted(set(sp for c in coder_spec.values() for sp in c.keys()))
 
     coders = []
     for coder, spec_data in coder_spec.items():
-        row: Dict[str, Any] = {"coder_name": coder, "specialties": {}}
+        label = coder_label.get(coder, {"coder_name": coder, "employee_id": None})
+        row: Dict[str, Any] = {
+            "coder_name": label["coder_name"],
+            "employee_id": label["employee_id"],
+            "specialties": {},
+        }
         for sp in all_specialties:
             d = spec_data.get(sp)
             row["specialties"][sp] = round(d["correct"] / d["total"] * 100, 1) if d and d["total"] else None
@@ -1147,4 +1192,9 @@ def analytics_coder_matrix(db: Session = Depends(get_db), f: AFilters = Depends(
         coders.append(row)
 
     coders.sort(key=lambda x: -(x["avg_score"] or 0))
-    return {"coders": coders, "specialties": all_specialties}
+    return {
+        "coders": coders,
+        "specialties": all_specialties,
+        # The bar the UI should mark "below threshold" against.
+        "default_pass_threshold": DEFAULT_PASS_THRESHOLD,
+    }

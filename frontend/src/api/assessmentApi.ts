@@ -318,6 +318,11 @@ export async function getAssessmentAnalyticsCoderMatrix(f: AFilters = {}) {
   return data
 }
 
+export function downloadAssessmentCoderMatrixXlsx(f: AFilters = {}) {
+  return downloadFile('/assessment/analytics/coder-matrix.xlsx',
+                      'Assessment_Coder_Matrix.xlsx', afp(f))
+}
+
 export function downloadAssessmentCoderReport(
   coderName: string,
   employeeId?: string,
