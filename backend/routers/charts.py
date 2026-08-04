@@ -53,6 +53,7 @@ def search_charts(
     category: Optional[str] = None,
     difficulty: Optional[Difficulty] = None,
     status: ChartStatus = ChartStatus.ACTIVE,
+    answer_key_status: Optional[str] = None,
     page: int = 1,
     page_size: int = 20,
     db: Session = Depends(get_db),
@@ -69,15 +70,28 @@ def search_charts(
         query = query.filter(Chart.category.ilike(f"%{category}%"))
     if difficulty:
         query = query.filter(Chart.difficulty == difficulty)
+    if answer_key_status == "with_key":
+        query = query.filter(Chart.id.in_(db.query(AnswerKey.chart_id)))
+    elif answer_key_status == "missing_key":
+        query = query.filter(~Chart.id.in_(db.query(AnswerKey.chart_id)))
 
     total = query.count()
     results = query.order_by(Chart.chart_number).offset((page - 1) * page_size).limit(page_size).all()
+    keyed_ids = {
+        row[0]
+        for row in db.query(AnswerKey.chart_id)
+        .filter(AnswerKey.chart_id.in_([c.id for c in results] or [-1]))
+        .all()
+    }
 
     return {
         "total": total,
         "page": page,
         "page_size": page_size,
-        "results": [ChartOut.model_validate(c) for c in results],
+        "results": [
+            {**ChartOut.model_validate(c).model_dump(mode="json"), "has_answer_key": c.id in keyed_ids}
+            for c in results
+        ],
     }
 
 
@@ -135,9 +149,13 @@ def update_chart(
     chart_id: int,
     payload: ChartUpdate,
     actor: str = Query(...),
+    passphrase: Optional[str] = Query(default=None),
     db: Session = Depends(get_db),
 ):
     chart = _get_or_404(chart_id, db)
+    if chart.uploaded_by != actor:
+        if passphrase != settings.MASTER_ADMIN_PASSPHRASE:
+            raise HTTPException(status_code=403, detail="Invalid passphrase")
     changes = []
     if payload.category is not None:
         changes.append(f"category: {chart.category} → {payload.category}")

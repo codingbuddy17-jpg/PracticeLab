@@ -33,6 +33,7 @@ export interface Chart {
   status: ChartStatus
   uploaded_by: string
   view_count: number
+  has_answer_key?: boolean | null
   created_at: string
   updated_at: string | null
   files: ChartFile[]

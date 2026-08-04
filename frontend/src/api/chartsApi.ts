@@ -27,8 +27,8 @@ export async function getChartTrainer(chartId: number): Promise<ChartWithRationa
   return data
 }
 
-export async function updateChart(chartId: number, actor: string, payload: Partial<{ category: string; difficulty: string; rationale: string; alias: string }>) {
-  const { data } = await api.patch(`/charts/${chartId}`, payload, { params: { actor } })
+export async function updateChart(chartId: number, actor: string, payload: Partial<{ category: string; difficulty: string; rationale: string; alias: string }>, passphrase?: string) {
+  const { data } = await api.patch(`/charts/${chartId}`, payload, { params: { actor, passphrase } })
   return data as Chart
 }
 
@@ -77,10 +77,11 @@ export async function bulkUpload(
   return data
 }
 
-export async function addFilesToChart(chartId: number, files: File[], uploadedBy: string): Promise<{ message: string }> {
+export async function addFilesToChart(chartId: number, files: File[], uploadedBy: string, passphrase?: string): Promise<{ message: string }> {
   const form = new FormData()
   files.forEach(f => form.append('files', f))
   form.append('uploaded_by', uploadedBy)
+  if (passphrase) form.append('passphrase', passphrase)
   const { data } = await api.post(`/upload/${chartId}/add-files`, form, {
     headers: { 'Content-Type': 'multipart/form-data' },
   })

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useSmartBack } from '../hooks/useSmartBack'
-import { ChevronLeft, Edit2, Archive, RotateCcw, PlusCircle, Eye, BookOpen, ChevronRight } from 'lucide-react'
+import { ChevronLeft, Edit2, Archive, RotateCcw, PlusCircle, Eye, BookOpen, ChevronRight, Search } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { searchCharts, updateChart, retireChart, restoreChart, addFilesToChart, getChartTrainer } from '../api'
 import { RationaleEditor } from '../components/RationaleEditor'
@@ -16,6 +16,8 @@ export function TrainerCharts() {
   const [trainerName] = useLocalStorage<string>('trainer_name', '')
   const [status, setStatus] = useState<ChartStatus>('Active')
   const [specialty, setSpecialty] = useState<Specialty | ''>('')
+  const [query, setQuery] = useState('')
+  const [answerKeyStatus, setAnswerKeyStatus] = useState<'all' | 'with_key' | 'missing_key'>('all')
   const [charts, setCharts] = useState<Chart[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
@@ -25,6 +27,8 @@ export function TrainerCharts() {
   const [editing, setEditing] = useState<Chart | null>(null)
   const [editForm, setEditForm] = useState<{ category: string; difficulty: Difficulty; rationale: string }>({ category: '', difficulty: 'Beginner', rationale: '' })
   const [actor, setActor] = useState(trainerName)
+  const [editPassphrase, setEditPassphrase] = useState('')
+  const [addFilesPassphrase, setAddFilesPassphrase] = useState('')
   const [saving, setSaving] = useState(false)
   const [addingFiles, setAddingFiles] = useState<Chart | null>(null)
   const [viewingRationale, setViewingRationale] = useState<{ chart: Chart; rationale: string } | null>(null)
@@ -36,12 +40,19 @@ export function TrainerCharts() {
     setLoading(true)
     setSelected(new Set())
     try {
-      const res = await searchCharts({ specialty: specialty || undefined, status, page: p, page_size: PAGE_SIZE })
+      const res = await searchCharts({
+        q: query.trim() || undefined,
+        specialty: specialty || undefined,
+        status,
+        answer_key_status: answerKeyStatus === 'all' ? undefined : answerKeyStatus,
+        page: p,
+        page_size: PAGE_SIZE,
+      })
       setCharts(res.results)
       setTotal(res.total)
       setPage(p)
     } finally { setLoading(false) }
-  }, [specialty, status])
+  }, [query, specialty, status, answerKeyStatus])
 
   useEffect(() => { load(1) }, [load])
 
@@ -51,6 +62,7 @@ export function TrainerCharts() {
     setEditing(c)
     setEditForm({ category: c.category, difficulty: c.difficulty, rationale: '' })
     setActor(trainerName)
+    setEditPassphrase('')
     try {
       const full = await getChartTrainer(c.id)
       setEditForm(f => ({ ...f, rationale: full.rationale || '' }))
@@ -59,9 +71,11 @@ export function TrainerCharts() {
 
   const saveEdit = async () => {
     if (!editing || !actor.trim()) { toast.error('Enter your name'); return }
+    const needsPassphrase = editing.uploaded_by !== actor
+    if (needsPassphrase && !editPassphrase.trim()) { toast.error('Master admin passphrase required'); return }
     setSaving(true)
     try {
-      await updateChart(editing.id, actor, editForm)
+      await updateChart(editing.id, actor, editForm, needsPassphrase ? editPassphrase : undefined)
       toast.success('Chart updated')
       setEditing(null)
       load(page)
@@ -127,12 +141,15 @@ export function TrainerCharts() {
 
   const handleAddFiles = async (files: FileList | null) => {
     if (!files || !addingFiles || !actor.trim()) return
+    const needsPassphrase = addingFiles.uploaded_by !== actor
+    if (needsPassphrase && !addFilesPassphrase.trim()) { toast.error('Master admin passphrase required'); return }
     try {
-      const res = await addFilesToChart(addingFiles.id, Array.from(files), actor)
+      const res = await addFilesToChart(addingFiles.id, Array.from(files), actor, needsPassphrase ? addFilesPassphrase : undefined)
       toast.success(res.message)
       setAddingFiles(null)
+      setAddFilesPassphrase('')
       load(page)
-    } catch { toast.error('Failed to add files') }
+    } catch (err: any) { toast.error(err?.response?.data?.detail || 'Failed to add files') }
   }
 
   const toggleSelect = (id: number) => {
@@ -154,6 +171,15 @@ export function TrainerCharts() {
       <div style={styles.content}>
         <div style={styles.toolbar}>
           <div style={styles.filters}>
+            <div style={styles.searchWrap}>
+              <Search size={13} color="#9ca3af" />
+              <input
+                style={styles.searchInput}
+                placeholder="Search chart #, alias, category..."
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+              />
+            </div>
             <select style={styles.select} value={status} onChange={e => setStatus(e.target.value as ChartStatus)}>
               <option value="Active">Active</option>
               <option value="Retired">Retired</option>
@@ -161,6 +187,11 @@ export function TrainerCharts() {
             <select style={styles.select} value={specialty} onChange={e => setSpecialty(e.target.value as Specialty | '')}>
               <option value="">All Specialties</option>
               {SPECIALTIES.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <select style={styles.select} value={answerKeyStatus} onChange={e => setAnswerKeyStatus(e.target.value as any)}>
+              <option value="all">All Key Status</option>
+              <option value="with_key">Has Answer Key</option>
+              <option value="missing_key">Missing Answer Key</option>
             </select>
             <span style={styles.count}>{total} chart{total !== 1 ? 's' : ''}</span>
           </div>
@@ -184,7 +215,7 @@ export function TrainerCharts() {
                     <th style={{ ...styles.th, width: 36 }}>
                       <input type="checkbox" checked={selected.size === charts.length && charts.length > 0} onChange={toggleSelectAll} />
                     </th>
-                    {['Chart #', 'Specialty', 'Category', 'Difficulty', 'Uploaded By', 'Views', 'Actions'].map(h => (
+                    {['Chart #', 'Specialty', 'Category', 'Difficulty', 'Answer Key', 'Uploaded By', 'Views', 'Actions'].map(h => (
                       <th key={h} style={styles.th}>{h}</th>
                     ))}
                   </tr>
@@ -207,13 +238,18 @@ export function TrainerCharts() {
                         <td style={styles.td}><span style={{ ...styles.specBadge, background: sc.light, color: sc.bg }}>{c.specialty}</span></td>
                         <td style={styles.td}>{c.category}</td>
                         <td style={styles.td}><span style={{ ...styles.diffBadge, ...dc }}>{c.difficulty}</span></td>
+                        <td style={styles.td}>
+                          <span style={c.has_answer_key ? styles.keyBadgeReady : styles.keyBadgeMissing}>
+                            {c.has_answer_key ? 'Has Key' : 'No Key'}
+                          </span>
+                        </td>
                         <td style={styles.td}>{c.uploaded_by}</td>
                         <td style={styles.td}><span style={styles.viewCount}>{c.view_count}</span></td>
                         <td style={styles.td}>
                           <div style={styles.actions}>
                             <button style={styles.actionBtn} title="View rationale" onClick={() => handleViewRationale(c)}><Eye size={13} /></button>
                             <button style={styles.actionBtn} title="Edit" onClick={() => startEdit(c)}><Edit2 size={13} /></button>
-                            <button style={styles.actionBtn} title="Add files" onClick={() => { setAddingFiles(c); setActor(trainerName) }}><PlusCircle size={13} /></button>
+                            <button style={styles.actionBtn} title="Add files" onClick={() => { setAddingFiles(c); setActor(trainerName); setAddFilesPassphrase('') }}><PlusCircle size={13} /></button>
                             {status === 'Active'
                               ? <button style={{ ...styles.actionBtn, color: '#dc2626' }} title="Retire" onClick={() => handleRetire(c)}><Archive size={13} /></button>
                               : <button style={{ ...styles.actionBtn, color: '#16a34a' }} title="Restore" onClick={() => handleRestore(c)}><RotateCcw size={13} /></button>
@@ -255,6 +291,18 @@ export function TrainerCharts() {
       {editing && (
         <Modal title={`Edit ${editing.chart_number}`} onClose={() => setEditing(null)}>
           <Field label="Your Name"><input style={styles.input} value={actor} onChange={e => setActor(e.target.value)} placeholder="Your name" /></Field>
+          {editing.uploaded_by !== actor && (
+            <div style={{ background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 7, padding: '10px 12px', fontSize: 13, color: '#78350f' }}>
+              This chart was uploaded by <strong>{editing.uploaded_by}</strong>. Master admin passphrase required.
+            </div>
+          )}
+          {editing.uploaded_by !== actor && (
+            <Field label="Master Admin Passphrase">
+              <input style={styles.input} type="password" value={editPassphrase}
+                onChange={e => setEditPassphrase(e.target.value)}
+                placeholder="Enter passphrase" />
+            </Field>
+          )}
           <Field label="Category"><input style={styles.input} value={editForm.category} onChange={e => setEditForm(f => ({ ...f, category: e.target.value }))} /></Field>
           <Field label="Difficulty">
             <select style={styles.select} value={editForm.difficulty} onChange={e => setEditForm(f => ({ ...f, difficulty: e.target.value as Difficulty }))}>
@@ -312,6 +360,18 @@ export function TrainerCharts() {
       {addingFiles && (
         <Modal title={`Add Files to ${addingFiles.chart_number}`} onClose={() => setAddingFiles(null)}>
           <Field label="Your Name"><input style={styles.input} value={actor} onChange={e => setActor(e.target.value)} placeholder="Your name" /></Field>
+          {addingFiles.uploaded_by !== actor && (
+            <div style={{ background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 7, padding: '10px 12px', fontSize: 13, color: '#78350f' }}>
+              This chart was uploaded by <strong>{addingFiles.uploaded_by}</strong>. Master admin passphrase required.
+            </div>
+          )}
+          {addingFiles.uploaded_by !== actor && (
+            <Field label="Master Admin Passphrase">
+              <input style={styles.input} type="password" value={addFilesPassphrase}
+                onChange={e => setAddFilesPassphrase(e.target.value)}
+                placeholder="Enter passphrase" />
+            </Field>
+          )}
           <Field label="Select Files to Append">
             <input type="file" multiple accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.tiff" onChange={e => handleAddFiles(e.target.files)} />
           </Field>
@@ -369,8 +429,10 @@ const modalStyles: Record<string, React.CSSProperties> = {
 const styles: Record<string, React.CSSProperties> = {
   container: { minHeight: '100vh', background: '#f8fafc', fontFamily: 'system-ui, sans-serif' },
   content: { maxWidth: 1150, margin: '0 auto', padding: '24px' },
-  toolbar: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
-  filters: { display: 'flex', gap: 10, alignItems: 'center' },
+  toolbar: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, gap: 12, flexWrap: 'wrap' },
+  filters: { display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' },
+  searchWrap: { display: 'flex', alignItems: 'center', gap: 6, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 7, padding: '0 10px', height: 34 },
+  searchInput: { border: 'none', outline: 'none', fontSize: 13, minWidth: 220, background: 'transparent' },
   select: { padding: '8px 12px', border: '1px solid #e5e7eb', borderRadius: 7, fontSize: 13, background: '#fff' },
   count: { fontSize: 13, color: '#6b7280' },
   bulkRetireBtn: { display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', background: '#fff5f5', border: '1px solid #fca5a5', color: '#dc2626', borderRadius: 7, cursor: 'pointer', fontSize: 13, fontWeight: 600 },
@@ -385,6 +447,8 @@ const styles: Record<string, React.CSSProperties> = {
   colorDot: { width: 8, height: 8, borderRadius: '50%', flexShrink: 0 },
   specBadge: { fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 20, textTransform: 'uppercase' as const, letterSpacing: 0.4 },
   diffBadge: { fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 20 },
+  keyBadgeReady: { fontSize: 10, fontWeight: 800, padding: '2px 8px', borderRadius: 20, background: '#dcfce7', color: '#166534', whiteSpace: 'nowrap' },
+  keyBadgeMissing: { fontSize: 10, fontWeight: 800, padding: '2px 8px', borderRadius: 20, background: '#fef3c7', color: '#92400e', whiteSpace: 'nowrap' },
   viewCount: { fontWeight: 600, color: '#374151' },
   actions: { display: 'flex', gap: 5 },
   actionBtn: { border: '1px solid #e5e7eb', background: '#fff', borderRadius: 6, padding: '4px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center', color: '#374151', transition: 'all 0.1s' },

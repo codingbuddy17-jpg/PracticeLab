@@ -35,10 +35,17 @@ def list_resources(db: Session = Depends(get_db)):
 
 @router.post("")
 def create_resource(payload: ResourceCreate, db: Session = Depends(get_db)):
+    title = payload.title.strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Resource title is required")
+    url = payload.url.strip()
+    url_lower = url.lower()
+    if not (url_lower.startswith("http://") or url_lower.startswith("https://")):
+        raise HTTPException(status_code=400, detail="Resource URL must start with http:// or https://")
     r = CodingResource(
-        title=payload.title.strip(),
+        title=title,
         description=payload.description.strip() if payload.description else None,
-        url=payload.url.strip(),
+        url=url,
         created_by=payload.created_by.strip(),
         sort_order=payload.sort_order,
     )

@@ -22,20 +22,27 @@ export function ChartManagementHome() {
 
   async function handleAddResource() {
     if (!newTitle.trim() || !newUrl.trim()) { toast.error('Title and URL are required'); return }
+    const url = newUrl.trim()
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      toast.error('URL must start with http:// or https://')
+      return
+    }
     try {
-      await createResource({ title: newTitle.trim(), description: newDesc.trim() || undefined, url: newUrl.trim(), created_by: trainerName })
+      await createResource({ title: newTitle.trim(), description: newDesc.trim() || undefined, url, created_by: trainerName })
       toast.success('Resource added')
       setNewTitle(''); setNewDesc(''); setNewUrl(''); setShowAddResource(false)
       getResources().then(setResources).catch(() => {})
-    } catch { toast.error('Failed to add resource') }
+    } catch (err: any) { toast.error(err?.response?.data?.detail || 'Failed to add resource') }
   }
 
   async function handleDeleteResource(id: number) {
+    const resource = resources.find(r => r.id === id)
+    if (!window.confirm(`Remove ${resource?.title || 'this resource'}? This link is visible to coders.`)) return
     try {
       await deleteResource(id)
       setResources(r => r.filter(x => x.id !== id))
       toast.success('Resource removed')
-    } catch { toast.error('Failed to remove resource') }
+    } catch (err: any) { toast.error(err?.response?.data?.detail || 'Failed to remove resource') }
   }
 
   const cards = [

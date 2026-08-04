@@ -38,6 +38,7 @@ class ChartOut(BaseModel):
     status: ChartStatus
     uploaded_by: str
     view_count: int
+    has_answer_key: Optional[bool] = None
     created_at: datetime
     updated_at: Optional[datetime]
     files: List[ChartFileOut] = []

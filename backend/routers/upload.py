@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 import json
 from pydantic import BaseModel
 from database import get_db
@@ -8,6 +8,7 @@ from models import Chart, ChartStatus, Specialty, Difficulty, ChartSequence
 from schemas import BulkUploadResult
 from services.chart_service import next_chart_number, ingest_file, log_audit
 from models import PREFIX_FOR_SPECIALTY
+from config import settings
 
 router = APIRouter(prefix="/upload", tags=["upload"])
 
@@ -120,11 +121,15 @@ def add_files_to_chart(
     chart_id: int,
     files: List[UploadFile] = File(...),
     uploaded_by: str = Form(...),
+    passphrase: Optional[str] = Form(default=None),
     db: Session = Depends(get_db),
 ):
     chart = db.query(Chart).filter(Chart.id == chart_id).first()
     if not chart:
         raise HTTPException(status_code=404, detail="Chart not found")
+    if chart.uploaded_by != uploaded_by:
+        if passphrase != settings.MASTER_ADMIN_PASSPHRASE:
+            raise HTTPException(status_code=403, detail="Invalid passphrase")
 
     current_max = max((f.page_order for f in chart.files), default=-1)
     total_added = 0
