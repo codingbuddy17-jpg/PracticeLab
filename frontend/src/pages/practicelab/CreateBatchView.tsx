@@ -115,9 +115,15 @@ export function CreateBatchView({ onCreated, onCancel, scoringCfg, directMode: d
         </div>
       )}
 
+      {/* The old copy promised "without the multi-day batch/cycle workflow" and
+          the very next screen asked for an allocation cycle. Describe the four
+          steps that actually follow, so nothing on the next screen is a
+          surprise. */}
       <div style={styles.infoBox}>
         {directMode
-          ? 'Assign specific chart(s) to one or more coders without the multi-day batch/cycle workflow — useful for one-off practice or targeted reinforcement. Results are graded and tracked in analytics exactly like a regular batch.'
+          ? <>Pick the charts, then create access codes and send them out. Useful for targeted
+             reinforcement — &ldquo;do these two sepsis charts&rdquo;. Results are graded and tracked
+             in analytics exactly like a regular batch.</>
           : <>Batch stays <strong>Open</strong> until you close it. Charts are assigned through allocation cycles — run one now, or more later as the practice phase progresses.</>}
       </div>
 
