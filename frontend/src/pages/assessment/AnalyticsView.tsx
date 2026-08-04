@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { BarChart2, TrendingUp, User, Layers, Tag, Grid, BookOpen } from 'lucide-react'
+import { BarChart2, TrendingUp, User, Layers, Tag, Grid, BookOpen, HelpCircle } from 'lucide-react'
 import { OverviewTab } from './analytics/OverviewTab'
 import { AssessmentDrillTab } from './analytics/AssessmentDrillTab'
 import { CoderHistoryTab } from './analytics/CoderHistoryTab'
@@ -7,10 +7,11 @@ import { BySpecialtyTab } from './analytics/BySpecialtyTab'
 import { ByTopicTab } from './analytics/ByTopicTab'
 import { BatchAnalysisTab } from './analytics/BatchAnalysisTab'
 import { CoderMatrixTab } from './analytics/CoderMatrixTab'
+import { QuestionSignalsTab } from './analytics/QuestionSignalsTab'
 import { FilterBar } from './analytics/FilterBar'
 import type { AFilters } from '../../api'
 
-type AnalyticsTab = 'overview' | 'drill' | 'coder' | 'specialty' | 'topic' | 'batch' | 'matrix'
+type AnalyticsTab = 'overview' | 'drill' | 'coder' | 'specialty' | 'topic' | 'batch' | 'matrix' | 'questions'
 
 /**
  * Tabs that read the shared window. The others answer a question the window
@@ -18,28 +19,30 @@ type AnalyticsTab = 'overview' | 'drill' | 'coder' | 'specialty' | 'topic' | 'ba
  * tabs are already scoped to one paper or one person — so showing the bar there
  * would imply a filter that does nothing.
  */
-const FILTERED: AnalyticsTab[] = ['overview', 'specialty', 'topic', 'matrix']
+const FILTERED: AnalyticsTab[] = ['overview', 'specialty', 'topic', 'matrix', 'questions']
 
 export function AnalyticsView() {
   const [tab, setTab] = useState<AnalyticsTab>('overview')
   const [filters, setFilters] = useState<AFilters>({})
 
-  const tabs: { id: AnalyticsTab; label: string; icon: React.ReactNode }[] = [
-    { id: 'overview', label: 'Overview', icon: <BarChart2 size={14} /> },
-    { id: 'batch', label: 'Batch Analysis', icon: <BookOpen size={14} /> },
-    { id: 'drill', label: 'Assessment Drill-down', icon: <TrendingUp size={14} /> },
-    { id: 'specialty', label: 'By Specialty', icon: <Layers size={14} /> },
-    { id: 'topic', label: 'By Topic', icon: <Tag size={14} /> },
-    { id: 'matrix', label: 'Coder Matrix', icon: <Grid size={14} /> },
-    { id: 'coder', label: 'Coder History', icon: <User size={14} /> },
+  const tabs: { id: AnalyticsTab; label: string; title: string; icon: React.ReactNode }[] = [
+    { id: 'overview', label: 'Overview', title: 'Overview', icon: <BarChart2 size={14} /> },
+    { id: 'batch', label: 'Batches', title: 'Batch Analysis', icon: <BookOpen size={14} /> },
+    { id: 'drill', label: 'Drill-down', title: 'Assessment Drill-down', icon: <TrendingUp size={14} /> },
+    { id: 'specialty', label: 'Specialty', title: 'By Specialty', icon: <Layers size={14} /> },
+    { id: 'topic', label: 'Topic', title: 'By Topic', icon: <Tag size={14} /> },
+    { id: 'questions', label: 'Questions', title: 'Question Signals — which questions teach, which mislead', icon: <HelpCircle size={14} /> },
+    { id: 'matrix', label: 'Matrix', title: 'Coder × Specialty Matrix', icon: <Grid size={14} /> },
+    { id: 'coder', label: 'Coder', title: 'Coder History', icon: <User size={14} /> },
   ]
 
   return (
     <div>
-      <div style={{ display: 'flex', gap: 6, marginBottom: 22 }}>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 22, flexWrap: 'wrap' }}>
         {tabs.map(t => (
           <button
             key={t.id}
+            title={t.title}
             style={{
               display: 'flex', alignItems: 'center', gap: 6,
               padding: '8px 16px', borderRadius: 10,
@@ -68,6 +71,7 @@ export function AnalyticsView() {
       {tab === 'specialty' && <BySpecialtyTab filters={filters} />}
       {tab === 'topic' && <ByTopicTab filters={filters} />}
       {tab === 'matrix' && <CoderMatrixTab filters={filters} />}
+      {tab === 'questions' && <QuestionSignalsTab filters={filters} />}
       {tab === 'coder' && <CoderHistoryTab />}
     </div>
   )

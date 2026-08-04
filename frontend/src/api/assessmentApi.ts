@@ -318,6 +318,13 @@ export async function getAssessmentAnalyticsCoderMatrix(f: AFilters = {}) {
   return data
 }
 
+export async function getAssessmentQuestionSignals(f: AFilters = {}, minAttempts = 5) {
+  const { data } = await api.get('/assessment/analytics/question-signals', {
+    params: { ...afp(f), min_attempts: minAttempts },
+  })
+  return data
+}
+
 export function downloadAssessmentCoderMatrixXlsx(f: AFilters = {}) {
   return downloadFile('/assessment/analytics/coder-matrix.xlsx',
                       'Assessment_Coder_Matrix.xlsx', afp(f))

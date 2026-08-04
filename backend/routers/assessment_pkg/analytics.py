@@ -1128,6 +1128,157 @@ def assessment_batch_coder_reports_zip(batch_name: str, db: Session = Depends(ge
     )
 
 
+def _question_signal(acc: Optional[float], misleading: bool, blank: int, attempts: int) -> str:
+    """
+    One label per question, describing what to DO about it.
+
+    Ordered by what overrides what: a question people cannot answer at all is a
+    different problem from one they answer wrongly, and a misleading question
+    has to be named before it is filed under "hard" and taught harder.
+    """
+    if attempts and blank / attempts >= 0.25:
+        return "skipped"          # a quarter walked past it — unclear or too long
+    if misleading:
+        return "misleading"       # a wrong option outdrew the right one
+    if acc is None:
+        return "unscored"
+    if acc <= 30:
+        return "very_hard"        # teach it, or check the key
+    if acc >= 95:
+        return "too_easy"         # it is no longer measuring anything
+    return "healthy"
+
+
+@router.get("/analytics/question-signals")
+def analytics_question_signals(
+    db: Session = Depends(get_db),
+    f: AFilters = Depends(filters),
+    min_attempts: int = 5,
+):
+    """
+    What the questions themselves are telling us.
+
+    Every other tab measures coders. This one measures the paper: which
+    questions are teaching, which are merely hard, and which are broken. A
+    question everyone gets wrong is not automatically a training gap — it can
+    equally be a bad key or a misleading stem, and the difference matters
+    because one costs a lesson and the other costs the question.
+
+    Distractor spread is the part that tells them apart, and it has to be
+    computed on the option TEXT rather than the letter: options are shuffled
+    per coder, so one coder's "B" is not another's. Counting letters would
+    have produced an even 25% spread on every question — noise wearing the
+    costume of a finding.
+    """
+    sessions = _session_q(db, f).filter(AssessmentSession.status == "submitted").all()
+    session_ids = [s.id for s in sessions]
+    if not session_ids:
+        return {"questions": [], "summary": {}, "min_attempts": min_attempts}
+
+    responses = db.query(AssessmentResponse).filter(
+        AssessmentResponse.session_id.in_(session_ids)
+    ).all()
+
+    # Each coder saw their own arrangement, so the mapping from letter to text
+    # is per slot, not global.
+    slot_ids = list({s.student_slot_id for s in sessions if s.student_slot_id})
+    slots = (db.query(GeneratedAssessmentStudent)
+             .filter(GeneratedAssessmentStudent.id.in_(slot_ids)).all()
+             if slot_ids else [])
+    slot_questions: Dict[int, Dict[str, Dict]] = {}
+    meta: Dict[str, Dict] = {}
+    for slot in slots:
+        by_qid = {}
+        for q in _parse_questions(slot.questions_json):
+            qid = q.get("question_id")
+            if not qid:
+                continue
+            by_qid[qid] = q
+            meta.setdefault(qid, {
+                "question_text": q.get("question_text", ""),
+                "topic": q.get("topic") or "Unknown",
+                "specialty": q.get("specialty") or "Unknown",
+                "difficulty": q.get("difficulty") or "Unknown",
+            })
+        slot_questions[slot.id] = by_qid
+
+    session_slot = {s.id: s.student_slot_id for s in sessions}
+
+    stats: Dict[str, Dict] = {}
+    for r in responses:
+        qid = r.question_id
+        d = stats.setdefault(qid, {"attempts": 0, "correct": 0, "blank": 0,
+                                   "options": {}, "coders": set()})
+        d["attempts"] += 1
+        if r.is_correct:
+            d["correct"] += 1
+        if not r.selected_answer:
+            d["blank"] += 1
+            continue
+
+        q = slot_questions.get(session_slot.get(r.session_id) or -1, {}).get(qid)
+        if not q:
+            continue
+        text = q.get(f"option_{r.selected_answer.lower()}")
+        if text is None:
+            continue
+        opt = d["options"].setdefault(text, {"text": text, "count": 0, "correct": False})
+        opt["count"] += 1
+        if r.selected_answer == q.get("correct_answer"):
+            opt["correct"] = True
+
+    questions = []
+    for qid, d in stats.items():
+        if d["attempts"] < min_attempts:
+            continue
+        m = meta.get(qid, {})
+        acc = round(d["correct"] / d["attempts"] * 100, 1) if d["attempts"] else None
+        opts = sorted(d["options"].values(), key=lambda o: -o["count"])
+        for o in opts:
+            o["pct"] = round(o["count"] / d["attempts"] * 100, 1)
+
+        # The distractor that beat the answer. When one wrong option outdraws
+        # the right one, the question is not just hard — something in it is
+        # actively pointing the wrong way.
+        top_wrong = next((o for o in opts if not o["correct"]), None)
+        chosen_answer = next((o for o in opts if o["correct"]), None)
+        misleading = bool(
+            top_wrong and chosen_answer and top_wrong["count"] > chosen_answer["count"]
+        ) or bool(top_wrong and not chosen_answer)
+
+        questions.append({
+            "question_id": qid,
+            "question_text": m.get("question_text", ""),
+            "topic": m.get("topic", "Unknown"),
+            "specialty": m.get("specialty", "Unknown"),
+            "difficulty": m.get("difficulty", "Unknown"),
+            "attempts": d["attempts"],
+            "accuracy_pct": acc,
+            "blank_pct": round(d["blank"] / d["attempts"] * 100, 1) if d["attempts"] else 0.0,
+            "options": opts,
+            "top_distractor": top_wrong,
+            "misleading": misleading,
+            "signal": _question_signal(acc, misleading, d["blank"], d["attempts"]),
+        })
+
+    questions.sort(key=lambda q: (q["accuracy_pct"] if q["accuracy_pct"] is not None else 999))
+
+    thin = sum(1 for d in stats.values() if d["attempts"] < min_attempts)
+    counts: Dict[str, int] = {}
+    for q in questions:
+        counts[q["signal"]] = counts.get(q["signal"], 0) + 1
+
+    return {
+        "questions": questions,
+        "min_attempts": min_attempts,
+        "summary": {
+            "scored": len(questions),
+            "too_few_attempts": thin,
+            "by_signal": counts,
+        },
+    }
+
+
 @router.get("/analytics/coder-matrix")
 def analytics_coder_matrix(db: Session = Depends(get_db), f: AFilters = Depends(filters)):
     qid_specialty, _qid_topic, submitted_session_ids = _build_response_meta(db, f)
