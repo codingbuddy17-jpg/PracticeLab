@@ -3,6 +3,7 @@ Assessment generation router.
 Implements stratified, LRU-ordered, per-coder shuffled assessment generation.
 Coders and session tokens are created in the same transaction as generation.
 """
+import json
 import random
 import string
 from datetime import datetime, timezone, timedelta
@@ -77,6 +78,9 @@ class GenerateRequest(BaseModel):
     save_config: bool = True
     config_name: Optional[str] = None
     randomise: bool = True                                    # per-coder independent sampling
+    # Generation refuses a mix it cannot fill. Set this to accept a short paper
+    # knowingly, which is a trainer's call to make — but never a silent default.
+    allow_short_pool: bool = False
     # The bar this paper is judged against. Omitted means the platform default.
     pass_threshold: Optional[int] = None
     standalone_questions: Optional[List[StandaloneQuestion]] = None  # standalone mode
@@ -240,9 +244,15 @@ def generate_assessment(req: GenerateRequest, db: Session = Depends(get_db)):
                 detail=f"Only {len(req.standalone_questions)} standalone questions provided but {req.total_questions} requested"
             )
         # Convert StandaloneQuestion → dict matching _shuffle_options / questions_json shape
-        def _sq_to_dict(sq: StandaloneQuestion) -> Dict[str, Any]:
+        # Standalone questions never enter the bank, so they have no bank ID.
+        # They still need one: submit scoring builds a {question_id: answer} map,
+        # and a shared null id collapsed every question into a single entry, so
+        # each response was graded against whichever question landed last.
+        # The index is stable for the life of the assessment, which is all the
+        # map and the saved responses require.
+        def _sq_to_dict(sq: StandaloneQuestion, idx: int) -> Dict[str, Any]:
             return {
-                "question_id": None,
+                "question_id": f"SA-{idx + 1:04d}",   # fits question_id String(20)
                 "question_text": sq.question_text,
                 "option_a": sq.option_a,
                 "option_b": sq.option_b,
@@ -253,7 +263,7 @@ def generate_assessment(req: GenerateRequest, db: Session = Depends(get_db)):
                 "topic": sq.topic,
                 "shuffle_options": sq.shuffle_options,
             }
-        standalone_pool = [_sq_to_dict(sq) for sq in req.standalone_questions]
+        standalone_pool = [_sq_to_dict(sq, i) for i, sq in enumerate(req.standalone_questions)]
         specialty_pools = None   # not used in standalone path
     else:
         # Standard: validate specialty mix and build DB pools
@@ -305,13 +315,39 @@ def generate_assessment(req: GenerateRequest, db: Session = Depends(get_db)):
 
             specialty_pools.append({"pool": pool, "target": target_count, "ratios": ratios})
 
+        # Sufficiency, per specialty — not merely "some pool is non-empty".
+        # A mix of 50% IP-DRG / 50% E&M with 40 IP-DRG questions and 2 E&M ones
+        # passed the old check and quietly produced a paper that was almost all
+        # IP-DRG. The trainer only discovered the imbalance after coders sat it.
+        shortfalls = [
+            {
+                "specialty": item.specialty,
+                "topic_filter": item.topic_filter or None,
+                "requested": p["target"],
+                "available": len(p["pool"]),
+            }
+            for item, p in zip(req.specialty_mix, specialty_pools)
+            if len(p["pool"]) < p["target"]
+        ]
+        if shortfalls and not req.allow_short_pool:
+            lines = "; ".join(
+                f"{sf['specialty']}"
+                + (f" (topic: {sf['topic_filter']})" if sf["topic_filter"] else "")
+                + f" needs {sf['requested']} but has {sf['available']}"
+                for sf in shortfalls
+            )
+            raise HTTPException(status_code=400, detail={
+                "message": (
+                    f"Not enough questions to build this assessment: {lines}. "
+                    "Add questions, widen the topic filter, lower the question count, "
+                    "or re-submit with allow_short_pool to generate a shorter paper."
+                ),
+                "shortfalls": shortfalls,
+            })
+
         if not any(p["pool"] for p in specialty_pools):
             raise HTTPException(status_code=400, detail="No questions available for the requested specialty/topic mix")
 
-        all_pool_ids = [q.id for p in specialty_pools for q in p["pool"]]
-        db.query(AssessmentQuestion).filter(AssessmentQuestion.id.in_(all_pool_ids)).update(
-            {"last_used_at": now}, synchronize_session=False
-        )
 
     # ── Save config (standard mode only) ──────────────────────────────────────
     config_id = None
@@ -346,6 +382,7 @@ def generate_assessment(req: GenerateRequest, db: Session = Depends(get_db)):
     expires_at = now + timedelta(hours=SESSION_EXPIRY_HOURS)
     sessions_created = []
     coder_question_sets: Dict[str, set] = {}
+    served_question_ids: set = set()   # bank IDs actually assigned, for LRU rotation
 
     # Shared pool (randomise=False): pick questions once, but shuffle order + options per coder
     shared_pool_base: Optional[List[Any]] = None
@@ -358,6 +395,7 @@ def generate_assessment(req: GenerateRequest, db: Session = Depends(get_db)):
                 picked = _stratified_pick(p["pool"], p["target"], p["ratios"])
                 shared_combined.extend(picked)
             shared_pool_base = shared_combined
+            served_question_ids.update(q.id for q in shared_combined)
 
     for coder in coders:
         if req.randomise:
@@ -375,6 +413,7 @@ def generate_assessment(req: GenerateRequest, db: Session = Depends(get_db)):
                 if not coder_combined:
                     raise HTTPException(status_code=400, detail="No questions available for the requested specialty/topic mix")
                 coder_question_sets[coder.coder_name.strip()] = {q.id for q in coder_combined}
+                served_question_ids.update(q.id for q in coder_combined)
                 _shuffle(coder_combined)
                 questions_for_coder = [_shuffle_options(q) for q in coder_combined]
         else:
@@ -412,6 +451,15 @@ def generate_assessment(req: GenerateRequest, db: Session = Depends(get_db)):
             "session_token": token,
         })
 
+    # ── Question rotation ─────────────────────────────────────────────────────
+    # Age only the questions a coder actually received. Stamping the whole
+    # eligible pool made every question equally "recently used", which is the
+    # same as having no rotation at all.
+    if served_question_ids:
+        db.query(AssessmentQuestion).filter(
+            AssessmentQuestion.id.in_(served_question_ids)
+        ).update({"last_used_at": now}, synchronize_session=False)
+
     # ── Randomisation stats ────────────────────────────────────────────────────
     if req.randomise and not is_standalone and coder_question_sets:
         total_pool_size = sum(len(p["pool"]) for p in specialty_pools)
@@ -429,11 +477,35 @@ def generate_assessment(req: GenerateRequest, db: Session = Depends(get_db)):
 
     db.commit()
 
+    # What each coder was ACTUALLY given. The response reported the number
+    # REQUESTED, so a 6-question paper drawn from a pool of 2 came back saying
+    # 6 — the trainer sees the size they asked for and hands out a test a third
+    # of that length. Reporting the request as the result is the one thing this
+    # response must not do.
+    def _n(raw):
+        try:
+            v = json.loads(raw) if isinstance(raw, str) else (raw or [])
+            return len(v) if isinstance(v, list) else 0
+        except Exception:
+            return 0
+
+    served_counts = {_n(st.questions_json) for st in assessment.students} or set()
+    actual_questions = min(served_counts) if served_counts else req.total_questions
+
+    warnings: List[str] = []
+    if actual_questions < req.total_questions:
+        warnings.append(
+            f"{req.total_questions} questions requested but the pool held only "
+            f"{actual_questions} — each coder received {actual_questions}."
+        )
+
     return {
         "assessment_id": assessment.id,
         "assessment_name": req.assessment_name,
         "coder_count": len(coders),
-        "total_questions": req.total_questions,
+        "total_questions": actual_questions,
+        "requested_questions": req.total_questions,
+        "warnings": warnings,
         "duration_minutes": req.duration_minutes,
         "expires_at": expires_at.isoformat(),
         "sessions": sessions_created,

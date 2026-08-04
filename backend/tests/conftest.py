@@ -9,6 +9,8 @@ Shared test fixtures.
 """
 import os
 import sys
+import itertools
+
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
@@ -92,11 +94,18 @@ def client(engine):
 
 # ── Seed helpers ──────────────────────────────────────────────────────────────
 
-def make_question(db, specialty="IPDRG", difficulty="Medium", topic="Coding",
+_question_seq = itertools.count(1)
+
+
+def make_question(db, specialty="IP-DRG", difficulty="Medium", topic="Coding",
                   q_id=None, text=None):
     from datetime import datetime, timezone
     q = AssessmentQuestion(
-        question_id=q_id or f"Q-{specialty[:2]}-{difficulty[:1]}-{id(object())}",
+        # A plain counter, not id(object()): that object is freed the instant it
+        # is created, so CPython hands back the same address on the next call and
+        # consecutive questions collided on the unique question_id. It depended
+        # on allocator state, so tests passed alone and failed in the suite.
+        question_id=q_id or f"Q-{specialty[:2]}-{difficulty[:1]}-{next(_question_seq)}",
         specialty=specialty,
         difficulty=difficulty,
         topic=topic,
@@ -106,7 +115,11 @@ def make_question(db, specialty="IPDRG", difficulty="Medium", topic="Coding",
         option_c="Option C",
         option_d="Option D",
         correct_answer="A",
-        status="active",
+        # QuestionStatus.ACTIVE is "Active". Seeding lowercase meant no seeded
+        # question ever matched the generator's filter, so every generation test
+        # failed with "No questions available" — a fixture fault wearing the
+        # costume of a product bug.
+        status="Active",
         uploaded_by="test",
     )
     db.add(q)
@@ -114,7 +127,7 @@ def make_question(db, specialty="IPDRG", difficulty="Medium", topic="Coding",
     return q
 
 
-def seed_question_pool(db, specialty="IPDRG", easy=4, medium=4, hard=4):
+def seed_question_pool(db, specialty="IP-DRG", easy=4, medium=4, hard=4):
     """Seed a balanced question pool and return all questions."""
     qs = []
     for i in range(easy):

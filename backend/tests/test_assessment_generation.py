@@ -58,15 +58,15 @@ class TestStandardGeneration:
         seed_question_pool(db)
         r = client.post("/assessment/generate", json=BASE_PAYLOAD)
         sessions = r.json()["sessions"]
-        tokens = [s["token"] for s in sessions]
+        tokens = [s["session_token"] for s in sessions]
         assert len(set(tokens)) == 3, "Each coder must receive a unique session token"
 
     def test_token_format(self, client, db):
         seed_question_pool(db)
         r = client.post("/assessment/generate", json=BASE_PAYLOAD)
         for s in r.json()["sessions"]:
-            assert s["token"].startswith("ASM-"), f"Bad token format: {s['token']}"
-            assert len(s["token"]) == 12  # ASM- + 8 chars
+            assert s["session_token"].startswith("ASM-"), f"Bad token format: {s['session_token']}"
+            assert len(s["session_token"]) == 12  # ASM- + 8 chars
 
     def test_coder_names_in_sessions(self, client, db):
         seed_question_pool(db)
@@ -87,12 +87,41 @@ class TestStandardGeneration:
         assert "avg_uniqueness_pct" in stats
         assert "pool_utilisation_pct" in stats
 
-    def test_insufficient_questions_returns_400(self, client, db):
-        # Only 2 questions, need 6
+    def test_a_short_pool_is_refused(self, client, db):
+        """
+        Asking for 6 from a pool of 2 used to return 200 saying "total_questions:
+        6" while serving 2 — the trainer sees the size they asked for and hands
+        out a paper a third that length.
+
+        Now it is refused up front, and the refusal names the gap so the trainer
+        can act on it rather than guess.
+        """
         make_question(db, specialty="IP-DRG"); make_question(db, specialty="IP-DRG")
         db.commit()
         r = client.post("/assessment/generate", json=BASE_PAYLOAD)
         assert r.status_code == 400
+        detail = r.json()["detail"]
+        assert detail["shortfalls"] == [
+            {"specialty": "IP-DRG", "topic_filter": None, "requested": 6, "available": 2}
+        ]
+
+    def test_a_short_pool_can_be_accepted_deliberately(self, client, db):
+        """The trainer may still choose a shorter paper — knowingly, and it says so."""
+        make_question(db, specialty="IP-DRG"); make_question(db, specialty="IP-DRG")
+        db.commit()
+        r = client.post("/assessment/generate",
+                        json={**BASE_PAYLOAD, "allow_short_pool": True})
+        assert r.status_code == 200
+        d = r.json()
+        assert d["total_questions"] == 2, "must report what was served"
+        assert d["requested_questions"] == 6
+        assert d["warnings"], "a short paper cannot be silent about being short"
+
+    def test_a_full_pool_warns_about_nothing(self, client, db):
+        seed_question_pool(db)
+        d = client.post("/assessment/generate", json=BASE_PAYLOAD).json()
+        assert d["total_questions"] == d["requested_questions"] == 6
+        assert d["warnings"] == []
 
     def test_no_coders_returns_400(self, client, db):
         seed_question_pool(db)
@@ -186,7 +215,7 @@ class TestStandaloneGeneration:
         sessions = r.json()["sessions"]
         assert len(sessions) == 2
         for s in sessions:
-            assert s["token"].startswith("ASM-")
+            assert s["session_token"].startswith("ASM-")
 
     def test_standalone_no_pool_required(self, client, db):
         """Standalone works even when question bank is empty."""

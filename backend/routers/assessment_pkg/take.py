@@ -4,6 +4,8 @@ No authentication required; access is controlled by session token validity.
 """
 import json
 from datetime import datetime, timezone
+from services.timeutil import as_utc
+from services.assessment_scoring import score_session
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -17,6 +19,7 @@ from models import (
 )
 
 router = APIRouter()
+
 
 
 def _get_session(token: str, db: Session) -> AssessmentSession:
@@ -80,7 +83,7 @@ def get_session_info(token: str, db: Session = Depends(get_db)):
             "total_questions": 0,
         }
 
-    if s.status == "pending" and now > s.expires_at:
+    if s.status == "pending" and now > as_utc(s.expires_at):
         raise HTTPException(
             status_code=410,
             detail="This assessment session has expired. Please contact your trainer."
@@ -89,7 +92,7 @@ def get_session_info(token: str, db: Session = Depends(get_db)):
     questions = _questions_for_session(s, db)
     time_remaining_seconds = None
     if s.status == "in_progress" and s.time_limit_ends_at:
-        remaining = (s.time_limit_ends_at - now).total_seconds()
+        remaining = (as_utc(s.time_limit_ends_at) - now).total_seconds()
         time_remaining_seconds = max(0, int(remaining))
 
     return {
@@ -120,7 +123,7 @@ def start_session(token: str, db: Session = Depends(get_db)):
     if s.status == "submitted":
         raise HTTPException(status_code=410, detail="Assessment already submitted.")
 
-    if s.status == "pending" and now > s.expires_at:
+    if s.status == "pending" and now > as_utc(s.expires_at):
         raise HTTPException(status_code=410, detail="Session expired — cannot start.")
 
     if s.status == "pending":
@@ -138,7 +141,7 @@ def start_session(token: str, db: Session = Depends(get_db)):
     ).all()
     saved_answers = {r.question_index: r.selected_answer for r in saved}
 
-    time_remaining = max(0, int((s.time_limit_ends_at - now).total_seconds()))
+    time_remaining = max(0, int((as_utc(s.time_limit_ends_at) - now).total_seconds()))
 
     return {
         "session_token": s.session_token,
@@ -169,7 +172,7 @@ def save_answer(token: str, payload: AnswerPayload, db: Session = Depends(get_db
         raise HTTPException(status_code=400, detail="Session is not in progress.")
 
     # Enforce time limit
-    if s.time_limit_ends_at and now > s.time_limit_ends_at:
+    if s.time_limit_ends_at and now > as_utc(s.time_limit_ends_at):
         raise HTTPException(status_code=410, detail="Time limit exceeded. Assessment will be auto-submitted.")
 
     existing = db.query(AssessmentResponse).filter(
@@ -215,32 +218,8 @@ def submit_session(token: str, payload: SubmitPayload, db: Session = Depends(get
     if s.status != "in_progress":
         raise HTTPException(status_code=400, detail="Session is not in progress.")
 
-    questions = _questions_for_session(s, db)
-    q_map = {q["question_id"]: q["correct_answer"] for q in questions}
-
-    responses = db.query(AssessmentResponse).filter(
-        AssessmentResponse.session_id == s.id
-    ).all()
-
-    correct = 0
-    for r in responses:
-        expected = q_map.get(r.question_id)
-        r.is_correct = (r.selected_answer == expected) if r.selected_answer and expected else False
-        if r.is_correct:
-            correct += 1
-
-    total = len(questions)
-    score_pct = round((correct / total) * 100, 1) if total > 0 else 0.0
-    time_taken = int((now - s.started_at).total_seconds()) if s.started_at else None
-
-    result = AssessmentResult(
-        session_id=s.id,
-        total_questions=total,
-        correct_count=correct,
-        score_pct=score_pct,
-        time_taken_seconds=time_taken,
-    )
-    db.add(result)
+    # Shared with the overdue sweep so both paths score identically.
+    score_session(s, db, _questions_for_session(s, db))
 
     s.status = "submitted"
     s.submitted_at = now

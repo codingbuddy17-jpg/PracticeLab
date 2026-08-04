@@ -369,12 +369,17 @@ def analytics_coder(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     exclude_session_ids: Optional[str] = None,
+    batch_name: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
     """All submitted sessions for a coder across all assessments.
 
     date_from / date_to: ISO date strings (YYYY-MM-DD) — filter by submitted_at.
     exclude_session_ids: comma-separated session IDs to exclude from aggregation.
+    batch_name: restrict to one batch. Without it this is a career history, which
+        is right for a coder's own report and wrong for cohort evidence — a batch
+        ZIP that carries every coder's whole past cannot be read as that batch's
+        result. Pass "Ungrouped" for assessments with no batch.
     """
     from datetime import date as date_cls
     q = db.query(AssessmentSession).filter(
@@ -383,6 +388,12 @@ def analytics_coder(
     )
     if employee_id:
         q = q.filter(AssessmentSession.employee_id == employee_id)
+    if batch_name:
+        ids = [a.id for a in db.query(GeneratedAssessment).filter(
+            GeneratedAssessment.batch_name.is_(None) if batch_name == "Ungrouped"
+            else GeneratedAssessment.batch_name == batch_name
+        ).all()]
+        q = q.filter(AssessmentSession.assessment_id.in_(ids or [-1]))
     if date_from:
         try:
             dt_from = date_cls.fromisoformat(date_from)
@@ -945,20 +956,30 @@ def assessment_batch_coder_reports_zip(batch_name: str, db: Session = Depends(ge
         AssessmentSession.status == "submitted",
     ).all()
 
-    # Unique coder names in this batch
-    coder_names = sorted(set(s.coder_name for s in sessions))
-    if not coder_names:
+    # Identify by (name, employee_id): two coders sharing a name are two people,
+    # and merging them into one PDF misattributes both.
+    coders = sorted(
+        {(s.coder_name, s.employee_id) for s in sessions},
+        key=lambda c: (c[0], c[1] or ""),   # employee_id is nullable; None won't sort against str
+    )
+    if not coders:
         raise HTTPException(status_code=404, detail="No submitted sessions found in this batch.")
 
     zip_buf = io.BytesIO()
     with zipfile.ZipFile(zip_buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
-        for coder_name in coder_names:
-            data = analytics_coder(coder_name=coder_name, db=db)
+        for coder_name, employee_id in coders:
+            data = analytics_coder(
+                coder_name=coder_name,
+                employee_id=employee_id,
+                batch_name=batch_name,
+                db=db,
+            )
             if not data:
                 continue
             pdf_bytes = generate_assessment_coder_report_pdf(coder_name, data)
             safe_name = coder_name.replace(" ", "_")
-            zf.writestr(f"{safe_name}_Assessment_Report.pdf", pdf_bytes)
+            suffix = f"_{employee_id}" if employee_id else ""
+            zf.writestr(f"{safe_name}{suffix}_Assessment_Report.pdf", pdf_bytes)
 
     zip_buf.seek(0)
     safe_batch = batch_name.replace(" ", "_").replace("/", "-")

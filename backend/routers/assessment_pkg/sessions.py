@@ -6,6 +6,7 @@ import io
 import random
 import string
 from datetime import datetime, timezone, timedelta
+from services.timeutil import as_utc
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
@@ -191,12 +192,10 @@ def list_sessions(assessment_id: int, db: Session = Depends(get_db)):
     now = datetime.now(timezone.utc)
     rows = []
     for s in sessions:
-        # Auto-mark expired pending sessions
-        effective_status = s.status
-        if s.status == "pending" and now > s.expires_at:
-            effective_status = "expired"
-        elif s.status == "in_progress" and s.time_limit_ends_at and now > s.time_limit_ends_at:
-            effective_status = "auto_submitted"
+        # A pending session that never started simply lapses — nothing to score.
+        effective_status = "expired" if (
+            s.status == "pending" and now > as_utc(s.expires_at)
+        ) else s.status
 
         result = db.query(AssessmentResult).filter(AssessmentResult.session_id == s.id).first()
         rows.append({

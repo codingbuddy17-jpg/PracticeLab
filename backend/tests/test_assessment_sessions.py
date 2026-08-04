@@ -6,8 +6,11 @@ Integration tests for the assessment session lifecycle:
   - /take/{token}/submit   — submit and get score
   - Token expiry and duplicate submission handling
 """
+import json
+
 import pytest
 from conftest import seed_question_pool
+from models import AssessmentSession, AssessmentResult, GeneratedAssessmentStudent
 
 PASSPHRASE = "test-passphrase"
 
@@ -16,7 +19,7 @@ GENERATE_PAYLOAD = {
     "coders": [{"coder_name": "Alice", "employee_id": "E001"}],
     "duration_minutes": 60,
     "total_questions": 6,
-    "specialty_mix": [{"specialty": "IPDRG", "pct": 1.0, "topic_filter": ""}],
+    "specialty_mix": [{"specialty": "IP-DRG", "pct": 1.0, "topic_filter": ""}],
     "difficulty_mode": "auto",
     "generated_by": "trainer",
     "save_config": False,
@@ -28,7 +31,7 @@ def generate_and_get_token(client, db) -> str:
     seed_question_pool(db)
     r = client.post("/assessment/generate", json=GENERATE_PAYLOAD)
     assert r.status_code == 200
-    return r.json()["sessions"][0]["token"]
+    return r.json()["sessions"][0]["session_token"]
 
 
 class TestSessionLoad:
@@ -37,11 +40,12 @@ class TestSessionLoad:
         r = client.get(f"/assessment/take/{token}")
         assert r.status_code == 200
 
-    def test_session_info_has_questions(self, client, db):
+    def test_session_info_counts_questions_without_revealing_them(self, client, db):
+        """Before start, a coder learns how many questions await — not what they are."""
         token = generate_and_get_token(client, db)
         data = client.get(f"/assessment/take/{token}").json()
-        assert "questions" in data
-        assert len(data["questions"]) == 6
+        assert data["total_questions"] == 6
+        assert "questions" not in data
 
     def test_invalid_token_returns_404(self, client, db):
         r = client.get("/assessment/take/ASM-INVALID1")
@@ -49,7 +53,7 @@ class TestSessionLoad:
 
     def test_questions_have_required_fields(self, client, db):
         token = generate_and_get_token(client, db)
-        data = client.get(f"/assessment/take/{token}").json()
+        data = client.post(f"/assessment/take/{token}/start").json()
         for q in data["questions"]:
             for field in ["question_text", "option_a", "option_b", "option_c", "option_d"]:
                 assert field in q, f"Question missing field: {field}"
@@ -68,11 +72,11 @@ class TestSessionStart:
         r = client.post(f"/assessment/take/{token}/start")
         assert r.status_code == 200
 
-    def test_start_sets_status_active(self, client, db):
+    def test_start_sets_status_in_progress(self, client, db):
         token = generate_and_get_token(client, db)
         client.post(f"/assessment/take/{token}/start")
         data = client.get(f"/assessment/take/{token}").json()
-        assert data.get("status") == "active"
+        assert data.get("status") == "in_progress"
 
     def test_start_twice_is_idempotent(self, client, db):
         """Starting an already-started session should not error."""
@@ -85,8 +89,7 @@ class TestSessionStart:
 class TestAnswerSaving:
     def _started_session(self, client, db):
         token = generate_and_get_token(client, db)
-        client.post(f"/assessment/take/{token}/start")
-        questions = client.get(f"/assessment/take/{token}").json()["questions"]
+        questions = client.post(f"/assessment/take/{token}/start").json()["questions"]
         return token, questions
 
     def test_save_answer(self, client, db):
@@ -122,8 +125,7 @@ class TestAnswerSaving:
 class TestSessionSubmit:
     def _submit_session(self, client, db, answer_all=True):
         token = generate_and_get_token(client, db)
-        client.post(f"/assessment/take/{token}/start")
-        questions = client.get(f"/assessment/take/{token}").json()["questions"]
+        questions = client.post(f"/assessment/take/{token}/start").json()["questions"]
         if answer_all:
             for i, q in enumerate(questions):
                 client.post(f"/assessment/take/{token}/answer", json={
@@ -133,23 +135,55 @@ class TestSessionSubmit:
                 })
         return token, questions
 
+    @staticmethod
+    def _served_key(db, token):
+        """question_id -> correct letter, as actually served to this coder."""
+        session = db.query(AssessmentSession).filter(
+            AssessmentSession.session_token == token
+        ).first()
+        slot = db.query(GeneratedAssessmentStudent).filter(
+            GeneratedAssessmentStudent.id == session.student_slot_id
+        ).first()
+        qs = slot.questions_json
+        if isinstance(qs, str):
+            qs = json.loads(qs)
+        return {q["question_id"]: q["correct_answer"] for q in qs}
+
     def test_submit_returns_200(self, client, db):
         token, _ = self._submit_session(client, db)
         r = client.post(f"/assessment/take/{token}/submit", json={"auto_submitted": False})
         assert r.status_code == 200
 
-    def test_submit_returns_score(self, client, db):
+    def test_submit_withholds_the_score_from_the_coder(self, client, db):
+        """The trainer releases results; the submit response must not leak them."""
         token, _ = self._submit_session(client, db)
         data = client.post(f"/assessment/take/{token}/submit",
                            json={"auto_submitted": False}).json()
-        assert "score_pct" in data or "correct_count" in data
+        assert data["submitted"] is True
+        assert "score_pct" not in data and "correct_count" not in data
 
     def test_score_is_100_when_all_correct(self, client, db):
-        """All questions have correct_answer='A' in seed data, so answering A = 100%."""
-        token, _ = self._submit_session(client, db, answer_all=True)
-        data = client.post(f"/assessment/take/{token}/submit",
-                           json={"auto_submitted": False}).json()
-        assert data.get("score_pct") == pytest.approx(100.0, abs=1.0)
+        """
+        The seed bank marks 'A' correct everywhere, but generation shuffles the
+        options per coder, so the served letter differs. Answer from the coder's
+        own served key, not from the bank.
+        """
+        token, questions = self._submit_session(client, db, answer_all=False)
+        key = self._served_key(db, token)
+        for i, q in enumerate(questions):
+            client.post(f"/assessment/take/{token}/answer", json={
+                "question_index": i,
+                "question_id": q["question_id"],
+                "selected_answer": key[q["question_id"]],
+            })
+        client.post(f"/assessment/take/{token}/submit", json={"auto_submitted": False})
+        session = db.query(AssessmentSession).filter(
+            AssessmentSession.session_token == token
+        ).first()
+        result = db.query(AssessmentResult).filter(
+            AssessmentResult.session_id == session.id
+        ).first()
+        assert result.score_pct == pytest.approx(100.0, abs=1.0)
 
     def test_submit_twice_returns_error(self, client, db):
         token, _ = self._submit_session(client, db)
@@ -159,10 +193,12 @@ class TestSessionSubmit:
 
     def test_auto_submit_flag_recorded(self, client, db):
         token, _ = self._submit_session(client, db)
-        data = client.post(f"/assessment/take/{token}/submit",
-                           json={"auto_submitted": True}).json()
-        # Should not raise an error; auto_submitted flag is stored
-        assert r.status_code == 200 if False else True  # just ensure no exception
+        r = client.post(f"/assessment/take/{token}/submit", json={"auto_submitted": True})
+        assert r.status_code == 200
+        session = db.query(AssessmentSession).filter(
+            AssessmentSession.session_token == token
+        ).first()
+        assert session.auto_submitted is True
 
 
 class TestSessionsList:
