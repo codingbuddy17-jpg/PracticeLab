@@ -15,6 +15,7 @@ import { SPECIALTY_COLORS } from '../../theme'
 import { trainerName } from './shared'
 import { InsightsPanel } from './InsightsPanel'
 import styles from './styles'
+import { vocab } from './directVocab'
 
 const IS_ED = (specialty: string) => specialty === 'Edits' || specialty === 'Denials'
 
@@ -205,11 +206,13 @@ function EDGradingPanel({ batch, onGraded }: { batch: any; onGraded: () => void 
 }
 
 function AllocationPanel({ batch, onDone }: { batch: any; onDone: () => void }) {
+  const isDirect = !!batch.is_direct_assignment
+  const V = vocab(isDirect)
   const allCoderNames: string[] = (batch.coders || []).map((c: any) => c.coder_name)
   const [form, setForm] = useState({
     charts_per_coder: batch.charts_per_coder,
     notes: '',
-    assignMode: 'random' as 'random' | 'manual',
+    assignMode: (isDirect ? 'manual' : 'random') as 'random' | 'manual',
   })
   const [includedCoders, setIncludedCoders] = useState<Set<string>>(new Set(allCoderNames))
 
@@ -234,6 +237,12 @@ function AllocationPanel({ batch, onDone }: { batch: any; onDone: () => void }) 
     } catch { toast.error('Chart search failed') }
     finally { setSearchingCharts(false) }
   }
+
+  // Direct mode opens on the picker, so the charts have to already be there.
+  // Without this the trainer meets an empty list and has to work out that a
+  // search is what fills it — a control sitting inside the region its own
+  // value would populate.
+  useEffect(() => { if (isDirect) runChartSearch() }, [])
 
   const toggleChart = (id: number) => {
     setSelectedChartIds(prev => {
@@ -294,8 +303,13 @@ function AllocationPanel({ batch, onDone }: { batch: any; onDone: () => void }) 
         <div style={styles.formGroup}>
           <label style={styles.label}>Assignment</label>
           <div style={styles.modeToggle}>
-            <button style={form.assignMode === 'random' ? styles.modeTabActive : styles.modeTab} onClick={() => setForm(f => ({ ...f, assignMode: 'random' }))}>Random</button>
-            <button style={form.assignMode === 'manual' ? styles.modeTabActive : styles.modeTab} onClick={() => { setForm(f => ({ ...f, assignMode: 'manual' })); runChartSearch() }}>Manual</button>
+            {isDirect ? <>
+              <button style={form.assignMode === 'manual' ? styles.modeTabActive : styles.modeTab} onClick={() => { setForm(f => ({ ...f, assignMode: 'manual' })); runChartSearch() }}>Pick charts</button>
+              <button style={form.assignMode === 'random' ? styles.modeTabActive : styles.modeTab} onClick={() => setForm(f => ({ ...f, assignMode: 'random' }))}>Random from pool</button>
+            </> : <>
+              <button style={form.assignMode === 'random' ? styles.modeTabActive : styles.modeTab} onClick={() => setForm(f => ({ ...f, assignMode: 'random' }))}>Random</button>
+              <button style={form.assignMode === 'manual' ? styles.modeTabActive : styles.modeTab} onClick={() => { setForm(f => ({ ...f, assignMode: 'manual' })); runChartSearch() }}>Manual</button>
+            </>}
           </div>
         </div>
         <div style={{ ...styles.formGroup, flex: 1 }}>
@@ -375,7 +389,7 @@ function AllocationPanel({ batch, onDone }: { batch: any; onDone: () => void }) 
       <div style={{ display: 'flex', gap: 10 }}>
         <button style={(running || includedCoders.size === 0) ? { ...styles.primaryBtn, opacity: 0.6 } : styles.primaryBtn}
           disabled={running || includedCoders.size === 0} onClick={handleRun}>
-          {running ? <><Loader size={14} /> Running…</> : `▶ Run Cycle ${nextCycle}`}
+          {running ? <><Loader size={14} /> Running…</> : isDirect ? `▶ ${V.assign}` : `▶ Run Cycle ${nextCycle}`}
         </button>
       </div>
     </div>
@@ -441,6 +455,7 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
   const totalSubmitted = batch.coders?.reduce((sum: number, c: any) => sum + c.charts.filter((ch: any) => ch.submission_status === 'Submitted').length, 0) || 0
   const hasCycles = (batch.allocation_cycles?.length || 0) > 0
   const isDirectAssignment = !!batch.is_direct_assignment
+  const V = vocab(isDirectAssignment)
   const hasResults = isDirectAssignment
     ? (batch.direct_graded_count || 0) > 0
     : totalSubmitted > 0
@@ -462,17 +477,26 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
     ? `${totalAssigned} chart${totalAssigned === 1 ? '' : 's'} assigned, nothing submitted. Close anyway?`
     : isDirectAssignment ? 'Mark this assignment as complete?' : 'Lock all results?'
 
-  // Progression steps
-  const steps = [
-    { label: 'Run Cycle', done: hasCycles, active: !hasCycles },
-    ...(isDirectAssignment || !isED
-      ? [{ label: 'Generate Sessions', done: totalSubmitted > 0, active: hasCycles && totalSubmitted === 0 },
-         ...(isIP && !isDirectAssignment ? [{ label: 'DRG Review', done: !pendingDRG && hasResults, active: pendingDRG }] : [])]
-      : [{ label: 'Grade Cases', done: totalSubmitted > 0, active: hasCycles && totalSubmitted === 0 }]
-    ),
-    { label: 'View Results', done: false, active: hasResults && !pendingDRG },
-    { label: isDirectAssignment ? 'Close Assignment' : 'Close Batch', done: !isOpen, active: canClose },
-  ]
+  // Progression steps. Same underlying states either way — the direct flow just
+  // has fewer of them to show: no DRG review gate, no ED grading branch, and
+  // the two middle steps named for what a trainer is actually doing.
+  const steps = isDirectAssignment
+    ? [
+        { label: V.assign, done: hasCycles, active: !hasCycles },
+        { label: V.makeCodes, done: totalSubmitted > 0, active: hasCycles && totalSubmitted === 0 },
+        { label: 'Review Results', done: false, active: hasResults },
+        { label: V.close, done: !isOpen, active: canClose },
+      ]
+    : [
+        { label: V.assign, done: hasCycles, active: !hasCycles },
+        ...(!isED
+          ? [{ label: 'Generate Sessions', done: totalSubmitted > 0, active: hasCycles && totalSubmitted === 0 },
+             ...(isIP ? [{ label: 'DRG Review', done: !pendingDRG && hasResults, active: pendingDRG }] : [])]
+          : [{ label: 'Grade Cases', done: totalSubmitted > 0, active: hasCycles && totalSubmitted === 0 }]
+        ),
+        { label: 'View Results', done: false, active: hasResults && !pendingDRG },
+        { label: V.close, done: !isOpen, active: canClose },
+      ]
 
   return (
     <div style={styles.section}>
@@ -556,17 +580,19 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
 
       <div style={styles.cycleSection}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-          <span style={{ fontWeight: 700, fontSize: 14, color: '#374151' }}>Allocation Cycles ({batch.allocation_cycles?.length || 0})</span>
+          <span style={{ fontWeight: 700, fontSize: 14, color: '#374151' }}>{V.assignments} ({batch.allocation_cycles?.length || 0})</span>
           {isOpen && (
             <button style={{ ...styles.primaryBtn, background: '#4f46e5' }} onClick={() => setShowAllocationPanel(p => !p)}>
-              {showAllocationPanel ? '✕ Cancel' : '▶ Run New Cycle'}
+              {showAllocationPanel ? '✕ Cancel' : `▶ ${V.assignAgain}`}
             </button>
           )}
         </div>
         {showAllocationPanel && isOpen && <AllocationPanel batch={batch} onDone={() => { setShowAllocationPanel(false); loadBatch() }} />}
         {(batch.allocation_cycles || []).length === 0 && !showAllocationPanel && (
           <div style={{ fontSize: 13, color: '#6b7280', padding: '14px 16px', background: '#f8fafc', borderRadius: 8, border: '1px dashed #e5e7eb' }}>
-            No cycles yet. Click <strong>Run New Cycle</strong> above to assign charts to coders{isED ? ' — then grade each case using the rubric below.' : ' — coders complete charts in their practice sessions.'}
+            {isDirectAssignment
+              ? <>No charts assigned yet. Click <strong>{V.assignAgain}</strong> above to pick the charts for this coder.</>
+              : <>No cycles yet. Click <strong>{V.assignAgain}</strong> above to assign charts to coders{isED ? ' — then grade each case using the rubric below.' : ' — coders complete charts in their practice sessions.'}</>}
           </div>
         )}
         {(batch.allocation_cycles || []).map((c: any) => (
@@ -723,11 +749,11 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
         })}
       </div>
 
-      <PracticeTokensSection batchId={batchId} />
+      <PracticeTokensSection batchId={batchId} isDirect={isDirectAssignment} />
 
       <div style={styles.cycleSection}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-          <span style={{ fontWeight: 700, fontSize: 13, color: '#374151' }}>Batch Log</span>
+          <span style={{ fontWeight: 700, fontSize: 13, color: '#374151' }}>{V.log}</span>
           <button style={{ ...styles.outlineBtn, fontSize: 12, padding: '4px 10px' }} onClick={() => setShowNoteBox(p => !p)}>
             {showNoteBox ? 'Cancel' : '+ Add Note'}
           </button>
@@ -754,7 +780,8 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
 
 // ── Practice Tokens Section ────────────────────────────────────────────────────
 
-function PracticeTokensSection({ batchId }: { batchId: number }) {
+function PracticeTokensSection({ batchId, isDirect }: { batchId: number; isDirect?: boolean }) {
+  const V = vocab(isDirect)
   const [tokens, setTokens] = useState<{ coder_name: string; token: string; reused: boolean }[] | null>(null)
   const [existing, setExisting] = useState<{ session_id: number; coder_name: string; token: string; status: string; submitted_at: string | null }[]>([])
   const [loading, setLoading] = useState(false)
@@ -821,7 +848,7 @@ function PracticeTokensSection({ batchId }: { batchId: number }) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <Key size={14} color="#7c3aed" />
-          <span style={{ fontWeight: 700, fontSize: 13, color: '#374151' }}>Practice Sessions</span>
+          <span style={{ fontWeight: 700, fontSize: 13, color: '#374151' }}>{V.codesPanel}</span>
           {existing.length > 0 && (
             <span style={{ fontSize: 11, background: '#ede9fe', color: '#7c3aed', borderRadius: 20, padding: '2px 8px', fontWeight: 600 }}>
               {existing.length} session{existing.length !== 1 ? 's' : ''}
@@ -838,7 +865,7 @@ function PracticeTokensSection({ batchId }: { batchId: number }) {
             disabled={loading}
             style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 700, opacity: loading ? 0.7 : 1 }}
           >
-            <Key size={12} /> {loading ? 'Generating…' : existing.length ? 'Regenerate Sessions' : 'Generate Practice Sessions'}
+            <Key size={12} /> {loading ? 'Generating…' : existing.length ? V.remakeCodes : V.makeCodes}
           </button>
           {existing.length > 0 && (
             <button onClick={() => setExpanded(p => !p)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#7c3aed', fontSize: 12 }}>
