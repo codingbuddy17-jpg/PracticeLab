@@ -317,3 +317,13 @@ export async function parseStandaloneQuestions(file: File): Promise<{ questions:
   const { data } = await api.post('/assessment/questions/parse-standalone', form)
   return data
 }
+
+/** Headline assessment figures for the trainer home. */
+export async function getAssessmentOverview() {
+  const { data } = await api.get('/assessment/analytics/overview')
+  return data as {
+    total_assessments: number; total_sessions: number; total_submitted: number
+    unique_coders_assessed: number; overall_pass_rate: number
+    avg_score: number; completion_rate: number
+  }
+}

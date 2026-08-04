@@ -1,16 +1,22 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { FileText, BookOpen, GraduationCap, ChevronRight, ClipboardList } from 'lucide-react'
-import { getPLAnalyticsOverview, getChartStats, getAssessmentStats } from '../api'
+import { getPLAnalyticsOverview, getChartStats, getAssessmentStats, getAssessmentOverview } from '../api'
 
 export function TrainerHome() {
-  const [plStats, setPlStats] = useState<{ total_batches: number; complete_batches: number; total_graded: number; overall_pass_rate: number } | null>(null)
-  const [chartStats, setChartStats] = useState<{ total_charts: number; open_feedback: number; total_specialties: number } | null>(null)
+  const [plStats, setPlStats] = useState<any>(null)
+  const [chartStats, setChartStats] = useState<any>(null)
   const [assessmentStats, setAssessmentStats] = useState<{ totalActive: number; totalSpecialties: number } | null>(null)
+  const [assessOverview, setAssessOverview] = useState<any>(null)
 
-  useEffect(() => {
-    getPLAnalyticsOverview().then(setPlStats).catch(() => {})
+  function load() {
+    // scope=all. The default is batch work only, so this page reported three
+    // batches while ten existed — seven direct assignments excluded with
+    // nothing saying so. A landing page has no filters, so it must not
+    // silently inherit one.
+    getPLAnalyticsOverview({}, 'all').then(setPlStats).catch(() => {})
     getChartStats().then(setChartStats).catch(() => {})
+    getAssessmentOverview().then(setAssessOverview).catch(() => {})
     getAssessmentStats()
       .then(rows => {
         const totalActive = rows.reduce((s, r) => s + r.active, 0)
@@ -18,6 +24,21 @@ export function TrainerHome() {
         setAssessmentStats({ totalActive, totalSpecialties })
       })
       .catch(() => {})
+  }
+
+  useEffect(() => {
+    load()
+    // These figures change while you are inside a module, and this page is
+    // what you come back to. Refetching when the tab regains focus is the
+    // cheapest way to be current at the only moment it matters — polling would
+    // fire all day for a page nobody is looking at.
+    const onFocus = () => { if (document.visibilityState === 'visible') load() }
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onFocus)
+    return () => {
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onFocus)
+    }
   }, [])
 
   return (
@@ -78,9 +99,21 @@ export function TrainerHome() {
               <div>
                 <div style={styles.bentoPassRateNum}>{chartStats?.total_specialties ?? '—'}</div>
                 <div style={styles.bentoStatLabel}>Specialties Covered</div>
+                {/* Charts without a key are inventory that looks like capacity
+                    until someone tries to build a batch from it. */}
+                {chartStats?.charts_without_keys > 0 && (
+                  <div style={{ ...styles.bentoStatSub, color: '#b45309' }}>
+                    {chartStats.charts_without_keys} chart{chartStats.charts_without_keys !== 1 ? 's' : ''} awaiting an answer key
+                  </div>
+                )}
               </div>
-              <div style={{ fontSize: 12, color: '#4f46e5', fontWeight: 600 }}>
-                ICD-10 · Surgery · ED · IP-DRG · more
+              {/* Named from the data. The old list was hardcoded and had gone
+                  stale — it named ICD-10, which is a code set, not a specialty. */}
+              <div style={{ fontSize: 11, color: '#4f46e5', fontWeight: 600, textAlign: 'right' as const, maxWidth: 210 }}>
+                {chartStats?.specialties?.length
+                  ? chartStats.specialties.slice(0, 4).map((x: any) => x.specialty).join(' · ')
+                    + (chartStats.specialties.length > 4 ? ` · +${chartStats.specialties.length - 4}` : '')
+                  : '—'}
               </div>
             </div>
           </Link>
@@ -111,14 +144,16 @@ export function TrainerHome() {
 
           <Link to="/trainer/practicelab" style={{ ...styles.bentoCell, ...styles.bentoCellStat, background: 'rgba(238,242,255,0.6)' }}>
             <div style={styles.bentoStatNum}>{plStats?.total_batches ?? '—'}</div>
-            <div style={styles.bentoStatLabel}>Total Batches</div>
-            <div style={styles.bentoStatSub}>{plStats?.complete_batches ?? '—'} complete</div>
+            <div style={styles.bentoStatLabel}>Batches & Assignments</div>
+            <div style={styles.bentoStatSub}>
+              {plStats ? `${plStats.open_batches} open · ${plStats.complete_batches} closed` : '—'}
+            </div>
           </Link>
 
           <Link to="/trainer/practicelab" style={{ ...styles.bentoCell, ...styles.bentoCellStat, background: 'rgba(253,248,255,0.6)' }}>
             <div style={styles.bentoStatNum}>{plStats?.total_graded ?? '—'}</div>
-            <div style={styles.bentoStatLabel}>Submissions Graded</div>
-            <div style={styles.bentoStatSub}>across all batches</div>
+            <div style={styles.bentoStatLabel}>Charts Graded</div>
+            <div style={styles.bentoStatSub}>batches and direct assignments</div>
           </Link>
 
           <Link to="/trainer/practicelab" style={{ ...styles.bentoCell, ...styles.bentoCellPassRate }}>
@@ -127,7 +162,7 @@ export function TrainerHome() {
                 <div style={styles.bentoPassRateNum}>
                   {plStats ? `${plStats.overall_pass_rate}%` : '—'}
                 </div>
-                <div style={styles.bentoStatLabel}>Overall Pass Rate</div>
+                <div style={styles.bentoStatLabel}>Chart Pass Rate</div>
               </div>
               {plStats && (
                 <div style={styles.bentoBarWrap}>
@@ -173,15 +208,26 @@ export function TrainerHome() {
             <div style={styles.bentoStatSub}>with active questions</div>
           </Link>
 
+          {/* Was a static "Generate" tile — a button dressed as a statistic,
+              in the one slot on the row that could carry an outcome. */}
           <Link to="/trainer/assessment" style={{ ...styles.bentoCell, ...styles.bentoCellPassRate, background: 'rgba(245,243,255,0.45)' }}>
             <div style={{ ...styles.bentoPassRateRow }}>
               <div>
-                <div style={{ ...styles.bentoPassRateNum, color: '#7c3aed' }}>Generate</div>
-                <div style={styles.bentoStatLabel}>Per-student shuffled MCQ tests</div>
+                <div style={{ ...styles.bentoPassRateNum, color: '#7c3aed' }}>
+                  {assessOverview ? `${assessOverview.overall_pass_rate}%` : '—'}
+                </div>
+                <div style={styles.bentoStatLabel}>Clearance Rate</div>
+                <div style={styles.bentoStatSub}>
+                  {assessOverview
+                    ? `${assessOverview.total_submitted} of ${assessOverview.total_sessions} sessions submitted`
+                    : '—'}
+                </div>
               </div>
-              <div style={{ fontSize: 12, color: '#7c3aed', fontWeight: 600 }}>
-                PDF Export · Answer Keys
-              </div>
+              {assessOverview && (
+                <div style={styles.bentoBarWrap}>
+                  <div style={{ ...styles.bentoBar, width: `${assessOverview.overall_pass_rate}%`, background: '#7c3aed' }} />
+                </div>
+              )}
             </div>
           </Link>
         </div>

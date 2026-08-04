@@ -92,7 +92,11 @@ export async function purgeChart(chartId: number, passphrase: string) {
   return data
 }
 
-export async function getChartStats(): Promise<{ total_charts: number; open_feedback: number; total_specialties: number }> {
+export async function getChartStats(): Promise<{
+  total_charts: number; open_feedback: number; total_specialties: number
+  specialties: { specialty: string; charts: number }[]
+  charts_with_keys: number; charts_without_keys: number
+}> {
   const { data } = await api.get('/charts/stats')
   return data
 }

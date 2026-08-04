@@ -18,8 +18,32 @@ def get_chart_stats(db: Session = Depends(get_db)):
     """Quick stats for the TrainerHome dashboard."""
     total_charts = db.query(Chart).filter(Chart.status == ChartStatus.ACTIVE).count()
     open_feedback = db.query(ChartFeedback).filter(ChartFeedback.status == FeedbackStatus.OPEN).count()
-    total_specialties = db.query(func.count(func.distinct(Chart.specialty))).filter(Chart.status == ChartStatus.ACTIVE).scalar() or 0
-    return {"total_charts": total_charts, "open_feedback": open_feedback, "total_specialties": total_specialties}
+    # The names, not just the count. The home page listed them from a
+    # hardcoded string that had gone stale — it named ICD-10, which is a code
+    # set rather than a specialty, and predated Surgery and ED Single Path.
+    spec_rows = (db.query(Chart.specialty, func.count(Chart.id))
+                   .filter(Chart.status == ChartStatus.ACTIVE)
+                   .group_by(Chart.specialty)
+                   .all())
+    specialties = sorted(
+        [{"specialty": r[0].value, "charts": r[1]} for r in spec_rows if r[0]],
+        key=lambda x: -x["charts"])
+
+    # Charts with no answer key cannot be practised on, so this is inventory
+    # that looks like capacity until someone tries to build a batch from it.
+    from models import AnswerKey
+    keyed = (db.query(func.count(func.distinct(AnswerKey.chart_id)))
+               .join(Chart, Chart.id == AnswerKey.chart_id)
+               .filter(Chart.status == ChartStatus.ACTIVE).scalar() or 0)
+
+    return {
+        "total_charts": total_charts,
+        "open_feedback": open_feedback,
+        "total_specialties": len(specialties),
+        "specialties": specialties,
+        "charts_with_keys": keyed,
+        "charts_without_keys": max(0, total_charts - keyed),
+    }
 
 
 @router.get("/search")
