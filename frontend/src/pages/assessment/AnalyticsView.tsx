@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { BarChart2, TrendingUp, User, Layers, Tag, Grid, BookOpen, HelpCircle } from 'lucide-react'
 import { OverviewTab } from './analytics/OverviewTab'
 import { AssessmentDrillTab } from './analytics/AssessmentDrillTab'
 import { CoderHistoryTab } from './analytics/CoderHistoryTab'
@@ -21,41 +20,66 @@ type AnalyticsTab = 'overview' | 'drill' | 'coder' | 'specialty' | 'topic' | 'ba
  */
 const FILTERED: AnalyticsTab[] = ['overview', 'specialty', 'topic', 'matrix', 'questions']
 
+const TABS: { id: AnalyticsTab; label: string; title: string }[] = [
+  { id: 'overview', label: 'Overview', title: 'Overview' },
+  { id: 'batch', label: 'Batches', title: 'Batch Analysis' },
+  { id: 'drill', label: 'Drill-down', title: 'Assessment Drill-down' },
+  { id: 'specialty', label: 'Specialty', title: 'By Specialty' },
+  { id: 'topic', label: 'Topic', title: 'By Topic' },
+  { id: 'questions', label: 'Questions', title: 'Question Signals — which questions teach, which mislead' },
+  { id: 'matrix', label: 'Matrix', title: 'Coder × Specialty Matrix' },
+  { id: 'coder', label: 'Coder', title: 'Coder History' },
+]
+
 export function AnalyticsView() {
   const [tab, setTab] = useState<AnalyticsTab>('overview')
   const [filters, setFilters] = useState<AFilters>({})
 
-  const tabs: { id: AnalyticsTab; label: string; title: string; icon: React.ReactNode }[] = [
-    { id: 'overview', label: 'Overview', title: 'Overview', icon: <BarChart2 size={14} /> },
-    { id: 'batch', label: 'Batches', title: 'Batch Analysis', icon: <BookOpen size={14} /> },
-    { id: 'drill', label: 'Drill-down', title: 'Assessment Drill-down', icon: <TrendingUp size={14} /> },
-    { id: 'specialty', label: 'Specialty', title: 'By Specialty', icon: <Layers size={14} /> },
-    { id: 'topic', label: 'Topic', title: 'By Topic', icon: <Tag size={14} /> },
-    { id: 'questions', label: 'Questions', title: 'Question Signals — which questions teach, which mislead', icon: <HelpCircle size={14} /> },
-    { id: 'matrix', label: 'Matrix', title: 'Coder × Specialty Matrix', icon: <Grid size={14} /> },
-    { id: 'coder', label: 'Coder', title: 'Coder History', icon: <User size={14} /> },
-  ]
-
   return (
     <div>
-      <div style={{ display: 'flex', gap: 6, marginBottom: 22, flexWrap: 'wrap' }}>
-        {tabs.map(t => (
+      {/*
+        One segmented control, matching PracticeLab analytics — same shape, same
+        slate, so moving between the two modules does not feel like moving
+        between two apps.
+
+        No icons. Eight glyphs of eight different metaphors read as decoration
+        rather than meaning: nothing distinguishes a tag from a layer at 14px,
+        so they add colour and width without adding information. The label is
+        the label.
+
+        A dark selected segment reads as chrome — the thing you move around in,
+        rather than a setting you have switched on. Labels are short so all
+        eight fit one row at ordinary widths, with the full name on hover.
+      */}
+      <div style={{
+        display: 'flex',
+        border: '1px solid #cbd5e1',
+        borderRadius: 10,
+        overflow: 'hidden',
+        alignSelf: 'flex-start',
+        maxWidth: '100%',
+        flexWrap: 'wrap' as const,
+        background: '#f8fafc',
+        marginBottom: 20,
+        width: 'fit-content',
+      }}>
+        {TABS.map(t => (
           <button
             key={t.id}
             title={t.title}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              padding: '8px 16px', borderRadius: 10,
-              border: tab === t.id ? '1px solid rgba(124,58,237,0.3)' : '1px solid transparent',
-              background: tab === t.id ? 'rgba(124,58,237,0.1)' : 'rgba(255,255,255,0.5)',
-              cursor: 'pointer', fontSize: 13, fontWeight: 700,
-              color: tab === t.id ? '#7c3aed' : '#6b7280',
-              backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
-              transition: 'all 0.15s',
-            }}
             onClick={() => setTab(t.id)}
+            style={{
+              padding: '8px 15px',
+              border: 'none',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap' as const,
+              fontSize: 13,
+              fontWeight: 700,
+              letterSpacing: 0.2,
+              background: tab === t.id ? '#334155' : 'transparent',
+              color: tab === t.id ? '#fff' : '#64748b',
+            }}
           >
-            {t.icon}
             {t.label}
           </button>
         ))}
