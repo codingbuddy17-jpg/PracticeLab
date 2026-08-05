@@ -4,7 +4,7 @@ Handles upload, listing, editing, status changes, template download, pool previe
 """
 import io
 import re
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
@@ -154,14 +154,142 @@ def download_template(specialty: str = Query(default="ICD10CM")):
     )
 
 
+def _readiness(total_active: int, per_paper: int, coders: int) -> Dict[str, Any]:
+    """
+    What this pool will actually produce for a paper of `per_paper` questions
+    sat by `coders` people, with per-coder randomisation on.
+
+    Readiness is not an absolute count. A 30-question pool is thin for a
+    25-question paper and generous for a 5-question one, so a fixed "50+ is
+    healthy" rule answers the wrong question.
+
+    The number that matters is PAIRWISE OVERLAP — how much of their paper any
+    two coders hold in common — because that is what decides whether comparing
+    notes defeats the assessment. Drawing n of p independently, two coders
+    share about n x (n/p) questions, so the overlap share is simply n/p.
+
+    Uniqueness (items no OTHER coder holds) is reported too, since that is what
+    compute_randomisation_stats measures after generation and the two should be
+    comparable. It is deliberately NOT the headline: with 40 coders even a
+    healthy 250-question pool scores ~2% uniqueness, which reads as alarming
+    when the paper is in fact fine.
+    """
+    if per_paper <= 0 or coders <= 0:
+        return {}
+
+    if total_active < per_paper:
+        return {
+            "per_paper": per_paper,
+            "coders": coders,
+            "verdict": "insufficient",
+            "headline": f"Only {total_active} active question(s) — a {per_paper}-question paper cannot be built.",
+            "advice": "Add questions, widen the topic filter, or lower the question count.",
+            "overlap_pct": None,
+            "shared_questions": None,
+            "uniqueness_pct": None,
+            "pool_for_light_overlap": per_paper * 4,
+            "pool_for_strong": per_paper * 10,
+        }
+
+    overlap = per_paper / total_active
+    shared = round(overlap * per_paper, 1)
+    uniqueness = round(((1 - overlap) ** (coders - 1)) * 100, 1) if coders > 1 else 100.0
+    overlap_pct = round(overlap * 100, 1)
+
+    if overlap >= 0.5:
+        verdict, advice = "near_identical", (
+            f"Aim for {per_paper * 4}+ active questions to get overlap under 25%.")
+    elif overlap >= 0.25:
+        verdict, advice = "heavy_overlap", (
+            f"Workable, but {per_paper * 4}+ questions would drop overlap below 25%.")
+    elif overlap >= 0.10:
+        verdict, advice = "workable", (
+            f"Fine for most purposes; {per_paper * 10}+ would make papers largely distinct.")
+    else:
+        verdict, advice = "strong", "Papers will be largely distinct."
+
+    return {
+        "per_paper": per_paper,
+        "coders": coders,
+        "verdict": verdict,
+        "headline": (f"Any two coders will share about {shared:g} of their {per_paper} "
+                     f"questions ({overlap_pct}%)."),
+        "advice": advice,
+        "overlap_pct": overlap_pct,
+        "shared_questions": shared,
+        "uniqueness_pct": uniqueness,
+        "pool_for_light_overlap": per_paper * 4,
+        "pool_for_strong": per_paper * 10,
+    }
+
+
+def _difficulty_outlook(by_diff: Dict[str, int], total_active: int, per_paper: int) -> Dict[str, Any]:
+    """
+    What generation will DO with this mix — not whether the mix is tidy.
+
+    Neither imbalance errors, which is the trap. In difficulty_mode="auto" the
+    ratios are derived FROM the pool, so a 95/5 Easy/Hard bank silently yields
+    an easy paper that looks deliberate. In "manual" mode _stratified_pick
+    cascades any shortfall into the next bucket, so a requested 30% Hard
+    quietly becomes Easy and Medium. Say which, rather than calling it
+    "unbalanced".
+    """
+    if not total_active:
+        return {}
+
+    counts = {d: by_diff.get(d, 0) for d in ("Easy", "Medium", "Hard")}
+    auto_mix = {d: round(c / total_active * 100) for d, c in counts.items()}
+
+    # An even three-way manual split is the common case; a bucket that cannot
+    # cover its third is the one that will cascade.
+    third = per_paper / 3 if per_paper else 0
+    short = [d for d, c in counts.items() if third and c < third]
+
+    notes = []
+    dominant = max(auto_mix, key=lambda d: auto_mix[d]) if total_active else None
+    if dominant and auto_mix[dominant] >= 70:
+        notes.append(
+            f"On automatic difficulty, papers will be about {auto_mix[dominant]}% {dominant} "
+            f"— the mix is taken from the pool, so this is what coders will sit.")
+    if short and per_paper:
+        notes.append(
+            "If you set the difficulty mix manually, "
+            + ", ".join(f"{d} ({counts[d]} available)" for d in short)
+            + f" cannot cover an even share of a {per_paper}-question paper; "
+              "the shortfall is filled from the other levels rather than refused.")
+
+    return {"auto_mix_pct": auto_mix, "short_buckets": short, "notes": notes}
+
+
 @router.get("/questions/pool-summary")
-def pool_summary(specialty: str = Query(...), db: Session = Depends(get_db)):
-    """Public stats — topic and difficulty counts for a specialty, no question content."""
-    filters = [
-        AssessmentQuestion.specialty == specialty,
-        AssessmentQuestion.status == "Active",
-    ]
+def pool_summary(
+    specialty: str = Query(...),
+    questions_per_paper: int = Query(default=0, ge=0, le=500),
+    coders: int = Query(default=0, ge=0, le=5000),
+    db: Session = Depends(get_db),
+):
+    """
+    Counts for a specialty, plus what they mean for an intended paper.
+    No question content is exposed — counts only.
+    """
+    if specialty not in VALID_SPECIALTIES:
+        # Previously an unknown specialty returned zeroes, which reads exactly
+        # like a real but empty pool.
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown specialty '{specialty}'. Expected one of: "
+                   + ", ".join(sorted(VALID_SPECIALTIES)),
+        )
+
+    base = [AssessmentQuestion.specialty == specialty]
+    filters = base + [AssessmentQuestion.status == "Active"]
+
     total_active = db.query(func.count(AssessmentQuestion.id)).filter(*filters).scalar() or 0
+    # Inactive is actionable in its own right: reactivating 80 retired questions
+    # is a great deal cheaper than authoring them.
+    total_inactive = db.query(func.count(AssessmentQuestion.id)).filter(
+        *base, AssessmentQuestion.status != "Active"
+    ).scalar() or 0
 
     by_topic = db.query(
         AssessmentQuestion.topic,
@@ -173,14 +301,19 @@ def pool_summary(specialty: str = Query(...), db: Session = Depends(get_db)):
         func.count(AssessmentQuestion.id),
     ).filter(*filters).group_by(AssessmentQuestion.difficulty).all()
 
+    diff_map = {d: c for d, c in by_diff}
+
     return {
         "specialty": specialty,
         "total_active": total_active,
+        "total_inactive": total_inactive,
         "by_topic": sorted(
             [{"topic": t or "Uncategorized", "count": c} for t, c in by_topic],
             key=lambda x: -x["count"],
         ),
-        "by_difficulty": {d: c for d, c in by_diff},
+        "by_difficulty": diff_map,
+        "readiness": _readiness(total_active, questions_per_paper, coders),
+        "difficulty_outlook": _difficulty_outlook(diff_map, total_active, questions_per_paper),
     }
 
 

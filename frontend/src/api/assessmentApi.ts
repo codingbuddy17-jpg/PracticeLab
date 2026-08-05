@@ -63,14 +63,46 @@ export async function getAssessmentAuditLogs(passphrase: string, specialty?: str
   }>
 }
 
-export async function getAssessmentPoolSummary(specialty: string) {
-  const { data } = await api.get('/assessment/questions/pool-summary', { params: { specialty } })
-  return data as {
-    specialty: string
-    total_active: number
-    by_topic: { topic: string; count: number }[]
-    by_difficulty: Record<string, number>
+export interface PoolReadiness {
+  per_paper: number
+  coders: number
+  verdict: 'insufficient' | 'near_identical' | 'heavy_overlap' | 'workable' | 'strong'
+  headline: string
+  advice: string
+  overlap_pct: number | null
+  shared_questions: number | null
+  uniqueness_pct: number | null
+  pool_for_light_overlap: number
+  pool_for_strong: number
+}
+
+export interface PoolSummary {
+  specialty: string
+  total_active: number
+  total_inactive: number
+  by_topic: { topic: string; count: number }[]
+  by_difficulty: Record<string, number>
+  readiness: PoolReadiness | Record<string, never>
+  difficulty_outlook: {
+    auto_mix_pct?: Record<string, number>
+    short_buckets?: string[]
+    notes?: string[]
   }
+}
+
+export async function getAssessmentPoolSummary(
+  specialty: string,
+  questionsPerPaper?: number,
+  coders?: number,
+) {
+  const { data } = await api.get('/assessment/questions/pool-summary', {
+    params: {
+      specialty,
+      ...(questionsPerPaper ? { questions_per_paper: questionsPerPaper } : {}),
+      ...(coders ? { coders } : {}),
+    },
+  })
+  return data as PoolSummary
 }
 
 /**
