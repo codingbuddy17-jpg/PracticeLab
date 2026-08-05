@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { Lock, CheckCircle, XCircle, RefreshCw, Edit2, X, Check, Eye, Search, ClipboardList, BookOpen, Download, Layers } from 'lucide-react'
+import { Lock, CheckCircle, XCircle, RefreshCw, Edit2, X, Check, Eye, Search, ClipboardList, BookOpen, Download } from 'lucide-react'
 import toast from 'react-hot-toast'
 import {
   listAssessmentQuestions,
@@ -67,6 +67,19 @@ export function QuestionBankView() {
   const [filterStatus, setFilterStatus] = useState('Active')
   const [filterTopic, setFilterTopic] = useState('')
   const [search, setSearch] = useState('')
+  const [exportSpecialty, setExportSpecialty] = useState('')
+  const [exporting, setExporting] = useState(false)
+
+  async function handleExport() {
+    setExporting(true)
+    try {
+      await exportAllAssessmentQuestions(passphrase, trainerName, exportSpecialty || undefined)
+    } catch (e: any) {
+      toast.error(e.message || 'Export failed')
+    } finally {
+      setExporting(false)
+    }
+  }
 
   // Edit state
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -232,38 +245,6 @@ export function QuestionBankView() {
 
       {bankTab === 'browse' && (
         <>
-          {/* Download Inventory panel */}
-          <div style={s.panel}>
-            <div style={s.panelTitle}>Download Question Inventory</div>
-            <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>
-              All downloads are passphrase-protected and logged in the audit trail.
-            </div>
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' as const, alignItems: 'center' }}>
-              <button
-                style={{ ...s.btnPrimary, gap: 7 }}
-                onClick={() => exportAllAssessmentQuestions(passphrase, trainerName).catch(e => toast.error(e.message))}
-              >
-                <Layers size={13} /> Download Full Inventory (All Specialties)
-              </button>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 12, color: '#6b7280', fontWeight: 600 }}>or single specialty:</span>
-                <select
-                  style={{ ...s.select, minWidth: 160 }}
-                  defaultValue=""
-                  onChange={(e) => {
-                    if (e.target.value) {
-                      exportAllAssessmentQuestions(passphrase, trainerName, e.target.value).catch(err => toast.error(err.message))
-                      e.target.value = ''
-                    }
-                  }}
-                >
-                  <option value="" disabled>Select specialty…</option>
-                  {SPECIALTIES.map(sp => <option key={sp} value={sp}>{sp}</option>)}
-                </select>
-              </div>
-            </div>
-          </div>
-
           {/* Filter + show panel */}
           <div style={s.panel}>
             <div style={s.panelTitle}>Browse Questions</div>
@@ -287,6 +268,34 @@ export function QuestionBankView() {
               <button style={s.btnPrimary} onClick={() => { setPage(1); loadQuestions(1) }}>
                 <Eye size={13} /> Show Questions
               </button>
+
+              {/*
+                Export used to be a full-width titled panel ABOVE this one, so a
+                secondary utility pushed the tab's actual job down the page.
+
+                The specialty picker also used to fire the download from its own
+                onChange. A <select> means "pick a value", not "do the thing":
+                arrow-key navigation fires change on every option it passes, so
+                a keyboard user downloaded Surgery, then ED Facility, then ED
+                Profee — each a passphrase-protected export that writes an audit
+                row, polluting the very log that records who took the bank out.
+                Picking and doing are separate now.
+              */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
+                <select style={{ ...s.select, minWidth: 150 }} value={exportSpecialty}
+                  onChange={e => setExportSpecialty(e.target.value)}>
+                  <option value="">Export: all specialties</option>
+                  {SPECIALTIES.map(sp => <option key={sp} value={sp}>Export: {sp}</option>)}
+                </select>
+                <button
+                  style={{ ...s.btnOutline, opacity: exporting ? 0.65 : 1 }}
+                  disabled={exporting}
+                  title="Passphrase-protected, and recorded in the audit trail"
+                  onClick={handleExport}
+                >
+                  <Download size={13} /> {exporting ? 'Preparing…' : 'Export'}
+                </button>
+              </div>
             </div>
           </div>
 
