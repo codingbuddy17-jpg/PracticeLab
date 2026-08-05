@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { RefreshCw } from 'lucide-react'
+import { errorMessage } from '../../api/errors'
 import { getAssessmentAuditLogs } from '../../api'
 
 interface LogRow {
@@ -25,12 +26,18 @@ export function AuditLogView({ passphrase }: { passphrase: string }) {
   const [logs, setLogs] = useState<LogRow[]>([])
   const [loading, setLoading] = useState(true)
   const [specialtyFilter, setSpecialtyFilter] = useState('')
+  const [error, setError] = useState('')
 
   function load() {
     setLoading(true)
+    setError('')
     getAssessmentAuditLogs(passphrase, specialtyFilter || undefined)
       .then(setLogs)
-      .catch(() => {})
+      // The endpoint IS passphrase-gated, so a wrong or expired passphrase is
+      // exactly when this used to show an empty log — indistinguishable from
+      // "nothing has happened yet", which is the opposite of what an audit
+      // trail is for.
+      .catch(e => { setLogs([]); setError(errorMessage(e, 'Could not load the audit log')) })
       .finally(() => setLoading(false))
   }
 
@@ -89,7 +96,14 @@ export function AuditLogView({ passphrase }: { passphrase: string }) {
                 </tr>
               )
             })}
-            {logs.length === 0 && !loading && (
+            {/* An empty log and an unreadable log mean opposite things. */}
+            {error && !loading && (
+              <tr><td colSpan={5} style={{ textAlign: 'center', padding: 24, color: '#b91c1c', fontSize: 13, fontWeight: 600 }}>
+                {error}
+                <button onClick={load} style={{ marginLeft: 10, padding: '4px 10px', borderRadius: 7, border: '1px solid rgba(220,38,38,0.3)', background: '#fff', color: '#b91c1c', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>Retry</button>
+              </td></tr>
+            )}
+            {logs.length === 0 && !loading && !error && (
               <tr><td colSpan={5} style={{ textAlign: 'center', padding: 32, color: '#9ca3af', fontSize: 13 }}>No audit entries yet</td></tr>
             )}
           </tbody>

@@ -17,6 +17,7 @@ from openpyxl.styles import Font, PatternFill, Alignment
 from database import get_db
 from models import AssessmentQuestion, AssessmentAuditLog
 from config import settings
+from routers.assessment_pkg.security import require_passphrase
 
 
 def _audit(db: Session, trainer: str, action: str, specialty: Optional[str] = None, details: Optional[str] = None):
@@ -509,6 +510,7 @@ def list_questions(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
     db: Session = Depends(get_db),
+    _: None = Depends(require_passphrase),
 ):
     q = db.query(AssessmentQuestion)
     if specialty:
@@ -767,6 +769,7 @@ def update_question_status(
     status: str = Query(...),
     updated_by: str = Query(...),
     db: Session = Depends(get_db),
+    _: None = Depends(require_passphrase),
 ):
     q = db.query(AssessmentQuestion).filter(AssessmentQuestion.question_id == question_id).first()
     if not q:
@@ -785,6 +788,7 @@ def update_question(
     question_id: str,
     payload: dict,
     db: Session = Depends(get_db),
+    _: None = Depends(require_passphrase),
 ):
     q = db.query(AssessmentQuestion).filter(AssessmentQuestion.question_id == question_id).first()
     if not q:
@@ -793,9 +797,39 @@ def update_question(
     allowed = {"question_text", "option_a", "option_b", "option_c", "option_d",
                "correct_answer", "difficulty", "topic", "question_type"}
     updated_by = payload.get("updated_by", "Trainer")
-    for key, val in payload.items():
-        if key in allowed:
-            setattr(q, key, val)
+
+    # Validate against the SAME rules the upload applies. This endpoint used to
+    # setattr whatever it was handed, so the Question Bank screen was a second
+    # door into the bank with no lock on it: the duplicate and blank options
+    # the upload refuses could still be typed in here, along with a
+    # correct_answer of "Z" or a difficulty of "banana".
+    proposed = {k: (str(v).strip() if isinstance(v, str) else v)
+                for k, v in payload.items() if k in allowed}
+
+    def field(name: str):
+        return proposed[name] if name in proposed else getattr(q, name)
+
+    if not str(field("question_text") or "").strip():
+        raise HTTPException(status_code=400, detail="Question_Text cannot be blank")
+
+    problem = option_problem(field("option_a"), field("option_b"),
+                             field("option_c"), field("option_d"))
+    if problem:
+        raise HTTPException(status_code=400, detail=f"Cannot save: {problem}")
+
+    if str(field("correct_answer")).upper() not in VALID_ANSWERS:
+        raise HTTPException(status_code=400,
+                            detail=f"correct_answer must be one of: {', '.join(sorted(VALID_ANSWERS))}")
+    if str(field("difficulty")) not in VALID_DIFFICULTIES:
+        raise HTTPException(status_code=400,
+                            detail=f"difficulty must be one of: {', '.join(sorted(VALID_DIFFICULTIES))}")
+    if str(field("question_type")) not in VALID_TYPES:
+        raise HTTPException(status_code=400,
+                            detail=f"question_type must be one of: {', '.join(sorted(VALID_TYPES))}")
+
+    for key, val in proposed.items():
+        setattr(q, key, val)
+    q.correct_answer = str(q.correct_answer).upper()
 
     db.commit()
     _audit(db, str(updated_by), "edit", q.specialty, f"Edited {question_id}")

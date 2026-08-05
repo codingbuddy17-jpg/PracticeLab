@@ -23,6 +23,7 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 from database import get_db
+from routers.assessment_pkg.security import require_passphrase
 from models import (
     GeneratedAssessment, GeneratedAssessmentStudent,
     AssessmentSession, AssessmentResponse, AssessmentResult,
@@ -185,7 +186,8 @@ def _build_answer_key_pdf(assessment_name: str, students: List[GeneratedAssessme
 
 
 @router.get("/{assessment_id}/export-pdf")
-def export_student_pdfs(assessment_id: int, db: Session = Depends(get_db)):
+def export_student_pdfs(assessment_id: int, db: Session = Depends(get_db),
+                        _: None = Depends(require_passphrase)):
     """Download ZIP of per-student test PDFs (no answers)."""
     assessment = _get_assessment_or_404(assessment_id, db)
     students = db.query(GeneratedAssessmentStudent).filter(
@@ -216,7 +218,8 @@ def export_student_pdfs(assessment_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/{assessment_id}/export-answer-key")
-def export_answer_key(assessment_id: int, db: Session = Depends(get_db)):
+def export_answer_key(assessment_id: int, db: Session = Depends(get_db),
+                      _: None = Depends(require_passphrase)):
     """Download combined answer key PDF for all students."""
     assessment = _get_assessment_or_404(assessment_id, db)
     students = db.query(GeneratedAssessmentStudent).filter(

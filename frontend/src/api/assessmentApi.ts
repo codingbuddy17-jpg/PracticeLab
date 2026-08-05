@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 import api from './client'
+import { getPassphrase, rememberPassphrase } from './assessmentAuth'
 import { downloadFile } from './download'
 
 export interface AssessmentQuestionStat {
@@ -25,7 +26,8 @@ export interface ListQuestionsParams {
 }
 
 export async function listAssessmentQuestions(params?: ListQuestionsParams) {
-  const { data } = await api.get('/assessment/questions', { params })
+  const { data } = await api.get('/assessment/questions',
+    { params: { ...params, passphrase: getPassphrase() } })
   return data as { total: number; page: number; page_size: number; results: unknown[] }
 }
 
@@ -34,6 +36,7 @@ export async function verifyAssessmentPassphrase(trainerName: string, passphrase
     await api.post('/assessment/audit/verify-passphrase', null, {
       params: { trainer_name: trainerName, passphrase },
     })
+    rememberPassphrase(passphrase)
     return true
   } catch {
     return false
@@ -163,13 +166,14 @@ export async function updateQuestionStatus(questionId: string, status: string, u
   const { data } = await api.put(
     `/assessment/questions/${encodeURIComponent(questionId)}/status`,
     null,
-    { params: { status, updated_by: updatedBy } },
+    { params: { status, updated_by: updatedBy, passphrase: getPassphrase() } },
   )
   return data
 }
 
 export async function updateQuestion(questionId: string, payload: Record<string, unknown>) {
-  const { data } = await api.put(`/assessment/questions/${encodeURIComponent(questionId)}`, payload)
+  const { data } = await api.put(`/assessment/questions/${encodeURIComponent(questionId)}`,
+    payload, { params: { passphrase: getPassphrase() } })
   return data
 }
 
@@ -201,12 +205,14 @@ export async function listAssessmentHistory() {
   }>
 }
 
-export function exportAssessmentPDF(assessmentId: number): void {
-  window.open(`${import.meta.env.VITE_API_URL || '/api'}/assessment/${assessmentId}/export-pdf`, '_blank')
+export function exportAssessmentPDF(assessmentId: number, passphrase?: string) {
+  return downloadFile(`/assessment/${assessmentId}/export-pdf`,
+    `Assessment_${assessmentId}.pdf`, { passphrase: passphrase || getPassphrase() })
 }
 
-export function exportAnswerKey(assessmentId: number): void {
-  window.open(`${import.meta.env.VITE_API_URL || '/api'}/assessment/${assessmentId}/export-answer-key`, '_blank')
+export function exportAnswerKey(assessmentId: number, passphrase?: string) {
+  return downloadFile(`/assessment/${assessmentId}/export-answer-key`,
+    `Assessment_${assessmentId}_Answer_Key.pdf`, { passphrase: passphrase || getPassphrase() })
 }
 
 export interface CoderItem { coder_name: string; employee_id?: string }

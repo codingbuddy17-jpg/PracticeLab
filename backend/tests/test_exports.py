@@ -164,7 +164,10 @@ class TestAssessmentExports:
         assert r.status_code == 404
 
     def test_answer_key_export_for_a_missing_assessment_404s(self, client):
-        r = client.get("/assessment/999999/export-answer-key")
+        # Passphrase-gated now, so the request must get past the gate before it
+        # can reach the lookup it is testing.
+        r = client.get("/assessment/999999/export-answer-key",
+                       params={"passphrase": "test-passphrase"})
         assert r.status_code == 404
 
 

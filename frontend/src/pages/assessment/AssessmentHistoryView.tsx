@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react'
 import { Download, Trash2, RefreshCw } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { listAssessmentHistory, exportAssessmentPDF, exportAnswerKey } from '../../api'
+import { errorMessage } from '../../api/errors'
+import { hasPassphrase } from '../../api/assessmentAuth'
 
 interface AssessmentRecord {
   id: number
@@ -19,6 +21,25 @@ export function AssessmentHistoryView() {
   const [deletingId, setDeletingId] = useState<number | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null)
   const [passphrase, setPassphrase] = useState('')
+
+  /**
+   * Both exports hand over the exam — the paper and the answer key — so they
+   * are passphrase-gated server-side now. The passphrase usually comes from
+   * the session store (set when the Question Bank verified it); the field
+   * beside Delete is the fallback for a trainer who has not opened that tab.
+   */
+  async function runExport(fn: () => Promise<void>) {
+    try {
+      await fn()
+    } catch (e: any) {
+      const msg = errorMessage(e, 'Export failed')
+      toast.error(
+        msg.includes('passphrase') && !hasPassphrase()
+          ? 'Enter the trainer passphrase (use the field beside Delete) — these exports contain the answers.'
+          : msg,
+      )
+    }
+  }
 
   function load() {
     setLoading(true)
@@ -93,7 +114,7 @@ export function AssessmentHistoryView() {
                       <button
                         style={styles.actionBtn}
                         title="Export Student PDFs"
-                        onClick={() => exportAssessmentPDF(r.id)}
+                        onClick={() => runExport(() => exportAssessmentPDF(r.id, passphrase))}
                       >
                         <Download size={13} />
                         <span style={{ fontSize: 11 }}>PDFs</span>
@@ -101,7 +122,7 @@ export function AssessmentHistoryView() {
                       <button
                         style={{ ...styles.actionBtn, color: '#4f46e5' }}
                         title="Export Answer Key"
-                        onClick={() => exportAnswerKey(r.id)}
+                        onClick={() => runExport(() => exportAnswerKey(r.id, passphrase))}
                       >
                         <Download size={13} />
                         <span style={{ fontSize: 11 }}>Keys</span>
