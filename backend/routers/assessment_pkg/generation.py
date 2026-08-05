@@ -186,12 +186,23 @@ def _shuffle_options(q: AssessmentQuestion) -> Dict[str, Any]:
 
 @router.get("/pool-preview")
 def pool_preview(
-    specialty: str = Query(..., description="Comma-separated specialty names"),
-    topic_filter: Optional[str] = Query(default=None, description="Comma-separated per-specialty topic filters (matched by position)"),
+    specialty: List[str] = Query(..., description="One specialty per row, repeated"),
+    topic_filter: List[str] = Query(default=[], description="One filter per row, repeated, matched by position"),
     db: Session = Depends(get_db),
 ):
-    specialties = [s.strip() for s in specialty.split(",") if s.strip()]
-    topic_filters = [t.strip() for t in (topic_filter or "").split(",")] if topic_filter else []
+    """
+    What each row of the specialty mix can draw on.
+
+    Repeated parameters rather than one comma-joined string. A row's own topic
+    filter may itself list several topics meaning "any of these", so joining
+    the rows with commas made the two levels indistinguishable: a row filtering
+    "Sepsis, Pneumonia" donated "Pneumonia" to the NEXT specialty and counted
+    only Sepsis for itself. The preview then disagreed with the generator about
+    whether the pool was sufficient, which is the one thing a preview must
+    never do.
+    """
+    specialties = [s.strip() for s in specialty if s.strip()]
+    topic_filters = [t.strip() for t in topic_filter]
 
     results = []
     for i, sp in enumerate(specialties):
@@ -204,7 +215,12 @@ def pool_preview(
             AssessmentQuestion.status == "Active",
         )
         if tf:
-            q = q.filter(AssessmentQuestion.topic.ilike(f"%{tf}%"))
+            topics = [t.strip() for t in tf.split(",") if t.strip()]
+            if len(topics) == 1:
+                q = q.filter(AssessmentQuestion.topic.ilike(f"%{topics[0]}%"))
+            elif topics:
+                from sqlalchemy import or_
+                q = q.filter(or_(*[AssessmentQuestion.topic.ilike(f"%{t}%") for t in topics]))
         rows = q.group_by(AssessmentQuestion.difficulty).all()
         counts = {"Easy": 0, "Medium": 0, "Hard": 0}
         for diff, cnt in rows:
@@ -228,6 +244,37 @@ def generate_assessment(req: GenerateRequest, db: Session = Depends(get_db)):
     coders = [c for c in req.coders if c.coder_name.strip()]
     if not coders:
         raise HTTPException(status_code=400, detail="At least one coder is required")
+
+    # Two coders who share an identity are indistinguishable everywhere
+    # downstream: analytics groups on employee id falling back to name, so a
+    # repeated pair merges two people's results into one row and neither can be
+    # coached from it. Same name with DIFFERENT employee ids is fine — that is
+    # two real people.
+    seen_keys: Dict[str, str] = {}
+    for c in coders:
+        name = c.coder_name.strip()
+        key = (c.employee_id or "").strip() or name.casefold()
+        if key in seen_keys:
+            raise HTTPException(
+                status_code=400,
+                detail=(f"'{name}' appears twice with the same identity. "
+                        "Give each coder a distinct employee ID, or remove the duplicate — "
+                        "results for repeated coders cannot be told apart afterwards."),
+            )
+        seen_keys[key] = name
+
+    # A repeated specialty splits one pool across two rows, so each row's
+    # shortfall check passes while the pool is drawn from twice.
+    if not req.standalone_questions:
+        seen_specs = set()
+        for item in req.specialty_mix:
+            if item.specialty in seen_specs:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(f"'{item.specialty}' appears more than once in the mix. "
+                            "Combine them into one row and set its percentage."),
+                )
+            seen_specs.add(item.specialty)
     if req.total_questions < 1:
         raise HTTPException(status_code=400, detail="total_questions must be >= 1")
     if req.duration_minutes < 5 or req.duration_minutes > 480:
@@ -404,6 +451,9 @@ def generate_assessment(req: GenerateRequest, db: Session = Depends(get_db)):
                 coder_pool = list(standalone_pool)
                 _shuffle(coder_pool)
                 questions_for_coder = coder_pool[:req.total_questions]
+                coder_question_sets[coder.coder_name.strip()] = {
+                    q["question_id"] for q in questions_for_coder
+                }
             else:
                 coder_combined: List[AssessmentQuestion] = []
                 for p in specialty_pools:
@@ -461,18 +511,23 @@ def generate_assessment(req: GenerateRequest, db: Session = Depends(get_db)):
         ).update({"last_used_at": now}, synchronize_session=False)
 
     # ── Randomisation stats ────────────────────────────────────────────────────
-    if req.randomise and not is_standalone and coder_question_sets:
-        total_pool_size = sum(len(p["pool"]) for p in specialty_pools)
-        rand_stats = compute_randomisation_stats(coder_question_sets, total_pool_size)
-    elif not req.randomise:
-        rand_stats = {"avg_uniqueness_pct": 0.0, "note": "Randomisation disabled — all coders received the same question set"}
+    if not req.randomise:
+        rand_stats = {"avg_uniqueness_pct": 0.0,
+                      "note": "Randomisation disabled — all coders received the same question set"}
+    elif coder_question_sets:
+        # Measured from the sets actually assigned, standalone included.
+        #
+        # Standalone used to be handed invented ranges — set(range(i*n, (i+1)*n))
+        # per coder — which are disjoint BY CONSTRUCTION. It therefore reported
+        # flawless uniqueness for five coders drawing five questions from a pool
+        # of six, whose papers are necessarily near-identical. A statistic that
+        # cannot report a problem is worse than none, because the trainer
+        # believes it.
+        pool_size = (len(standalone_pool) if is_standalone
+                     else sum(len(p["pool"]) for p in specialty_pools))
+        rand_stats = compute_randomisation_stats(coder_question_sets, pool_size)
     else:
-        pool_size = len(req.standalone_questions) if is_standalone else 0
-        rand_stats = compute_randomisation_stats(
-            {c.coder_name.strip(): set(range(i * req.total_questions, (i + 1) * req.total_questions))
-             for i, c in enumerate(coders)},
-            pool_size
-        ) if is_standalone and req.randomise else {}
+        rand_stats = {}
     assessment.randomisation_stats = rand_stats
 
     db.commit()

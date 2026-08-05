@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Plus, Trash2, AlertCircle, Download, RefreshCw, Users, Upload, Copy, CheckCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { errorMessage } from '../../api/errors'
 import { getAssessmentPoolPreview, generateAssessment, parseCoderFile, downloadCoderTemplate, parseStandaloneQuestions } from '../../api'
 import RandomisationStatsCard, { RandomisationStats } from '../../components/RandomisationStatsCard'
 
@@ -64,6 +65,12 @@ export function GenerateView({ initialSpecialty }: { initialSpecialty?: string }
   const [diffMix, setDiffMix] = useState({ easy: 33, medium: 34, hard: 33 })
   const [poolData, setPoolData] = useState<PoolRow[]>([])
   const [poolLoading, setPoolLoading] = useState(false)
+  const [poolError, setPoolError] = useState('')
+  const [passThreshold, setPassThreshold] = useState(90)
+  const [allowShortPool, setAllowShortPool] = useState(false)
+  const [shortfalls, setShortfalls] = useState<
+    { specialty: string; topic_filter: string | null; requested: number; available: number }[] | null
+  >(null)
 
   // ── Standalone-mode fields ───────────────────────────────────────────────────
   const [standaloneQuestions, setStandaloneQuestions] = useState<StandaloneRow[]>([])
@@ -86,11 +93,14 @@ export function GenerateView({ initialSpecialty }: { initialSpecialty?: string }
   const fetchPool = useCallback(() => {
     if (specialtyMix.length === 0 || mode === 'standalone') return
     setPoolLoading(true)
-    const specs = specialtyMix.map(r => r.specialty)
-    const topics = specialtyMix.map(r => r.topicFilter).join(',')
-    getAssessmentPoolPreview(specs, topics)
-      .then(d => setPoolData(d as PoolRow[]))
-      .catch(() => {})
+    // One pair per row. Joining these into comma-separated strings collided
+    // with the commas inside a row's own topic filter, so the preview counted a
+    // different pool from the one generation would draw from.
+    getAssessmentPoolPreview(specialtyMix.map(r => ({
+      specialty: r.specialty, topicFilter: r.topicFilter,
+    })))
+      .then(d => { setPoolData(d as PoolRow[]); setPoolError('') })
+      .catch(e => { setPoolData([]); setPoolError(errorMessage(e, 'Could not read the question pool')) })
       .finally(() => setPoolLoading(false))
   }, [specialtyMix, mode])
 
@@ -142,9 +152,10 @@ export function GenerateView({ initialSpecialty }: { initialSpecialty?: string }
   }
 
   // ── Generate ──────────────────────────────────────────────────────────────────
-  async function handleGenerate() {
+  async function handleGenerate(retryShort = false) {
     if (!canGenerate) return
     setGenerating(true)
+    setShortfalls(null)
     try {
       const base = {
         assessment_name: name.trim(),
@@ -154,6 +165,10 @@ export function GenerateView({ initialSpecialty }: { initialSpecialty?: string }
         total_questions: totalQuestions,
         generated_by: trainerName(),
         randomise,
+        // The bar this paper is judged against. The backend and analytics have
+        // supported it for days; only the screen never asked.
+        pass_threshold: passThreshold,
+        allow_short_pool: retryShort || allowShortPool,
       }
       const payload = mode === 'standalone'
         ? { ...base, specialty_mix: [], standalone_questions: standaloneQuestions }
@@ -167,10 +182,24 @@ export function GenerateView({ initialSpecialty }: { initialSpecialty?: string }
           }
       const res = await generateAssessment(payload)
       setResult(res)
-      toast.success(`Assessment generated for ${res.coder_count} coders`)
+      // The backend has always returned these; the success screen never showed
+      // them, so a paper served short looked like a clean run.
+      if ((res.warnings || []).length) {
+        toast((res.warnings || []).join(' '), { icon: '⚠️', duration: 8000 })
+      } else {
+        toast.success(`Assessment generated for ${res.coder_count} coders`)
+      }
     } catch (e: unknown) {
-      const err = e as { response?: { data?: { detail?: string } } }
-      toast.error(err?.response?.data?.detail || 'Generation failed')
+      const detail = (e as any)?.response?.data?.detail
+      // A shortfall refusal names the gap and offers a way through. The error
+      // text used to say "re-submit with allow_short_pool", which was not
+      // something a trainer could do from this screen.
+      if (detail && typeof detail === 'object' && detail.shortfalls) {
+        setShortfalls(detail.shortfalls)
+        toast.error(detail.message || 'Not enough questions for this mix.')
+      } else {
+        toast.error(errorMessage(e, 'Generation failed'))
+      }
     } finally { setGenerating(false) }
   }
 
@@ -322,6 +351,15 @@ export function GenerateView({ initialSpecialty }: { initialSpecialty?: string }
             <label style={styles.label}>Duration (minutes)</label>
             <input type="number" style={{ ...styles.input, width: 100 }} min={5} max={480}
               value={durationMinutes} onChange={e => setDurationMinutes(Number(e.target.value))} />
+          </div>
+          <div style={styles.formGroup}>
+            {/* Stored on the paper and used by every analytic. Until now the
+                screen never asked, so every assessment silently took the
+                platform default. */}
+            <label style={styles.label}>Pass mark (%)</label>
+            <input type="number" style={{ ...styles.input, width: 100 }} min={1} max={100}
+              value={passThreshold}
+              onChange={e => setPassThreshold(Math.min(100, Math.max(1, Number(e.target.value) || 1)))} />
           </div>
           <div style={styles.formGroup}>
             <label style={styles.label}>Randomise per coder</label>
@@ -586,10 +624,31 @@ export function GenerateView({ initialSpecialty }: { initialSpecialty?: string }
             {validCoders.length} coder{validCoders.length > 1 ? 's' : ''} · {durationMinutes} min each
           </div>
         )}
+        {shortfalls && (
+          <div style={{ flexBasis: '100%', background: 'rgba(234,88,12,0.08)', border: '1px solid rgba(234,88,12,0.25)', borderRadius: 12, padding: '12px 16px', marginBottom: 10 }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: '#c2410c', marginBottom: 6 }}>
+              Not enough questions for this mix
+            </div>
+            {shortfalls.map((sf, i) => (
+              <div key={i} style={{ fontSize: 12, color: '#7c2d12' }}>
+                {sf.specialty}{sf.topic_filter ? ` (topic: ${sf.topic_filter})` : ''} — needs {sf.requested}, has {sf.available}
+              </div>
+            ))}
+            <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+              <button style={styles.btnOutline} disabled={generating}
+                onClick={() => handleGenerate(true)}>
+                Generate a shorter paper anyway
+              </button>
+              <span style={{ fontSize: 11, color: '#9ca3af', alignSelf: 'center' }}>
+                Or add questions, widen the topic filter, or lower the question count.
+              </span>
+            </div>
+          </div>
+        )}
         <button
           style={{ ...styles.btnPrimary, fontSize: 15, padding: '12px 28px', opacity: canGenerate ? 1 : 0.5 }}
           disabled={!canGenerate || generating}
-          onClick={handleGenerate}
+          onClick={() => handleGenerate()}
         >
           {generating
             ? <><RefreshCw size={15} style={{ animation: 'spin 1s linear infinite' }} /> Generating…</>

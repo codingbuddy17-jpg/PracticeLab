@@ -177,13 +177,22 @@ export async function updateQuestion(questionId: string, payload: Record<string,
   return data
 }
 
-export async function getAssessmentPoolPreview(specialties: string[], topicFilters?: string): Promise<unknown[]> {
-  const { data } = await api.get('/assessment/pool-preview', {
-    params: {
-      specialty: specialties.join(','),
-      topic_filter: topicFilters || undefined,
-    },
-  })
+/**
+ * Repeated params, one pair per mix row: ?specialty=A&topic_filter=x&specialty=B…
+ *
+ * These used to be comma-joined into single strings, which collided with the
+ * commas INSIDE a row's own topic filter (where they mean "any of these"). The
+ * preview then counted a different pool from the one generation would use.
+ */
+export async function getAssessmentPoolPreview(
+  rows: { specialty: string; topicFilter?: string }[],
+): Promise<unknown[]> {
+  const qs = new URLSearchParams()
+  for (const r of rows) {
+    qs.append('specialty', r.specialty)
+    qs.append('topic_filter', r.topicFilter || '')
+  }
+  const { data } = await api.get(`/assessment/pool-preview?${qs.toString()}`)
   return data
 }
 
