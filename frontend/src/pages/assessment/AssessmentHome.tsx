@@ -66,8 +66,8 @@ export function AssessmentHome() {
       </div>
 
       <div style={styles.content}>
-        {activeTab === 'summary' && <PoolSummaryView onJump={jumpTo} />}
-        {activeTab === 'upload' && <UploadView initialSpecialty={handoffSpecialty} />}
+        {activeTab === 'summary' && <PoolSummaryView onJump={jumpTo} initialSpecialty={handoffSpecialty} />}
+        {activeTab === 'upload' && <UploadView initialSpecialty={handoffSpecialty} onJump={jumpTo} />}
         {activeTab === 'bank' && <QuestionBankView />}
         {activeTab === 'generate' && <GenerateView initialSpecialty={handoffSpecialty} />}
         {activeTab === 'sessions' && <SessionsView />}

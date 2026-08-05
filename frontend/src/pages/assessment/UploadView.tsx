@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { Upload, Download, RefreshCw, CheckCircle, AlertCircle, FileText, Eye } from 'lucide-react'
+import { Upload, Download, RefreshCw, CheckCircle, AlertCircle, FileText, Eye, BarChart2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { uploadAssessmentQuestions, downloadAssessmentTemplate } from '../../api'
 import { errorMessage } from '../../api/errors'
@@ -29,7 +29,11 @@ interface UploadResult {
   timestamp: string
 }
 
-export function UploadView({ initialSpecialty }: { initialSpecialty?: string } = {}) {
+export function UploadView({ initialSpecialty, onJump }: {
+  initialSpecialty?: string
+  /** Hand the uploaded specialty on, so the next step needs no re-picking. */
+  onJump?: (tab: 'summary', specialty: string) => void
+} = {}) {
   const [specialty, setSpecialty] = useState(initialSpecialty || 'ICD10CM')
   const [trainerName, setTrainerNameState] = useState(localStorage.getItem('trainer_name') || '')
   // Read from localStorage but never written back, so the name had to be
@@ -216,9 +220,21 @@ export function UploadView({ initialSpecialty }: { initialSpecialty?: string } =
                   believing the bank grew when it did not, or uploading twice. */}
               <span style={s.cardTitle}>{result.dry_run ? 'Preview — nothing saved yet' : 'Upload Summary'}</span>
             </div>
-            <button style={s.btnOutline} onClick={downloadSummary}>
-              <Download size={13} /> Download Summary
-            </button>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {/* Only after something was really stored: the natural next
+                  question is whether the pool is now big enough to generate
+                  from, and re-picking the specialty to find out is friction. */}
+              {onJump && !result.dry_run && result.stored > 0 && (
+                <button style={s.btnOutline}
+                  title={`Check whether ${result.specialty} can now support an assessment`}
+                  onClick={() => onJump('summary', result.specialty)}>
+                  <BarChart2 size={13} /> Pool readiness for {result.specialty}
+                </button>
+              )}
+              <button style={s.btnOutline} onClick={downloadSummary}>
+                <Download size={13} /> Download Summary
+              </button>
+            </div>
           </div>
 
           <div style={s.summaryMeta}>

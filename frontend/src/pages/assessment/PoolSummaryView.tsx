@@ -26,11 +26,13 @@ const VERDICT: Record<PoolReadiness['verdict'], { label: string; color: string; 
   strong:         { label: 'Strong',                color: '#15803d', bg: 'rgba(22,163,74,0.08)', border: 'rgba(22,163,74,0.22)' },
 }
 
-export function PoolSummaryView({ onJump }: {
+export function PoolSummaryView({ onJump, initialSpecialty }: {
   /** Carry the chosen specialty into Upload or Generate. */
   onJump?: (tab: 'upload' | 'generate', specialty: string) => void
+  /** Specialty handed over from another tab — usually straight after upload. */
+  initialSpecialty?: string
 } = {}) {
-  const [specialty, setSpecialty] = useState('')
+  const [specialty, setSpecialty] = useState(initialSpecialty || '')
   const [summary, setSummary] = useState<PoolSummary | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
