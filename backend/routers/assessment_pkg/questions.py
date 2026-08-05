@@ -80,6 +80,37 @@ DEFAULT_SAMPLE = [
 ]
 
 
+def option_problem(a: str, b: str, c: str, d: str) -> Optional[str]:
+    """
+    Why these four options cannot be used, or None if they are fine.
+
+    Blank and duplicate choices are not untidy data — they are a grading
+    defect. Duplicate text gives a question two right answers while only one
+    letter is keyed, and because options are shuffled per coder, WHICH one is
+    keyed varies between them: two coders picking the identical text get
+    different marks. A blank choice reaches the coder as an empty option.
+
+    Shared with the standalone parser so both entry points refuse the same
+    thing — this is exactly the rule that otherwise gets fixed where it was
+    found and forgotten in the other path.
+    """
+    labels = ("Option_A", "Option_B", "Option_C", "Option_D")
+    values = (a, b, c, d)
+
+    blanks = [lbl for lbl, v in zip(labels, values) if not (v or "").strip()]
+    if blanks:
+        return f"blank {', '.join(blanks)} — every option needs text"
+
+    seen: Dict[str, str] = {}
+    for lbl, v in zip(labels, values):
+        key = " ".join(v.split()).casefold()
+        if key in seen:
+            return (f"duplicate option text in {seen[key]} and {lbl} — "
+                    "two identical choices cannot both be graded")
+        seen[key] = lbl
+    return None
+
+
 def _next_qid(db: Session, specialty: str) -> str:
     prefix = SPECIALTY_PREFIX.get(specialty, "QST")
     pattern = f"{prefix}-%"
@@ -507,9 +538,17 @@ def upload_questions(
     specialty: str = Form(...),
     uploaded_by: str = Form(...),
     file: UploadFile = File(...),
+    dry_run: bool = Form(default=False),
     db: Session = Depends(get_db),
 ):
-    """Upload .xlsx of questions for one specialty. Upserts by question_id."""
+    """
+    Upload .xlsx of questions for one specialty. Upserts by question_id.
+
+    dry_run reports exactly what WOULD happen and writes nothing. The work was
+    already all done before the commit, so the preview costs one rollback — and
+    it is the honest way to warn about overwrites, since it counts the rows
+    that will actually be replaced rather than estimating them client-side.
+    """
     if specialty not in VALID_SPECIALTIES:
         raise HTTPException(status_code=400, detail=f"Unknown specialty: {specialty}")
 
@@ -598,18 +637,50 @@ def upload_questions(
             errors.append(f"Row {row_idx}: invalid Difficulty '{difficulty}'")
             continue
 
-        q_type = cell_val("Question_Type")
-        if q_type not in VALID_TYPES:
-            q_type = "Conceptual"
+        opt_a, opt_b = cell_val("Option_A"), cell_val("Option_B")
+        opt_c, opt_d = cell_val("Option_C"), cell_val("Option_D")
+        problem = option_problem(opt_a, opt_b, opt_c, opt_d)
+        if problem:
+            errors.append(f"Row {row_idx}: {problem}")
+            continue
 
+        # A blank cell is a default; a misspelled one is a mistake. Silently
+        # recategorising "Conceptial" hides the typo in a bank nobody re-reads.
+        q_type = cell_val("Question_Type")
+        if not q_type:
+            q_type = "Conceptual"
+        elif q_type not in VALID_TYPES:
+            errors.append(f"Row {row_idx}: invalid Question_Type '{q_type}' — expected one of: "
+                          + ", ".join(sorted(VALID_TYPES)))
+            continue
+
+        # "Actve" used to fall through to Inactive, so a typo retired a
+        # question with nothing on screen saying so.
         active_status = cell_val("Active_Status")
-        status = "Active" if active_status.lower() in ("", "active", "1", "yes", "true") else "Inactive"
+        if active_status.lower() in ("", "active", "1", "yes", "true"):
+            status = "Active"
+        elif active_status.lower() in ("inactive", "0", "no", "false", "retired"):
+            status = "Inactive"
+        else:
+            errors.append(f"Row {row_idx}: invalid Active_Status '{active_status}' — "
+                          "expected Active or Inactive")
+            continue
 
         shuffle_val = cell_val("Shuffle_Options").lower()
         shuffle_options = shuffle_val not in ("no", "0", "false", "n")
 
         qid = cell_val("Question_ID")
         topic = cell_val("Topic") or None
+
+        # A supplied id must belong to the specialty being uploaded. The check
+        # below this only fires for ids that ALREADY exist, so a new
+        # "SURG-999" uploaded under ICD10CM was created as an ICD10CM question
+        # wearing a Surgery prefix.
+        if qid and "-" in qid and not qid.upper().startswith(f"{prefix.upper()}-"):
+            errors.append(f"Row {row_idx}: Question_ID '{qid}' does not match the "
+                          f"'{prefix}-' prefix for {specialty} — leave it blank to "
+                          "have one assigned")
+            continue
 
         if not qid:
             # Duplicate text guard: if this exact question text already exists for this specialty, skip it
@@ -632,10 +703,10 @@ def upload_questions(
                 errors.append(f"Row {row_idx}: Question_ID '{qid}' belongs to specialty '{existing.specialty}', not '{specialty}' — skipped.")
                 continue
             existing.question_text = q_text
-            existing.option_a = cell_val("Option_A")
-            existing.option_b = cell_val("Option_B")
-            existing.option_c = cell_val("Option_C")
-            existing.option_d = cell_val("Option_D")
+            existing.option_a = opt_a
+            existing.option_b = opt_b
+            existing.option_c = opt_c
+            existing.option_d = opt_d
             existing.correct_answer = correct
             existing.difficulty = difficulty
             existing.topic = topic
@@ -649,10 +720,10 @@ def upload_questions(
                 question_id=qid,
                 specialty=specialty,
                 question_text=q_text,
-                option_a=cell_val("Option_A"),
-                option_b=cell_val("Option_B"),
-                option_c=cell_val("Option_C"),
-                option_d=cell_val("Option_D"),
+                option_a=opt_a,
+                option_b=opt_b,
+                option_c=opt_c,
+                option_d=opt_d,
                 correct_answer=correct,
                 difficulty=difficulty,
                 topic=topic,
@@ -664,11 +735,19 @@ def upload_questions(
             db.add(aq)
             created.append(qid)
 
-    db.commit()
+    if dry_run:
+        # Nothing is written, including the audit row — a preview is not an
+        # event worth recording.
+        db.rollback()
+    else:
+        db.commit()
+        _audit(db, uploaded_by, "upload", specialty,
+               f"Created {len(created)}, updated {len(updated)}, "
+               f"{len(duplicates)} duplicates skipped, {len(errors)} errors")
+
     total_stored = len(created) + len(updated)
-    _audit(db, uploaded_by, "upload", specialty,
-           f"Created {len(created)}, updated {len(updated)}, {len(duplicates)} duplicates skipped, {len(errors)} errors")
     return {
+        "dry_run": dry_run,
         "stored": total_stored,
         "stored_ids": created + updated,
         "created": len(created),
@@ -785,14 +864,22 @@ async def parse_standalone_questions(file: UploadFile = File(...)):
         difficulty = cell_val("Difficulty").capitalize() or "Medium"
         if difficulty not in ("Easy", "Medium", "Hard"):
             difficulty = "Medium"
+        opt_a, opt_b = cell_val("Option_A"), cell_val("Option_B")
+        opt_c, opt_d = cell_val("Option_C"), cell_val("Option_D")
+        # Standalone questions never enter the bank, but they are shuffled and
+        # graded by exactly the same code, so they carry the same defect.
+        problem = option_problem(opt_a, opt_b, opt_c, opt_d)
+        if problem:
+            errors.append(f"Row {row_idx}: {problem} — skipped")
+            continue
         shuffle_val = cell_val("Shuffle_Options").lower()
         shuffle_options = shuffle_val not in ("no", "0", "false", "n")
         questions.append({
             "question_text": q_text,
-            "option_a": cell_val("Option_A"),
-            "option_b": cell_val("Option_B"),
-            "option_c": cell_val("Option_C"),
-            "option_d": cell_val("Option_D"),
+            "option_a": opt_a,
+            "option_b": opt_b,
+            "option_c": opt_c,
+            "option_d": opt_d,
             "correct_answer": correct,
             "difficulty": difficulty,
             "topic": cell_val("Topic") or "",

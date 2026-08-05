@@ -1,8 +1,11 @@
 import { useState, useRef } from 'react'
-import { Upload, Download, RefreshCw, CheckCircle, AlertCircle, FileText } from 'lucide-react'
+import { Upload, Download, RefreshCw, CheckCircle, AlertCircle, FileText, Eye } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { uploadAssessmentQuestions, downloadAssessmentTemplate } from '../../api'
 import { errorMessage } from '../../api/errors'
+
+/** Rows shown before the list is cut. The full set stays in the download. */
+const ROW_MSG_CAP = 25
 
 const SPECIALTIES = [
   'ICD10CM', 'Surgery', 'ED Facility', 'ED Profee', 'Ancillary',
@@ -10,6 +13,7 @@ const SPECIALTIES = [
 ]
 
 interface UploadResult {
+  dry_run: boolean
   stored: number
   stored_ids: string[]
   created: number
@@ -27,19 +31,26 @@ interface UploadResult {
 
 export function UploadView({ initialSpecialty }: { initialSpecialty?: string } = {}) {
   const [specialty, setSpecialty] = useState(initialSpecialty || 'ICD10CM')
-  const [trainerName, setTrainerName] = useState(localStorage.getItem('trainer_name') || '')
+  const [trainerName, setTrainerNameState] = useState(localStorage.getItem('trainer_name') || '')
+  // Read from localStorage but never written back, so the name had to be
+  // retyped on every visit — and an empty one blocks the upload.
+  function setTrainerName(v: string) {
+    setTrainerNameState(v)
+    localStorage.setItem('trainer_name', v.trim())
+  }
   const [file, setFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
   const [result, setResult] = useState<UploadResult | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  async function handleUpload() {
+  async function handleUpload(dryRun = false) {
     if (!trainerName.trim()) { toast.error('Enter your name before uploading'); return }
     if (!file) { toast.error('Select a file first'); return }
     setUploading(true)
     try {
-      const data = await uploadAssessmentQuestions(specialty, trainerName.trim(), file)
+      const data = await uploadAssessmentQuestions(specialty, trainerName.trim(), file, dryRun)
       setResult({
+        dry_run: !!data.dry_run,
         stored: data.stored,
         stored_ids: data.stored_ids,
         created: data.created ?? data.stored,
@@ -54,6 +65,16 @@ export function UploadView({ initialSpecialty }: { initialSpecialty?: string } =
         trainer: trainerName.trim(),
         timestamp: new Date().toLocaleString(),
       })
+      if (dryRun) {
+        // A preview must not clear the file — the next step is uploading it.
+        toast(
+          data.stored === 0
+            ? 'Preview: nothing would be stored. See the details below.'
+            : `Preview: ${data.created} new, ${data.updated} would be OVERWRITTEN. Nothing saved yet.`,
+          { icon: '👀' },
+        )
+        return
+      }
       // Nothing stored is not a success, however cleanly the request itself
       // completed. Reporting it green sent trainers away believing the bank
       // had grown, with the reasons sitting unread in the panel below.
@@ -77,7 +98,7 @@ export function UploadView({ initialSpecialty }: { initialSpecialty?: string } =
   function downloadSummary() {
     if (!result) return
     const lines = [
-      `Upload Summary`,
+      result.dry_run ? `Upload PREVIEW (nothing was saved)` : `Upload Summary`,
       `==============`,
       `Trainer:   ${result.trainer}`,
       `Date/Time: ${result.timestamp}`,
@@ -152,10 +173,22 @@ export function UploadView({ initialSpecialty }: { initialSpecialty?: string } =
             {file ? file.name : 'Choose File (.xlsx)'}
           </button>
 
+          {/* Preview first. Uploading a sheet with existing Question_IDs
+              overwrites those questions, and the only honest way to warn about
+              that is to count the rows that would actually be replaced. */}
+          <button
+            style={{ ...s.btnOutline, opacity: uploading || !file ? 0.65 : 1 }}
+            disabled={uploading || !file}
+            title="Check what this file would do without saving anything"
+            onClick={() => handleUpload(true)}
+          >
+            <Eye size={13} /> Preview
+          </button>
+
           <button
             style={{ ...s.btnPrimary, opacity: uploading || !file ? 0.65 : 1 }}
             disabled={uploading || !file}
-            onClick={handleUpload}
+            onClick={() => handleUpload(false)}
           >
             {uploading
               ? <><RefreshCw size={13} style={{ animation: 'spin 1s linear infinite' }} /> Uploading…</>
@@ -175,8 +208,13 @@ export function UploadView({ initialSpecialty }: { initialSpecialty?: string } =
         <div style={s.resultCard}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <CheckCircle size={18} color="#16a34a" />
-              <span style={s.cardTitle}>Upload Summary</span>
+              {result.dry_run
+                ? <Eye size={18} color="#0369a1" />
+                : <CheckCircle size={18} color="#16a34a" />}
+              {/* A preview panel and a completed-upload panel look identical
+                  otherwise, and mistaking one for the other means either
+                  believing the bank grew when it did not, or uploading twice. */}
+              <span style={s.cardTitle}>{result.dry_run ? 'Preview — nothing saved yet' : 'Upload Summary'}</span>
             </div>
             <button style={s.btnOutline} onClick={downloadSummary}>
               <Download size={13} /> Download Summary
@@ -214,9 +252,14 @@ export function UploadView({ initialSpecialty }: { initialSpecialty?: string } =
                 <AlertCircle size={13} color="#854d0e" />
                 <span style={{ fontSize: 12, fontWeight: 700, color: '#854d0e' }}>Duplicate Questions Skipped</span>
               </div>
-              {result.duplicate_warnings.map((w, i) => (
+              {result.duplicate_warnings.slice(0, ROW_MSG_CAP).map((w, i) => (
                 <div key={i} style={{ fontSize: 12, color: '#713f12', fontFamily: 'monospace', marginBottom: 2 }}>{w}</div>
               ))}
+              {result.duplicate_warnings.length > ROW_MSG_CAP && (
+                <div style={{ fontSize: 11, color: '#713f12', marginTop: 6, fontWeight: 700 }}>
+                  … and {result.duplicate_warnings.length - ROW_MSG_CAP} more. Download the summary for the full list.
+                </div>
+              )}
             </div>
           )}
 
@@ -226,9 +269,14 @@ export function UploadView({ initialSpecialty }: { initialSpecialty?: string } =
                 <AlertCircle size={13} color="#c2410c" />
                 <span style={{ fontSize: 12, fontWeight: 700, color: '#c2410c' }}>Row Errors</span>
               </div>
-              {result.errors.map((err, i) => (
+              {result.errors.slice(0, ROW_MSG_CAP).map((err, i) => (
                 <div key={i} style={{ fontSize: 12, color: '#7c2d12', fontFamily: 'monospace', marginBottom: 2 }}>{err}</div>
               ))}
+              {result.errors.length > ROW_MSG_CAP && (
+                <div style={{ fontSize: 11, color: '#7c2d12', marginTop: 6, fontWeight: 700 }}>
+                  … and {result.errors.length - ROW_MSG_CAP} more. Download the summary for the full list.
+                </div>
+              )}
             </div>
           )}
 

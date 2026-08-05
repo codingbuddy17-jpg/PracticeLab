@@ -133,15 +133,20 @@ export function exportAllAssessmentQuestions(passphrase: string, trainerName: st
   )
 }
 
-export async function uploadAssessmentQuestions(specialty: string, uploadedBy: string, file: File) {
+export async function uploadAssessmentQuestions(
+  specialty: string, uploadedBy: string, file: File, dryRun = false,
+) {
   const form = new FormData()
   form.append('specialty', specialty)
   form.append('uploaded_by', uploadedBy)
   form.append('file', file)
+  // A preview reports exactly what a real upload would do, and writes nothing.
+  if (dryRun) form.append('dry_run', 'true')
   const { data } = await api.post('/assessment/questions/upload', form, {
     headers: { 'Content-Type': 'multipart/form-data' },
   })
   return data as {
+    dry_run: boolean
     stored: number; stored_ids: string[]
     created: number; created_ids: string[]
     updated: number; updated_ids: string[]

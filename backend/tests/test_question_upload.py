@@ -95,13 +95,19 @@ def test_reupload_updates_rather_than_duplicating(client, db):
 
 
 def test_an_id_from_another_specialty_is_refused_not_stolen(client, db):
+    """
+    Caught by the prefix rule before the row is even looked up, so the message
+    names the prefix rather than the owning specialty. Either way the row is
+    refused rather than quietly rewriting another specialty's question.
+    """
     wb = _template(client)
     _upload(client, wb)
     wb2 = _template(client, "Surgery")
     ws = wb2.active
     ws.cell(row=2, column=1, value="ICDX-001")
     d = _upload(client, wb2, "Surgery").json()
-    assert any("belongs to specialty" in e for e in d["errors"])
+    assert d["created"] == 2   # the other two sample rows still import
+    assert any("ICDX-001" in e for e in d["errors"]), d["errors"]
 
 
 def test_a_non_xlsx_file_says_so_in_plain_words(client, db):
