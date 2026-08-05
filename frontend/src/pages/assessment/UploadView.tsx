@@ -2,6 +2,7 @@ import { useState, useRef } from 'react'
 import { Upload, Download, RefreshCw, CheckCircle, AlertCircle, FileText } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { uploadAssessmentQuestions, downloadAssessmentTemplate } from '../../api'
+import { errorMessage } from '../../api/errors'
 
 const SPECIALTIES = [
   'ICD10CM', 'Surgery', 'ED Facility', 'ED Profee', 'Ancillary',
@@ -53,12 +54,21 @@ export function UploadView() {
         trainer: trainerName.trim(),
         timestamp: new Date().toLocaleString(),
       })
-      toast.success(`Upload complete — ${data.stored} questions processed`)
+      // Nothing stored is not a success, however cleanly the request itself
+      // completed. Reporting it green sent trainers away believing the bank
+      // had grown, with the reasons sitting unread in the panel below.
+      if (data.stored === 0) {
+        const why = (data.errors || [])[0] || (data.duplicate_warnings || [])[0]
+        toast.error(`No questions were stored${why ? ` — ${why}` : '. See the details below.'}`)
+      } else if ((data.errors || []).length || (data.duplicates || 0)) {
+        toast(`Stored ${data.stored}, but ${(data.errors || []).length} row(s) errored and ${data.duplicates || 0} were skipped as duplicates.`, { icon: '⚠️' })
+      } else {
+        toast.success(`Upload complete — ${data.stored} questions processed`)
+      }
       setFile(null)
       if (fileRef.current) fileRef.current.value = ''
     } catch (e: unknown) {
-      const err = e as { response?: { data?: { detail?: string } } }
-      toast.error(err?.response?.data?.detail || 'Upload failed')
+      toast.error(errorMessage(e, 'Upload failed'))
     } finally {
       setUploading(false)
     }

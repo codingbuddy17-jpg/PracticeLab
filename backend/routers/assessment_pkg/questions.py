@@ -385,7 +385,13 @@ def upload_questions(
         wb = openpyxl.load_workbook(io.BytesIO(contents))
         ws = wb.active
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Could not parse file: {exc}")
+        # "File is not a zip file" is what openpyxl says when handed a .xls or a
+        # .csv, and it means nothing to a trainer who saved from Excel's default
+        # dropdown. Name the actual mistake.
+        hint = ("This does not look like a .xlsx file. If you saved from Excel, "
+                "choose 'Excel Workbook (.xlsx)' — not .xls, .csv or Numbers."
+                if "zip" in str(exc).lower() else str(exc))
+        raise HTTPException(status_code=400, detail=f"Could not read the file. {hint}")
 
     headers = [str(ws.cell(row=1, column=c).value or "").strip() for c in range(1, ws.max_column + 1)]
 
@@ -405,6 +411,35 @@ def upload_questions(
     duplicates: List[str] = []  # blank-ID rows whose question_text already exists
     skipped: List[str] = []
     errors: List[str] = []
+
+    # Read the bank ONCE. Both of these were inside the row loop: _next_qid
+    # loaded every question_id for the specialty on every blank-ID row, and the
+    # duplicate check queried per row. On a bank of a few thousand that is
+    # millions of rows fetched for a single upload, and the request can outlive
+    # the gateway — which surfaces to the trainer as a bare "upload failed"
+    # with no reason, because a proxy timeout carries no JSON body.
+    prefix = SPECIALTY_PREFIX.get(specialty, "QST")
+    next_num = 0
+    for (qid_existing,) in db.query(AssessmentQuestion.question_id).filter(
+        AssessmentQuestion.question_id.like(f"{prefix}-%")
+    ).all():
+        m = re.search(r"-(\d+)$", qid_existing)
+        if m:
+            next_num = max(next_num, int(m.group(1)))
+
+    existing_text = {
+        t: q for q, t in db.query(
+            AssessmentQuestion.question_id, AssessmentQuestion.question_text
+        ).filter(AssessmentQuestion.specialty == specialty).all()
+    }
+    by_qid = {
+        q.question_id: q for q in db.query(AssessmentQuestion).filter(
+            AssessmentQuestion.question_id.like(f"{prefix}-%")
+        ).all()
+    }
+    # Texts added earlier in THIS file, so one upload cannot smuggle in its own
+    # duplicates — the per-row query used to catch that via autoflush.
+    seen_text: Dict[str, str] = {}
 
     for row_idx in range(2, ws.max_row + 1):
         def cell_val(col_name: str) -> str:
@@ -445,16 +480,20 @@ def upload_questions(
 
         if not qid:
             # Duplicate text guard: if this exact question text already exists for this specialty, skip it
-            text_match = db.query(AssessmentQuestion).filter(
-                AssessmentQuestion.specialty == specialty,
-                AssessmentQuestion.question_text == q_text,
-            ).first()
-            if text_match:
-                duplicates.append(f"Row {row_idx}: identical question text already exists as {text_match.question_id} — skipped to prevent duplicate")
+            match_id = existing_text.get(q_text) or seen_text.get(q_text)
+            if match_id:
+                duplicates.append(f"Row {row_idx}: identical question text already exists as {match_id} — skipped to prevent duplicate")
                 continue
-            qid = _next_qid(db, specialty)
+            next_num += 1
+            qid = f"{prefix}-{next_num:03d}"
+            seen_text[q_text] = qid
+            # We generated this above the highest id in the bank, so there is
+            # nothing to look up — skip the round trip.
+            existing = None
+        else:
+            existing = by_qid.get(qid) or db.query(AssessmentQuestion).filter(
+                AssessmentQuestion.question_id == qid).first()
 
-        existing = db.query(AssessmentQuestion).filter(AssessmentQuestion.question_id == qid).first()
         if existing:
             if existing.specialty != specialty:
                 errors.append(f"Row {row_idx}: Question_ID '{qid}' belongs to specialty '{existing.specialty}', not '{specialty}' — skipped.")
@@ -575,7 +614,13 @@ async def parse_standalone_questions(file: UploadFile = File(...)):
         wb = openpyxl.load_workbook(io.BytesIO(contents))
         ws = wb.active
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Could not parse file: {exc}")
+        # "File is not a zip file" is what openpyxl says when handed a .xls or a
+        # .csv, and it means nothing to a trainer who saved from Excel's default
+        # dropdown. Name the actual mistake.
+        hint = ("This does not look like a .xlsx file. If you saved from Excel, "
+                "choose 'Excel Workbook (.xlsx)' — not .xls, .csv or Numbers."
+                if "zip" in str(exc).lower() else str(exc))
+        raise HTTPException(status_code=400, detail=f"Could not read the file. {hint}")
 
     headers = [str(ws.cell(row=1, column=c).value or "").strip() for c in range(1, ws.max_column + 1)]
 
