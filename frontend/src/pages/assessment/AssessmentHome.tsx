@@ -14,6 +14,16 @@ type Tab = 'summary' | 'upload' | 'bank' | 'generate' | 'sessions' | 'history' |
 export function AssessmentHome() {
   const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState<Tab>('summary')
+  // A specialty carried across tabs by the Pool Summary shortcuts, so
+  // "this pool is thin" leads straight to fixing it rather than making the
+  // trainer re-pick the specialty they were just looking at. Cleared on any
+  // manual tab click, so it only ever applies to the jump that set it.
+  const [handoffSpecialty, setHandoffSpecialty] = useState<string | undefined>()
+
+  function jumpTo(tab: Tab, specialty: string) {
+    setHandoffSpecialty(specialty)
+    setActiveTab(tab)
+  }
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: 'summary', label: 'Pool Summary', icon: <BarChart2 size={15} /> },
@@ -47,7 +57,7 @@ export function AssessmentHome() {
           <button
             key={tab.id}
             style={{ ...styles.tabBtn, ...(activeTab === tab.id ? styles.tabBtnActive : {}) }}
-            onClick={() => setActiveTab(tab.id)}
+            onClick={() => { setHandoffSpecialty(undefined); setActiveTab(tab.id) }}
           >
             {tab.icon}
             {tab.label}
@@ -56,10 +66,10 @@ export function AssessmentHome() {
       </div>
 
       <div style={styles.content}>
-        {activeTab === 'summary' && <PoolSummaryView />}
-        {activeTab === 'upload' && <UploadView />}
+        {activeTab === 'summary' && <PoolSummaryView onJump={jumpTo} />}
+        {activeTab === 'upload' && <UploadView initialSpecialty={handoffSpecialty} />}
         {activeTab === 'bank' && <QuestionBankView />}
-        {activeTab === 'generate' && <GenerateView />}
+        {activeTab === 'generate' && <GenerateView initialSpecialty={handoffSpecialty} />}
         {activeTab === 'sessions' && <SessionsView />}
         {activeTab === 'history' && <AssessmentHistoryView />}
         {activeTab === 'analytics' && <AnalyticsView />}

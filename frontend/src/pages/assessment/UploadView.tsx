@@ -25,8 +25,8 @@ interface UploadResult {
   timestamp: string
 }
 
-export function UploadView() {
-  const [specialty, setSpecialty] = useState('ICD10CM')
+export function UploadView({ initialSpecialty }: { initialSpecialty?: string } = {}) {
+  const [specialty, setSpecialty] = useState(initialSpecialty || 'ICD10CM')
   const [trainerName, setTrainerName] = useState(localStorage.getItem('trainer_name') || '')
   const [file, setFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)

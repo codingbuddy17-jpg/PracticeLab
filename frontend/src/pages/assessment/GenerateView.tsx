@@ -33,7 +33,7 @@ interface StandaloneRow {
   difficulty: string; topic: string
 }
 
-export function GenerateView() {
+export function GenerateView({ initialSpecialty }: { initialSpecialty?: string } = {}) {
   // ── Mode ────────────────────────────────────────────────────────────────────
   const [mode, setMode] = useState<'standard' | 'standalone'>('standard')
 
@@ -49,10 +49,17 @@ export function GenerateView() {
   const fileRef = useRef<HTMLInputElement>(null)
 
   // ── Standard-mode fields ─────────────────────────────────────────────────────
-  const [specialtyMix, setSpecialtyMix] = useState<SpecialtyMixRow[]>([
-    { specialty: 'ICD10CM', pct: 50, topicFilter: '' },
-    { specialty: 'Surgery', pct: 50, topicFilter: '' },
-  ])
+  const [specialtyMix, setSpecialtyMix] = useState<SpecialtyMixRow[]>(
+    initialSpecialty
+      // Arrived from one specialty's pool readiness, so that specialty is the
+      // whole paper — a 50/50 default would silently reintroduce a second
+      // pool the trainer never checked.
+      ? [{ specialty: initialSpecialty, pct: 100, topicFilter: '' }]
+      : [
+          { specialty: 'ICD10CM', pct: 50, topicFilter: '' },
+          { specialty: 'Surgery', pct: 50, topicFilter: '' },
+        ]
+  )
   const [diffMode, setDiffMode] = useState<'auto' | 'manual'>('auto')
   const [diffMix, setDiffMix] = useState({ easy: 33, medium: 34, hard: 33 })
   const [poolData, setPoolData] = useState<PoolRow[]>([])

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { BarChart2, AlertTriangle, RefreshCw } from 'lucide-react'
+import { BarChart2, AlertTriangle, RefreshCw, Upload, Wand2 } from 'lucide-react'
 import { getAssessmentPoolSummary } from '../../api'
 import type { PoolSummary, PoolReadiness } from '../../api'
 import { errorMessage } from '../../api/errors'
@@ -26,7 +26,10 @@ const VERDICT: Record<PoolReadiness['verdict'], { label: string; color: string; 
   strong:         { label: 'Strong',                color: '#15803d', bg: 'rgba(22,163,74,0.08)', border: 'rgba(22,163,74,0.22)' },
 }
 
-export function PoolSummaryView() {
+export function PoolSummaryView({ onJump }: {
+  /** Carry the chosen specialty into Upload or Generate. */
+  onJump?: (tab: 'upload' | 'generate', specialty: string) => void
+} = {}) {
   const [specialty, setSpecialty] = useState('')
   const [summary, setSummary] = useState<PoolSummary | null>(null)
   const [loading, setLoading] = useState(false)
@@ -142,6 +145,25 @@ export function PoolSummaryView() {
               {readiness.uniqueness_pct != null && ` Questions held by no one else: ${readiness.uniqueness_pct}%.`}
             </div>
           )}
+
+          {/* The verdict says what to do; these do it, without making the
+              trainer re-pick the specialty they are already looking at. */}
+          {onJump && (
+            <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+              <button style={s.jumpBtn} onClick={() => onJump('upload', specialty)}>
+                <Upload size={13} /> Add questions to {specialty}
+              </button>
+              <button
+                style={readiness.verdict === 'insufficient' ? s.jumpBtnDisabled : s.jumpBtnPrimary}
+                disabled={readiness.verdict === 'insufficient'}
+                title={readiness.verdict === 'insufficient'
+                  ? 'Generation will refuse a pool this small — add questions first.'
+                  : `Start a ${specialty} assessment from this pool`}
+                onClick={() => onJump('generate', specialty)}>
+                <Wand2 size={13} /> Generate from this pool
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -238,5 +260,8 @@ const s: Record<string, React.CSSProperties> = {
   grid: { display: 'grid', gridTemplateColumns: '1fr 1.4fr', gap: 16 },
   card: { background: 'rgba(255,255,255,0.72)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)', border: '1px solid rgba(255,255,255,0.7)', borderRadius: 16, padding: '20px 22px', boxShadow: '0 4px 24px rgba(124,58,237,0.06), 0 1px 4px rgba(0,0,0,0.04)' },
   cardTitle: { fontSize: 13, fontWeight: 800, color: '#374151', textTransform: 'uppercase', letterSpacing: 0.4, paddingLeft: 10, borderLeft: '3px solid #7c3aed' },
+  jumpBtn: { display: 'flex', alignItems: 'center', gap: 6, padding: '6px 13px', borderRadius: 9, border: '1px solid #e5e7eb', background: '#fff', color: '#374151', cursor: 'pointer', fontSize: 12, fontWeight: 700 },
+  jumpBtnPrimary: { display: 'flex', alignItems: 'center', gap: 6, padding: '6px 13px', borderRadius: 9, border: 'none', background: '#7c3aed', color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 700 },
+  jumpBtnDisabled: { display: 'flex', alignItems: 'center', gap: 6, padding: '6px 13px', borderRadius: 9, border: '1px solid #e5e7eb', background: '#f3f4f6', color: '#9ca3af', cursor: 'not-allowed', fontSize: 12, fontWeight: 700 },
   linkBtn: { fontSize: 11, color: '#7c3aed', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700, textDecoration: 'underline', padding: 0, whiteSpace: 'nowrap' },
 }
