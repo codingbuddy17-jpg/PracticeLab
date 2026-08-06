@@ -23,7 +23,8 @@ Stats schema stored in randomisation_stats JSON column:
   ]
 }
 """
-from typing import Dict, List, Any, Set
+import json
+from typing import Dict, List, Any, Set, Optional
 
 
 def compute_randomisation_stats(
@@ -90,3 +91,32 @@ def compute_randomisation_stats(
         "per_coder": per_coder_stats,
         "top_overlaps": top_overlaps,
     }
+
+
+def parse_stats(value) -> Optional[Dict[str, Any]]:
+    """
+    Stored randomisation stats, always as a dict.
+
+    The model declares Column(JSON) but the migration created the column as
+    TEXT, so Postgres hands the value back as a JSON *string* while SQLite
+    deserialises it. Anything reading the stored column therefore got an object
+    in tests and a string in production.
+
+    The cost was silent: the frontend does `stats.avg_uniqueness_pct` on it, and
+    on a string that is `undefined`, so the card rendered a dash and an empty
+    per-coder table — which reads as "no overlap" rather than "no data". The
+    POST responses return the in-memory dict and were always right, which is why
+    generation and the sessions screen disagreed about the same assessment.
+
+    Parse on read rather than migrating the column: existing rows hold both
+    shapes, so the reader has to cope with both regardless.
+    """
+    if value is None or isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except (ValueError, TypeError):
+            return None
+        return parsed if isinstance(parsed, dict) else None
+    return None

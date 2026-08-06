@@ -15,7 +15,7 @@ from models import (
     GradingResult, SubmissionStatus,
 )
 from sqlalchemy import text as _text
-from services.randomisation_stats import compute_randomisation_stats
+from services.randomisation_stats import compute_randomisation_stats, parse_stats
 from .shared import MASTER_PASSPHRASE, _is_ip, _is_ed, _uses_dpo
 
 router = APIRouter()
@@ -767,7 +767,7 @@ def get_batch(batch_id: int, db: Session = Depends(get_db)):
                     1 for a in assignments
                     if a.cycle_id == c.id or (a.cycle_id is None and c.cycle_number == 1)
                 ),
-                "randomisation_stats": c.randomisation_stats,
+                "randomisation_stats": parse_stats(c.randomisation_stats),
                 "warnings": c.warnings or [],
             }
             for c in cycles

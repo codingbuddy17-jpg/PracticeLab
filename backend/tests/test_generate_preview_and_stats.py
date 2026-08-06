@@ -192,3 +192,42 @@ def test_a_repeated_specialty_row_is_refused(client, db):
              {"specialty": "ICD10CM", "pct": 0.5, "topic_filter": "Sepsis"}]))
     assert r.status_code == 400
     assert "more than once" in r.json()["detail"]
+
+
+# ── topic suggestions ─────────────────────────────────────────────────────────
+
+def test_preview_lists_the_topics_the_specialty_actually_has(client, db):
+    """
+    A trainer typing a topic from memory cannot know what the bank calls it.
+    "Sepsis" against a bank storing "Sepsis & Shock" returns nothing and looks
+    like an empty pool rather than a spelling mismatch.
+    """
+    for _ in range(4):
+        make_question(db, specialty="ICD10CM", topic="Sepsis & Shock")
+    for _ in range(2):
+        make_question(db, specialty="ICD10CM", topic="Diabetes")
+    db.commit()
+
+    row = client.get("/assessment/pool-preview", params=[("specialty", "ICD10CM")]).json()[0]
+    assert row["topics"] == [
+        {"topic": "Sepsis & Shock", "count": 4},
+        {"topic": "Diabetes", "count": 2},
+    ]
+
+
+def test_topic_suggestions_ignore_the_current_filter(client, db):
+    """
+    The list is what you could pick, not what you have picked — filtering it by
+    the current filter would leave a trainer unable to widen their choice.
+    """
+    for _ in range(3):
+        make_question(db, specialty="ICD10CM", topic="Sepsis")
+    for _ in range(3):
+        make_question(db, specialty="ICD10CM", topic="Diabetes")
+    db.commit()
+
+    row = client.get("/assessment/pool-preview", params=[
+        ("specialty", "ICD10CM"), ("topic_filter", "Sepsis"),
+    ]).json()[0]
+    assert row["active_count"] == 3          # the filter still narrows the count
+    assert len(row["topics"]) == 2           # but not the suggestions

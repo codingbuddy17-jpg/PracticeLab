@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from typing import List
 
 from database import get_db
+from services.randomisation_stats import parse_stats
 from models import GeneratedAssessment, GeneratedAssessmentStudent, AssessmentSession, AssessmentResponse, AssessmentResult
 from config import settings
 
@@ -49,7 +50,7 @@ def list_assessment_history(db: Session = Depends(get_db)):
             "questions_per_student": q_count,
             "generated_by": a.generated_by,
             "generated_at": a.generated_at.isoformat() if a.generated_at else None,
-            "randomisation_stats": a.randomisation_stats,
+            "randomisation_stats": parse_stats(a.randomisation_stats),
             "is_standalone": getattr(a, "is_standalone", False),
         })
 

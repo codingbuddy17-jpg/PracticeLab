@@ -226,12 +226,28 @@ def pool_preview(
         for diff, cnt in rows:
             if diff in counts:
                 counts[diff] = cnt
+        # Every topic this specialty actually has, UNFILTERED, so the screen can
+        # offer them. A trainer typing a topic from memory has no way to know
+        # what the bank calls it — "Sepsis" vs "Sepsis & Shock" returns nothing
+        # and looks like an empty pool rather than a spelling mismatch.
+        topic_rows = db.query(
+            AssessmentQuestion.topic,
+            func.count(AssessmentQuestion.id),
+        ).filter(
+            AssessmentQuestion.specialty == sp,
+            AssessmentQuestion.status == "Active",
+        ).group_by(AssessmentQuestion.topic).all()
+
         results.append({
             "specialty": sp,
             "active_count": sum(counts.values()),
             "easy": counts["Easy"],
             "medium": counts["Medium"],
             "hard": counts["Hard"],
+            "topics": sorted(
+                [{"topic": t, "count": c} for t, c in topic_rows if t and t.strip()],
+                key=lambda x: -x["count"],
+            ),
         })
     return results
 

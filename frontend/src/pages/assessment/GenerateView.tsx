@@ -12,7 +12,7 @@ const SPECIALTIES = [
 
 interface SpecialtyMixRow { specialty: string; pct: number; topicFilter: string }
 interface CoderRow { coder_name: string; employee_id: string }
-interface PoolRow { specialty: string; active_count: number; easy: number; medium: number; hard: number }
+interface PoolRow { specialty: string; active_count: number; easy: number; medium: number; hard: number; topics?: { topic: string; count: number }[] }
 interface SessionResult { coder_name: string; employee_id: string | null; session_token: string }
 interface GenerateResult {
   assessment_id: number
@@ -530,6 +530,31 @@ export function GenerateView({ initialSpecialty }: { initialSpecialty?: string }
                   placeholder="Topics, comma-separated (optional)"
                   value={row.topicFilter}
                   onChange={e => updateSpecialty(idx, 'topicFilter', e.target.value)} />
+
+                {/* Typed topics have to match what the bank stores. "Sepsis"
+                    against a bank holding "Sepsis & Shock" returns nothing and
+                    looks like an empty pool rather than a spelling mismatch, so
+                    the real topics are offered with their counts. Appends
+                    rather than replaces, since commas here mean "any of these". */}
+                {(pool?.topics || []).length > 0 && (
+                  <select
+                    style={{ ...styles.input, width: 150 }}
+                    value=""
+                    onChange={e => {
+                      const picked = e.target.value
+                      if (!picked) return
+                      const current = row.topicFilter.split(',').map(t => t.trim()).filter(Boolean)
+                      if (!current.some(t => t.toLowerCase() === picked.toLowerCase())) {
+                        updateSpecialty(idx, 'topicFilter', [...current, picked].join(', '))
+                      }
+                    }}
+                  >
+                    <option value="">+ add topic…</option>
+                    {(pool?.topics || []).map(t => (
+                      <option key={t.topic} value={t.topic}>{t.topic} ({t.count})</option>
+                    ))}
+                  </select>
+                )}
                 {pool && (
                   <span style={{ fontSize: 11, color: short ? '#dc2626' : '#16a34a', fontWeight: 700, whiteSpace: 'nowrap' as const }}>
                     {short && <AlertCircle size={11} style={{ display: 'inline', marginRight: 3 }} />}
