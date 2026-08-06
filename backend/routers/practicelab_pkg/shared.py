@@ -1,5 +1,8 @@
 """Shared constants and helpers used across practicelab sub-routers."""
-from models import Specialty
+from sqlalchemy import func
+from sqlalchemy.orm import Session
+
+from models import Chart, Specialty
 from config import settings
 
 IP_SPECIALTIES = {Specialty.IP_DRG}
@@ -77,6 +80,23 @@ def _uses_units(specialty: Specialty) -> bool:
 
 def _uses_dpo(specialty: Specialty) -> bool:
     return specialty in DPO_SPECIALTIES
+
+
+def _find_chart(db: Session, chart_number: str):
+    """
+    Look a chart up by number, ignoring case and surrounding whitespace.
+
+    Chart numbers are issued upper-case, but they are typed by hand into
+    spreadsheets. An exact match reported "not found" for a chart that exists,
+    which reads as a missing chart rather than a typo — the trainer goes looking
+    for the wrong problem.
+    """
+    cleaned = (chart_number or "").strip()
+    if not cleaned:
+        return None
+    return (db.query(Chart)
+            .filter(func.upper(func.trim(Chart.chart_number)) == cleaned.upper())
+            .first())
 
 
 def assert_batch_open(db, batch_id, action: str = "modify results"):

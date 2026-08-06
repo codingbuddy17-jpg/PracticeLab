@@ -13,10 +13,11 @@ from services.excel_service import (
 )
 from services.grading_engine import cfg_from_db, DEFAULT_IP_CFG, DEFAULT_OP_CFG, DEFAULT_EDSP_CFG
 from services.chart_service import log_audit
-from sqlalchemy import text
+from sqlalchemy import text, func
 from .em_grading import _is_em as _uses_em_keys
 from .shared import (MASTER_PASSPHRASE, _is_ip, _is_ed, ED_SPECIALTIES,
-                     _uses_pointers, _is_single_path, _is_dx_only, _uses_units)
+                     _uses_pointers, _is_single_path, _is_dx_only, _uses_units,
+                     _find_chart)
 
 router = APIRouter()
 
@@ -237,9 +238,30 @@ def upload_answer_keys(
     is_ip_upload = _is_ip(spec_enum)
     stored, replaced, skipped, not_found, wrong_specialty = [], [], [], [], []
 
+    # One file, one row per chart. Two rows for OP001 used to both go through:
+    # the second overwrote the first or was counted a duplicate depending on the
+    # replace flag, and the trainer saw OP001 in the results once and never
+    # learned their file disagreed with itself. Refuse the whole upload rather
+    # than pick a winner — only the trainer knows which row is right.
+    seen: dict[str, int] = {}
+    for row in rows:
+        key = (row["chart_number"] or "").strip().upper()
+        seen[key] = seen.get(key, 0) + 1
+    repeated = sorted(k for k, n in seen.items() if n > 1)
+    if repeated:
+        raise HTTPException(
+            status_code=400,
+            detail=(f"The file has more than one row for: {', '.join(repeated[:10])}"
+                    + (f" (and {len(repeated) - 10} more)" if len(repeated) > 10 else "")
+                    + ". Remove the duplicates and upload again."),
+        )
+
     for row in rows:
         chart_num = row["chart_number"]
-        chart = db.query(Chart).filter(Chart.chart_number == chart_num).first()
+        # Case- and whitespace-insensitive: a trainer who types "op001" is
+        # naming the same chart as "OP001", and an exact match answered that
+        # with "not found" for a chart plainly sitting in the library.
+        chart = _find_chart(db, chart_num)
         if not chart:
             not_found.append(chart_num)
             continue

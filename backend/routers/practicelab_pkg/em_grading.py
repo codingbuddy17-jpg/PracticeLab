@@ -12,7 +12,7 @@ from sqlalchemy import text
 from database import get_db
 from models import Chart, Specialty
 from services.excel_service import parse_em_answer_key_upload
-from .shared import MASTER_PASSPHRASE
+from .shared import MASTER_PASSPHRASE, _find_chart
 
 router = APIRouter()
 
@@ -822,77 +822,14 @@ def download_em_template():
         ws[cell].font = section_font
         ws[cell].fill = section_fill
 
-    # Column headers
-    hdr("A1", "Chart Number")
-    hdr("B1", "COPA: Self-limited/Minor Problems (count)")
-    hdr("C1", "COPA: Stable Acute Illness (count)")
-    hdr("D1", "COPA: Stable Chronic Illness (count)")
-    hdr("E1", "COPA: Acute Uncomplicated (count)")
-    hdr("F1", "COPA: Chronic Exacerbation (count)")
-    hdr("G1", "COPA: Undiagnosed New Problem (count)")
-    hdr("H1", "COPA: Acute w/ Systemic Symptoms (count)")
-    hdr("I1", "COPA: Acute Complicated Injury (count)")
-    hdr("J1", "COPA: Chronic Severe Exacerbation (count)")
-    hdr("K1", "COPA: Threat to Life/Function (0 or 1)")
-    hdr("L1", "COPA Level Override (leave blank to auto-derive)")
-    hdr("M1", "DR: Prior External Notes (count)")
-    hdr("N1", "DR: Review Test Results (count)")
-    hdr("O1", "DR: Order Tests (count)")
-    hdr("P1", "DR: Independent Historian (Y/N)")
-    hdr("Q1", "DR: Independent Interpretation (Y/N)")
-    hdr("R1", "DR: External Discussion (Y/N)")
-    hdr("S1", "DR Level Override (leave blank to auto-derive)")
-    hdr("T1", "Risk: Low (Y/N)")
-    hdr("U1", "Risk: Prescription Drug Mgmt (Y/N)")
-    hdr("V1", "Risk: Minor Surgery w/ Risk Factors (Y/N)")
-    hdr("W1", "Risk: Elective Major - No Risk Factors (Y/N)")
-    hdr("X1", "Risk: Hospitalization (Y/N)")
-    hdr("Y1", "Risk: SDOH Limitation (Y/N)")
-    hdr("Z1", "Risk: Drug Intensive Toxicity Monitoring (Y/N)")
-    hdr("AA1", "Risk: Elective Major w/ Risk Factors (Y/N)")
-    hdr("AB1", "Risk: Emergency Major Surgery (Y/N)")
-    hdr("AC1", "Risk: Hospitalization/Escalation (Y/N)")
-    hdr("AD1", "Risk: DNR / De-escalate (Y/N)")
-    hdr("AE1", "Risk: Parenteral Controlled Substance (Y/N)")
-    hdr("AF1", "Risk Level Override (leave blank to auto-derive)")
-    hdr("AG1", "E/M Code")
-    hdr("AH1", "E/M Modifier (e.g. 25)")
-    hdr("AI1", "Patient Type (New / Established / NA)")
-    hdr("AJ1", "Primary Dx Code")
-    hdr("AK1", "Additional Dx 2")
-    hdr("AL1", "Additional Dx 3")
-    hdr("AM1", "Additional Dx 4")
-    hdr("AN1", "Additional Dx 5")
-    hdr("AO1", "Additional Dx 6")
-    hdr("AP1", "Additional Dx 7")
-    hdr("AQ1", "Additional Dx 8")
-    hdr("AR1", "Procedure CPT 1")
-    hdr("AS1", "Procedure CPT 1 Modifier")
-    hdr("AT1", "Procedure CPT 2")
-    hdr("AU1", "Procedure CPT 2 Modifier")
-    hdr("AV1", "Procedure CPT 3")
-    hdr("AW1", "Procedure CPT 3 Modifier")
-    hdr("AX1", "Procedure CPT 4")
-    hdr("AY1", "Procedure CPT 4 Modifier")
-    hdr("AZ1", "Entered By")
-    # Appended at the END on purpose: inserting mid-table would shift every
-    # downstream parser index again (that bug cost us once already).
-    hdr("BA1", "Level By (MDM / Time)")
-    hdr("BB1", "Total Time (minutes)")
-    # Diagnosis pointers per procedure line (CMS-1500 Box 24E). Appended at the
-    # END for the same reason as BA/BB — inserting beside the CPT columns would
-    # shift every downstream parser index.
-    for i, col in enumerate(("BC", "BD", "BE", "BF"), start=1):
-        hdr(f"{col}1", f"CPT {i} Dx Pointers (e.g. 1,2)")
-    # Units, appended for the same reason. Blank means the line is not graded
-    # on units at all, so keys written before this column exist are unchanged.
-    for i, col in enumerate(("BG", "BH", "BI", "BJ"), start=1):
-        hdr(f"{col}1", f"CPT {i} Units (blank = 1)")
-    # Encounter category and the critical care clock, appended for the same
-    # reason. Blank category means "work it out from the E/M code", which is
-    # what every key filled before this column existed says.
-    hdr("BK1", "Encounter Category (blank = from E/M code)")
-    hdr("BL1", "Critical Care Total Minutes (critical care only)")
+    # Column headers come from EM_KEY_COLUMNS, the same table the parser reads
+    # them back with — so the two cannot drift apart, and a column added in one
+    # place is a column the other already understands.
+    from openpyxl.utils import get_column_letter
+    from services.excel_service import EM_KEY_COLUMNS
+
+    for i, (_field, header) in enumerate(EM_KEY_COLUMNS, start=1):
+        hdr(f"{get_column_letter(i)}1", header)
 
     # Sample row
     ws["A2"] = "EM001"
@@ -1158,9 +1095,24 @@ def upload_em_answer_keys(
 
     stored, replaced, skipped, not_found = [], [], [], []
 
+    # The same two rules the IP/OP upload enforces, applied here rather than
+    # only where they were written. This endpoint had neither.
+    _seen: dict = {}
+    for row in rows:
+        _k = (row["chart_number"] or "").strip().upper()
+        _seen[_k] = _seen.get(_k, 0) + 1
+    _repeated = sorted(k for k, n in _seen.items() if n > 1)
+    if _repeated:
+        raise HTTPException(
+            status_code=400,
+            detail=(f"The file has more than one row for: {', '.join(_repeated[:10])}"
+                    + (f" (and {len(_repeated) - 10} more)" if len(_repeated) > 10 else "")
+                    + ". Remove the duplicates and upload again."),
+        )
+
     for row in rows:
         chart_num = row["chart_number"]
-        chart = db.query(Chart).filter(Chart.chart_number == chart_num).first()
+        chart = _find_chart(db, chart_num)
         if not chart:
             not_found.append(chart_num)
             continue

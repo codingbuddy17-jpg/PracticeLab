@@ -674,6 +674,38 @@ def generate_batch_zip(coder_files: list[tuple[str, bytes]]) -> bytes:
 
 # ── Answer key upload parser ──────────────────────────────────────────────────
 
+def _rows_preferring_cached_values(file_bytes: bytes, sheet_index: int = 0) -> list[tuple]:
+    """
+    Read a sheet's rows, taking each cell's cached value when the file has one
+    and its literal content otherwise.
+
+    Neither mode alone is safe. data_only=True returns None for every cell of a
+    file written by Numbers or Google Sheets, because those tools save no cached
+    formula results — the whole key parses as empty. data_only=False returns the
+    FORMULA for any computed cell, so a trainer who assembles a code with
+    =CONCATENATE(...) has the literal "=CONCATENATE(\"E11\",\".9\")" stored as
+    their principal diagnosis, and every coder is then marked wrong against it.
+
+    Reading both and preferring the cached value wherever one exists gives the
+    right answer for both kinds of file.
+    """
+    literal = load_workbook(io.BytesIO(file_bytes), data_only=False).worksheets[sheet_index]
+    cached = load_workbook(io.BytesIO(file_bytes), data_only=True).worksheets[sheet_index]
+
+    lit_rows = list(literal.iter_rows(values_only=True))
+    cache_rows = list(cached.iter_rows(values_only=True))
+
+    out = []
+    for i, lit in enumerate(lit_rows):
+        cac = cache_rows[i] if i < len(cache_rows) else ()
+        merged = []
+        for j, val in enumerate(lit):
+            cached_val = cac[j] if j < len(cac) else None
+            is_formula = isinstance(val, str) and val.startswith("=")
+            merged.append(cached_val if (is_formula and cached_val is not None) else val)
+        out.append(tuple(merged))
+    return out
+
 def parse_answer_key_upload(file_bytes: bytes, specialty: str, with_pointers: bool = False,
                             single_path: bool = False, dx_only: bool = False) -> list[dict]:
     """
@@ -682,12 +714,9 @@ def parse_answer_key_upload(file_bytes: bytes, specialty: str, with_pointers: bo
       IP: {chart_number, pdx_code, pdx_poa, sdx:[{code,poa,ccmcc}], pcs:[{code}]}
       OP: {chart_number, pdx_code, sdx:[{code}], cpt:[{code,modifier}]}
     """
-    # data_only=False is more compatible with files saved by Numbers/Google Sheets —
-    # data_only=True can return None for plain values in non-Excel-written xlsx files.
-    wb = load_workbook(io.BytesIO(file_bytes), data_only=False)
     # worksheets[0] is always the data sheet; Instructions is created last so it
     # becomes wb.active, but its index is always 1.
-    ws = wb.worksheets[0]
+    all_rows = _rows_preferring_cached_values(file_bytes, 0)
     is_ip = specialty.upper() == "IP"
     # Scan ALL rows; skip the header row by name so this works regardless of
     # whether data starts at row 2 or somewhere else (e.g. Numbers adds a blank row).
@@ -699,12 +728,11 @@ def parse_answer_key_upload(file_bytes: bytes, specialty: str, with_pointers: bo
     # last month's template has a different layout to one filled from today's —
     # a stride would read its modifiers as units.
     header_at: dict[str, int] = {}
-    for hdr in ws.iter_rows(min_row=1, max_row=1, values_only=True):
-        for idx, name in enumerate(hdr or ()):
-            if name is None:
-                continue
-            key = str(name).split("\n")[0].strip().lower()
-            header_at.setdefault(key, idx)
+    for idx, name in enumerate(all_rows[0] if all_rows else ()):
+        if name is None:
+            continue
+        key = str(name).split("\n")[0].strip().lower()
+        header_at.setdefault(key, idx)
 
     def _cell(row, idx) -> str:
         """Safely read a cell value, returning "" for None/empty/'None' sentinel."""
@@ -714,7 +742,7 @@ def parse_answer_key_upload(file_bytes: bytes, specialty: str, with_pointers: bo
         s = str(val).strip()
         return "" if s.lower() == "none" else s
 
-    for row in ws.iter_rows(min_row=1, values_only=True):
+    for row in all_rows:
         if not row or row[0] is None:
             continue
         chart_number = _cell(row, 0)
@@ -935,40 +963,44 @@ def parse_em_answer_key_upload(file_bytes: bytes) -> list[dict]:
       BK    em_category (blank = derive from the E/M code)
       BL    critical_care_minutes
     """
-    wb = load_workbook(io.BytesIO(file_bytes), data_only=False)
-    ws = wb.worksheets[0]
+    all_rows = _rows_preferring_cached_values(file_bytes, 0)
 
     HEADER_NAMES = {"chart_number", "chart number", "chart#", "chartnumber"}
 
-    def _v(row, idx, default=""):
-        val = row[idx] if idx < len(row) else None
+    # Fields are located by header text, falling back to the position they have
+    # always had. A column inserted by hand no longer shifts everything after it
+    # into the wrong field.
+    at = _em_column_map(all_rows[0] if all_rows else ())
+
+    def _raw(row, idx, default=""):
+        val = row[idx] if (idx is not None and idx < len(row)) else None
         if val is None:
             return default
         s = str(val).strip()
         return default if s.lower() in ("none", "") else s
 
-    def _int(row, idx) -> int:
+    def _f(row, field, default=""):
+        return _raw(row, at.get(field), default)
+
+    def _int(row, field) -> int:
         try:
-            return max(0, int(float(_v(row, idx, "0") or "0")))
+            return max(0, int(float(_f(row, field, "0") or "0")))
         except (ValueError, TypeError):
             return 0
 
-    def _bool(row, idx) -> bool:
-        return _v(row, idx).upper() in ("Y", "YES", "TRUE", "1")
+    def _bool(row, field) -> bool:
+        return _f(row, field).upper() in ("Y", "YES", "TRUE", "1")
 
     results = []
-    for row in ws.iter_rows(min_row=1, values_only=True):
+    for row in all_rows:
         if not row or row[0] is None:
             continue
-        chart_number = _v(row, 0)
+        chart_number = _f(row, "chart_number")
         if not chart_number or chart_number.lower().replace(" ", "_") in HEADER_NAMES:
             continue
 
-        # COPA counts
-        copa_override = _v(row, 11)  # L
-
-        # Data Review
-        dr_override = _v(row, 18)  # S
+        copa_override = _f(row, "copa_level_override")
+        dr_override = _f(row, "dr_level_override")
 
         # Risk booleans (T–AE = indices 19–30)
         risk_fields = [
@@ -978,91 +1010,79 @@ def parse_em_answer_key_upload(file_bytes: bytes) -> list[dict]:
             "risk_emergency_major_surgery", "risk_hospitalization_escalation",
             "risk_dnr_deescalate", "risk_parenteral_controlled",
         ]
-        risk_override = _v(row, 31)  # AF
+        risk_override = _f(row, "risk_level_override")
 
-        # Patient type (AI = index 34)
-        patient_type = _v(row, 34).upper().strip() or "NA"
+        patient_type = _f(row, "patient_type").upper().strip() or "NA"
         if patient_type not in ("NEW", "ESTABLISHED", "NA"):
             patient_type = "NA"
 
-        # Dx codes (AJ–AQ = indices 35–42, 8 total)
-        dx_codes = [_v(row, i) for i in range(35, 43) if _v(row, i)]
+        dx_codes = [c for c in (_f(row, f"dx_{i}") for i in range(1, 9)) if c]
 
-        # Procedure CPTs (AR+AS = 43+44, AT+AU = 45+46, AV+AW = 47+48, AX+AY = 49+50)
-        # with diagnosis pointers appended at BC-BF (54-57). Emitted as dicts so
-        # pointers survive; the grader also accepts the legacy string form.
+        # Emitted as dicts so pointers and units survive; the grader also
+        # accepts the legacy "code:modifier" string form.
         procedure_cpts = []
-        for slot, base in enumerate((43, 45, 47, 49)):
-            code = _v(row, base)
+        for slot in range(1, 5):
+            code = _f(row, f"cpt_{slot}")
             if not code:
                 continue
-            raw_ptr = (_v(row, 54 + slot) or "").upper()
+            raw_ptr = _f(row, f"cpt_{slot}_pointers").upper()
             pointers = [x.strip()[:1] for x in raw_ptr.replace(" ", ",").split(",")
                         if x.strip() and x.strip()[0].isalpha()][:4]
             line = {
                 "code": code,
-                "modifier": _v(row, base + 1),
+                "modifier": _f(row, f"cpt_{slot}_modifier"),
                 "pointers": pointers,
             }
-            raw_units = _v(row, 58 + slot)
+            raw_units = _f(row, f"cpt_{slot}_units")
             if raw_units:
                 line["units"] = norm_units(raw_units)
             procedure_cpts.append(line)
 
-        # BK / BL — encounter category and the critical care clock. Both
-        # appended at the end so no existing index moved.
-        em_category = _v(row, 62).strip().lower().replace(" ", "_").replace("&", "and")
-        _cc = _v(row, 63)
-        try:
-            critical_care_minutes = int(float(_cc)) if _cc else None
-        except (TypeError, ValueError):
-            critical_care_minutes = None
+        em_category = _f(row, "em_category").strip().lower().replace(" ", "_").replace("&", "and")
 
-        entered_by = _v(row, 51)  # AZ
+        def _minutes(field):
+            raw = _f(row, field)
+            try:
+                return int(float(raw)) if raw else None
+            except (TypeError, ValueError):
+                return None
 
-        # BA / BB — levelling method and total time (2021+ office/outpatient).
-        # Appended after Entered By so existing column indices stay put.
-        level_method = (_v(row, 52) or "MDM").upper().strip()
+        critical_care_minutes = _minutes("critical_care_minutes")
+        entered_by = _f(row, "entered_by")
+
+        level_method = (_f(row, "level_method") or "MDM").upper().strip()
         if level_method not in ("MDM", "TIME"):
             level_method = "MDM"
-        _tt = _v(row, 53)
-        try:
-            total_time = int(float(_tt)) if _tt else None
-        except (TypeError, ValueError):
-            total_time = None
+        total_time = _minutes("total_time")
 
         results.append({
             "chart_number": chart_number,
             "em_category":                 em_category,
             "critical_care_minutes":       critical_care_minutes,
-            "copa_self_limited":           _int(row, 1),
-            "copa_stable_acute":           _int(row, 2),
-            "copa_stable_chronic":         _int(row, 3),
-            "copa_acute_uncomplicated":    _int(row, 4),
-            "copa_chronic_exacerbation":   _int(row, 5),
-            "copa_undiagnosed_new":        _int(row, 6),
-            "copa_acute_systemic":         _int(row, 7),
-            "copa_acute_complicated_injury": _int(row, 8),
-            "copa_chronic_severe":         _int(row, 9),
-            "copa_threat_to_life":         _int(row, 10),
+            **{f: _int(row, f) for f in (
+                "copa_self_limited", "copa_stable_acute", "copa_stable_chronic",
+                "copa_acute_uncomplicated", "copa_chronic_exacerbation",
+                "copa_undiagnosed_new", "copa_acute_systemic",
+                "copa_acute_complicated_injury", "copa_chronic_severe",
+                "copa_threat_to_life")},
             "copa_level_override":         copa_override,
             "copa_level_overridden":       bool(copa_override),
-            "dr_prior_external_notes":     _int(row, 12),
-            "dr_review_test_results":      _int(row, 13),
-            "dr_order_tests":              _int(row, 14),
-            "dr_independent_historian":    _bool(row, 15),
-            "dr_independent_interpretation": _bool(row, 16),
-            "dr_external_discussion":      _bool(row, 17),
+            "dr_prior_external_notes":     _int(row, "dr_prior_external_notes"),
+            "dr_review_test_results":      _int(row, "dr_review_test_results"),
+            "dr_order_tests":              _int(row, "dr_order_tests"),
+            "dr_independent_historian":    _bool(row, "dr_independent_historian"),
+            "dr_independent_interpretation": _bool(row, "dr_independent_interpretation"),
+            "dr_external_discussion":      _bool(row, "dr_external_discussion"),
             "dr_level_override":           dr_override,
             "dr_level_overridden":         bool(dr_override),
-            **{field: _bool(row, 19 + i) for i, field in enumerate(risk_fields)},
+            **{field: _bool(row, field) for field in risk_fields},
             "risk_level_override":         risk_override,
             "risk_level_overridden":       bool(risk_override),
-            "em_code":                     _v(row, 32),   # AG
-            "em_modifier":                 _v(row, 33),   # AH
-            "patient_type":                patient_type,  # AI
-            "level_method":                level_method,  # BA
-            "total_time":                  total_time,    # BB
+            "em_code":                     _f(row, "em_code"),
+            "em_modifier":                 _f(row, "em_modifier"),
+            "patient_type":                patient_type,
+            "level_method":                level_method,
+            "total_time":                  total_time,
             "dx_codes":                    dx_codes,
             "procedure_cpts":              procedure_cpts,
             "entered_by":                  entered_by,
@@ -1559,3 +1579,106 @@ def export_error_analysis(data: dict) -> bytes:
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
+
+
+# ── E/M answer key column table ──────────────────────────────────────────────
+#
+# One ordered list, written by the template generator and read by the parser.
+#
+# The parser used to index this sheet purely by position — AR was 43, BA was 52
+# — with no check that the column at 43 was the one it wanted. A single inserted
+# column shifts every field after it, and the parse still "succeeds": the key
+# stores a modifier where a code belongs and grades every coder against it, with
+# nothing anywhere reporting a problem. Naming the columns here lets the parser
+# find each field by its header and fall back to position only for a file that
+# has no header row at all.
+#
+# APPEND ONLY. A file filled from an older template must keep parsing, and the
+# positional fallback depends on these indices never moving.
+EM_KEY_COLUMNS: list[tuple[str, str]] = [
+    ("chart_number", "Chart Number"),
+    ("copa_self_limited", "COPA: Self-limited/Minor Problems (count)"),
+    ("copa_stable_acute", "COPA: Stable Acute Illness (count)"),
+    ("copa_stable_chronic", "COPA: Stable Chronic Illness (count)"),
+    ("copa_acute_uncomplicated", "COPA: Acute Uncomplicated (count)"),
+    ("copa_chronic_exacerbation", "COPA: Chronic Exacerbation (count)"),
+    ("copa_undiagnosed_new", "COPA: Undiagnosed New Problem (count)"),
+    ("copa_acute_systemic", "COPA: Acute w/ Systemic Symptoms (count)"),
+    ("copa_acute_complicated_injury", "COPA: Acute Complicated Injury (count)"),
+    ("copa_chronic_severe", "COPA: Chronic Severe Exacerbation (count)"),
+    ("copa_threat_to_life", "COPA: Threat to Life/Function (0 or 1)"),
+    ("copa_level_override", "COPA Level Override (leave blank to auto-derive)"),
+    ("dr_prior_external_notes", "DR: Prior External Notes (count)"),
+    ("dr_review_test_results", "DR: Review Test Results (count)"),
+    ("dr_order_tests", "DR: Order Tests (count)"),
+    ("dr_independent_historian", "DR: Independent Historian (Y/N)"),
+    ("dr_independent_interpretation", "DR: Independent Interpretation (Y/N)"),
+    ("dr_external_discussion", "DR: External Discussion (Y/N)"),
+    ("dr_level_override", "DR Level Override (leave blank to auto-derive)"),
+    ("risk_low", "Risk: Low (Y/N)"),
+    ("risk_prescription_drug_mgmt", "Risk: Prescription Drug Mgmt (Y/N)"),
+    ("risk_minor_surgery_with_factors", "Risk: Minor Surgery w/ Risk Factors (Y/N)"),
+    ("risk_elective_major_no_factors", "Risk: Elective Major - No Risk Factors (Y/N)"),
+    ("risk_hospitalization", "Risk: Hospitalization (Y/N)"),
+    ("risk_sdoh", "Risk: SDOH Limitation (Y/N)"),
+    ("risk_drug_intensive_monitoring", "Risk: Drug Intensive Toxicity Monitoring (Y/N)"),
+    ("risk_elective_major_with_factors", "Risk: Elective Major w/ Risk Factors (Y/N)"),
+    ("risk_emergency_major_surgery", "Risk: Emergency Major Surgery (Y/N)"),
+    ("risk_hospitalization_escalation", "Risk: Hospitalization/Escalation (Y/N)"),
+    ("risk_dnr_deescalate", "Risk: DNR / De-escalate (Y/N)"),
+    ("risk_parenteral_controlled", "Risk: Parenteral Controlled Substance (Y/N)"),
+    ("risk_level_override", "Risk Level Override (leave blank to auto-derive)"),
+    ("em_code", "E/M Code"),
+    ("em_modifier", "E/M Modifier (e.g. 25)"),
+    ("patient_type", "Patient Type (New / Established / NA)"),
+    ("dx_1", "Primary Dx Code"),
+    ("dx_2", "Additional Dx 2"),
+    ("dx_3", "Additional Dx 3"),
+    ("dx_4", "Additional Dx 4"),
+    ("dx_5", "Additional Dx 5"),
+    ("dx_6", "Additional Dx 6"),
+    ("dx_7", "Additional Dx 7"),
+    ("dx_8", "Additional Dx 8"),
+    ("cpt_1", "Procedure CPT 1"),
+    ("cpt_1_modifier", "Procedure CPT 1 Modifier"),
+    ("cpt_2", "Procedure CPT 2"),
+    ("cpt_2_modifier", "Procedure CPT 2 Modifier"),
+    ("cpt_3", "Procedure CPT 3"),
+    ("cpt_3_modifier", "Procedure CPT 3 Modifier"),
+    ("cpt_4", "Procedure CPT 4"),
+    ("cpt_4_modifier", "Procedure CPT 4 Modifier"),
+    ("entered_by", "Entered By"),
+    ("level_method", "Level By (MDM / Time)"),
+    ("total_time", "Total Time (minutes)"),
+    ("cpt_1_pointers", "CPT 1 Dx Pointers (e.g. 1,2)"),
+    ("cpt_2_pointers", "CPT 2 Dx Pointers (e.g. 1,2)"),
+    ("cpt_3_pointers", "CPT 3 Dx Pointers (e.g. 1,2)"),
+    ("cpt_4_pointers", "CPT 4 Dx Pointers (e.g. 1,2)"),
+    ("cpt_1_units", "CPT 1 Units (blank = 1)"),
+    ("cpt_2_units", "CPT 2 Units (blank = 1)"),
+    ("cpt_3_units", "CPT 3 Units (blank = 1)"),
+    ("cpt_4_units", "CPT 4 Units (blank = 1)"),
+    ("em_category", "Encounter Category (blank = from E/M code)"),
+    ("critical_care_minutes", "Critical Care Total Minutes (critical care only)"),
+]
+
+EM_KEY_FIELD_INDEX = {field: i for i, (field, _) in enumerate(EM_KEY_COLUMNS)}
+
+
+def _em_column_map(header_row) -> dict:
+    """
+    field -> column index for THIS file.
+
+    Matched on the header text the template wrote. Anything the header row does
+    not name keeps its position from EM_KEY_COLUMNS, so a file with no headers
+    at all still parses exactly as it did.
+    """
+    seen = {}
+    for idx, cell in enumerate(header_row or ()):
+        if cell is None:
+            continue
+        seen.setdefault(" ".join(str(cell).split()).lower(), idx)
+    return {
+        field: seen.get(" ".join(header.split()).lower(), default_idx)
+        for default_idx, (field, header) in enumerate(EM_KEY_COLUMNS)
+    }
