@@ -242,7 +242,7 @@ export async function listAssessmentSessions(assessmentId: number) {
   // their exam — so it is passphrase-gated like the answer key.
   const { data } = await api.get(`/assessment/${assessmentId}/sessions`,
     { params: { passphrase: getPassphrase() } })
-  return data as { sessions: SessionRow[] }
+  return data as { sessions: SessionRow[]; pass_threshold: number }
 }
 
 /** Per-question responses for every coder, with the answers. */

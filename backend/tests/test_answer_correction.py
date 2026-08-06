@@ -237,3 +237,26 @@ def test_the_sessions_list_flags_a_corrected_session(client, db):
     _override(client, aid, sid, index=0, is_correct=True)
     rows = client.get(f"/assessment/{aid}/sessions", params=PASS).json()["sessions"]
     assert rows[0]["corrected"] is True
+
+
+def test_the_sessions_list_publishes_the_papers_pass_mark(client, db):
+    """
+    The screen coloured scores against a hardcoded 80/90, which may belong to a
+    different assessment entirely.
+    """
+    seed_question_pool(db)
+    gen = client.post("/assessment/generate", json={
+        "assessment_name": "Refresher", "coders": [{"coder_name": "Alice"}],
+        "duration_minutes": 30, "total_questions": 2, "pass_threshold": 70,
+        "specialty_mix": [{"specialty": "IP-DRG", "pct": 1.0, "topic_filter": ""}],
+        "difficulty_mode": "auto", "generated_by": "t",
+        "save_config": False, "randomise": True,
+    }).json()
+    d = client.get(f"/assessment/{gen['assessment_id']}/sessions", params=PASS).json()
+    assert d["pass_threshold"] == 70.0
+
+
+def test_a_paper_without_its_own_mark_falls_back_to_the_default(client, db):
+    aid, _ = _sat_assessment(client, db)
+    d = client.get(f"/assessment/{aid}/sessions", params=PASS).json()
+    assert d["pass_threshold"] == 90.0

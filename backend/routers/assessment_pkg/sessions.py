@@ -230,7 +230,19 @@ def list_sessions(assessment_id: int, db: Session = Depends(get_db),
             "time_taken_seconds": result.time_taken_seconds if result else None,
         })
 
-    return {"assessment_id": assessment_id, "sessions": rows}
+    # The bar this paper was judged against, so the screen colours scores
+    # against the real mark instead of a hardcoded 80/90 that may belong to a
+    # different assessment entirely.
+    assessment = db.query(GeneratedAssessment).filter(
+        GeneratedAssessment.id == assessment_id).first()
+    pass_threshold = float(assessment.pass_threshold) if (
+        assessment and assessment.pass_threshold) else 90.0
+
+    return {
+        "assessment_id": assessment_id,
+        "pass_threshold": pass_threshold,
+        "sessions": rows,
+    }
 
 
 @router.delete("/{assessment_id}/sessions")

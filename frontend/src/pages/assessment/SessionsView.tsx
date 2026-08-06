@@ -61,6 +61,20 @@ export function SessionsView() {
   const [loadingSessions, setLoadingSessions] = useState(false)
   const [reviewData, setReviewData] = useState<ReviewData | null>(null)
   const [reviewLoading, setReviewLoading] = useState(false)
+  // The bar this paper was judged against, not a hardcoded 80/90 that may
+  // belong to a different assessment entirely.
+  const [passThreshold, setPassThreshold] = useState(90)
+  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null)
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('')
+
+  /** Colour a SCORE against this paper's own mark. */
+  function scoreColour(pct: number | null): string {
+    if (pct == null) return '#9ca3af'
+    if (pct >= passThreshold) return '#15803d'
+    if (pct >= passThreshold - 10) return '#d97706'
+    return '#dc2626'
+  }
   const [reviewSessionId, setReviewSessionId] = useState<number | null>(null)
   // Which question is being corrected, and the justification for it. The note
   // is required: a correction without a reason cannot be told apart from a
@@ -83,8 +97,30 @@ export function SessionsView() {
     try {
       const data = await listAssessmentSessions(id)
       setSessions(data.sessions)
-    } catch { toast.error('Failed to load sessions') }
+      setPassThreshold(data.pass_threshold ?? 90)
+      setLastRefreshed(new Date())
+    } catch (e) { toast.error(errorMessage(e, 'Failed to load sessions')) }
     finally { setLoadingSessions(false) }
+  }
+
+  const q = search.trim().toLowerCase()
+  const visible = sessions.filter(row => {
+    if (statusFilter && row.status !== statusFilter) return false
+    if (q && !`${row.coder_name} ${row.employee_id || ''}`.toLowerCase().includes(q)) return false
+    return true
+  })
+
+  /**
+   * The ids still worth sending. Copying ALL of them re-sends codes to coders
+   * who have already sat the paper, which is noise at best and an invitation to
+   * a second attempt at worst.
+   */
+  function copyPendingTokens() {
+    const pending = sessions.filter(r => r.status === 'pending')
+    if (!pending.length) { toast.error('No pending Assessment IDs to copy.'); return }
+    navigator.clipboard.writeText(
+      pending.map(r => `${r.coder_name}\t${r.employee_id || ''}\t${r.session_token}`).join('\n'))
+    toast.success(`${pending.length} pending Assessment ID${pending.length > 1 ? 's' : ''} copied`)
   }
 
   function handleSelectAssessment(id: number | '') {
@@ -192,6 +228,10 @@ export function SessionsView() {
               </button>
               {hasSessions && (
                 <>
+                  <button style={s.btnOutline} onClick={copyPendingTokens}
+                    title="Copy only the ids for coders who have not sat it yet">
+                    <Copy size={13} /> Copy Pending IDs
+                  </button>
                   <button style={s.btnOutline} onClick={downloadResponsesExcel} title="Download full per-question breakdown as Excel">
                     <Download size={13} /> Download Responses
                   </button>
@@ -204,6 +244,38 @@ export function SessionsView() {
           )}
         </div>
       </div>
+
+      {hasSessions && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' as const }}>
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Escape') setSearch('') }}
+            placeholder="Find a coder or employee ID…"
+            style={{ ...s.select, maxWidth: 240 }}
+          />
+          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
+            style={{ ...s.select, maxWidth: 170 }}>
+            <option value="">All statuses</option>
+            <option value="pending">Pending</option>
+            <option value="in_progress">In progress</option>
+            <option value="submitted">Submitted</option>
+            <option value="expired">Expired</option>
+          </select>
+          {(search || statusFilter) && (
+            <span style={{ fontSize: 11, color: '#6b7280' }}>
+              {visible.length} of {sessions.length}
+            </span>
+          )}
+          {/* Sessions change while a trainer watches — a coder submits, a clock
+              runs out — so the screen should say how old what it shows is. */}
+          {lastRefreshed && (
+            <span style={{ marginLeft: 'auto', fontSize: 11, color: '#9ca3af' }}>
+              Updated {lastRefreshed.toLocaleTimeString()}
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Randomisation stats — shown once an assessment is selected */}
       {selectedAssessment?.randomisation_stats && (
@@ -235,13 +307,13 @@ export function SessionsView() {
             <table style={s.table}>
               <thead>
                 <tr style={s.thead}>
-                  {['Coder', 'Emp ID', 'Assessment ID', 'Status', 'Score', 'Time Taken', 'Submitted', 'Review'].map(h => (
+                  {['Coder', 'Emp ID', 'Assessment ID', 'Status', 'Score', 'Time Taken', 'Submitted', 'Expires', 'Review'].map(h => (
                     <th key={h} style={s.th}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {sessions.map(row => {
+                {visible.map(row => {
                   const ast = STATUS_STYLE[row.status] || STATUS_STYLE.pending
                   const timeTaken = row.time_taken_seconds
                     ? `${Math.floor(row.time_taken_seconds / 60)}m ${row.time_taken_seconds % 60}s`
@@ -269,7 +341,7 @@ export function SessionsView() {
                           {ast.label}
                         </span>
                       </td>
-                      <td style={{ ...s.td, fontWeight: 700, color: row.score_pct !== null ? (row.score_pct >= 90 ? '#15803d' : row.score_pct >= 80 ? '#d97706' : '#dc2626') : '#9ca3af' }}>
+                      <td style={{ ...s.td, fontWeight: 700, color: scoreColour(row.score_pct) }}>
                         {row.score_pct !== null ? `${row.score_pct}%` : '—'}
                         {row.correct_count !== null && row.total_questions !== null && (
                           <span style={{ fontSize: 11, fontWeight: 400, color: '#9ca3af', marginLeft: 4 }}>
@@ -298,6 +370,14 @@ export function SessionsView() {
                             CORRECTED
                           </span>
                         )}
+                      </td>
+                      {/* Expiry is only news for a session nobody has sat: once
+                          submitted the deadline no longer decides anything. */}
+                      <td style={{ ...s.td, fontSize: 12, whiteSpace: 'nowrap' as const,
+                                   color: row.status === 'pending' ? '#92400e' : '#9ca3af' }}>
+                        {row.status === 'pending' || row.status === 'in_progress'
+                          ? new Date(row.expires_at).toLocaleString()
+                          : '—'}
                       </td>
                       <td style={s.td}>
                         {(row.status === 'submitted' || row.status === 'auto_submitted') ? (
@@ -338,7 +418,7 @@ export function SessionsView() {
                   <div>
                     <div style={{ fontWeight: 800, fontSize: 16, color: '#111' }}>{reviewData.coder_name} — Answer Review</div>
                     <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
-                      Score: <strong style={{ color: reviewData.score_pct !== null ? (reviewData.score_pct >= 80 ? '#15803d' : '#dc2626') : '#9ca3af' }}>{reviewData.score_pct !== null ? `${reviewData.score_pct}%` : '—'}</strong>
+                      Score: <strong style={{ color: scoreColour(reviewData.score_pct) }}>{reviewData.score_pct !== null ? `${reviewData.score_pct}%` : '—'}</strong>
                       {' '}· {reviewData.correct_count ?? '—'}/{reviewData.total_questions} correct
                       {reviewData.submitted_at && ` · Submitted ${new Date(reviewData.submitted_at).toLocaleString()}`}
                       {reviewData.corrections > 0 && (
@@ -480,7 +560,7 @@ const s: Record<string, React.CSSProperties> = {
   btnOutline: { display: 'flex', alignItems: 'center', gap: 5, padding: '7px 12px', border: '1px solid #e5e7eb', borderRadius: 8, background: 'rgba(255,255,255,0.7)', cursor: 'pointer', fontSize: 12, fontWeight: 600, color: '#374151' },
   btnDanger: { display: 'flex', alignItems: 'center', gap: 5, padding: '7px 12px', background: '#fee2e2', color: '#dc2626', border: '1px solid #fca5a5', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600 },
   statBox: { flex: 1, borderRadius: 10, padding: '12px 16px', textAlign: 'center' as const },
-  tableWrap: { background: 'rgba(255,255,255,0.6)', backdropFilter: 'blur(14px)', border: '1px solid rgba(255,255,255,0.65)', borderRadius: 14, overflow: 'auto' },
+  tableWrap: { background: 'rgba(255,255,255,0.6)', backdropFilter: 'blur(14px)', border: '1px solid rgba(255,255,255,0.65)', borderRadius: 14, overflow: 'auto', maxHeight: '60vh' },
   table: { width: '100%', borderCollapse: 'collapse', fontSize: 13 },
   thead: { background: 'rgba(249,250,251,0.8)' },
   th: { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.4, borderBottom: '1px solid #f3f4f6', whiteSpace: 'nowrap' },
