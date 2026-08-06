@@ -291,9 +291,11 @@ def applicable_weights(cfg: dict, category: str, has_cpts: bool,
 
     line2: dict = {}
     if category == CRITICAL_CARE:
-        # The whole of Line 2 rides on the time, because the time IS the
-        # justification for the code on a critical care encounter.
-        line2["critical_care_time"] = 1.0
+        # No second line. The time is not separate reasoning to be scored on
+        # its own — it is part of picking the code, so it rides along with the
+        # E/M component and the chart comes out thirds: code+time, Dx, and
+        # procedures where there are any.
+        pass
     elif category_uses_mdm(category):
         if (level_method or "MDM").upper() == "TIME":
             line2["time"] = 1.0
@@ -495,6 +497,27 @@ def grade_em_chart(ak: dict, sub: dict, cfg: dict, overcoding_penalty: bool = Tr
     em_level_score = em_w_adj if (
         (level_match or code_match) and patient_type_ok and modifier_ok) else 0.0
     patient_type_mismatch = (ak_patient_type != "NA") and (not patient_type_ok)
+
+    # ── Critical care: the clock is part of picking the code ─────────────────
+    # Total critical care time on the date of service is what selects 99291 and
+    # how many units of 99292 follow, so it belongs to the E/M component rather
+    # than being scored as separate reasoning. Coder against key, with no
+    # threshold table applied in either direction.
+    cc_minutes_ok = None
+    if category == CRITICAL_CARE:
+        ak_cc = _minutes(ak.get("critical_care_minutes"))
+        sub_cc = _minutes(sub.get("sub_critical_care_minutes"))
+        if ak_cc is None:
+            # The key never stated a time — nothing to grade against, and
+            # withholding the marks would penalise the coder for a gap in it.
+            cc_minutes_ok = None
+        else:
+            cc_minutes_ok = (sub_cc == ak_cc)
+            if not cc_minutes_ok:
+                # Half the component, the same rule a wrong Dx pointer or a
+                # wrong unit count gets: the service was identified, the
+                # quantity behind it was not.
+                em_level_score = em_level_score / 2
     # Only flagged when everything else was right — so the feedback can say the
     # modifier alone was what cost the points.
     modifier_mismatch = (level_match or code_match) and patient_type_ok and not modifier_ok
@@ -615,34 +638,7 @@ def grade_em_chart(ak: dict, sub: dict, cfg: dict, overcoding_penalty: bool = Tr
         correct = sum(1 for a, s in zip(ak_vals, sub_vals) if a > 0 and a == s)
         return round((correct / total_ak) * weight, 2)
 
-    cc_minutes_ok = None
-    if category == CRITICAL_CARE:
-        # Critical care is levelled by total time on the date of service, not
-        # by MDM. Graded coder-against-key, independent of any CPT-vs-CMS
-        # reading of where 99292 starts: the key states the time, the coder
-        # states the time, and the codes are graded as codes.
-        cc_w = weights.get("critical_care_time", 0.0)
-        ak_cc = _minutes(ak.get("critical_care_minutes"))
-        sub_cc = _minutes(sub.get("sub_critical_care_minutes"))
-        if ak_cc is None:
-            # The key never stated a time, so there is nothing to grade against
-            # and withholding the points would punish the coder for it.
-            cc_minutes_ok = None
-            reasoning_earned = cc_w
-        elif sub_cc is None:
-            cc_minutes_ok = False
-            reasoning_earned = 0.0
-        elif sub_cc == ak_cc:
-            cc_minutes_ok = True
-            reasoning_earned = cc_w
-        else:
-            # Time was documented and read wrong — the same half-credit the
-            # rest of the app gives to "found it, described it badly".
-            cc_minutes_ok = False
-            reasoning_earned = cc_w / 2
-        copa_element_score = dr_element_score = risk_element_score = 0.0
-        reasoning_accuracy_total = round(reasoning_earned, 2)
-    elif not category_uses_mdm(category):
+    if not category_uses_mdm(category):
         # Preventive and Other are levelled by things the MDM tables do not
         # describe — age and patient type, or a code set we do not model. Their
         # Line 2 weight has already been folded into Line 1 by

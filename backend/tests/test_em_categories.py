@@ -120,10 +120,24 @@ def test_a_preventive_chart_with_no_procedures_is_codes_alone():
     assert round(w["dx"], 1) == 50.0
 
 
-def test_critical_care_puts_the_whole_reasoning_line_on_the_clock():
+def test_critical_care_is_scored_in_thirds():
+    """
+    Code-and-time, diagnoses, procedures. The clock is not a fourth component:
+    it is part of picking the code, so it rides with the E/M weight.
+    """
     w = applicable_weights(CFG, CRITICAL_CARE, has_cpts=True)
-    assert w["critical_care_time"] == 30.0
-    assert "copa" not in w
+    assert "copa" not in w and "critical_care_time" not in w
+    assert round(w["em_level"], 1) == 33.3
+    assert round(w["dx"], 1) == 33.3
+    assert round(w["cpt"], 1) == 33.3
+    assert _sum(w) == 100.0
+
+
+def test_critical_care_without_procedures_is_scored_in_halves():
+    w = applicable_weights(CFG, CRITICAL_CARE, has_cpts=False)
+    assert "cpt" not in w
+    assert round(w["em_level"], 1) == 50.0
+    assert round(w["dx"], 1) == 50.0
 
 
 def test_the_time_route_replaces_the_mdm_elements_not_the_line():
@@ -213,26 +227,35 @@ def test_critical_care_scores_on_the_time_the_coder_read():
     assert got["total_score"] == 100.0
 
 
-def test_misreading_the_clock_costs_half_the_reasoning_line():
-    """Same half-credit the rest of the app gives to "found it, described it badly"."""
-    got = grade_em_chart(_cc_key(75), _sub(sub_em_code="99291",
-                                           sub_critical_care_minutes=40), CFG)
-    assert got["critical_care_minutes_ok"] is False
-    assert got["reasoning_accuracy_total"] == 15.0
+def test_misreading_the_clock_costs_half_the_code_component():
+    """The service was identified; the quantity behind it was not — same rule
+    a wrong Dx pointer and a wrong unit count already get."""
+    right = grade_em_chart(_cc_key(75), _sub(sub_em_code="99291",
+                                             sub_critical_care_minutes=75), CFG)
+    wrong = grade_em_chart(_cc_key(75), _sub(sub_em_code="99291",
+                                             sub_critical_care_minutes=40), CFG)
+    assert wrong["critical_care_minutes_ok"] is False
+    assert wrong["em_level_score"] == pytest.approx(right["em_level_score"] / 2, abs=0.02)
 
 
-def test_not_documenting_the_time_at_all_earns_nothing_for_it():
+def test_not_documenting_the_time_at_all_costs_the_same():
     got = grade_em_chart(_cc_key(75), _sub(sub_em_code="99291"), CFG)
     assert got["critical_care_minutes_ok"] is False
-    assert got["reasoning_accuracy_total"] == 0.0
+    # Half of the 50 that a chart with no procedures carries.
+    assert got["em_level_score"] == pytest.approx(25.0, abs=0.02)
 
 
 def test_a_key_that_states_no_time_cannot_withhold_the_points():
     """The coder is not penalised for a gap in the key."""
-    ak = _cc_key(None)
-    got = grade_em_chart(ak, _sub(sub_em_code="99291"), CFG)
+    got = grade_em_chart(_cc_key(None), _sub(sub_em_code="99291"), CFG)
     assert got["critical_care_minutes_ok"] is None
-    assert got["reasoning_accuracy_total"] == 30.0
+    assert got["total_score"] == 100.0
+
+
+def test_a_wrong_code_is_not_rescued_by_the_right_time():
+    got = grade_em_chart(_cc_key(75), _sub(sub_em_code="99292",
+                                           sub_critical_care_minutes=75), CFG)
+    assert got["em_level_score"] == 0.0
 
 
 def test_critical_care_ignores_the_mdm_boxes():

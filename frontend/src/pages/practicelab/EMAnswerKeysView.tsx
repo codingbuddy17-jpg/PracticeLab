@@ -415,7 +415,7 @@ export function EMAnswerKeysView() {
               {mdm
                 ? 'Levelled by medical decision making — the COPA, Data Review and Risk steps apply.'
                 : category === 'critical_care'
-                  ? 'Levelled by total critical care time on the date of service. The MDM tables do not apply, so the reasoning weight rides on the time instead.'
+                  ? 'Levelled by total critical care time on the date of service. The MDM tables do not apply — this chart is scored in thirds: code and time, diagnoses, and procedures.'
                   : 'Levelled by the code itself, not by MDM. This key is graded on the E/M code, diagnoses and procedures, and the MDM weight folds into those.'}
             </div>
           </div>
@@ -632,8 +632,10 @@ export function EMAnswerKeysView() {
                       e.target.value.replace(/[^0-9]/g, '').slice(0, 4))} />
                   <div style={{ fontSize: 11, color: '#6b7280', marginTop: 5 }}>
                     The coder's time is graded against this number and nothing else — no
-                    threshold table is applied. Enter 99291 once and 99292 as many units as
-                    the encounter supports on the CPT lines below.
+                    threshold table is applied. It counts as part of the code: a coder who
+                    picks the right code but misreads the clock earns half of that share.
+                    Enter 99291 once and 99292 as many units as the encounter supports on
+                    the CPT lines below.
                   </div>
                 </div>
               )}

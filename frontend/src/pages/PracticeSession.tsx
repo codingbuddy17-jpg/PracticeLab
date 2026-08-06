@@ -811,7 +811,7 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
             <strong>{EM_CATEGORY_LABELS[emCat]}</strong> — {emData.em_code} is not levelled by
             medical decision making, so the COPA, Data Review and Risk sections are not scored
             for this chart. {criticalCare
-              ? 'Enter the total critical care time instead; it carries the reasoning marks.'
+              ? 'Enter the total critical care time instead — it is graded as part of the code.'
               : 'Your marks come from the E/M code, diagnoses and procedures.'}
           </div>
         )}
