@@ -198,3 +198,55 @@ def test_a_real_upload_still_writes(client, db):
     d = _result(client, [_row()])
     assert d["dry_run"] is False
     assert db.query(AssessmentQuestion).count() == 1
+
+
+# ── questions with fewer than four options ────────────────────────────────────
+
+def test_a_true_false_question_is_accepted(client, db):
+    """
+    Not every question has four choices. Requiring all four refused True/False
+    outright — a regression the blank-option rule introduced.
+    """
+    d = _result(client, [_row(a="True", b="False", c="", d="")])
+    assert d["created"] == 1, d["errors"]
+
+
+def test_a_three_option_question_is_accepted(client, db):
+    d = _result(client, [_row(a="One", b="Two", c="Three", d="")])
+    assert d["created"] == 1, d["errors"]
+
+
+def test_a_single_option_is_still_refused(client, db):
+    d = _result(client, [_row(a="Only one", b="", c="", d="")])
+    assert d["created"] == 0
+    assert any("at least two" in e.lower() for e in d["errors"]), d["errors"]
+
+
+def test_a_gap_in_the_middle_is_refused(client, db):
+    """
+    Options are positional. A hole silently shifts what the coder sees, so a
+    blank B with a filled C is a mistake rather than a shorter question.
+    """
+    d = _result(client, [_row(a="One", b="Two", c="", d="Four")])
+    assert d["created"] == 0
+    assert any("no gaps" in e.lower() for e in d["errors"]), d["errors"]
+
+
+def test_a_lone_first_option_reports_the_count_not_the_gap(client, db):
+    """One option is too few whatever the shape — say that, not "gap"."""
+    d = _result(client, [_row(a="One", b="", c="Three", d="")])
+    assert d["created"] == 0
+    assert any("at least two" in e.lower() for e in d["errors"]), d["errors"]
+
+
+def test_an_answer_pointing_past_the_last_option_is_refused(client, db):
+    """Keying C on a True/False question marks every coder wrong."""
+    d = _result(client, [_row(a="True", b="False", c="", d="", correct="C")])
+    assert d["created"] == 0
+    assert any("does not have" in e for e in d["errors"]), d["errors"]
+
+
+def test_duplicates_are_still_refused_in_a_short_question(client, db):
+    d = _result(client, [_row(a="True", b="true", c="", d="")])
+    assert d["created"] == 0
+    assert any("duplicate" in e.lower() for e in d["errors"]), d["errors"]

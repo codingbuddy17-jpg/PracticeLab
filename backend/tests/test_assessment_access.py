@@ -148,7 +148,7 @@ def test_the_bank_cannot_introduce_a_blank_option(client, a_question):
 def test_the_bank_cannot_set_a_nonsense_correct_answer(client, a_question):
     r = _edit(client, a_question.question_id, correct_answer="Z")
     assert r.status_code == 400
-    assert "correct_answer" in r.json()["detail"]
+    assert "correct_answer" in r.json()["detail"].lower()
 
 
 def test_the_bank_cannot_set_a_nonsense_difficulty(client, a_question):

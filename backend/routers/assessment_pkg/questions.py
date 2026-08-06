@@ -81,34 +81,55 @@ DEFAULT_SAMPLE = [
 ]
 
 
-def option_problem(a: str, b: str, c: str, d: str) -> Optional[str]:
+def option_problem(a: str, b: str, c: str, d: str,
+                   correct: Optional[str] = None) -> Optional[str]:
     """
-    Why these four options cannot be used, or None if they are fine.
+    Why these options cannot be used, or None if they are fine.
 
-    Blank and duplicate choices are not untidy data — they are a grading
-    defect. Duplicate text gives a question two right answers while only one
-    letter is keyed, and because options are shuffled per coder, WHICH one is
-    keyed varies between them: two coders picking the identical text get
-    different marks. A blank choice reaches the coder as an empty option.
+    Not every question has four choices. True/False questions legitimately fill
+    A and B and leave C and D blank, so requiring all four refused them — a
+    regression this function itself introduced when it was written to catch
+    blank choices.
 
-    Shared with the standalone parser so both entry points refuse the same
-    thing — this is exactly the rule that otherwise gets fixed where it was
-    found and forgotten in the other path.
+    The real rule is that the options must be a CONTIGUOUS run of at least two.
+    Trailing blanks are a shorter question; a gap in the middle is a mistake,
+    because the options are positional and a hole silently shifts what the
+    coder sees. Duplicates are still refused whatever the length: two identical
+    choices give a question two right answers while only one letter is keyed,
+    and shuffling makes which one vary per coder.
     """
     labels = ("Option_A", "Option_B", "Option_C", "Option_D")
-    values = (a, b, c, d)
+    values = [(v or "").strip() for v in (a, b, c, d)]
+    filled = [bool(v) for v in values]
 
-    blanks = [lbl for lbl, v in zip(labels, values) if not (v or "").strip()]
-    if blanks:
-        return f"blank {', '.join(blanks)} — every option needs text"
+    n = 0
+    for present in filled:
+        if not present:
+            break
+        n += 1
+
+    if n < 2:
+        return "at least two options are required"
+    if any(filled[n:]):
+        gap = labels[filled.index(False)]
+        first_after = labels[n + filled[n:].index(True)]
+        return (f"{gap} is blank but {first_after} has text — options must run "
+                "A, B, C, D with no gaps")
 
     seen: Dict[str, str] = {}
-    for lbl, v in zip(labels, values):
+    for lbl, v in zip(labels[:n], values[:n]):
         key = " ".join(v.split()).casefold()
         if key in seen:
             return (f"duplicate option text in {seen[key]} and {lbl} — "
                     "two identical choices cannot both be graded")
         seen[key] = lbl
+
+    if correct:
+        idx = "ABCD".find(correct.strip().upper())
+        if idx < 0 or idx >= n:
+            return (f"Correct_Answer '{correct}' points at "
+                    f"{labels[idx] if 0 <= idx < 4 else 'an unknown option'}, "
+                    f"which this question does not have")
     return None
 
 
@@ -641,7 +662,7 @@ def upload_questions(
 
         opt_a, opt_b = cell_val("Option_A"), cell_val("Option_B")
         opt_c, opt_d = cell_val("Option_C"), cell_val("Option_D")
-        problem = option_problem(opt_a, opt_b, opt_c, opt_d)
+        problem = option_problem(opt_a, opt_b, opt_c, opt_d, correct)
         if problem:
             errors.append(f"Row {row_idx}: {problem}")
             continue
@@ -813,7 +834,8 @@ def update_question(
         raise HTTPException(status_code=400, detail="Question_Text cannot be blank")
 
     problem = option_problem(field("option_a"), field("option_b"),
-                             field("option_c"), field("option_d"))
+                             field("option_c"), field("option_d"),
+                             str(field("correct_answer") or ""))
     if problem:
         raise HTTPException(status_code=400, detail=f"Cannot save: {problem}")
 
@@ -902,7 +924,7 @@ async def parse_standalone_questions(file: UploadFile = File(...)):
         opt_c, opt_d = cell_val("Option_C"), cell_val("Option_D")
         # Standalone questions never enter the bank, but they are shuffled and
         # graded by exactly the same code, so they carry the same defect.
-        problem = option_problem(opt_a, opt_b, opt_c, opt_d)
+        problem = option_problem(opt_a, opt_b, opt_c, opt_d, correct)
         if problem:
             errors.append(f"Row {row_idx}: {problem} — skipped")
             continue

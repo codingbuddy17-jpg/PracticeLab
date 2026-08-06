@@ -209,9 +209,11 @@ def test_preview_lists_the_topics_the_specialty_actually_has(client, db):
     db.commit()
 
     row = client.get("/assessment/pool-preview", params=[("specialty", "ICD10CM")]).json()[0]
+    # Alphabetical: the trainer is scanning for a name they already have in
+    # mind, and frequency order makes that a hunt.
     assert row["topics"] == [
-        {"topic": "Sepsis & Shock", "count": 4},
         {"topic": "Diabetes", "count": 2},
+        {"topic": "Sepsis & Shock", "count": 4},
     ]
 
 

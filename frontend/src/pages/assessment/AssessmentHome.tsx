@@ -69,7 +69,7 @@ export function AssessmentHome() {
         {activeTab === 'summary' && <PoolSummaryView onJump={jumpTo} initialSpecialty={handoffSpecialty} />}
         {activeTab === 'upload' && <UploadView initialSpecialty={handoffSpecialty} onJump={jumpTo} />}
         {activeTab === 'bank' && <QuestionBankView />}
-        {activeTab === 'generate' && <GenerateView initialSpecialty={handoffSpecialty} />}
+        {activeTab === 'generate' && <GenerateView initialSpecialty={handoffSpecialty} onJump={jumpTo} />}
         {activeTab === 'sessions' && <SessionsView />}
         {activeTab === 'history' && <AssessmentHistoryView />}
         {activeTab === 'analytics' && <AnalyticsView />}

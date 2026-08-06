@@ -154,20 +154,26 @@ def _shuffle_options(q: AssessmentQuestion) -> Dict[str, Any]:
     Return a dict with options and the correct answer letter.
     If q.shuffle_options is False, options are kept in original A/B/C/D order.
     """
-    if q.shuffle_options:
-        correct_text = {
-            "A": q.option_a, "B": q.option_b, "C": q.option_c, "D": q.option_d,
-        }[q.correct_answer]
+    raw = {"A": q.option_a, "B": q.option_b, "C": q.option_c, "D": q.option_d}
+    # Only the options this question actually has. A True/False question fills
+    # A and B, so shuffling all four would move a blank into a live slot and
+    # show the coder an empty choice.
+    present = [L for L in "ABCD" if (raw[L] or "").strip()]
 
-        texts = [q.option_a, q.option_b, q.option_c, q.option_d]
+    if q.shuffle_options and len(present) > 1:
+        correct_text = raw[q.correct_answer]
+        texts = [raw[L] for L in present]
         _shuffle(texts)
-
-        letters = ["A", "B", "C", "D"]
-        new_options = dict(zip(letters, texts))
+        new_options = {L: t for L, t in zip(present, texts)}
         new_correct = next(letter for letter, text in new_options.items() if text == correct_text)
     else:
-        new_options = {"A": q.option_a, "B": q.option_b, "C": q.option_c, "D": q.option_d}
+        new_options = {L: raw[L] for L in present}
         new_correct = q.correct_answer
+
+    # Absent options stay absent rather than becoming empty strings, so the
+    # coder-facing screen can tell "no such option" from "an option with no text".
+    for L in "ABCD":
+        new_options.setdefault(L, None)
 
     return {
         "question_id": q.question_id,
@@ -244,9 +250,11 @@ def pool_preview(
             "easy": counts["Easy"],
             "medium": counts["Medium"],
             "hard": counts["Hard"],
+            # Alphabetical, not by count: this is a list you scan for a name
+            # you already have in mind, and frequency order makes that a hunt.
             "topics": sorted(
                 [{"topic": t, "count": c} for t, c in topic_rows if t and t.strip()],
-                key=lambda x: -x["count"],
+                key=lambda x: x["topic"].casefold(),
             ),
         })
     return results

@@ -176,7 +176,13 @@ export function TakeAssessmentSession() {
   const isLowTime = timeRemaining > 0 && timeRemaining <= ALERT_SECONDS
   const answeredCount = Object.values(answers).filter(v => v !== null && v !== undefined).length
   const currentQ = questions[currentIdx]
-  const opts: [string, keyof Question][] = [['A', 'option_a'], ['B', 'option_b'], ['C', 'option_c'], ['D', 'option_d']]
+  // Only the options this question has. A True/False question fills A and B,
+  // and rendering all four gave the coder two empty radio buttons to choose
+  // between — unanswerable, and it looked broken.
+  const ALL_OPTS: [string, keyof Question][] = [['A', 'option_a'], ['B', 'option_b'], ['C', 'option_c'], ['D', 'option_d']]
+  const opts = currentQ
+    ? ALL_OPTS.filter(([, key]) => String(currentQ[key] ?? '').trim() !== '')
+    : ALL_OPTS
 
 
   // ─────────────────────────────────────────────────────────────────────────────

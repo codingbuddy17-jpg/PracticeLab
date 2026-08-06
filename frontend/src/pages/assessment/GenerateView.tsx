@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Plus, Trash2, AlertCircle, Download, RefreshCw, Users, Upload, Copy, CheckCircle } from 'lucide-react'
+import { Plus, Trash2, AlertCircle, Download, RefreshCw, Users, Upload, Copy, CheckCircle, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { errorMessage } from '../../api/errors'
 import { getAssessmentPoolPreview, generateAssessment, parseCoderFile, downloadCoderTemplate, parseStandaloneQuestions } from '../../api'
@@ -34,7 +34,11 @@ interface StandaloneRow {
   difficulty: string; topic: string
 }
 
-export function GenerateView({ initialSpecialty }: { initialSpecialty?: string } = {}) {
+export function GenerateView({ initialSpecialty, onJump }: {
+  initialSpecialty?: string
+  /** Leave the finished result for the tab a trainer needs next. */
+  onJump?: (tab: 'sessions', specialty: string) => void
+} = {}) {
   // ── Mode ────────────────────────────────────────────────────────────────────
   const [mode, setMode] = useState<'standard' | 'standalone'>('standard')
 
@@ -208,6 +212,15 @@ export function GenerateView({ initialSpecialty }: { initialSpecialty?: string }
     toast.success('Assessment ID copied')
   }
 
+  /** Clear the finished result and return to an empty form. */
+  function startAnother() {
+    setResult(null)
+    setShortfalls(null)
+    setName('')
+    setBatchName('')
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
   function copyAllTokens() {
     if (!result) return
     const text = result.sessions.map((s: SessionResult) => `${s.coder_name}\t${s.employee_id || ''}\t${s.session_token}`).join('\n')
@@ -238,9 +251,23 @@ export function GenerateView({ initialSpecialty }: { initialSpecialty?: string }
         <div style={styles.panel}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
             <div style={styles.panelTitle}>Assessment IDs — Share with Coders</div>
-            <button style={styles.btnOutline} onClick={copyAllTokens}>
-              <Copy size={12} /> Copy All
-            </button>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button style={styles.btnOutline} onClick={copyAllTokens}>
+                <Copy size={12} /> Copy All
+              </button>
+              {/* The screen used to stay on the finished result with no way
+                  out but the browser back button or the tab bar. These are the
+                  two things a trainer actually does next: watch the sessions
+                  they just issued, or start another paper. */}
+              {onJump && (
+                <button style={styles.btnOutline} onClick={() => onJump('sessions', '')}>
+                  <Users size={12} /> View Sessions
+                </button>
+              )}
+              <button style={styles.btnOutline} onClick={startAnother}>
+                <X size={12} /> Done
+              </button>
+            </div>
           </div>
 
           <div style={styles.tableWrap}>
