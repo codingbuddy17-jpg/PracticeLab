@@ -5,6 +5,7 @@ import {
   listAssessmentHistory,
   listAssessmentSessions, deleteAssessmentSessions,
   overrideAssessmentAnswer,
+  downloadAssessmentResponsesXlsx,
   SessionRow,
 } from '../../api'
 import api from '../../api/client'
@@ -105,10 +106,13 @@ export function SessionsView() {
     }
   }
 
-  function downloadResponsesExcel() {
+  async function downloadResponsesExcel() {
     if (!selectedId) return
-    const base = import.meta.env.VITE_API_URL || '/api'
-    window.open(`${base}/assessment/${selectedId}/export-responses.xlsx`, '_blank')
+    try {
+      await downloadAssessmentResponsesXlsx(Number(selectedId))
+    } catch (e) {
+      toast.error(errorMessage(e, 'Could not download the responses'))
+    }
   }
 
   async function openReview(sessionId: number) {

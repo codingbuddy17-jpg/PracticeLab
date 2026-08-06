@@ -11,6 +11,8 @@ from datetime import timedelta
 
 from conftest import seed_question_pool
 
+PASS = {"passphrase": "test-passphrase"}
+
 from models import AssessmentSession, AssessmentResult
 from services.timeutil import utc_now
 
@@ -58,7 +60,7 @@ def test_overdue_session_is_scored_when_trainer_lists_sessions(client, db):
     assessment_id, _, session_id = _abandoned(client, db)
     assert _result(db, session_id) is None, "precondition: not yet scored"
 
-    r = client.get(f"/assessment/{assessment_id}/sessions")
+    r = client.get(f"/assessment/{assessment_id}/sessions", params=PASS)
     assert r.status_code == 200
 
     db.expire_all()
@@ -93,7 +95,7 @@ def test_unanswered_overdue_session_scores_zero_not_null(client, db):
 def test_sweep_is_idempotent(client, db):
     assessment_id, _, session_id = _abandoned(client, db)
     for _ in range(3):
-        client.get(f"/assessment/{assessment_id}/sessions")
+        client.get(f"/assessment/{assessment_id}/sessions", params=PASS)
     db.expire_all()
     n = db.query(AssessmentResult).filter(
         AssessmentResult.session_id == session_id
@@ -108,7 +110,7 @@ def test_a_running_session_is_left_alone(client, db):
     token = gen["sessions"][0]["session_token"]
     client.post(f"/assessment/take/{token}/start")
 
-    client.get(f"/assessment/{gen['assessment_id']}/sessions")
+    client.get(f"/assessment/{gen['assessment_id']}/sessions", params=PASS)
 
     db.expire_all()
     session = db.query(AssessmentSession).filter(

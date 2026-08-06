@@ -18,6 +18,7 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment
 
 from database import get_db
+from routers.assessment_pkg.security import require_passphrase
 from models import (
     GeneratedAssessment, GeneratedAssessmentStudent, AssessmentSession,
     AssessmentResult, AssessmentResponse,
@@ -186,7 +187,8 @@ async def parse_coder_file(file: UploadFile = File(...)):
 
 
 @router.get("/{assessment_id}/sessions")
-def list_sessions(assessment_id: int, db: Session = Depends(get_db)):
+def list_sessions(assessment_id: int, db: Session = Depends(get_db),
+                  _: None = Depends(require_passphrase)):
     """List all sessions for an assessment with current status and scores."""
     sessions = db.query(AssessmentSession).filter(
         AssessmentSession.assessment_id == assessment_id
@@ -234,14 +236,24 @@ def list_sessions(assessment_id: int, db: Session = Depends(get_db)):
 @router.delete("/{assessment_id}/sessions")
 def delete_sessions(assessment_id: int, db: Session = Depends(get_db)):
     """Delete all sessions for an assessment (only if none submitted yet)."""
-    submitted = db.query(AssessmentSession).filter(
-        AssessmentSession.assessment_id == assessment_id,
-        AssessmentSession.status == "submitted",
+    sessions = db.query(AssessmentSession).filter(
+        AssessmentSession.assessment_id == assessment_id
+    ).all()
+    submitted = sum(1 for s in sessions if s.status == "submitted")
+
+    # A scored session is a result regardless of what its status column says —
+    # status is one flag and can be stale, while an AssessmentResult row is the
+    # work itself. Checking only the status would delete graded work whose
+    # status had not been written for any reason.
+    graded = db.query(AssessmentResult).filter(
+        AssessmentResult.session_id.in_([s.id for s in sessions] or [-1])
     ).count()
-    if submitted > 0:
+
+    if submitted or graded:
         raise HTTPException(
             status_code=409,
-            detail=f"Cannot delete — {submitted} session(s) already submitted. Results would be lost."
+            detail=(f"Cannot delete — {max(submitted, graded)} session(s) have results. "
+                    "Deleting would lose them."),
         )
     db.query(AssessmentSession).filter(
         AssessmentSession.assessment_id == assessment_id

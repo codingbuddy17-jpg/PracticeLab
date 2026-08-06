@@ -160,7 +160,7 @@ class TestAssessmentExports:
 
     def test_responses_export_for_a_missing_assessment_404s(self, client):
         """Must be a clean 404, not a 500 or a blank file."""
-        r = client.get("/assessment/999999/export-responses.xlsx")
+        r = client.get("/assessment/999999/export-responses.xlsx", params={"passphrase": "test-passphrase"})
         assert r.status_code == 404
 
     def test_answer_key_export_for_a_missing_assessment_404s(self, client):

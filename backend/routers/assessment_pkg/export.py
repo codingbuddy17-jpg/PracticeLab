@@ -242,7 +242,8 @@ def export_answer_key(assessment_id: int, db: Session = Depends(get_db),
 
 
 @router.get("/{assessment_id}/export-responses.xlsx")
-def export_responses_excel(assessment_id: int, db: Session = Depends(get_db)):
+def export_responses_excel(assessment_id: int, db: Session = Depends(get_db),
+                           _: None = Depends(require_passphrase)):
     """
     Download full per-question response breakdown for all coders — like MS Forms quiz export.
     One row per coder. Columns: Coder Name, Employee ID, Submitted At, Score %, Time (min),
@@ -254,7 +255,12 @@ def export_responses_excel(assessment_id: int, db: Session = Depends(get_db)):
     students = db.query(GeneratedAssessmentStudent).filter(
         GeneratedAssessmentStudent.assessment_id == assessment_id
     ).all()
-    slot_questions: dict[str, list] = {}
+    # Keyed by slot ID, not by coder name. Two coders can legitimately share a
+    # name — the employee id is what tells them apart — and keying on the name
+    # handed one of them the other's question set, so their answers were graded
+    # against a paper they never sat.
+    slot_questions: dict[int, list] = {}
+    slot_by_label: dict[str, list] = {}
     for s in students:
         qs = s.questions_json
         if isinstance(qs, str):
@@ -262,7 +268,15 @@ def export_responses_excel(assessment_id: int, db: Session = Depends(get_db)):
                 qs = _json.loads(qs)
             except Exception:
                 qs = []
-        slot_questions[s.student_label] = qs if isinstance(qs, list) else []
+        qs = qs if isinstance(qs, list) else []
+        slot_questions[s.id] = qs
+        slot_by_label.setdefault(s.student_label, qs)   # only for pre-FK rows
+
+    def questions_for(sess) -> list:
+        """This coder's own paper, by slot; label lookup only where no slot FK exists."""
+        if sess.student_slot_id and sess.student_slot_id in slot_questions:
+            return slot_questions[sess.student_slot_id]
+        return slot_by_label.get(sess.coder_name, [])
 
     # Load all sessions for this assessment
     sessions = db.query(AssessmentSession).filter(
@@ -277,9 +291,9 @@ def export_responses_excel(assessment_id: int, db: Session = Depends(get_db)):
     responses = db.query(AssessmentResponse).filter(
         AssessmentResponse.session_id.in_(all_session_ids)
     ).all()
-    resp_map: dict[int, dict[int, str | None]] = {}
+    resp_map: dict[int, dict[int, AssessmentResponse]] = {}
     for r in responses:
-        resp_map.setdefault(r.session_id, {})[r.question_index] = r.selected_answer
+        resp_map.setdefault(r.session_id, {})[r.question_index] = r
 
     # Results lookup: session_id -> AssessmentResult
     results = db.query(AssessmentResult).filter(
@@ -288,7 +302,7 @@ def export_responses_excel(assessment_id: int, db: Session = Depends(get_db)):
     result_map = {r.session_id: r for r in results}
 
     # Find max question count across all coders
-    max_q = max((len(slot_questions.get(s.coder_name, [])) for s in sessions), default=0)
+    max_q = max((len(questions_for(s)) for s in sessions), default=0)
 
     # ── Build workbook ────────────────────────────────────────────────────────
     wb = openpyxl.Workbook()
@@ -336,7 +350,7 @@ def export_responses_excel(assessment_id: int, db: Session = Depends(get_db)):
     for row_i, sess in enumerate(sessions, 2):
         result = result_map.get(sess.id)
         resp   = resp_map.get(sess.id, {})
-        questions = slot_questions.get(sess.coder_name, [])
+        questions = questions_for(sess)
 
         submitted_str = sess.submitted_at.strftime("%Y-%m-%d %H:%M") if sess.submitted_at else "—"
         secs = result.time_taken_seconds if result and result.time_taken_seconds else None
@@ -371,7 +385,8 @@ def export_responses_excel(assessment_id: int, db: Session = Depends(get_db)):
 
         for qi, q in enumerate(questions):
             base = q_start_col + qi * 4
-            selected = resp.get(qi)
+            r = resp.get(qi)
+            selected = r.selected_answer if r else None
             correct_ans = q.get("correct_answer", "")
 
             # Map letter to full option text
@@ -379,8 +394,14 @@ def export_responses_excel(assessment_id: int, db: Session = Depends(get_db)):
                        "C": q.get("option_c",""), "D": q.get("option_d","")}
             selected_text  = f"{selected} — {opt_map.get(selected,'')}" if selected else "—"
             correct_text   = f"{correct_ans} — {opt_map.get(correct_ans,'')}" if correct_ans else "—"
-            is_correct     = selected == correct_ans if selected else None
+            # The verdict that COUNTS, so a trainer's correction reaches the
+            # export. Comparing the letters again would have produced a
+            # spreadsheet that contradicted the score in the same row.
+            is_correct = (effective_correct(r) if r and r.selected_answer else None)
+            corrected = bool(r and r.override_is_correct is not None)
             result_symbol  = "✓ Correct" if is_correct else ("✗ Wrong" if is_correct is False else "—")
+            if corrected:
+                result_symbol += " (corrected)"
             q_fill = correct_fill if is_correct else (wrong_fill if is_correct is False else None)
 
             c1 = ws.cell(row=row_i, column=base, value=q.get("question_text", ""))
@@ -423,7 +444,8 @@ def export_responses_excel(assessment_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/{assessment_id}/session/{session_id}/review")
-def get_session_review(assessment_id: int, session_id: int, db: Session = Depends(get_db)):
+def get_session_review(assessment_id: int, session_id: int, db: Session = Depends(get_db),
+                       _: None = Depends(require_passphrase)):
     """
     Return per-question review for one coder session — question, all options,
     what they selected, correct answer, whether they got it right.

@@ -231,9 +231,9 @@ def test_an_unanswered_question_index_404s(client, db):
 def test_the_sessions_list_flags_a_corrected_session(client, db):
     """The badge belongs on the row too, not only inside the review."""
     aid, sid = _sat_assessment(client, db)
-    rows = client.get(f"/assessment/{aid}/sessions").json()["sessions"]
+    rows = client.get(f"/assessment/{aid}/sessions", params=PASS).json()["sessions"]
     assert rows[0]["corrected"] is False
 
     _override(client, aid, sid, index=0, is_correct=True)
-    rows = client.get(f"/assessment/{aid}/sessions").json()["sessions"]
+    rows = client.get(f"/assessment/{aid}/sessions", params=PASS).json()["sessions"]
     assert rows[0]["corrected"] is True

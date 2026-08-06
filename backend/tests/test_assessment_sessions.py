@@ -10,6 +10,8 @@ import json
 
 import pytest
 from conftest import seed_question_pool
+
+PASS = {"passphrase": "test-passphrase"}
 from models import AssessmentSession, AssessmentResult, GeneratedAssessmentStudent
 
 PASSPHRASE = "test-passphrase"
@@ -206,7 +208,7 @@ class TestSessionsList:
         seed_question_pool(db)
         gen = client.post("/assessment/generate", json=GENERATE_PAYLOAD).json()
         assessment_id = gen["assessment_id"]
-        r = client.get(f"/assessment/{assessment_id}/sessions")
+        r = client.get(f"/assessment/{assessment_id}/sessions", params=PASS)
         assert r.status_code == 200
         data = r.json()
         assert "sessions" in data
@@ -216,5 +218,5 @@ class TestSessionsList:
         seed_question_pool(db)
         gen = client.post("/assessment/generate", json=GENERATE_PAYLOAD).json()
         assessment_id = gen["assessment_id"]
-        sessions = client.get(f"/assessment/{assessment_id}/sessions").json()["sessions"]
+        sessions = client.get(f"/assessment/{assessment_id}/sessions", params=PASS).json()["sessions"]
         assert sessions[0]["session_token"].startswith("ASM-")
