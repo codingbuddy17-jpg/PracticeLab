@@ -40,6 +40,8 @@ export default function App() {
           <Route path="/trainer/feedback" element={<TrainerFeedback />} />
           <Route path="/trainer/practicelab" element={<TrainerPracticeLab />} />
           <Route path="/trainer/assessment" element={<AssessmentHome />} />
+          {/* Same component, tab read from the URL — see AssessmentHome. */}
+          <Route path="/trainer/assessment/:tab" element={<AssessmentHome />} />
           <Route path="/trainer/chart-management" element={<ChartManagementHome />} />
           <Route path="/take-assessment" element={<TakeAssessmentEntry />} />
           <Route path="/take-assessment/:token" element={<TakeAssessmentSession />} />

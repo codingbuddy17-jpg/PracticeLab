@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { ArrowLeft, BarChart2, Lock, PlusSquare, Clock, Upload, Users, TrendingUp } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useParams, Link } from 'react-router-dom'
 import { PoolSummaryView } from './PoolSummaryView'
 import { UploadView } from './UploadView'
 import { QuestionBankView } from './QuestionBankView'
@@ -11,18 +11,32 @@ import { AnalyticsView } from './AnalyticsView'
 
 type Tab = 'summary' | 'upload' | 'bank' | 'generate' | 'sessions' | 'history' | 'analytics'
 
+const TAB_IDS: Tab[] = ['summary', 'upload', 'bank', 'generate', 'sessions', 'history', 'analytics']
+const DEFAULT_TAB: Tab = 'summary'
+
+/** Every tab has a URL, so it can be opened, bookmarked and shared like one. */
+export const tabPath = (tab: Tab) => `/trainer/assessment/${tab}`
+
 export function AssessmentHome() {
   const navigate = useNavigate()
-  const [activeTab, setActiveTab] = useState<Tab>('summary')
+
+  // The tab lives in the URL rather than in state. It was component state, so
+  // there was no address for "Sessions" — and a browser can only open a LINK in
+  // a new tab. Now Cmd/Ctrl-click opens one in its own browser tab, leaving a
+  // half-filled Generate form untouched in the original; the Back button steps
+  // between tabs instead of leaving the module; and a tab can be bookmarked or
+  // sent to someone.
+  const { tab } = useParams<{ tab?: string }>()
+  const activeTab: Tab = TAB_IDS.includes(tab as Tab) ? (tab as Tab) : DEFAULT_TAB
   // A specialty carried across tabs by the Pool Summary shortcuts, so
   // "this pool is thin" leads straight to fixing it rather than making the
   // trainer re-pick the specialty they were just looking at. Cleared on any
   // manual tab click, so it only ever applies to the jump that set it.
   const [handoffSpecialty, setHandoffSpecialty] = useState<string | undefined>()
 
-  function jumpTo(tab: Tab, specialty: string) {
+  function jumpTo(target: Tab, specialty: string) {
     setHandoffSpecialty(specialty)
-    setActiveTab(tab)
+    navigate(tabPath(target))
   }
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
@@ -53,15 +67,23 @@ export function AssessmentHome() {
       </div>
 
       <div style={styles.tabBar}>
-        {tabs.map(tab => (
-          <button
-            key={tab.id}
-            style={{ ...styles.tabBtn, ...(activeTab === tab.id ? styles.tabBtnActive : {}) }}
-            onClick={() => { setHandoffSpecialty(undefined); setActiveTab(tab.id) }}
+        {tabs.map(t => (
+          <Link
+            key={t.id}
+            to={tabPath(t.id)}
+            // A real href is what makes Cmd/Ctrl-click and "Open in new tab"
+            // work. The handoff is cleared here so it only ever applies to the
+            // jump that set it, never to a tab the trainer picked themselves.
+            onClick={() => setHandoffSpecialty(undefined)}
+            style={{
+              ...styles.tabBtn,
+              ...(activeTab === t.id ? styles.tabBtnActive : {}),
+              textDecoration: 'none',
+            }}
           >
-            {tab.icon}
-            {tab.label}
-          </button>
+            {t.icon}
+            {t.label}
+          </Link>
         ))}
       </div>
 
