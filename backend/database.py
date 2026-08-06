@@ -92,6 +92,25 @@ def _run_migrations():
         defn = (sqlite_def or pg_def) if is_sqlite else pg_def
         _run(f"ALTER TABLE {table} ADD COLUMN {col} {defn}")
 
+    def _drop_col(table: str, col: str, reason: str) -> None:
+        """
+        Drop a column that is genuinely dead.
+
+        The rest of this file is additive on purpose — it runs on every startup
+        against the live database, and a migration that removes data is a
+        migration that can destroy it on a bad deploy. So this is deliberately
+        the exception, not a tool: use it only for a column nothing reads,
+        nothing writes, and that holds no data anyone could want back, and say
+        in `reason` why that is true. Everything else gets left in place.
+
+        Guarded on the column still existing, so it is a no-op on every startup
+        after the first and on any database that never had it.
+        """
+        if not _col_exists(table, col):
+            return
+        logger.info("Dropping dead column %s.%s — %s", table, col, reason)
+        _run(f"ALTER TABLE {table} DROP COLUMN {col}")
+
     # ── chart_files ──────────────────────────────────────────────────────────
     _add_col("chart_files", "page_text", "TEXT")
 
@@ -648,6 +667,14 @@ def _run_migrations():
         risk_element_score FLOAT,
         reasoning_accuracy_total FLOAT
     )""")
+
+    # ── Removed: the offline Excel coder workflow ────────────────────────────
+    # Coders submit through the PracticeLab interface. The workbook-per-coder
+    # route was removed along with its builder, packer and parser; this flag
+    # recorded whether a coder's workbook had been generated, and no code ever
+    # set it or read it, so every row holds NULL.
+    _drop_col("batch_coders", "excel_generated_at",
+              "offline Excel coder workflow removed; never written, never read")
 
     # ── E/M columns added after those tables first shipped ───────────────────
     # These MUST come after the CREATE TABLEs above. Run before them, on a
