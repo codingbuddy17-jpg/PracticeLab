@@ -201,22 +201,44 @@ export async function generateAssessment(payload: Record<string, unknown>) {
   return data
 }
 
+/**
+ * Delete an assessment. Refused by default once anyone has sat it — `force`
+ * with a written reason is the deliberate override, and is audit-logged.
+ */
+export async function deleteAssessment(
+  assessmentId: number,
+  opts: { passphrase: string; trainerName: string; force?: boolean; reason?: string },
+) {
+  const { data } = await api.delete(`/assessment/${assessmentId}`, {
+    params: {
+      passphrase: opts.passphrase,
+      trainer_name: opts.trainerName,
+      ...(opts.force ? { force: true, reason: opts.reason } : {}),
+    },
+  })
+  return data as { deleted: number; sessions_removed: number; completed_removed: number }
+}
+
 export async function listAssessmentHistory() {
   const { data } = await api.get('/assessment/history')
   return data as Array<{
     id: number
     assessment_name: string
     config_name: string | null
+    batch_name: string | null
+    /** null means the paper uses the platform default. */
+    pass_threshold: number | null
     student_count: number
     questions_per_student: number
     generated_by: string
     generated_at: string | null
+    status_counts?: { pending: number; in_progress: number; submitted: number; expired: number }
   }>
 }
 
 export function exportAssessmentPDF(assessmentId: number, passphrase?: string) {
   return downloadFile(`/assessment/${assessmentId}/export-pdf`,
-    `Assessment_${assessmentId}.pdf`, { passphrase: passphrase || getPassphrase() })
+    `Assessment_${assessmentId}_papers.zip`, { passphrase: passphrase || getPassphrase() })
 }
 
 export function exportAnswerKey(assessmentId: number, passphrase?: string) {

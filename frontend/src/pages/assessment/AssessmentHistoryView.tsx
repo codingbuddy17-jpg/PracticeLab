@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Download, Trash2, RefreshCw } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { listAssessmentHistory, exportAssessmentPDF, exportAnswerKey } from '../../api'
+import { listAssessmentHistory, exportAssessmentPDF, exportAnswerKey, deleteAssessment } from '../../api'
 import { errorMessage } from '../../api/errors'
 import { hasPassphrase } from '../../api/assessmentAuth'
 
@@ -13,6 +13,10 @@ interface AssessmentRecord {
   questions_per_student: number
   generated_by: string
   generated_at: string | null
+  batch_name: string | null
+  /** null means the paper uses the platform default. */
+  pass_threshold: number | null
+  status_counts?: { pending: number; in_progress: number; submitted: number; expired: number }
 }
 
 export function AssessmentHistoryView() {
@@ -21,6 +25,9 @@ export function AssessmentHistoryView() {
   const [deletingId, setDeletingId] = useState<number | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null)
   const [passphrase, setPassphrase] = useState('')
+  const [reason, setReason] = useState('')
+  const [blocked, setBlocked] = useState<{ id: number; message: string; submitted: number } | null>(null)
+  const [search, setSearch] = useState('')
 
   /**
    * Both exports hand over the exam — the paper and the answer key — so they
@@ -51,30 +58,53 @@ export function AssessmentHistoryView() {
 
   useEffect(() => { load() }, [])
 
-  async function handleDelete(id: number) {
+  /**
+   * Delete an assessment. The backend refuses once anyone has sat it, and
+   * answers with what would be lost — so the second confirmation states the
+   * cost rather than repeating "are you sure?".
+   *
+   * Uses the shared API helper rather than a hand-built fetch, so failures read
+   * the same as everywhere else. The passphrase is still a query parameter on
+   * the wire; moving it to a header is a separate change across all endpoints.
+   */
+  async function handleDelete(id: number, force = false) {
     if (!passphrase.trim()) { toast.error('Enter passphrase'); return }
+    if (force && reason.trim().length < 5) {
+      toast.error('Enter a reason for deleting completed work'); return
+    }
     setDeletingId(id)
     try {
-      await fetch(`${import.meta.env.VITE_API_URL || '/api'}/assessment/${id}?passphrase=${encodeURIComponent(passphrase)}`, {
-        method: 'DELETE',
-      }).then(async r => {
-        if (!r.ok) {
-          const data = await r.json()
-          throw new Error(data.detail || 'Delete failed')
-        }
-        return r.json()
+      const res = await deleteAssessment(id, {
+        passphrase: passphrase.trim(),
+        trainerName: localStorage.getItem('trainer_name')?.trim() || 'Trainer',
+        force, reason: reason.trim(),
       })
-      toast.success('Assessment deleted')
+      toast.success(res.completed_removed
+        ? `Deleted — ${res.completed_removed} completed session(s) removed.`
+        : 'Assessment deleted')
       setConfirmDelete(null)
+      setBlocked(null)
       setPassphrase('')
+      setReason('')
       load()
-    } catch (e: unknown) {
-      const err = e as Error
-      toast.error(err.message || 'Delete failed')
+    } catch (e: any) {
+      const detail = e?.response?.data?.detail
+      if (detail && typeof detail === 'object' && detail.requires === 'force') {
+        // Completed work exists. Say what would be lost and require a reason.
+        setBlocked({ id, message: detail.message, submitted: detail.submitted })
+      } else {
+        toast.error(errorMessage(e, 'Delete failed'))
+      }
     } finally {
       setDeletingId(null)
     }
   }
+
+  const q = search.trim().toLowerCase()
+  const visible = q
+    ? records.filter(r => `${r.assessment_name} ${r.batch_name || ''} ${r.generated_by}`
+        .toLowerCase().includes(q))
+    : records
 
   if (loading) {
     return (
@@ -86,6 +116,53 @@ export function AssessmentHistoryView() {
 
   return (
     <div>
+      {/* Above the table, so a search that matches nothing keeps the box that
+          would clear it. */}
+      {records.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Escape') setSearch('') }}
+            placeholder="Find by name, batch, or who generated it…"
+            style={{ padding: '7px 11px', borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 12, minWidth: 260 }}
+          />
+          {search && (
+            <span style={{ fontSize: 11, color: '#6b7280' }}>{visible.length} of {records.length}</span>
+          )}
+        </div>
+      )}
+
+      {blocked && (
+        <div style={{ background: 'rgba(220,38,38,0.07)', border: '1px solid rgba(220,38,38,0.25)', borderRadius: 12, padding: '14px 18px', marginBottom: 14 }}>
+          <div style={{ fontSize: 13, fontWeight: 800, color: '#b91c1c' }}>{blocked.message}</div>
+          <div style={{ fontSize: 12, color: '#7f1d1d', marginTop: 4 }}>
+            Their answers and scores cannot be recovered. Say why this is being deleted.
+          </div>
+          <textarea
+            value={reason}
+            onChange={e => setReason(e.target.value)}
+            rows={2}
+            placeholder="e.g. Duplicate paper issued in error; coders re-sat the correct one."
+            style={{ width: '100%', marginTop: 8, padding: '8px 10px', borderRadius: 8, border: '1px solid #fecaca', fontSize: 12, fontFamily: 'inherit', resize: 'vertical' }}
+          />
+          <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+            <button disabled={reason.trim().length < 5 || deletingId === blocked.id}
+              onClick={() => handleDelete(blocked.id, true)}
+              style={{ padding: '6px 13px', borderRadius: 8, border: 'none', fontSize: 12, fontWeight: 700,
+                       background: reason.trim().length < 5 ? '#e5e7eb' : '#dc2626',
+                       color: reason.trim().length < 5 ? '#9ca3af' : '#fff',
+                       cursor: reason.trim().length < 5 ? 'not-allowed' : 'pointer' }}>
+              Delete anyway
+            </button>
+            <button onClick={() => { setBlocked(null); setReason('') }}
+              style={{ padding: '6px 13px', borderRadius: 8, border: '1px solid #e5e7eb', background: '#fff', color: '#374151', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>
+              Keep it
+            </button>
+          </div>
+        </div>
+      )}
+
       {records.length === 0 ? (
         <div style={styles.empty}>No assessments generated yet. Go to Generate tab to create your first assessment.</div>
       ) : (
@@ -93,22 +170,41 @@ export function AssessmentHistoryView() {
           <table style={styles.table}>
             <thead>
               <tr style={styles.thead}>
-                {['Name', 'Config', 'Date', 'Generated By', 'Students', 'Questions', 'Actions'].map(h => (
+                {['Name', 'Batch', 'Date', 'Generated By', 'Students', 'Questions', 'Pass mark', 'Progress', 'Actions'].map(h => (
                   <th key={h} style={styles.th}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {records.map(r => (
+              {visible.map(r => (
                 <tr key={r.id} style={styles.tr}>
                   <td style={{ ...styles.td, fontWeight: 700 }}>{r.assessment_name}</td>
-                  <td style={{ ...styles.td, color: '#9ca3af', fontSize: 12 }}>{r.config_name || '—'}</td>
+                  <td style={{ ...styles.td, color: '#6b7280', fontSize: 12 }}>{r.batch_name || '—'}</td>
                   <td style={{ ...styles.td, fontSize: 12, color: '#6b7280' }}>
                     {r.generated_at ? new Date(r.generated_at).toLocaleDateString() : '—'}
                   </td>
                   <td style={styles.td}>{r.generated_by}</td>
                   <td style={{ ...styles.td, fontWeight: 700, textAlign: 'center' as const }}>{r.student_count}</td>
                   <td style={{ ...styles.td, fontWeight: 700, textAlign: 'center' as const }}>{r.questions_per_student}</td>
+                  <td style={{ ...styles.td, textAlign: 'center' as const, fontSize: 12, color: '#6b7280' }}>
+                    {r.pass_threshold != null ? `${r.pass_threshold}%` : 'default'}
+                  </td>
+                  {/* Where it stands, so the list answers "is this finished?"
+                      without opening Sessions to find out. */}
+                  <td style={{ ...styles.td, fontSize: 11, whiteSpace: 'nowrap' as const }}>
+                    {(() => {
+                      const c = r.status_counts
+                      if (!c) return <span style={{ color: '#9ca3af' }}>—</span>
+                      const done = c.submitted, waiting = c.pending + c.in_progress
+                      return (
+                        <span>
+                          <strong style={{ color: done ? '#15803d' : '#9ca3af' }}>{done} done</strong>
+                          {waiting > 0 && <span style={{ color: '#92400e' }}> · {waiting} waiting</span>}
+                          {c.expired > 0 && <span style={{ color: '#b91c1c' }}> · {c.expired} expired</span>}
+                        </span>
+                      )
+                    })()}
+                  </td>
                   <td style={styles.td}>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                       <button
