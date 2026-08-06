@@ -12,7 +12,7 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.comments import Comment
-from services.grading_engine import canonical_pointers
+from services.grading_engine import canonical_pointers, norm_units
 
 
 # ── Style helpers ─────────────────────────────────────────────────────────────
@@ -96,6 +96,17 @@ def _build_op_ak_headers(ws, with_pointers: bool = False, single_path: bool = Fa
     for i in range(1, 0 if dx_only else OP_CPT_COUNT + 1):
         _header(ws, col, 1, f"CPT_{i}"); col += 1
         _header(ws, col, 1, f"CPT_{i}_Modifier"); col += 1
+        # Units. Left blank the line is one unit, which is what a coder writing
+        # a single procedure does — so a key that says nothing about units does
+        # not grade them, and existing keys are unaffected.
+        _header(ws, col, 1, f"CPT_{i}_Units")
+        ws.cell(1, col).comment = Comment(
+            "How many units of this procedure. Leave blank for a single unit.\n"
+            "Fill it only where the count matters — bilateral procedures, "
+            "add-on codes billed more than once.\n\n"
+            "A key that leaves this blank does not grade units at all.",
+            "PracticeLab")
+        col += 1
         if with_pointers:
             # Professional claims (CMS-1500 Box 24E): which Dx justify this line.
             # NUMBERS index the Dx list, as coders refer to them — 1 = PDx,
@@ -327,6 +338,9 @@ def export_all_answer_keys(answer_keys: list) -> bytes:
                 entry = cpt_list[i] if i < len(cpt_list) else {}
                 _input_cell(ws, col, row_num, entry.get("code", "")); col += 1
                 _input_cell(ws, col, row_num, entry.get("modifier", "")); col += 1
+                # Blank where the key never stated units, so a round-trip
+                # export → re-upload does not invent a claim it did not make.
+                _input_cell(ws, col, row_num, entry.get("units", "")); col += 1
                 if with_pointers:
                     _input_cell(ws, col, row_num,
                                 ",".join(entry.get("pointers", []) or [])); col += 1
@@ -607,12 +621,16 @@ def generate_coder_sheet(
             _header(ws, 1, row, "#", fill=PatternFill("solid", fgColor="4472C4"), font=WHITE_FONT)
             _header(ws, 2, row, "CPT Code", fill=PatternFill("solid", fgColor="4472C4"), font=WHITE_FONT)
             _header(ws, 3, row, "Modifier (optional)", fill=PatternFill("solid", fgColor="4472C4"), font=WHITE_FONT)
-            ws.merge_cells(f"D{row}:F{row}")
+            # Units. Blank is one unit, so a coder who codes single procedures
+            # never has to touch this column.
+            _header(ws, 4, row, "Units (blank = 1)", fill=PatternFill("solid", fgColor="4472C4"), font=WHITE_FONT)
+            ws.merge_cells(f"E{row}:F{row}")
             row += 1
             for i in range(1, 11):
                 _locked_cell(ws, 1, row, i)
                 _input_cell(ws, 2, row)
                 _input_cell(ws, 3, row)
+                _input_cell(ws, 4, row)
                 row += 1
 
         # Column widths
@@ -657,6 +675,18 @@ def parse_answer_key_upload(file_bytes: bytes, specialty: str, with_pointers: bo
     # whether data starts at row 2 or somewhere else (e.g. Numbers adds a blank row).
     HEADER_NAMES = {"chart_number", "chart number", "chart#", "chartnumber"}
     results = []
+
+    # Where each CPT field sits, read from the header row rather than counted
+    # off a fixed stride. Units added a column mid-block, so a key filled from
+    # last month's template has a different layout to one filled from today's —
+    # a stride would read its modifiers as units.
+    header_at: dict[str, int] = {}
+    for hdr in ws.iter_rows(min_row=1, max_row=1, values_only=True):
+        for idx, name in enumerate(hdr or ()):
+            if name is None:
+                continue
+            key = str(name).split("\n")[0].strip().lower()
+            header_at.setdefault(key, idx)
 
     def _cell(row, idx) -> str:
         """Safely read a cell value, returning "" for None/empty/'None' sentinel."""
@@ -712,16 +742,28 @@ def parse_answer_key_upload(file_bytes: bytes, specialty: str, with_pointers: bo
                 col += 1
             cpt = []
             step = 3 if with_pointers else 2
-            for _ in range(0 if dx_only else OP_CPT_COUNT):
-                code = _cell(row, col)
-                modifier = _cell(row, col + 1)
+            for i in range(0 if dx_only else OP_CPT_COUNT):
+                named = header_at.get(f"cpt_{i + 1}")
+                base_col = named if named is not None else col
+                units_col = header_at.get(f"cpt_{i + 1}_units")
+                mod_col = header_at.get(f"cpt_{i + 1}_modifier", base_col + 1)
+                ptr_col = header_at.get(f"cpt_{i + 1}_dxpointers",
+                                        base_col + 2 if units_col is None else None)
+
+                code = _cell(row, base_col)
                 if code:
-                    entry = {"code": code, "modifier": modifier}
-                    if with_pointers:
+                    entry = {"code": code, "modifier": _cell(row, mod_col)}
+                    # Absent means "do not grade units", which is not the same
+                    # as an explicit 1 — so an empty cell adds nothing.
+                    if units_col is not None:
+                        raw_units = _cell(row, units_col)
+                        if raw_units:
+                            entry["units"] = norm_units(raw_units)
+                    if with_pointers and ptr_col is not None:
                         # isalpha() here silently DROPPED every numeric
                         # pointer, which is now the documented form — an
                         # uploaded key would have graded every line unlinked.
-                        raw = _cell(row, col + 2).upper()
+                        raw = _cell(row, ptr_col).upper()
                         ptrs = [x.strip() for x in raw.replace(" ", ",").split(",") if x.strip()]
                         entry["pointers"] = canonical_pointers(ptrs)
                     cpt.append(entry)
@@ -807,8 +849,14 @@ def parse_submission(file_bytes: bytes) -> list[dict]:
                 if is_ip:
                     pcs.append({"code": code})
                 else:
-                    modifier = cell_val(r, 2)
-                    cpt.append({"code": code, "modifier": modifier})
+                    line = {"code": code, "modifier": cell_val(r, 2)}
+                    # Older sheets have no units column at all; a blank one
+                    # means a single unit, and the grader reads absence that
+                    # way, so nothing is stored for either.
+                    raw_units = cell_val(r, 3)
+                    if raw_units:
+                        line["units"] = norm_units(raw_units)
+                    cpt.append(line)
 
         entry = {
             "chart_number": chart_number,
@@ -859,6 +907,7 @@ def parse_em_answer_key_upload(file_bytes: bytes) -> list[dict]:
       AZ entered_by
       BA level_method (MDM / Time)   BB total_time (minutes)
       BC-BF procedure CPT Dx pointers (one cell per CPT, e.g. "1,2")
+      BG-BJ procedure CPT units (blank = not graded on units)
     """
     wb = load_workbook(io.BytesIO(file_bytes), data_only=False)
     ws = wb.worksheets[0]
@@ -924,11 +973,15 @@ def parse_em_answer_key_upload(file_bytes: bytes) -> list[dict]:
             raw_ptr = (_v(row, 54 + slot) or "").upper()
             pointers = [x.strip()[:1] for x in raw_ptr.replace(" ", ",").split(",")
                         if x.strip() and x.strip()[0].isalpha()][:4]
-            procedure_cpts.append({
+            line = {
                 "code": code,
                 "modifier": _v(row, base + 1),
                 "pointers": pointers,
-            })
+            }
+            raw_units = _v(row, 58 + slot)
+            if raw_units:
+                line["units"] = norm_units(raw_units)
+            procedure_cpts.append(line)
 
         entered_by = _v(row, 51)  # AZ
 

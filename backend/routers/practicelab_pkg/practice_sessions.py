@@ -21,7 +21,7 @@ from models import (
 from services.grading_engine import (
     grade_ip, grade_op, finalize_ip_score, cfg_from_db,
     IPAnswerKey, OPAnswerKey, IPSubmission, OPSubmission,
-    DEFAULT_IP_CFG, DEFAULT_OP_CFG, DEFAULT_EDSP_CFG,
+    DEFAULT_IP_CFG, DEFAULT_OP_CFG, DEFAULT_EDSP_CFG, norm_units,
 )
 from .shared import _is_ip, _is_ed, MASTER_PASSPHRASE, assert_batch_open
 from .chart_grading import _grade_chart_for_sp
@@ -121,11 +121,15 @@ def _em_submission_dict(em_data: dict) -> dict:
         code = ((c or {}).get("code") or "").strip()
         if not code:
             continue
-        cpts.append({
+        line = {
             "code": code,
             "modifier": ((c or {}).get("modifier") or "").strip(),
             "pointers": [str(p).strip() for p in ((c or {}).get("pointers") or []) if str(p).strip()],
-        })
+        }
+        raw_units = str((c or {}).get("units") or "").strip()
+        if raw_units:
+            line["units"] = norm_units(raw_units)
+        cpts.append(line)
     sub["sub_procedure_cpts"] = cpts
     return sub
 
@@ -183,6 +187,12 @@ def _em_feedback_items(scoring: dict, ak: dict, em: dict, cfg: dict) -> list:
             "section": "Coding Accuracy",
             "issue": f"Dx pointers on CPT {pe['code']} — key {pe['ak']}, coded {pe['sub']}",
             "ak_code": pe["ak"], "coder_code": pe["sub"],
+        })
+    for ue in scoring.get("unit_errors", []):
+        items.append({
+            "section": "Coding Accuracy",
+            "issue": f"Units on CPT {ue['code']} — key {ue['ak']}, coded {ue['sub']}",
+            "ak_code": str(ue["ak"]), "coder_code": str(ue["sub"]),
         })
     items += [
         {"section": "Coding Accuracy", "issue": f"E/M Level: {scoring.get('em_level_score', 0):.1f}/{cfg['em_level_weight']:.1f} pts", "ak_code": ak.get("em_code", ""), "coder_code": em.get("em_code", "")},

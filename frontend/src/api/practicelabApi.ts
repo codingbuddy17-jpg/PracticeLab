@@ -442,7 +442,7 @@ export interface AnswerKeyDetail {
   pdx_code: string; pdx_poa: string
   sdx: Array<{ code: string; poa?: string; ccmcc?: string }>
   pcs: Array<{ code: string }>
-  cpt: Array<{ code: string; modifier?: string; pointers?: string[] }>
+  cpt: Array<{ code: string; modifier?: string; pointers?: string[]; units?: number | string }>
   facility_level: string | null; profee_level: string | null
   entered_by: string | null
 }
@@ -468,7 +468,7 @@ export async function saveAnswerKeyInline(chartId: number, payload: {
   pdx_code: string; pdx_poa?: string
   sdx: Array<{ code: string; poa?: string; ccmcc?: string }>
   pcs: Array<{ code: string }>
-  cpt: Array<{ code: string; modifier?: string; pointers?: string[] }>
+  cpt: Array<{ code: string; modifier?: string; pointers?: string[]; units?: number | string }>
   facility_level?: string | null; profee_level?: string | null
   entered_by: string; passphrase?: string; regrade_closed?: boolean
 }) {

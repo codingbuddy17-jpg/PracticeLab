@@ -32,7 +32,9 @@ export function AnswerKeyEditor({ chartId, onClose, onSaved }: {
   const [pdxPoa, setPdxPoa] = useState('')
   const [sdx, setSdx] = useState<Array<{ code: string; poa?: string; ccmcc?: string }>>([])
   const [pcs, setPcs] = useState<Array<{ code: string }>>([])
-  const [cpt, setCpt] = useState<Array<{ code: string; modifier?: string; pointers?: string[] }>>([])
+  // units is a string so an empty box stays empty. Absence means "do not grade
+  // units on this line", which is not the same claim as an explicit 1.
+  const [cpt, setCpt] = useState<Array<{ code: string; modifier?: string; pointers?: string[]; units?: number | string }>>([])
   const [facilityLevel, setFacilityLevel] = useState('')
   const [profeeLevel, setProfeeLevel] = useState('')
 
@@ -68,7 +70,11 @@ export function AnswerKeyEditor({ chartId, onClose, onSaved }: {
         pdx_poa: detail?.is_ip ? pdxPoa : '',
         sdx: sdx.filter(s => s.code.trim()),
         pcs: detail?.is_ip ? pcs.filter(p => p.code.trim()) : [],
-        cpt: detail?.is_ip ? [] : cpt.filter(c => c.code.trim()),
+        cpt: detail?.is_ip ? [] : cpt.filter(c => c.code.trim()).map(c => {
+          const { units, ...rest } = c
+          const n = parseInt(String(units ?? ''), 10)
+          return n >= 1 ? { ...rest, units: n } : rest
+        }),
         facility_level: detail?.single_path ? facilityLevel.trim() || null : null,
         profee_level: detail?.single_path ? profeeLevel.trim() || null : null,
         entered_by: trainerName(),
@@ -246,6 +252,12 @@ export function AnswerKeyEditor({ chartId, onClose, onSaved }: {
                   onChange={e => setCpt(cpt.map((x, j) => j === i ? { ...x, code: e.target.value } : x))} />
                 <input style={{ ...inp, flex: 1 }} placeholder="Modifier" value={c.modifier || ''}
                   onChange={e => setCpt(cpt.map((x, j) => j === i ? { ...x, modifier: e.target.value } : x))} />
+                <input style={{ ...inp, width: 78 }} placeholder="Units" inputMode="numeric"
+                  title="Leave blank unless the count matters — a blank line is not graded on units."
+                  value={c.units ?? ''}
+                  onChange={e => setCpt(cpt.map((x, j) => j === i ? {
+                    ...x, units: e.target.value.replace(/[^0-9]/g, '').slice(0, 3),
+                  } : x))} />
                 {detail.uses_pointers && (
                   <input style={{ ...inp, width: 130, textTransform: 'uppercase' }} placeholder="Dx ptrs 1,2"
                     value={(c.pointers || []).join(',')}

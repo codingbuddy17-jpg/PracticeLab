@@ -63,7 +63,7 @@ const EM_CODES = ['99202','99203','99204','99205','99211','99212','99213','99214
 function emptyForm() {
   const f: Record<string, any> = { em_code: '', em_modifier: '', patient_type: 'NA',
     level_method: 'MDM', total_time: '',
-    dx_codes: [''], procedure_cpts: [{ code: '', modifier: '', pointers: [] }] }
+    dx_codes: [''], procedure_cpts: [{ code: '', modifier: '', pointers: [], units: '' }] }
   COPA_FIELDS.forEach(c => { f[c.key] = 0 })
   DR_CAT1_FIELDS.forEach(c => { f[c.key] = 0 })
   DR_BOOL_FIELDS.forEach(c => { f[c.key] = false })
@@ -145,9 +145,9 @@ export function EMAnswerKeysView() {
   function removeDx(i: number) { setForm(f => ({ ...f, dx_codes: f.dx_codes.filter((_: any, idx: number) => idx !== i) })) }
   function setDx(i: number, val: string) { setForm(f => { const a = [...f.dx_codes]; a[i] = val; return { ...f, dx_codes: a } }) }
 
-  function addCpt() { setForm(f => ({ ...f, procedure_cpts: [...f.procedure_cpts, { code: '', modifier: '', pointers: [] }] })) }
+  function addCpt() { setForm(f => ({ ...f, procedure_cpts: [...f.procedure_cpts, { code: '', modifier: '', pointers: [], units: '' }] })) }
   function removeCpt(i: number) { setForm(f => ({ ...f, procedure_cpts: f.procedure_cpts.filter((_: any, idx: number) => idx !== i) })) }
-  function setCpt(i: number, field: 'code' | 'modifier' | 'pointers', val: any) {
+  function setCpt(i: number, field: 'code' | 'modifier' | 'pointers' | 'units', val: any) {
     setForm(f => { const a = [...f.procedure_cpts]; a[i] = { ...a[i], [field]: val }; return { ...f, procedure_cpts: a } })
   }
 
@@ -163,11 +163,18 @@ export function EMAnswerKeysView() {
         // Dicts so pointers survive; the grader also accepts the legacy string form.
         procedure_cpts: form.procedure_cpts
           .filter((c: any) => c.code.trim())
-          .map((c: any) => ({
-            code: c.code.trim(),
-            modifier: (c.modifier || '').trim(),
-            pointers: c.pointers || [],
-          })),
+          .map((c: any) => {
+            const line: any = {
+              code: c.code.trim(),
+              modifier: (c.modifier || '').trim(),
+              pointers: c.pointers || [],
+            }
+            // Blank stays blank: a key that says nothing about units does not
+            // grade them, which is not the same as claiming 1.
+            const u = parseInt(String(c.units ?? ''), 10)
+            if (u >= 1) line.units = u
+            return line
+          }),
         // The form holds time as a string; the API expects an int or null.
         total_time: form.level_method === 'TIME' && form.total_time
           ? parseInt(form.total_time, 10) : null,
@@ -603,6 +610,10 @@ export function EMAnswerKeysView() {
                     value={cpt.code} onChange={e => setCpt(i, 'code', e.target.value)} />
                   <input style={{ ...styles.input, flex: 1 }} placeholder="Modifier"
                     value={cpt.modifier} onChange={e => setCpt(i, 'modifier', e.target.value)} />
+                  <input style={{ ...styles.input, width: 74 }} placeholder="Units" inputMode="numeric"
+                    title="Leave blank unless the count matters — a blank line is not graded on units."
+                    value={cpt.units ?? ''}
+                    onChange={e => setCpt(i, 'units' as any, e.target.value.replace(/[^0-9]/g, '').slice(0, 3))} />
                   <input style={{ ...styles.input, flex: 1, textTransform: 'uppercase' }} placeholder="Dx ptrs 1,2"
                     title="Which diagnoses justify this line. Up to 4 per line (CMS-1500 Box 24E) — choose the ones supporting medical necessity for this procedure. First is primary."
                     value={(cpt.pointers || []).join(',')}

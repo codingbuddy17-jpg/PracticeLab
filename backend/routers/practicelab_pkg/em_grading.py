@@ -653,6 +653,10 @@ def download_em_template():
     # shift every downstream parser index.
     for i, col in enumerate(("BC", "BD", "BE", "BF"), start=1):
         hdr(f"{col}1", f"CPT {i} Dx Pointers (e.g. 1,2)")
+    # Units, appended for the same reason. Blank means the line is not graded
+    # on units at all, so keys written before this column exist are unchanged.
+    for i, col in enumerate(("BG", "BH", "BI", "BJ"), start=1):
+        hdr(f"{col}1", f"CPT {i} Units (blank = 1)")
 
     # Sample row
     ws["A2"] = "EM001"

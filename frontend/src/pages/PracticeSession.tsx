@@ -19,7 +19,7 @@ interface CodeEntry {
   pdx_poa: string
   sdx: Array<{ code: string; poa: string }>
   pcs: Array<{ code: string }>
-  cpt: Array<{ code: string; modifier: string; pointers?: string[] }>
+  cpt: Array<{ code: string; modifier: string; pointers?: string[]; units?: number | string }>
   facility_level?: string
   profee_level?: string
   // E&D fields
@@ -69,7 +69,7 @@ interface CodeEntry {
     level_method: 'MDM' | 'TIME'
     total_time: string
     em_dx: Array<{ code: string }>
-    em_cpt: Array<{ code: string; modifier: string; pointers?: string[] }>
+    em_cpt: Array<{ code: string; modifier: string; pointers?: string[]; units?: number | string }>
   }
 }
 
@@ -159,7 +159,7 @@ const EMPTY_EM_DATA = () => ({
   risk_dnr_deescalate: false, risk_parenteral_controlled: false,
   em_code: '', em_modifier: '', patient_type: 'NA' as 'NEW' | 'ESTABLISHED' | 'NA',
   level_method: 'MDM' as 'MDM' | 'TIME', total_time: '',
-  em_dx: [] as Array<{ code: string }>, em_cpt: [] as Array<{ code: string; modifier: string; pointers?: string[] }>,
+  em_dx: [] as Array<{ code: string }>, em_cpt: [] as Array<{ code: string; modifier: string; pointers?: string[]; units?: number | string }>,
 })
 
 const EMPTY_ENTRY = (chart_id: number): CodeEntry => ({
@@ -637,12 +637,12 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
   const singlePath = isSinglePath(chart.specialty)
   const dxLabels = dxLabelList([entry.pdx_code, ...entry.sdx.map(sx => sx.code)])
 
-  function updateCpt(idx: number, field: 'code' | 'modifier' | 'pointers', val: string) {
+  function updateCpt(idx: number, field: 'code' | 'modifier' | 'pointers' | 'units', val: string) {
     const cpt = [...entry.cpt]
     cpt[idx] = { ...cpt[idx], [field]: field === 'pointers' ? parsePointers(val) : val }
     onChange({ cpt })
   }
-  function addCpt() { onChange({ cpt: [...entry.cpt, { code: '', modifier: '', pointers: [] }] }) }
+  function addCpt() { onChange({ cpt: [...entry.cpt, { code: '', modifier: '', pointers: [], units: '1' }] }) }
   function removeCpt(idx: number) { onChange({ cpt: entry.cpt.filter((_, i) => i !== idx) }) }
 
   const pdxPOAMissing = ip && entry.pdx_code.trim() && !entry.pdx_poa
@@ -932,6 +932,18 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
                   updateEM({ em_cpt: cpt })
                 }}
               />
+              <input
+                style={{ ...s.inputField, width: 74, marginBottom: 0 }}
+                placeholder="Units"
+                inputMode="numeric"
+                title="How many units of this procedure. 1 unless the count differs."
+                value={row.units ?? '1'}
+                onChange={e => {
+                  const cpt = [...emData.em_cpt]
+                  cpt[i] = { ...cpt[i], units: e.target.value.replace(/[^0-9]/g, '').slice(0, 3) }
+                  updateEM({ em_cpt: cpt })
+                }}
+              />
               {pointers && (
                 <input
                   style={{ ...s.inputField, width: 120, marginBottom: 0, textTransform: 'uppercase' }}
@@ -948,7 +960,7 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
               <button onClick={() => updateEM({ em_cpt: emData.em_cpt.filter((_, j) => j !== i) })} style={s.removeBtn}><X size={14} /></button>
             </div>
           ))}
-          <button onClick={() => updateEM({ em_cpt: [...emData.em_cpt, { code: '', modifier: '', pointers: [] }] })} style={s.addBtn}><Plus size={13} /> Add Procedure CPT</button>
+          <button onClick={() => updateEM({ em_cpt: [...emData.em_cpt, { code: '', modifier: '', pointers: [], units: '1' }] })} style={s.addBtn}><Plus size={13} /> Add Procedure CPT</button>
           <div style={s.hint}>
             Add any procedures performed during the visit that require separate CPT coding
             {pointers && ' · Dx pointers reference the diagnosis list above (A, B, C…), first is primary'}
@@ -1160,6 +1172,14 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
                 placeholder="e.g. 25, 59"
                 value={row.modifier}
                 onChange={e => updateCpt(i, 'modifier', e.target.value)}
+              />
+              <input
+                style={{ ...s.inputField, width: 78, marginBottom: 0 }}
+                placeholder="Units"
+                inputMode="numeric"
+                title="How many units of this procedure. 1 unless the count differs."
+                value={row.units ?? '1'}
+                onChange={e => updateCpt(i, 'units', e.target.value.replace(/[^0-9]/g, '').slice(0, 3))}
               />
               {pointers && (
                 <input
