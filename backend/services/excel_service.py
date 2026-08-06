@@ -80,7 +80,7 @@ def _build_ip_ak_headers(ws):
 
 
 def _build_op_ak_headers(ws, with_pointers: bool = False, single_path: bool = False,
-                         dx_only: bool = False):
+                         dx_only: bool = False, with_units: bool = False):
     col = 1
     _header(ws, col, 1, "Chart_Number"); col += 1
     if single_path:
@@ -98,15 +98,18 @@ def _build_op_ak_headers(ws, with_pointers: bool = False, single_path: bool = Fa
         _header(ws, col, 1, f"CPT_{i}_Modifier"); col += 1
         # Units. Left blank the line is one unit, which is what a coder writing
         # a single procedure does — so a key that says nothing about units does
-        # not grade them, and existing keys are unaffected.
-        _header(ws, col, 1, f"CPT_{i}_Units")
-        ws.cell(1, col).comment = Comment(
-            "How many units of this procedure. Leave blank for a single unit.\n"
-            "Fill it only where the count matters — bilateral procedures, "
-            "add-on codes billed more than once.\n\n"
-            "A key that leaves this blank does not grade units at all.",
-            "PracticeLab")
-        col += 1
+        # not grade them, and existing keys are unaffected. Rubric-graded work
+        # (Edits, Denials) gets no column: a cell that cannot score is worse
+        # than no cell.
+        if with_units:
+            _header(ws, col, 1, f"CPT_{i}_Units")
+            ws.cell(1, col).comment = Comment(
+                "How many units of this procedure. Leave blank for a single unit.\n"
+                "Fill it only where the count matters — bilateral procedures, "
+                "add-on codes billed more than once.\n\n"
+                "A key that leaves this blank does not grade units at all.",
+                "PracticeLab")
+            col += 1
         if with_pointers:
             # Professional claims (CMS-1500 Box 24E): which Dx justify this line.
             # NUMBERS index the Dx list, as coders refer to them — 1 = PDx,
@@ -183,7 +186,8 @@ def parse_coder_list(file_bytes: bytes) -> list[dict]:
 
 def generate_answer_key_template(specialty: str, with_pointers: bool = False,
                                  single_path: bool = False,
-                                 dx_only: bool = False) -> bytes:
+                                 dx_only: bool = False,
+                                 with_units: bool = False) -> bytes:
     """
     Returns bytes of blank answer key Excel file.
     specialty: 'IP' for inpatient, 'OP' for outpatient.
@@ -199,8 +203,12 @@ def generate_answer_key_template(specialty: str, with_pointers: bool = False,
         total_cols = 3 + IP_SDX_COUNT * 3 + IP_PCS_COUNT
     else:
         _build_op_ak_headers(ws, with_pointers=with_pointers, single_path=single_path,
-                             dx_only=dx_only)
-        cpt_cols = 0 if dx_only else OP_CPT_COUNT * (3 if with_pointers else 2)
+                             dx_only=dx_only, with_units=with_units)
+        # Per CPT line: code + modifier, plus one column each for units and
+        # pointers where that specialty has them. Getting this wrong leaves the
+        # tail columns unstyled and the widths short.
+        per_cpt = 2 + (1 if with_units else 0) + (1 if with_pointers else 0)
+        cpt_cols = 0 if dx_only else OP_CPT_COUNT * per_cpt
         total_cols = 2 + (2 if single_path else 0) + OP_SDX_COUNT + cpt_cols
 
     # 10 blank input rows
@@ -276,7 +284,7 @@ def export_all_answer_keys(answer_keys: list) -> bytes:
     discarded them.
     """
     from routers.practicelab_pkg.shared import (
-        _is_ip, _uses_pointers, _is_single_path, _is_dx_only,
+        _is_ip, _uses_pointers, _is_single_path, _is_dx_only, _uses_units,
     )
 
     wb = Workbook()
@@ -291,12 +299,14 @@ def export_all_answer_keys(answer_keys: list) -> bytes:
         with_pointers = _uses_pointers(spec)
         single_path = _is_single_path(spec)
         dx_only = _is_dx_only(spec)
+        with_units = _uses_units(spec)
 
         if is_ip:
             _build_ip_ak_headers(ws)
         else:
             _build_op_ak_headers(ws, with_pointers=with_pointers,
-                                 single_path=single_path, dx_only=dx_only)
+                                 single_path=single_path, dx_only=dx_only,
+                                 with_units=with_units)
         ws.column_dimensions["A"].width = 16
         ws.column_dimensions["B"].width = 14
         ws.column_dimensions["C"].width = 14
@@ -338,9 +348,10 @@ def export_all_answer_keys(answer_keys: list) -> bytes:
                 entry = cpt_list[i] if i < len(cpt_list) else {}
                 _input_cell(ws, col, row_num, entry.get("code", "")); col += 1
                 _input_cell(ws, col, row_num, entry.get("modifier", "")); col += 1
-                # Blank where the key never stated units, so a round-trip
-                # export → re-upload does not invent a claim it did not make.
-                _input_cell(ws, col, row_num, entry.get("units", "")); col += 1
+                if with_units:
+                    # Blank where the key never stated units, so a round-trip
+                    # export → re-upload does not invent a claim it did not make.
+                    _input_cell(ws, col, row_num, entry.get("units", "")); col += 1
                 if with_pointers:
                     _input_cell(ws, col, row_num,
                                 ",".join(entry.get("pointers", []) or [])); col += 1
@@ -516,6 +527,9 @@ def generate_coder_sheet(
         chart_num = ch["chart_number"]
         specialty = ch["specialty"]
         is_ip = specialty == "IP-DRG"
+        # Same rule as the answer key: no units column where a unit count
+        # cannot be graded.
+        with_units = specialty not in ("IP-DRG", "Ancillary", "Edits", "Denials")
         ws = wb.create_sheet(chart_num)
 
         # ── Chart tab header ─────────────────────────────────────────────────
@@ -623,14 +637,18 @@ def generate_coder_sheet(
             _header(ws, 3, row, "Modifier (optional)", fill=PatternFill("solid", fgColor="4472C4"), font=WHITE_FONT)
             # Units. Blank is one unit, so a coder who codes single procedures
             # never has to touch this column.
-            _header(ws, 4, row, "Units (blank = 1)", fill=PatternFill("solid", fgColor="4472C4"), font=WHITE_FONT)
-            ws.merge_cells(f"E{row}:F{row}")
+            if with_units:
+                _header(ws, 4, row, "Units (blank = 1)", fill=PatternFill("solid", fgColor="4472C4"), font=WHITE_FONT)
+                ws.merge_cells(f"E{row}:F{row}")
+            else:
+                ws.merge_cells(f"D{row}:F{row}")
             row += 1
             for i in range(1, 11):
                 _locked_cell(ws, 1, row, i)
                 _input_cell(ws, 2, row)
                 _input_cell(ws, 3, row)
-                _input_cell(ws, 4, row)
+                if with_units:
+                    _input_cell(ws, 4, row)
                 row += 1
 
         # Column widths
@@ -799,9 +817,15 @@ def parse_submission(file_bytes: bytes) -> list[dict]:
             continue
         chart_number = ws.title.strip()
 
-        # Detect specialty from title cell
-        title_cell = ws["A1"].value or ""
-        is_ip = "IP-DRG" in str(title_cell)
+        # Detect specialty from the chart identity bar. A1 is the banner —
+        # "PracticeLab — Coding Assessment" on every sheet of every specialty —
+        # so reading it made is_ip permanently False: an inpatient coder's PCS
+        # codes came back as `cpt`, their POA indicators were dropped, and the
+        # grader saw an outpatient chart. A2 is the row that names the
+        # specialty. A1 is still checked so a hand-made sheet that puts it
+        # there keeps working.
+        banner = f"{ws['A1'].value or ''} {ws['A2'].value or ''}"
+        is_ip = "IP-DRG" in str(banner)
 
         rows = list(ws.iter_rows(values_only=True))
 

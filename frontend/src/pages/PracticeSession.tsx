@@ -119,6 +119,15 @@ function usesPointers(specialty: string) {
   return sp.includes('SURGERY') || sp.includes('PROFEE') || sp.includes('E/M')
 }
 
+// Mirrors NO_UNITS_SPECIALTIES in practicelab_pkg/shared.py. IP-DRG codes
+// procedures in ICD-10-PCS, Ancillary is diagnosis-only, and Edits/Denials are
+// rubric-graded — a units box in any of them cannot score.
+function usesUnits(specialty: string) {
+  const sp = specialty.toUpperCase()
+  return !(sp.includes('IP-DRG') || sp.includes('ANCILLARY')
+    || sp.includes('EDITS') || sp.includes('DENIALS'))
+}
+
 /**
  * Parse "1,2" into ['1','2'] — max 4 per line, first is primary.
  *
@@ -635,6 +644,7 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
 
   const pointers = usesPointers(chart.specialty)
   const singlePath = isSinglePath(chart.specialty)
+  const units = usesUnits(chart.specialty)
   const dxLabels = dxLabelList([entry.pdx_code, ...entry.sdx.map(sx => sx.code)])
 
   function updateCpt(idx: number, field: 'code' | 'modifier' | 'pointers' | 'units', val: string) {
@@ -1173,14 +1183,16 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
                 value={row.modifier}
                 onChange={e => updateCpt(i, 'modifier', e.target.value)}
               />
-              <input
-                style={{ ...s.inputField, width: 78, marginBottom: 0 }}
-                placeholder="Units"
-                inputMode="numeric"
-                title="How many units of this procedure. 1 unless the count differs."
-                value={row.units ?? '1'}
-                onChange={e => updateCpt(i, 'units', e.target.value.replace(/[^0-9]/g, '').slice(0, 3))}
-              />
+              {units && (
+                <input
+                  style={{ ...s.inputField, width: 78, marginBottom: 0 }}
+                  placeholder="Units"
+                  inputMode="numeric"
+                  title="How many units of this procedure. 1 unless the count differs."
+                  value={row.units ?? '1'}
+                  onChange={e => updateCpt(i, 'units', e.target.value.replace(/[^0-9]/g, '').slice(0, 3))}
+                />
+              )}
               {pointers && (
                 <input
                   style={{ ...s.inputField, width: 130, marginBottom: 0, textTransform: 'uppercase' }}

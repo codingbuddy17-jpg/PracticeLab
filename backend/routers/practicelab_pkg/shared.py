@@ -24,6 +24,16 @@ DX_ONLY_SPECIALTIES = {Specialty.ANCILLARY}
 
 SINGLE_PATH_SPECIALTIES = {Specialty.ED_SINGLE_PATH}
 
+# Where a CPT line can carry a unit count. IP-DRG codes procedures in ICD-10-PCS
+# and has no CPT block at all; Ancillary is diagnosis-only; Edits & Denials are
+# rubric-graded, so a units column there is a cell that cannot score.
+NO_UNITS_SPECIALTIES = {
+    Specialty.IP_DRG,
+    Specialty.ANCILLARY,
+    Specialty.EDITS,
+    Specialty.DENIALS,
+}
+
 DPO_SPECIALTIES = {
     Specialty.IP_DRG,
     Specialty.ED_FACILITY,
@@ -59,6 +69,10 @@ def _is_dx_only(specialty: Specialty) -> bool:
 
 def _is_single_path(specialty: Specialty) -> bool:
     return specialty in SINGLE_PATH_SPECIALTIES
+
+
+def _uses_units(specialty: Specialty) -> bool:
+    return specialty not in NO_UNITS_SPECIALTIES
 
 
 def _uses_dpo(specialty: Specialty) -> bool:

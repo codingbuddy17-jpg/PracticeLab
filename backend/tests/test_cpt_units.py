@@ -144,9 +144,14 @@ def test_the_answer_key_template_offers_a_units_column():
     from openpyxl import load_workbook
     from services.excel_service import generate_answer_key_template
 
-    wb = load_workbook(io.BytesIO(generate_answer_key_template("OP")))
+    # Off by default: which specialties get the column is decided in shared.py
+    # and pinned per specialty in test_template_compatibility.py.
+    wb = load_workbook(io.BytesIO(generate_answer_key_template("OP", with_units=True)))
     headers = [c.value for c in wb.worksheets[0][1]]
     assert "CPT_1_Units" in headers
+    assert "CPT_1_Units" not in [
+        c.value for c in load_workbook(
+            io.BytesIO(generate_answer_key_template("OP"))).worksheets[0][1]]
 
 
 def test_an_uploaded_key_carries_its_units_through():

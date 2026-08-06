@@ -438,7 +438,7 @@ export async function getBatchEMBreakdown(batchId: number) {
 
 export interface AnswerKeyDetail {
   chart_id: number; chart_number: string; specialty: string; category: string
-  exists: boolean; is_ip: boolean; uses_pointers: boolean; single_path: boolean
+  exists: boolean; is_ip: boolean; uses_pointers: boolean; uses_units: boolean; single_path: boolean
   pdx_code: string; pdx_poa: string
   sdx: Array<{ code: string; poa?: string; ccmcc?: string }>
   pcs: Array<{ code: string }>

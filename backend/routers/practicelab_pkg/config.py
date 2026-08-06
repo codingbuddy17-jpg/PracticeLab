@@ -16,7 +16,7 @@ from services.chart_service import log_audit
 from sqlalchemy import text
 from .em_grading import _is_em as _uses_em_keys
 from .shared import (MASTER_PASSPHRASE, _is_ip, _is_ed, ED_SPECIALTIES,
-                     _uses_pointers, _is_single_path, _is_dx_only)
+                     _uses_pointers, _is_single_path, _is_dx_only, _uses_units)
 
 router = APIRouter()
 
@@ -184,11 +184,13 @@ def download_answer_key_template(specialty: str = Query(...)):
         with_pointers = _uses_pointers(_spec)
         single_path = _is_single_path(_spec)
         dx_only = _is_dx_only(_spec)
+        with_units = _uses_units(_spec)
     except ValueError:
-        with_pointers = single_path = dx_only = False
+        with_pointers = single_path = dx_only = with_units = False
     data = generate_answer_key_template("IP" if is_ip else "OP",
                                         with_pointers=with_pointers,
-                                        single_path=single_path, dx_only=dx_only)
+                                        single_path=single_path, dx_only=dx_only,
+                                        with_units=with_units)
     # Name the file after the specialty. Every non-IP template used to download
     # as "OP_AnswerKey_Template.xlsx", so a trainer juggling Surgery, Ancillary
     # and ED Single Path templates had four identically-named files.
@@ -485,6 +487,7 @@ def get_answer_key_detail(chart_id: int, db: Session = Depends(get_db)):
         "exists": ak is not None,
         "is_ip": _is_ip(chart.specialty),
         "uses_pointers": _uses_pointers(chart.specialty),
+        "uses_units": _uses_units(chart.specialty),
         "single_path": _is_single_path(chart.specialty),
         "pdx_code": ak.pdx_code if ak else "",
         "pdx_poa": ak.pdx_poa if ak else "",

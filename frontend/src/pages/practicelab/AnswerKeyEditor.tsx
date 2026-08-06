@@ -252,12 +252,14 @@ export function AnswerKeyEditor({ chartId, onClose, onSaved }: {
                   onChange={e => setCpt(cpt.map((x, j) => j === i ? { ...x, code: e.target.value } : x))} />
                 <input style={{ ...inp, flex: 1 }} placeholder="Modifier" value={c.modifier || ''}
                   onChange={e => setCpt(cpt.map((x, j) => j === i ? { ...x, modifier: e.target.value } : x))} />
-                <input style={{ ...inp, width: 78 }} placeholder="Units" inputMode="numeric"
-                  title="Leave blank unless the count matters — a blank line is not graded on units."
-                  value={c.units ?? ''}
-                  onChange={e => setCpt(cpt.map((x, j) => j === i ? {
-                    ...x, units: e.target.value.replace(/[^0-9]/g, '').slice(0, 3),
-                  } : x))} />
+                {detail.uses_units && (
+                  <input style={{ ...inp, width: 78 }} placeholder="Units" inputMode="numeric"
+                    title="Leave blank unless the count matters — a blank line is not graded on units."
+                    value={c.units ?? ''}
+                    onChange={e => setCpt(cpt.map((x, j) => j === i ? {
+                      ...x, units: e.target.value.replace(/[^0-9]/g, '').slice(0, 3),
+                    } : x))} />
+                )}
                 {detail.uses_pointers && (
                   <input style={{ ...inp, width: 130, textTransform: 'uppercase' }} placeholder="Dx ptrs 1,2"
                     value={(c.pointers || []).join(',')}
