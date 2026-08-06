@@ -39,8 +39,16 @@ def verify_passphrase(
     passphrase: str = Query(...),
     db: Session = Depends(get_db),
 ):
+    """
+    Check the passphrase. This is not a gate on data — it is the predicate the
+    Question Bank asks before showing its screen, so it has to keep checking
+    even though the endpoints behind it no longer do. A function called
+    verify_passphrase that returns ok for anything is a trap for whoever reads
+    it next.
+    """
     if passphrase != settings.MASTER_ADMIN_PASSPHRASE:
         raise HTTPException(status_code=403, detail="Invalid passphrase")
+
     row = AssessmentAuditLog(
         trainer_name=trainer_name,
         action="view_bank",
@@ -53,14 +61,10 @@ def verify_passphrase(
 
 @router.get("/audit/logs")
 def get_logs(
-    passphrase: str = Query(...),
     specialty: Optional[str] = Query(default=None),
     limit: int = Query(default=200, le=500),
     db: Session = Depends(get_db),
 ):
-    if passphrase != settings.MASTER_ADMIN_PASSPHRASE:
-        raise HTTPException(status_code=403, detail="Invalid passphrase")
-
     q = db.query(AssessmentAuditLog)
     if specialty:
         q = q.filter(AssessmentAuditLog.specialty == specialty)

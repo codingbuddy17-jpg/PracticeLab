@@ -199,11 +199,17 @@ def test_a_correction_is_written_to_the_audit_log(client, db):
 
 # ── guards ────────────────────────────────────────────────────────────────────
 
-def test_a_correction_needs_the_passphrase(client, db):
+def test_a_correction_needs_no_passphrase(client, db):
+    """
+    Ungated at the product owner's direction — see test_assessment_access. The
+    justification and the audit entry are what make a correction accountable,
+    and neither depended on the passphrase.
+    """
     aid, sid = _sat_assessment(client, db)
     r = client.post(f"/assessment/{aid}/session/{sid}/response/0/override",
-                    json={"is_correct": True, "reason": "Trying it on", "trainer_name": "X"})
-    assert r.status_code == 403
+                    json={"is_correct": True, "reason": "A properly written reason.",
+                          "trainer_name": "X"})
+    assert r.status_code == 200, r.text
 
 
 def test_an_unsubmitted_session_cannot_be_corrected(client, db):

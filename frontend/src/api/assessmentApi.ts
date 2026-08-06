@@ -27,7 +27,7 @@ export interface ListQuestionsParams {
 
 export async function listAssessmentQuestions(params?: ListQuestionsParams) {
   const { data } = await api.get('/assessment/questions',
-    { params: { ...params, passphrase: getPassphrase() } })
+    { params })
   return data as { total: number; page: number; page_size: number; results: unknown[] }
 }
 
@@ -120,19 +120,19 @@ export async function getAssessmentPoolSummary(
  * logs. Moving it to a header would fix that, and needs the backend endpoints
  * to accept it there.
  */
-export function exportAssessmentQuestions(specialty: string, passphrase: string, trainerName: string) {
+export function exportAssessmentQuestions(specialty: string, trainerName: string) {
   return downloadFile(
     '/assessment/questions/export',
     `${specialty.replace(/\s+/g, '_')}_Questions.xlsx`,
-    { specialty, passphrase, trainer_name: trainerName },
+    { specialty, trainer_name: trainerName },
   )
 }
 
-export function exportAllAssessmentQuestions(passphrase: string, trainerName: string, specialty?: string) {
+export function exportAllAssessmentQuestions(trainerName: string, specialty?: string) {
   return downloadFile(
     '/assessment/questions/export-all',
     specialty ? `${specialty.replace(/\s+/g, '_')}_Questions.xlsx` : 'Assessment_Question_Bank.xlsx',
-    { passphrase, trainer_name: trainerName, specialty: specialty || undefined },
+    { trainer_name: trainerName, specialty: specialty || undefined },
   )
 }
 
@@ -166,14 +166,14 @@ export async function updateQuestionStatus(questionId: string, status: string, u
   const { data } = await api.put(
     `/assessment/questions/${encodeURIComponent(questionId)}/status`,
     null,
-    { params: { status, updated_by: updatedBy, passphrase: getPassphrase() } },
+    { params: { status, updated_by: updatedBy } },
   )
   return data
 }
 
 export async function updateQuestion(questionId: string, payload: Record<string, unknown>) {
   const { data } = await api.put(`/assessment/questions/${encodeURIComponent(questionId)}`,
-    payload, { params: { passphrase: getPassphrase() } })
+    payload)
   return data
 }
 
@@ -236,14 +236,14 @@ export async function listAssessmentHistory() {
   }>
 }
 
-export function exportAssessmentPDF(assessmentId: number, passphrase?: string) {
+export function exportAssessmentPDF(assessmentId: number) {
   return downloadFile(`/assessment/${assessmentId}/export-pdf`,
-    `Assessment_${assessmentId}_papers.zip`, { passphrase: passphrase || getPassphrase() })
+    `Assessment_${assessmentId}_papers.zip`)
 }
 
-export function exportAnswerKey(assessmentId: number, passphrase?: string) {
+export function exportAnswerKey(assessmentId: number) {
   return downloadFile(`/assessment/${assessmentId}/export-answer-key`,
-    `Assessment_${assessmentId}_Answer_Key.pdf`, { passphrase: passphrase || getPassphrase() })
+    `Assessment_${assessmentId}_Answer_Key.pdf`)
 }
 
 export interface CoderItem { coder_name: string; employee_id?: string }
@@ -419,7 +419,6 @@ export async function overrideAssessmentAnswer(
   const { data } = await api.post(
     `/assessment/${assessmentId}/session/${sessionId}/response/${questionIndex}/override`,
     body,
-    { params: { passphrase: getPassphrase() } },
   )
   return data as {
     is_correct: boolean; score_pct: number | null

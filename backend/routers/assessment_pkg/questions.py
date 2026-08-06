@@ -373,14 +373,10 @@ def pool_summary(
 @router.get("/questions/export")
 def export_questions(
     specialty: str = Query(...),
-    passphrase: str = Query(...),
     trainer_name: str = Query(default="Trainer"),
     db: Session = Depends(get_db),
 ):
     """Passphrase-protected XLSX export of full question bank for a specialty."""
-    if passphrase != settings.MASTER_ADMIN_PASSPHRASE:
-        raise HTTPException(status_code=403, detail="Invalid passphrase")
-
     qs = db.query(AssessmentQuestion).filter(
         AssessmentQuestion.specialty == specialty,
     ).order_by(AssessmentQuestion.question_id).all()
@@ -430,7 +426,6 @@ def _write_specialty_sheet(ws: openpyxl.worksheet.worksheet.Worksheet, qs: list)
 
 @router.get("/questions/export-all")
 def export_all_questions(
-    passphrase: str = Query(...),
     trainer_name: str = Query(default="Trainer"),
     specialty: Optional[str] = Query(default=None),
     db: Session = Depends(get_db),
@@ -439,9 +434,6 @@ def export_all_questions(
     If specialty is provided, exports only that specialty as a single tab.
     Passphrase-protected. Audit-logged.
     """
-    if passphrase != settings.MASTER_ADMIN_PASSPHRASE:
-        raise HTTPException(status_code=403, detail="Invalid passphrase")
-
     specialties_to_export: List[str] = [specialty] if specialty else sorted(SPECIALTY_PREFIX.keys())
 
     wb = openpyxl.Workbook()
@@ -531,7 +523,6 @@ def list_questions(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
     db: Session = Depends(get_db),
-    _: None = Depends(require_passphrase),
 ):
     q = db.query(AssessmentQuestion)
     if specialty:
@@ -790,7 +781,6 @@ def update_question_status(
     status: str = Query(...),
     updated_by: str = Query(...),
     db: Session = Depends(get_db),
-    _: None = Depends(require_passphrase),
 ):
     q = db.query(AssessmentQuestion).filter(AssessmentQuestion.question_id == question_id).first()
     if not q:
@@ -809,7 +799,6 @@ def update_question(
     question_id: str,
     payload: dict,
     db: Session = Depends(get_db),
-    _: None = Depends(require_passphrase),
 ):
     q = db.query(AssessmentQuestion).filter(AssessmentQuestion.question_id == question_id).first()
     if not q:

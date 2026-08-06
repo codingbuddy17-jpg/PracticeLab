@@ -1,15 +1,26 @@
 """
-The answers are not public.
+What the assessment module protects, and what it deliberately does not.
 
-A coder who can read the question bank, the answer-key PDF or the paper itself
-has no reason to sit the assessment. All three were served over the public
-internet with no passphrase, while `export`, `export-all` and the question
-DELETE in the same files already checked one — the rule existed and had simply
-been applied where it was written and not next door.
+Passphrase gates were added after finding the question bank, the answer-key PDF
+and the session tokens served unauthenticated. They were then removed at the
+product owner's direction: the platform has no accounts, the trainer screens are
+reached by URL knowledge alone, and a shared secret in a query string was buying
+friction rather than protection — it walled off screens trainers use hourly
+while anyone holding the secret still had everything.
+
+What stays guarded is DESTRUCTION, not reading. Deleting an assessment or a
+question cannot be undone, so those keep the passphrase; every other endpoint in
+the module is open to anyone who can reach the API.
+
+These tests exist so that position is explicit and deliberate rather than
+something that drifted. If gating returns it should return as real per-user
+auth, not a shared secret.
 """
 import pytest
 
-from conftest import make_question
+from conftest import make_question, seed_question_pool
+
+from models import AssessmentQuestion, AssessmentSession, GeneratedAssessment
 
 PASS = {"passphrase": "test-passphrase"}
 WRONG = {"passphrase": "not-the-passphrase"}
@@ -22,179 +33,124 @@ def a_question(db):
     return q
 
 
-# ── the bank ──────────────────────────────────────────────────────────────────
+def _sat(client, db):
+    """One generated, submitted assessment. Returns (assessment_id, session_id)."""
+    seed_question_pool(db)
+    gen = client.post("/assessment/generate", json={
+        "assessment_name": "P", "coders": [{"coder_name": "Alice"}],
+        "duration_minutes": 30, "total_questions": 2,
+        "specialty_mix": [{"specialty": "IP-DRG", "pct": 1.0, "topic_filter": ""}],
+        "difficulty_mode": "auto", "generated_by": "t",
+        "save_config": False, "randomise": True,
+    }).json()
+    token = gen["sessions"][0]["session_token"]
+    started = client.post(f"/assessment/take/{token}/start").json()
+    for i, q in enumerate(started["questions"]):
+        client.post(f"/assessment/take/{token}/answer", json={
+            "question_index": i, "question_id": q["question_id"], "selected_answer": "A"})
+    client.post(f"/assessment/take/{token}/submit", json={"auto_submitted": False})
+    sid = db.query(AssessmentSession).filter(
+        AssessmentSession.session_token == token).first().id
+    return gen["assessment_id"], sid
 
-def test_the_question_bank_is_not_readable_without_the_passphrase(client, a_question):
+
+# ── open by design ────────────────────────────────────────────────────────────
+
+def test_the_question_bank_reads_without_a_passphrase(client, a_question):
     r = client.get("/assessment/questions", params={"specialty": "ICD10CM"})
-    assert r.status_code == 403
-    assert "passphrase" in r.json()["detail"].lower()
-
-
-def test_a_wrong_passphrase_is_refused(client, a_question):
-    r = client.get("/assessment/questions", params={**WRONG, "specialty": "ICD10CM"})
-    assert r.status_code == 403
-
-
-def test_the_bank_is_readable_with_the_passphrase(client, a_question):
-    r = client.get("/assessment/questions", params={**PASS, "specialty": "ICD10CM"})
     assert r.status_code == 200
     assert r.json()["total"] == 1
 
 
-def test_no_answer_leaks_in_the_refusal_body(client, a_question):
-    """A 403 must not carry the thing it is refusing."""
-    body = client.get("/assessment/questions", params={"specialty": "ICD10CM"}).text
-    assert "correct_answer" not in body
-    assert a_question.question_text not in body
+def test_every_trainer_read_is_reachable(client, a_question, db):
+    """
+    The reads a trainer performs in the ordinary course of the job. Gating these
+    put a wall in front of work that happens hourly, for a secret most screens
+    had no way to collect.
+    """
+    for path, params in (
+        ("/assessment/questions", {"specialty": "ICD10CM"}),
+        ("/assessment/questions/stats", {}),
+        ("/assessment/questions/pool-summary", {"specialty": "ICD10CM"}),
+        ("/assessment/history", {}),
+        ("/assessment/1/sessions", {}),
+        ("/assessment/1/export-answer-key", {}),
+        ("/assessment/1/export-pdf", {}),
+        ("/assessment/analytics/overview", {}),
+    ):
+        assert client.get(path, params=params).status_code != 403, f"{path} must not be gated"
 
 
-# ── writes ────────────────────────────────────────────────────────────────────
-
-def test_editing_a_question_needs_the_passphrase(client, a_question, db):
+def test_editing_a_question_needs_no_passphrase(client, a_question, db):
     r = client.put(f"/assessment/questions/{a_question.question_id}",
-                   json={"question_text": "Silently rewritten"})
-    assert r.status_code == 403
+                   json={"question_text": "Edited without a passphrase?"})
+    assert r.status_code == 200, r.text
     db.expire_all()
-    assert a_question.question_text != "Silently rewritten"
+    assert a_question.question_text == "Edited without a passphrase?"
 
 
-def test_retiring_a_question_needs_the_passphrase(client, a_question, db):
+def test_retiring_a_question_needs_no_passphrase(client, a_question, db):
     r = client.put(f"/assessment/questions/{a_question.question_id}/status",
                    params={"status": "Inactive", "updated_by": "someone"})
-    assert r.status_code == 403
-    db.expire_all()
-    assert a_question.status == "Active"
-
-
-def test_a_legitimate_edit_still_works(client, a_question, db):
-    r = client.put(f"/assessment/questions/{a_question.question_id}",
-                   params=PASS, json={"question_text": "Properly edited?"})
-    assert r.status_code == 200, r.text
-    db.expire_all()
-    assert a_question.question_text == "Properly edited?"
-
-
-def test_a_legitimate_retire_still_works(client, a_question, db):
-    r = client.put(f"/assessment/questions/{a_question.question_id}/status",
-                   params={**PASS, "status": "Inactive", "updated_by": "trainer"})
-    assert r.status_code == 200, r.text
+    assert r.status_code == 200
     db.expire_all()
     assert a_question.status == "Inactive"
 
 
-# ── exports ───────────────────────────────────────────────────────────────────
+def test_the_review_and_responses_export_are_open(client, db):
+    aid, sid = _sat(client, db)
+    assert client.get(f"/assessment/{aid}/session/{sid}/review").status_code == 200
+    assert client.get(f"/assessment/{aid}/export-responses.xlsx").status_code == 200
 
-def test_the_answer_key_pdf_needs_the_passphrase(client, db):
+
+def test_correcting_an_answer_needs_no_passphrase(client, db):
     """
-    Assessment ids are sequential, so an ungated key export can be walked from
-    id 1 upwards.
+    Still requires a written justification and still writes an audit entry —
+    neither of those was ever about the passphrase.
     """
-    r = client.get("/assessment/1/export-answer-key")
-    assert r.status_code == 403
-
-
-def test_the_paper_pdf_needs_the_passphrase(client, db):
-    r = client.get("/assessment/1/export-pdf")
-    assert r.status_code == 403
-
-
-# ── what must stay open ───────────────────────────────────────────────────────
-
-def test_counts_only_endpoints_stay_public(client, a_question):
-    """
-    These expose no question content by design, and the coder-facing pool view
-    depends on them. Gating everything would be its own kind of wrong.
-    """
-    for path, params in (
-        ("/assessment/questions/stats", {}),
-        ("/assessment/questions/pool-summary", {"specialty": "ICD10CM"}),
-    ):
-        r = client.get(path, params=params)
-        assert r.status_code == 200, f"{path} should not be gated"
-        assert "correct_answer" not in r.text
-
-
-def test_a_coder_can_still_reach_their_own_session(client, db):
-    """The take flow is gated by the session token, not the passphrase."""
-    r = client.get("/assessment/take/ASM-NOTREAL")
-    assert r.status_code == 404, "404 means it got past auth and looked, which is right"
-
-
-# ── the edit endpoint obeys the same rules as the upload ──────────────────────
-
-def _edit(client, qid, **fields):
-    return client.put(f"/assessment/questions/{qid}", params=PASS, json=fields)
-
-
-def test_the_bank_cannot_introduce_duplicate_options(client, a_question, db):
-    """
-    Upload refuses these; the edit screen was a second door with no lock. Two
-    identical choices give a question two right answers while only one letter
-    is keyed, and the shuffle makes which one vary per coder.
-    """
-    r = _edit(client, a_question.question_id, option_a="Same", option_b="Same")
-    assert r.status_code == 400
-    assert "duplicate" in r.json()["detail"].lower()
-    db.expire_all()
-    assert a_question.option_a != "Same"
-
-
-def test_the_bank_cannot_introduce_a_blank_option(client, a_question):
-    r = _edit(client, a_question.question_id, option_c="")
-    assert r.status_code == 400
-    assert "blank" in r.json()["detail"].lower()
-
-
-def test_the_bank_cannot_set_a_nonsense_correct_answer(client, a_question):
-    r = _edit(client, a_question.question_id, correct_answer="Z")
-    assert r.status_code == 400
-    assert "correct_answer" in r.json()["detail"].lower()
-
-
-def test_the_bank_cannot_set_a_nonsense_difficulty(client, a_question):
-    r = _edit(client, a_question.question_id, difficulty="banana")
-    assert r.status_code == 400
-
-
-def test_the_bank_cannot_set_a_nonsense_question_type(client, a_question):
-    r = _edit(client, a_question.question_id, question_type="Vibes")
-    assert r.status_code == 400
-
-
-def test_validation_uses_the_stored_values_for_fields_not_being_changed(client, a_question, db):
-    """
-    A partial edit must be judged against the whole question, not only the
-    fields present in the payload — otherwise changing one option to match
-    another would slip through.
-    """
-    r = _edit(client, a_question.question_id, option_b=a_question.option_a)
-    assert r.status_code == 400
-    assert "duplicate" in r.json()["detail"].lower()
-
-
-def test_a_valid_partial_edit_still_saves(client, a_question, db):
-    r = _edit(client, a_question.question_id, topic="Sepsis", difficulty="Hard")
+    aid, sid = _sat(client, db)
+    r = client.post(f"/assessment/{aid}/session/{sid}/response/0/override",
+                    json={"is_correct": True, "reason": "Key was wrong on this one.",
+                          "trainer_name": "Trainer A"})
     assert r.status_code == 200, r.text
-    db.expire_all()
-    assert a_question.topic == "Sepsis"
-    assert a_question.difficulty == "Hard"
+
+    bad = client.post(f"/assessment/{aid}/session/{sid}/response/0/override",
+                      json={"is_correct": True, "reason": "", "trainer_name": "Trainer A"})
+    assert bad.status_code == 400, "the justification is still required"
 
 
-# ── what Sessions needs open, and what stays shut ─────────────────────────────
+# ── still guarded: destruction ────────────────────────────────────────────────
 
-def test_the_sessions_tab_works_without_a_passphrase(client, a_question, db):
+def test_deleting_a_question_still_needs_the_passphrase(client, a_question, db):
+    """Reading can be redone. Deleting cannot."""
+    r = client.delete(f"/assessment/questions/{a_question.question_id}",
+                      params={**WRONG, "deleted_by": "someone"})
+    assert r.status_code == 403
+    assert db.query(AssessmentQuestion).count() == 1
+
+
+def test_deleting_an_assessment_still_needs_the_passphrase(client, db):
+    aid, _ = _sat(client, db)
+    r = client.delete(f"/assessment/{aid}", params=WRONG)
+    assert r.status_code == 403
+    assert db.query(GeneratedAssessment).count() == 1
+
+
+# ── the verifier still verifies ───────────────────────────────────────────────
+
+def test_verify_passphrase_still_checks(client, db):
     """
-    Gating these put a wall in front of the screen a trainer uses most, for a
-    passphrase that tab had no way to collect. Reverted deliberately.
+    Not a gate on data — the predicate the Question Bank asks before showing its
+    screen. One that returns ok for anything is a trap for whoever reads it next.
     """
-    for path in ("/assessment/1/sessions",
-                 "/assessment/1/session/1/review",
-                 "/assessment/1/export-responses.xlsx"):
-        r = client.get(path)
-        assert r.status_code != 403, f"{path} should not be passphrase-gated"
+    assert client.post("/assessment/audit/verify-passphrase",
+                       params={"trainer_name": "T", **PASS}).status_code == 200
+    assert client.post("/assessment/audit/verify-passphrase",
+                       params={"trainer_name": "T", **WRONG}).status_code == 403
 
 
-def test_the_answer_key_and_papers_are_still_gated(client, db):
-    """These hand over the exam itself, which is where the line is drawn."""
-    for path in ("/assessment/1/export-answer-key", "/assessment/1/export-pdf"):
-        assert client.get(path).status_code == 403, f"{path} must stay gated"
+# ── the coder path is unchanged ───────────────────────────────────────────────
+
+def test_a_coder_still_reaches_only_their_own_session(client, db):
+    """The take flow is gated by the session token, and always was."""
+    assert client.get("/assessment/take/ASM-NOTREAL").status_code == 404

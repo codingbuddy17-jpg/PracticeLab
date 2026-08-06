@@ -189,8 +189,7 @@ def _build_answer_key_pdf(assessment_name: str, students: List[GeneratedAssessme
 
 
 @router.get("/{assessment_id}/export-pdf")
-def export_student_pdfs(assessment_id: int, db: Session = Depends(get_db),
-                        _: None = Depends(require_passphrase)):
+def export_student_pdfs(assessment_id: int, db: Session = Depends(get_db)):
     """Download ZIP of per-student test PDFs (no answers)."""
     assessment = _get_assessment_or_404(assessment_id, db)
     students = db.query(GeneratedAssessmentStudent).filter(
@@ -221,8 +220,7 @@ def export_student_pdfs(assessment_id: int, db: Session = Depends(get_db),
 
 
 @router.get("/{assessment_id}/export-answer-key")
-def export_answer_key(assessment_id: int, db: Session = Depends(get_db),
-                      _: None = Depends(require_passphrase)):
+def export_answer_key(assessment_id: int, db: Session = Depends(get_db)):
     """Download combined answer key PDF for all students."""
     assessment = _get_assessment_or_404(assessment_id, db)
     students = db.query(GeneratedAssessmentStudent).filter(
@@ -545,7 +543,6 @@ def override_response(
     question_index: int,
     payload: ResponseOverride,
     db: Session = Depends(get_db),
-    _: None = Depends(require_passphrase),
 ):
     """
     Correct one graded answer, with a reason.

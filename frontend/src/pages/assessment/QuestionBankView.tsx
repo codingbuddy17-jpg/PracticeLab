@@ -73,7 +73,7 @@ export function QuestionBankView() {
   async function handleExport() {
     setExporting(true)
     try {
-      await exportAllAssessmentQuestions(passphrase, trainerName, exportSpecialty || undefined)
+      await exportAllAssessmentQuestions(trainerName, exportSpecialty || undefined)
     } catch (e: any) {
       toast.error(e.message || 'Export failed')
     } finally {
