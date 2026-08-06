@@ -242,8 +242,7 @@ def export_answer_key(assessment_id: int, db: Session = Depends(get_db),
 
 
 @router.get("/{assessment_id}/export-responses.xlsx")
-def export_responses_excel(assessment_id: int, db: Session = Depends(get_db),
-                           _: None = Depends(require_passphrase)):
+def export_responses_excel(assessment_id: int, db: Session = Depends(get_db)):
     """
     Download full per-question response breakdown for all coders — like MS Forms quiz export.
     One row per coder. Columns: Coder Name, Employee ID, Submitted At, Score %, Time (min),
@@ -444,8 +443,7 @@ def export_responses_excel(assessment_id: int, db: Session = Depends(get_db),
 
 
 @router.get("/{assessment_id}/session/{session_id}/review")
-def get_session_review(assessment_id: int, session_id: int, db: Session = Depends(get_db),
-                       _: None = Depends(require_passphrase)):
+def get_session_review(assessment_id: int, session_id: int, db: Session = Depends(get_db)):
     """
     Return per-question review for one coder session — question, all options,
     what they selected, correct answer, whether they got it right.

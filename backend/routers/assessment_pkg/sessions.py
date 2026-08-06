@@ -18,7 +18,6 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment
 
 from database import get_db
-from routers.assessment_pkg.security import require_passphrase
 from models import (
     GeneratedAssessment, GeneratedAssessmentStudent, AssessmentSession,
     AssessmentResult, AssessmentResponse,
@@ -187,8 +186,7 @@ async def parse_coder_file(file: UploadFile = File(...)):
 
 
 @router.get("/{assessment_id}/sessions")
-def list_sessions(assessment_id: int, db: Session = Depends(get_db),
-                  _: None = Depends(require_passphrase)):
+def list_sessions(assessment_id: int, db: Session = Depends(get_db)):
     """List all sessions for an assessment with current status and scores."""
     sessions = db.query(AssessmentSession).filter(
         AssessmentSession.assessment_id == assessment_id

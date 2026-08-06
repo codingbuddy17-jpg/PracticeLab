@@ -100,8 +100,16 @@ def test_a_trainer_correction_reaches_the_export(client, db):
     assert joined.count("✗ Wrong") == "\n".join(before).count("✗ Wrong") - 1
 
 
-def test_the_export_needs_the_passphrase(client, db):
+def test_the_export_does_not_require_a_passphrase(client, db):
+    """
+    Deliberately open, unlike the answer-key export.
+
+    Gating the whole Sessions tab put a wall in front of the screen a trainer
+    uses most, for a passphrase the tab had no way to collect. The answer key
+    and the papers stay gated because they hand over the exam itself; this is a
+    record of what coders already answered.
+    """
     gen = _generate(client, db, [{"coder_name": "Bob"}])
     _sit(client, db, gen["sessions"][0]["session_token"])
     r = client.get(f"/assessment/{gen['assessment_id']}/export-responses.xlsx")
-    assert r.status_code == 403
+    assert r.status_code == 200

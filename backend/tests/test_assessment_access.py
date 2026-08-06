@@ -178,3 +178,23 @@ def test_a_valid_partial_edit_still_saves(client, a_question, db):
     db.expire_all()
     assert a_question.topic == "Sepsis"
     assert a_question.difficulty == "Hard"
+
+
+# ── what Sessions needs open, and what stays shut ─────────────────────────────
+
+def test_the_sessions_tab_works_without_a_passphrase(client, a_question, db):
+    """
+    Gating these put a wall in front of the screen a trainer uses most, for a
+    passphrase that tab had no way to collect. Reverted deliberately.
+    """
+    for path in ("/assessment/1/sessions",
+                 "/assessment/1/session/1/review",
+                 "/assessment/1/export-responses.xlsx"):
+        r = client.get(path)
+        assert r.status_code != 403, f"{path} should not be passphrase-gated"
+
+
+def test_the_answer_key_and_papers_are_still_gated(client, db):
+    """These hand over the exam itself, which is where the line is drawn."""
+    for path in ("/assessment/1/export-answer-key", "/assessment/1/export-pdf"):
+        assert client.get(path).status_code == 403, f"{path} must stay gated"

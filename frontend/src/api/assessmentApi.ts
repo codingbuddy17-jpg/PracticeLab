@@ -260,17 +260,14 @@ export async function createAssessmentSessions(
 }
 
 export async function listAssessmentSessions(assessmentId: number) {
-  // Session tokens live in this response — holding someone else's is holding
-  // their exam — so it is passphrase-gated like the answer key.
-  const { data } = await api.get(`/assessment/${assessmentId}/sessions`,
-    { params: { passphrase: getPassphrase() } })
+  const { data } = await api.get(`/assessment/${assessmentId}/sessions`)
   return data as { sessions: SessionRow[]; pass_threshold: number }
 }
 
-/** Per-question responses for every coder, with the answers. */
+/** Per-question responses for every coder. */
 export function downloadAssessmentResponsesXlsx(assessmentId: number) {
   return downloadFile(`/assessment/${assessmentId}/export-responses.xlsx`,
-    `Assessment_${assessmentId}_Responses.xlsx`, { passphrase: getPassphrase() })
+    `Assessment_${assessmentId}_Responses.xlsx`)
 }
 
 export async function deleteAssessmentSessions(assessmentId: number) {

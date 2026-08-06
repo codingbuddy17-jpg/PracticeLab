@@ -178,8 +178,7 @@ export function SessionsView() {
     setCorrecting(null)
     setReason('')
     try {
-      const { data } = await api.get(`/assessment/${selectedId}/session/${sessionId}/review`,
-        { params: { passphrase: getPassphrase() } })
+      const { data } = await api.get(`/assessment/${selectedId}/session/${sessionId}/review`)
       setReviewData(data)
     } catch (e) { toast.error(errorMessage(e, 'Failed to load review')) }
     finally { setReviewLoading(false) }
