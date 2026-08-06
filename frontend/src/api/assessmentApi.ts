@@ -269,6 +269,8 @@ export interface SessionRow {
   started_at: string | null
   submitted_at: string | null
   auto_submitted: boolean
+  /** A trainer has corrected at least one answer on this session. */
+  corrected: boolean
   score_pct: number | null
   correct_count: number | null
   total_questions: number | null
@@ -375,6 +377,26 @@ export async function getAssessmentQuestionSignals(f: AFilters = {}, minAttempts
     params: { ...afp(f), min_attempts: minAttempts },
   })
   return data
+}
+
+/**
+ * Correct one graded answer. The justification is mandatory server-side — a
+ * correction without a reason is indistinguishable from a mistake, and this is
+ * the one place a coder's result can move after the fact.
+ */
+export async function overrideAssessmentAnswer(
+  assessmentId: number, sessionId: number, questionIndex: number,
+  body: { is_correct: boolean; reason: string; trainer_name: string },
+) {
+  const { data } = await api.post(
+    `/assessment/${assessmentId}/session/${sessionId}/response/${questionIndex}/override`,
+    body,
+    { params: { passphrase: getPassphrase() } },
+  )
+  return data as {
+    is_correct: boolean; score_pct: number | null
+    correct_count: number | null; total_questions: number | null
+  }
 }
 
 export function downloadAssessmentCoderMatrixXlsx(f: AFilters = {}) {

@@ -4,9 +4,15 @@ import toast from 'react-hot-toast'
 import {
   listAssessmentHistory,
   listAssessmentSessions, deleteAssessmentSessions,
+  overrideAssessmentAnswer,
   SessionRow,
 } from '../../api'
 import api from '../../api/client'
+import { errorMessage } from '../../api/errors'
+import { getPassphrase } from '../../api/assessmentAuth'
+
+/** Whoever is signed in on this browser, for the audit trail. */
+const trainerName = () => localStorage.getItem('trainer_name')?.trim() || 'Trainer'
 import RandomisationStatsCard, { RandomisationStats } from '../../components/RandomisationStatsCard'
 
 const STATUS_STYLE: Record<string, { bg: string; text: string; label: string }> = {
@@ -28,6 +34,12 @@ interface ReviewQuestion {
   selected_answer: string | null
   correct_answer: string
   is_correct: boolean
+  /** What the auto-grader decided, kept so a correction reads as a correction. */
+  auto_is_correct: boolean
+  overridden: boolean
+  override_reason: string | null
+  override_by: string | null
+  override_at: string | null
   answered: boolean
 }
 interface ReviewData {
@@ -36,6 +48,7 @@ interface ReviewData {
   correct_count: number | null
   total_questions: number
   submitted_at: string | null
+  corrections: number
   questions: ReviewQuestion[]
 }
 
@@ -47,6 +60,13 @@ export function SessionsView() {
   const [loadingSessions, setLoadingSessions] = useState(false)
   const [reviewData, setReviewData] = useState<ReviewData | null>(null)
   const [reviewLoading, setReviewLoading] = useState(false)
+  const [reviewSessionId, setReviewSessionId] = useState<number | null>(null)
+  // Which question is being corrected, and the justification for it. The note
+  // is required: a correction without a reason cannot be told apart from a
+  // mistake later.
+  const [correcting, setCorrecting] = useState<number | null>(null)
+  const [reason, setReason] = useState('')
+  const [saving, setSaving] = useState(false)
 
   async function loadAssessments() {
     setLoadingAssessments(true)
@@ -94,11 +114,39 @@ export function SessionsView() {
   async function openReview(sessionId: number) {
     if (!selectedId) return
     setReviewLoading(true)
+    setReviewSessionId(sessionId)
+    setCorrecting(null)
+    setReason('')
     try {
-      const { data } = await api.get(`/assessment/${selectedId}/session/${sessionId}/review`)
+      const { data } = await api.get(`/assessment/${selectedId}/session/${sessionId}/review`,
+        { params: { passphrase: getPassphrase() } })
       setReviewData(data)
-    } catch { toast.error('Failed to load review') }
+    } catch (e) { toast.error(errorMessage(e, 'Failed to load review')) }
     finally { setReviewLoading(false) }
+  }
+
+  /**
+   * Correct one answer. Auto-grading compares letters — it cannot know a key
+   * was wrong, or that a coder explained a defensible reading offline.
+   */
+  async function saveCorrection(questionIndex: number, isCorrect: boolean) {
+    if (!selectedId || reviewSessionId == null) return
+    const note = reason.trim()
+    if (note.length < 5) { toast.error('Enter a justification before correcting.'); return }
+    setSaving(true)
+    try {
+      await overrideAssessmentAnswer(Number(selectedId), reviewSessionId, questionIndex, {
+        is_correct: isCorrect, reason: note, trainer_name: trainerName(),
+      })
+      // Reload rather than patching locally: the score, the corrections count
+      // and the session row all move together, and re-reading is the only way
+      // to be sure the screen shows what was actually stored.
+      await openReview(reviewSessionId)
+      await loadSessions(Number(selectedId))
+      toast.success('Correction saved — score updated.')
+    } catch (e) {
+      toast.error(errorMessage(e, 'Could not save the correction'))
+    } finally { setSaving(false) }
   }
 
   function copyToken(token: string) {
@@ -238,6 +286,14 @@ export function SessionsView() {
                         {row.auto_submitted && (
                           <span style={{ fontSize: 10, marginLeft: 4, color: '#7c3aed' }}>(auto)</span>
                         )}
+                        {/* A score that was moved by hand should say so on the
+                            row, not only inside the review it came from. */}
+                        {row.corrected && (
+                          <span title="A trainer corrected at least one answer — open the review for the reason"
+                            style={{ fontSize: 9, marginLeft: 6, fontWeight: 800, color: '#7c3aed', background: '#ede9fe', borderRadius: 20, padding: '2px 7px' }}>
+                            CORRECTED
+                          </span>
+                        )}
                       </td>
                       <td style={s.td}>
                         {(row.status === 'submitted' || row.status === 'auto_submitted') ? (
@@ -281,6 +337,11 @@ export function SessionsView() {
                       Score: <strong style={{ color: reviewData.score_pct !== null ? (reviewData.score_pct >= 80 ? '#15803d' : '#dc2626') : '#9ca3af' }}>{reviewData.score_pct !== null ? `${reviewData.score_pct}%` : '—'}</strong>
                       {' '}· {reviewData.correct_count ?? '—'}/{reviewData.total_questions} correct
                       {reviewData.submitted_at && ` · Submitted ${new Date(reviewData.submitted_at).toLocaleString()}`}
+                      {reviewData.corrections > 0 && (
+                        <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 800, color: '#7c3aed', background: '#ede9fe', borderRadius: 20, padding: '2px 8px' }}>
+                          {reviewData.corrections} corrected
+                        </span>
+                      )}
                     </div>
                   </div>
                   <button onClick={() => setReviewData(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280', padding: 4 }}>
@@ -311,8 +372,63 @@ export function SessionsView() {
                           ) : (
                             <span style={{ fontSize: 12, color: '#9ca3af' }}>Unanswered</span>
                           )}
+                          {q.overridden && (
+                            <span title={`Corrected by ${q.override_by}: ${q.override_reason}`}
+                              style={{ fontSize: 10, fontWeight: 800, color: '#7c3aed', background: '#ede9fe', borderRadius: 20, padding: '2px 8px' }}>
+                              CORRECTED
+                            </span>
+                          )}
+                          {q.answered && (
+                            <button
+                              onClick={() => { setCorrecting(correcting === qi ? null : qi); setReason(q.override_reason || '') }}
+                              style={{ fontSize: 11, fontWeight: 700, color: '#7c3aed', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>
+                              {correcting === qi ? 'Cancel' : q.overridden ? 'Change' : 'Correct'}
+                            </button>
+                          )}
                         </div>
                       </div>
+
+                      {/* A correction needs a reason before it can be saved —
+                          without one it cannot be told apart from a mistake,
+                          and this is the only place a coder's result moves
+                          after the fact. */}
+                      {correcting === qi && (
+                        <div style={{ padding: '12px 16px', background: '#faf5ff', borderTop: '1px solid #e9d5ff' }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: '#6b21a8', marginBottom: 6 }}>
+                            Why is this being corrected? (required)
+                          </div>
+                          <textarea
+                            value={reason}
+                            onChange={e => setReason(e.target.value)}
+                            rows={2}
+                            placeholder="e.g. Answer key was wrong — E11.22 sequencing is also defensible; discussed with coder."
+                            style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #e9d5ff', fontSize: 12, fontFamily: 'inherit', resize: 'vertical' }}
+                          />
+                          <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                            <button disabled={saving || reason.trim().length < 5}
+                              onClick={() => saveCorrection(qi, true)}
+                              style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 8, border: 'none', background: reason.trim().length < 5 ? '#e5e7eb' : '#16a34a', color: reason.trim().length < 5 ? '#9ca3af' : '#fff', cursor: reason.trim().length < 5 ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 700 }}>
+                              <CheckCircle size={13} /> Mark correct
+                            </button>
+                            <button disabled={saving || reason.trim().length < 5}
+                              onClick={() => saveCorrection(qi, false)}
+                              style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 8, border: 'none', background: reason.trim().length < 5 ? '#e5e7eb' : '#dc2626', color: reason.trim().length < 5 ? '#9ca3af' : '#fff', cursor: reason.trim().length < 5 ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 700 }}>
+                              <XCircle size={13} /> Mark wrong
+                            </button>
+                            <span style={{ fontSize: 11, color: '#9ca3af' }}>
+                              {saving ? 'Saving…' : 'Recorded in the audit log with your name.'}
+                            </span>
+                          </div>
+                          {q.overridden && q.override_by && (
+                            <div style={{ fontSize: 11, color: '#6b21a8', marginTop: 8 }}>
+                              Previously corrected by {q.override_by}
+                              {q.override_at && ` on ${new Date(q.override_at).toLocaleDateString()}`}
+                              {/* The grader's original verdict, so the change is legible. */}
+                              {' '}· auto-graded {q.auto_is_correct ? 'correct' : 'wrong'}
+                            </div>
+                          )}
+                        </div>
+                      )}
                       {/* Options */}
                       <div style={{ padding: '10px 16px', display: 'flex', flexDirection: 'column', gap: 6 }}>
                         {q.options.map(opt => {

@@ -6,6 +6,7 @@ import zipfile
 from typing import List, Dict, Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -24,9 +25,11 @@ from openpyxl.utils import get_column_letter
 
 from database import get_db
 from routers.assessment_pkg.security import require_passphrase
+from services.assessment_scoring import effective_correct, rescore_session
+from services.timeutil import utc_now
 from models import (
     GeneratedAssessment, GeneratedAssessmentStudent,
-    AssessmentSession, AssessmentResponse, AssessmentResult,
+    AssessmentSession, AssessmentResponse, AssessmentResult, AssessmentAuditLog,
 )
 from services.download_headers import content_disposition
 
@@ -481,7 +484,16 @@ def get_session_review(assessment_id: int, session_id: int, db: Session = Depend
             ],
             "selected_answer": selected,
             "correct_answer": correct,
-            "is_correct": selected == correct if selected else False,
+            # What it counts as NOW — the trainer's verdict where one exists.
+            "is_correct": effective_correct(resp) if resp else False,
+            # What the grader decided, kept alongside so a correction reads as
+            # a correction rather than as the original truth.
+            "auto_is_correct": bool(resp.is_correct) if resp else False,
+            "overridden": resp.override_is_correct is not None if resp else False,
+            "override_reason": resp.override_reason if resp else None,
+            "override_by": resp.override_by if resp else None,
+            "override_at": (resp.override_at.isoformat()
+                            if resp and resp.override_at else None),
             "answered": selected is not None,
         })
 
@@ -495,7 +507,94 @@ def get_session_review(assessment_id: int, session_id: int, db: Session = Depend
         "correct_count": result.correct_count if result else None,
         "total_questions": result.total_questions if result else len(questions),
         "time_taken_seconds": result.time_taken_seconds if result else None,
+        "corrections": sum(1 for q in review_questions if q["overridden"]),
         "questions": review_questions,
+    }
+
+
+class ResponseOverride(BaseModel):
+    is_correct: bool
+    reason: str
+    trainer_name: str
+
+
+@router.post("/{assessment_id}/session/{session_id}/response/{question_index}/override")
+def override_response(
+    assessment_id: int,
+    session_id: int,
+    question_index: int,
+    payload: ResponseOverride,
+    db: Session = Depends(get_db),
+    _: None = Depends(require_passphrase),
+):
+    """
+    Correct one graded answer, with a reason.
+
+    Auto-grading compares letters; it cannot know that a key was wrong, or that
+    a coder explained a defensible reading offline. The trainer's verdict is
+    stored ALONGSIDE the grader's rather than replacing it, so the record shows
+    a correction was made and by whom — a score that silently changed is worth
+    less than one that shows its working.
+
+    The justification is mandatory. A correction without a reason is
+    indistinguishable from a mistake, and this is the one place a trainer can
+    move a coder's result after the fact.
+    """
+    reason = (payload.reason or "").strip()
+    if len(reason) < 5:
+        raise HTTPException(
+            status_code=400,
+            detail="A justification is required — say why this answer is being corrected.",
+        )
+    trainer = (payload.trainer_name or "").strip()
+    if not trainer:
+        raise HTTPException(status_code=400, detail="Trainer name is required.")
+
+    sess = db.query(AssessmentSession).filter(
+        AssessmentSession.id == session_id,
+        AssessmentSession.assessment_id == assessment_id,
+    ).first()
+    if not sess:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if sess.status != "submitted":
+        raise HTTPException(
+            status_code=400,
+            detail="Only a submitted assessment can be corrected.",
+        )
+
+    resp = db.query(AssessmentResponse).filter(
+        AssessmentResponse.session_id == session_id,
+        AssessmentResponse.question_index == question_index,
+    ).first()
+    if not resp:
+        raise HTTPException(status_code=404, detail="No answer recorded for that question")
+
+    was = effective_correct(resp)
+    resp.override_is_correct = payload.is_correct
+    resp.override_reason = reason
+    resp.override_by = trainer
+    resp.override_at = utc_now()
+
+    result = rescore_session(sess, db)
+    db.add(AssessmentAuditLog(
+        trainer_name=trainer,
+        action="correct-answer",
+        details=(f"{sess.coder_name}"
+                 f"{f' ({sess.employee_id})' if sess.employee_id else ''} "
+                 f"Q{question_index + 1} of assessment {assessment_id}: "
+                 f"{'correct' if was else 'incorrect'} → "
+                 f"{'correct' if payload.is_correct else 'incorrect'}. "
+                 f"Reason: {reason}"),
+    ))
+    db.commit()
+
+    return {
+        "session_id": session_id,
+        "question_index": question_index,
+        "is_correct": payload.is_correct,
+        "score_pct": result.score_pct if result else None,
+        "correct_count": result.correct_count if result else None,
+        "total_questions": result.total_questions if result else None,
     }
 
 

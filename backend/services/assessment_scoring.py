@@ -40,6 +40,46 @@ def questions_for_session(session: AssessmentSession, db: Session) -> list:
     return json.loads(qs) if isinstance(qs, str) else (qs or [])
 
 
+def effective_correct(response: AssessmentResponse) -> bool:
+    """
+    Whether this answer counts as right — the trainer's verdict where one
+    exists, otherwise the auto-grader's.
+
+    Tri-state on purpose: override_is_correct is NULL when untouched, so an
+    override TO False is distinguishable from never having been corrected. The
+    original is_correct is never rewritten, which is what makes the correction
+    auditable rather than a silent edit of history.
+    """
+    if response.override_is_correct is not None:
+        return bool(response.override_is_correct)
+    return bool(response.is_correct)
+
+
+def rescore_session(session: AssessmentSession, db: Session) -> Optional[AssessmentResult]:
+    """
+    Recompute a submitted session's result from its responses, honouring
+    overrides. Used after a trainer corrects an answer, so the score on screen
+    moves at once rather than at some later recalculation nobody triggers.
+    """
+    result = db.query(AssessmentResult).filter(
+        AssessmentResult.session_id == session.id
+    ).first()
+    if not result:
+        return None
+
+    responses = db.query(AssessmentResponse).filter(
+        AssessmentResponse.session_id == session.id
+    ).all()
+    correct = sum(1 for r in responses if effective_correct(r))
+
+    result.correct_count = correct
+    # total_questions comes from the paper, not the answer count: a question the
+    # coder never reached still counts against them.
+    total = result.total_questions or len(responses)
+    result.score_pct = round((correct / total) * 100, 1) if total else 0.0
+    return result
+
+
 def score_session(session: AssessmentSession, db: Session, questions: Optional[list] = None):
     """
     Grade the saved responses and return (result, correct, total).

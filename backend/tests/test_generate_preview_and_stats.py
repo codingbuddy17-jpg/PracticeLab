@@ -122,20 +122,27 @@ def test_standalone_stats_reflect_the_questions_actually_assigned(client, db):
 
 
 def test_standalone_stats_can_still_report_high_uniqueness_when_earned(client, db):
-    """A pool large enough for genuinely distinct papers should say so."""
+    """
+    A pool large enough for genuinely distinct papers should say so.
+
+    Drawing 3 of 200 for 3 coders expects ~97% uniqueness, and the chance of
+    any overlap at all is ~3% — so a bound of 50% cannot flake on an unlucky
+    shuffle. An earlier version drew 4 of 60, where the tail genuinely reaches
+    below the threshold and the test failed at random.
+    """
     r = client.post("/assessment/generate",
-                    json=_standalone_payload(n_questions=60, n_coders=3, per_paper=4))
+                    json=_standalone_payload(n_questions=200, n_coders=3, per_paper=3))
     stats = r.json()["randomisation_stats"]
     assert stats["avg_uniqueness_pct"] > 50.0
-    assert stats["total_pool"] == 60
+    assert stats["total_pool"] == 200
 
 
 def test_standalone_pool_utilisation_is_real(client, db):
-    """3 coders x 4 questions cannot use more of the pool than they were served."""
+    """3 coders x 3 questions cannot use more of the pool than they were served."""
     r = client.post("/assessment/generate",
-                    json=_standalone_payload(n_questions=60, n_coders=3, per_paper=4))
+                    json=_standalone_payload(n_questions=200, n_coders=3, per_paper=3))
     stats = r.json()["randomisation_stats"]
-    assert 0 < stats["pool_utilisation_pct"] <= round(12 / 60 * 100, 1) + 0.1
+    assert 0 < stats["pool_utilisation_pct"] <= round(9 / 200 * 100, 1) + 0.1
 
 
 def test_no_randomisation_still_says_so(client, db):

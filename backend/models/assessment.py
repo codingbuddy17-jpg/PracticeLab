@@ -149,6 +149,14 @@ class AssessmentResponse(Base):
     question_id = Column(String(20), nullable=False)
     selected_answer = Column(String(1), nullable=True)
     is_correct = Column(Boolean, nullable=True)
+    # A trainer's verdict, overriding the automatic one. NULL means "not
+    # overridden" — deliberately tri-state, so an override to False is
+    # distinguishable from never having been touched. The original is_correct
+    # is left alone so the correction is auditable rather than destructive.
+    override_is_correct = Column(Boolean, nullable=True)
+    override_reason = Column(Text, nullable=True)
+    override_by = Column(String(100), nullable=True)
+    override_at = Column(DateTime(timezone=True), nullable=True)
     answered_at = Column(DateTime(timezone=True), nullable=True)
 
     session = relationship("AssessmentSession", back_populates="responses")

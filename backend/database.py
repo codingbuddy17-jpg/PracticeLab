@@ -367,6 +367,14 @@ def _run_migrations():
     )""")
 
     # ── assessment_results table ──────────────────────────────────────────────
+    # A trainer can correct a graded answer — a bad key, or a defensible
+    # reading the auto-grader could not know about. Additive so existing rows
+    # keep their automatic result.
+    _add_col("assessment_responses", "override_is_correct", "BOOLEAN")
+    _add_col("assessment_responses", "override_reason", "TEXT")
+    _add_col("assessment_responses", "override_by", "VARCHAR(100)")
+    _add_col("assessment_responses", "override_at", "TIMESTAMP")
+
     _run(f"""CREATE TABLE IF NOT EXISTS assessment_results (
         id INTEGER PRIMARY KEY,
         session_id INTEGER REFERENCES assessment_sessions(id) UNIQUE NOT NULL,

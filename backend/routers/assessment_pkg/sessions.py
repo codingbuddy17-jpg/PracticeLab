@@ -18,7 +18,10 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment
 
 from database import get_db
-from models import GeneratedAssessment, GeneratedAssessmentStudent, AssessmentSession, AssessmentResult
+from models import (
+    GeneratedAssessment, GeneratedAssessmentStudent, AssessmentSession,
+    AssessmentResult, AssessmentResponse,
+)
 
 router = APIRouter()
 
@@ -189,6 +192,15 @@ def list_sessions(assessment_id: int, db: Session = Depends(get_db)):
         AssessmentSession.assessment_id == assessment_id
     ).order_by(AssessmentSession.coder_name).all()
 
+    # Which sessions carry a trainer correction, in one query rather than per
+    # row — the badge is on every row, so a per-row lookup would be an N+1.
+    corrected_ids = {
+        r[0] for r in db.query(AssessmentResponse.session_id)
+        .filter(AssessmentResponse.session_id.in_([s.id for s in sessions] or [-1]),
+                AssessmentResponse.override_is_correct.isnot(None))
+        .distinct().all()
+    }
+
     now = datetime.now(timezone.utc)
     rows = []
     for s in sessions:
@@ -209,6 +221,7 @@ def list_sessions(assessment_id: int, db: Session = Depends(get_db)):
             "started_at": s.started_at.isoformat() if s.started_at else None,
             "submitted_at": s.submitted_at.isoformat() if s.submitted_at else None,
             "auto_submitted": s.auto_submitted,
+            "corrected": s.id in corrected_ids,
             "score_pct": result.score_pct if result else None,
             "correct_count": result.correct_count if result else None,
             "total_questions": result.total_questions if result else None,

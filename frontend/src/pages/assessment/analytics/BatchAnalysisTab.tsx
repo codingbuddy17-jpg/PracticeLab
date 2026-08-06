@@ -265,7 +265,15 @@ function CoderTopicMatrix({ drill }: { drill: any }) {
               <tbody>
                 {pageData.map((row: any, i: number) => (
                   <tr key={i} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                    <td style={{ padding: '7px 12px', fontWeight: 700, color: '#111', whiteSpace: 'nowrap' as const }}>{row.coder_name}</td>
+                    <td style={{ padding: '7px 12px', fontWeight: 700, color: '#111', whiteSpace: 'nowrap' as const }}>
+                      {row.coder_name}
+                      {/* Rows are keyed on employee id, which identifies but does
+                          not name. Showing the id alone left a column nobody
+                          could match to a person. */}
+                      {row.employee_id && (
+                        <div style={{ fontSize: 10, color: '#9ca3af', fontWeight: 600 }}>{row.employee_id}</div>
+                      )}
+                    </td>
                     {topics.map((tp: string) => {
                       const acc = row.topics[tp]
                       const bg = acc == null ? '#f9fafb' : acc >= 90 ? 'rgba(22,163,74,0.14)' : acc >= 80 ? 'rgba(217,119,6,0.12)' : 'rgba(220,38,38,0.1)'

@@ -888,6 +888,7 @@ def analytics_batch_drill(batch_name: str, db: Session = Depends(get_db)):
 
     # coder → topic accuracy
     coder_topic: Dict[str, Dict[str, Dict]] = {}
+    coder_label: Dict[str, Dict[str, Any]] = {}
     coder_sessions: Dict[str, List] = {}
 
     session_map = {s.id: s for s in sessions}
@@ -898,6 +899,10 @@ def analytics_batch_drill(batch_name: str, db: Session = Depends(get_db)):
         if not s:
             continue
         coder = coder_key(s)
+        # coder_key is the employee id where there is one, so it identifies but
+        # does not NAME. Carry the readable label alongside, or the matrix shows
+        # a column of bare ids nobody can match to a person.
+        coder_label.setdefault(coder, {"coder_name": s.coder_name, "employee_id": s.employee_id})
         topic = qid_topic.get(resp.question_id, "Unknown")
         coder_topic.setdefault(coder, {}).setdefault(topic, {"correct": 0, "total": 0})
         coder_topic[coder][topic]["total"] += 1
@@ -907,6 +912,8 @@ def analytics_batch_drill(batch_name: str, db: Session = Depends(get_db)):
     for s in sessions:
         r = result_map.get(s.id)
         if r:
+            coder_label.setdefault(coder_key(s),
+                                   {"coder_name": s.coder_name, "employee_id": s.employee_id})
             coder_sessions.setdefault(coder_key(s), []).append({
                 "score_pct": r.score_pct,
                 "submitted_at": r.submitted_at,
@@ -919,7 +926,12 @@ def analytics_batch_drill(batch_name: str, db: Session = Depends(get_db)):
     # Coder matrix rows
     coder_rows = []
     for coder, topic_data in coder_topic.items():
-        row: Dict[str, Any] = {"coder_name": coder, "topics": {}}
+        label = coder_label.get(coder, {"coder_name": coder, "employee_id": None})
+        row: Dict[str, Any] = {
+            "coder_name": label["coder_name"],
+            "employee_id": label["employee_id"],
+            "topics": {},
+        }
         for topic in all_topics:
             d = topic_data.get(topic)
             row["topics"][topic] = round(d["correct"] / d["total"] * 100, 1) if d and d["total"] else None
