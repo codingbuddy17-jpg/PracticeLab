@@ -11,9 +11,12 @@ pins three things per specialty:
   * a file with the OLD column set still parses correctly (no units column)
   * the stored key exports back into a file that re-uploads to the same key
 
+Coders submit through the PracticeLab interface, not a spreadsheet, so the only
+workbooks in play are the trainer's.
+
 The generic OP layout is not one layout. Surgery/ED Profee/E/M carry Dx
 pointers, ED Single Path carries two level columns before PDx, Ancillary has no
-CPT block at all, and Edits/Denials now have no units column. A stride-counted
+CPT block at all, and Edits/Denials have no units column. A stride-counted
 parser gets three of those wrong, which is the bug this file exists to catch.
 """
 import io
@@ -27,7 +30,6 @@ from routers.practicelab_pkg.shared import (
 )
 from services.excel_service import (
     generate_answer_key_template, parse_answer_key_upload,
-    generate_coder_sheet, parse_submission,
 )
 
 ALL = list(Specialty)
@@ -258,56 +260,3 @@ def test_a_stored_key_exports_into_a_file_that_re_uploads_unchanged(spec, db):
     assert line.get("units") == (3 if _uses_units(spec) else None)
     if _uses_pointers(spec):
         assert line["pointers"] == ["1"]
-
-
-# ── the coder's own workbook ──────────────────────────────────────────────────
-
-@pytest.mark.parametrize("spec", ALL, ids=lambda s: s.value)
-def test_the_coder_sheet_round_trips_for_every_specialty(spec):
-    sheet = generate_coder_sheet("Alice", "Wave 1", [{
-        "chart_number": "C001", "specialty": spec.value,
-        "category": "Test", "difficulty": "Medium", "chart_url": "",
-    }])
-    wb = load_workbook(io.BytesIO(sheet))
-    ws = wb["C001"]
-    ip = _is_ip(spec)
-
-    def _section(n):
-        return next(r for r in range(1, ws.max_row + 1)
-                    if f"SECTION {n}" in str(ws.cell(r, 1).value or ""))
-
-    ws.cell(_section(1) + 2, 1, "E11.9" if not ip else "J18.9")
-    if ip:
-        ws.cell(_section(1) + 2, 2, "Y")
-    ws.cell(_section(2) + 2, 2, "I10")
-    proc = _section(3) + 2
-    ws.cell(proc, 2, "0DTJ4ZZ" if ip else "11042")
-    if not ip:
-        ws.cell(proc, 3, "59")
-        if _uses_units(spec):
-            ws.cell(proc, 4, 4)
-
-    buf = io.BytesIO()
-    wb.save(buf)
-    got = parse_submission(buf.getvalue())[0]
-    assert got["chart_number"] == "C001"
-    assert [s["code"] for s in got["sdx"]] == ["I10"]
-    if ip:
-        assert [p["code"] for p in got["pcs"]] == ["0DTJ4ZZ"]
-        return
-    line = got["cpt"][0]
-    assert line["code"] == "11042" and line["modifier"] == "59"
-    assert line.get("units") == (4 if _uses_units(spec) else None)
-
-
-@pytest.mark.parametrize("spec", ALL, ids=lambda s: s.value)
-def test_the_coder_sheet_offers_units_exactly_where_the_key_does(spec):
-    sheet = generate_coder_sheet("Alice", "W", [{
-        "chart_number": "C001", "specialty": spec.value,
-        "category": "T", "difficulty": "Medium", "chart_url": "",
-    }])
-    ws = load_workbook(io.BytesIO(sheet))["C001"]
-    text = " ".join(str(c.value or "") for row in ws.iter_rows() for c in row)
-    expected = _uses_units(spec) and not _is_ip(spec)
-    assert ("Units" in text) is expected, \
-        f"{spec.value}: coder sheet and answer key disagree about units"

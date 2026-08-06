@@ -773,6 +773,5 @@ def get_batch(batch_id: int, db: Session = Depends(get_db)):
             for c in cycles
         ],
         "coders": [{"name": c.coder_name, "emp_id": c.emp_id or "",
-                    "excel_generated": c.excel_generated_at is not None,
                     "charts": coder_map.get(c.coder_name, [])} for c in coders],
     }

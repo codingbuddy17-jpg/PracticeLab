@@ -187,28 +187,3 @@ def test_a_key_filled_from_the_old_template_still_parses():
     assert line["modifier"] == "59"
     assert line["pointers"] == ["1"]
     assert "units" not in line
-
-
-def test_the_coder_sheet_round_trips_units():
-    """What the coder writes has to survive back out of their own workbook."""
-    from openpyxl import load_workbook
-    from services.excel_service import generate_coder_sheet, parse_submission
-
-    sheet = generate_coder_sheet("Alice", "Wave 1", [{
-        "chart_number": "OP001", "specialty": "Surgery",
-        "category": "Ortho", "difficulty": "Medium", "chart_url": "",
-    }])
-    wb = load_workbook(io.BytesIO(sheet))
-    ws = wb["OP001"]
-    proc = next(r for r in range(1, ws.max_row + 1)
-                if "SECTION 3" in str(ws.cell(r, 1).value or ""))
-    first = proc + 2
-    ws.cell(first, 2, "11042")
-    ws.cell(first, 3, "59")
-    ws.cell(first, 4, 3)
-
-    buf = io.BytesIO()
-    wb.save(buf)
-    line = parse_submission(buf.getvalue())[0]["cpt"][0]
-    assert line["code"] == "11042" and line["modifier"] == "59"
-    assert line["units"] == 3

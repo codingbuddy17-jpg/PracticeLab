@@ -119,7 +119,6 @@ class BatchCoder(Base):
     batch_id = Column(Integer, ForeignKey("batches.id"), nullable=False)
     coder_name = Column(String(100), nullable=False)
     emp_id = Column(String(50), nullable=True)
-    excel_generated_at = Column(DateTime(timezone=True), nullable=True)
 
     batch = relationship("Batch", back_populates="coders")
 
