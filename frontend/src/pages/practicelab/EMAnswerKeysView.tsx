@@ -302,7 +302,7 @@ export function EMAnswerKeysView() {
           </label>
           {uploadReplace && (
             <input
-              type="password"
+              type="password" autoComplete="new-password"
               placeholder="Master passphrase"
               value={uploadPassphrase}
               onChange={e => setUploadPassphrase(e.target.value)}
@@ -728,7 +728,7 @@ export function EMAnswerKeysView() {
           <div style={modal}>
             <div style={{ fontWeight: 700, marginBottom: 8 }}>Delete E/M Answer Key — {deleteDialog.chartNumber}</div>
             <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 12 }}>Enter master passphrase to confirm deletion.</div>
-            <input type="password" style={styles.input} placeholder="Master passphrase"
+            <input type="password" autoComplete="new-password" style={styles.input} placeholder="Master passphrase"
               value={deletePassphrase} onChange={e => setDeletePassphrase(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') handleDelete() }} />
             <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>

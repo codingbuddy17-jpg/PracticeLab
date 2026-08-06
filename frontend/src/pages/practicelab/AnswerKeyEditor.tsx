@@ -270,7 +270,7 @@ export function AnswerKeyEditor({ chartId, onClose, onSaved }: {
         {detail.exists && (
           <>
             <div style={styles.label}>Master passphrase</div>
-            <input type="password" style={{ ...inp, marginBottom: 14 }} value={passphrase}
+            <input type="password" autoComplete="new-password" style={{ ...inp, marginBottom: 14 }} value={passphrase}
               placeholder="Required to change an existing key"
               onChange={e => setPassphrase(e.target.value)} />
           </>

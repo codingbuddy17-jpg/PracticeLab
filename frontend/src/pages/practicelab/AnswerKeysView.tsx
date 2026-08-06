@@ -202,7 +202,7 @@ export function AnswerKeysView() {
           <span style={{ fontSize: 12, color: '#92400e', fontWeight: 600 }}>Replace mode: existing keys will be overwritten. Enter master passphrase to unlock:</span>
           <input
             ref={replaceRef}
-            type="password"
+            type="password" autoComplete="new-password"
             placeholder="Master passphrase"
             style={{ ...styles.input, width: 200, fontSize: 12, margin: 0 }}
             onKeyDown={e => { if (e.key === 'Enter' && fileRef.current) fileRef.current.click() }}
@@ -216,7 +216,7 @@ export function AnswerKeysView() {
         <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 8, padding: '10px 14px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' as const }}>
           <span style={{ fontSize: 12, color: '#166534', fontWeight: 600 }}>Master passphrase required to export:</span>
           <input
-            type="password"
+            type="password" autoComplete="new-password"
             placeholder="Enter passphrase"
             style={{ ...styles.input, width: 200, fontSize: 12, margin: 0 }}
             value={exportPassphrase}
@@ -357,7 +357,7 @@ export function AnswerKeysView() {
             <label style={styles.label}>Master passphrase</label>
             <input
               ref={ppRef}
-              type="password"
+              type="password" autoComplete="new-password"
               style={{ ...styles.input, marginBottom: 16 }}
               placeholder="Enter passphrase to confirm"
               value={passphrase}

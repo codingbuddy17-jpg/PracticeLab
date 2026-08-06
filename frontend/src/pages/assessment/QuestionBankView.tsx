@@ -166,7 +166,7 @@ export function QuestionBankView() {
           <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 10, width: '100%' }}>
             <input style={s.input} placeholder="Your name" value={trainerName}
               onChange={e => { setTrainerName(e.target.value); setPassphraseError('') }} />
-            <input type="password" style={s.input} placeholder="Admin passphrase"
+            <input type="password" autoComplete="new-password" style={s.input} placeholder="Admin passphrase"
               value={passphraseInput}
               onChange={e => { setPassphraseInput(e.target.value); setPassphraseError('') }}
               onKeyDown={e => e.key === 'Enter' && handleVerify()} />

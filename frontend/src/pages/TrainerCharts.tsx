@@ -298,7 +298,7 @@ export function TrainerCharts() {
           )}
           {editing.uploaded_by !== actor && (
             <Field label="Master Admin Passphrase">
-              <input style={styles.input} type="password" value={editPassphrase}
+              <input style={styles.input} type="password" autoComplete="new-password" value={editPassphrase}
                 onChange={e => setEditPassphrase(e.target.value)}
                 placeholder="Enter passphrase" />
             </Field>
@@ -339,7 +339,7 @@ export function TrainerCharts() {
           )}
           {actionModal.chart.uploaded_by !== actionModal.name && (
             <Field label="Master Admin Passphrase">
-              <input style={styles.input} type="password" value={actionModal.passphrase}
+              <input style={styles.input} type="password" autoComplete="new-password" value={actionModal.passphrase}
                 onChange={e => setActionModal(m => m ? { ...m, passphrase: e.target.value } : null)}
                 placeholder="Enter passphrase" />
             </Field>
@@ -367,7 +367,7 @@ export function TrainerCharts() {
           )}
           {addingFiles.uploaded_by !== actor && (
             <Field label="Master Admin Passphrase">
-              <input style={styles.input} type="password" value={addFilesPassphrase}
+              <input style={styles.input} type="password" autoComplete="new-password" value={addFilesPassphrase}
                 onChange={e => setAddFilesPassphrase(e.target.value)}
                 placeholder="Enter passphrase" />
             </Field>

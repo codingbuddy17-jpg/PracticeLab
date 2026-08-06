@@ -3,7 +3,7 @@ import { Download, Trash2, RefreshCw } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { listAssessmentHistory, exportAssessmentPDF, exportAnswerKey, deleteAssessment } from '../../api'
 import { errorMessage } from '../../api/errors'
-import { hasPassphrase } from '../../api/assessmentAuth'
+import { getPassphrase, rememberPassphrase } from '../../api/assessmentAuth'
 
 interface AssessmentRecord {
   id: number
@@ -24,7 +24,8 @@ export function AssessmentHistoryView() {
   const [loading, setLoading] = useState(true)
   const [deletingId, setDeletingId] = useState<number | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null)
-  const [passphrase, setPassphrase] = useState('')
+  // Seeded from whatever was verified elsewhere in the module this session.
+  const [passphrase, setPassphrase] = useState(getPassphrase())
   const [reason, setReason] = useState('')
   const [blocked, setBlocked] = useState<{ id: number; message: string; submitted: number } | null>(null)
   const [search, setSearch] = useState('')
@@ -40,9 +41,11 @@ export function AssessmentHistoryView() {
       await fn()
     } catch (e: any) {
       const msg = errorMessage(e, 'Export failed')
+      // The old message pointed at a field that only appeared after clicking
+      // the bin, and that served Delete rather than the exports.
       toast.error(
-        msg.includes('passphrase') && !hasPassphrase()
-          ? 'Enter the trainer passphrase (use the field beside Delete) — these exports contain the answers.'
+        msg.includes('passphrase') && !passphrase.trim()
+          ? 'Enter the trainer passphrase at the top of this tab — these exports contain the answers.'
           : msg,
       )
     }
@@ -125,11 +128,33 @@ export function AssessmentHistoryView() {
             onChange={e => setSearch(e.target.value)}
             onKeyDown={e => { if (e.key === 'Escape') setSearch('') }}
             placeholder="Find by name, batch, or who generated it…"
+            // Chrome pairs the nearest text input ABOVE a password field as the
+            // username and autofills it, then keeps re-filling it — which reads
+            // as a search box that has typed your name and cannot be cleared.
+            autoComplete="off"
+            name="history-search"
             style={{ padding: '7px 11px', borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 12, minWidth: 260 }}
           />
           {search && (
             <span style={{ fontSize: 11, color: '#6b7280' }}>{visible.length} of {records.length}</span>
           )}
+
+          {/* One passphrase for the whole tab. It used to appear only after
+              clicking the bin, and only served Delete — so an export refused
+              for want of a passphrase pointed at a field that was not on
+              screen. Verifying it anywhere in the module fills this in. */}
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <label style={{ fontSize: 11, color: '#6b7280', fontWeight: 600 }}>Trainer passphrase</label>
+            <input
+              type="password"
+              value={passphrase}
+              onChange={e => { setPassphrase(e.target.value); rememberPassphrase(e.target.value.trim()) }}
+              placeholder={passphrase ? '' : 'required for exports & delete'}
+              autoComplete="new-password"
+              name="assessment-passphrase"
+              style={{ padding: '7px 11px', borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 12, width: 190 }}
+            />
+          </div>
         </div>
       )}
 
@@ -209,15 +234,15 @@ export function AssessmentHistoryView() {
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                       <button
                         style={styles.actionBtn}
-                        title="Export Student PDFs"
+                        title="Download every coder's question paper, as a .zip of PDFs"
                         onClick={() => runExport(() => exportAssessmentPDF(r.id, passphrase))}
                       >
                         <Download size={13} />
-                        <span style={{ fontSize: 11 }}>PDFs</span>
+                        <span style={{ fontSize: 11 }}>Papers</span>
                       </button>
                       <button
                         style={{ ...styles.actionBtn, color: '#4f46e5' }}
-                        title="Export Answer Key"
+                        title="Download the answer key for this assessment"
                         onClick={() => runExport(() => exportAnswerKey(r.id, passphrase))}
                       >
                         <Download size={13} />
@@ -225,14 +250,6 @@ export function AssessmentHistoryView() {
                       </button>
                       {confirmDelete === r.id ? (
                         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                          <input
-                            style={styles.passphraseInput}
-                            type="password"
-                            placeholder="Passphrase"
-                            value={passphrase}
-                            onChange={e => setPassphrase(e.target.value)}
-                            onKeyDown={e => e.key === 'Enter' && handleDelete(r.id)}
-                          />
                           <button
                             style={{ ...styles.actionBtn, color: '#dc2626', fontSize: 11 }}
                             disabled={deletingId === r.id}
