@@ -1,9 +1,13 @@
 """
-History lists assessments, and refuses to erase completed work by accident.
+The history list, and the delete endpoint behind it.
 
-Delete cascaded through responses, results and sessions with nothing but a
-passphrase. The passphrase proves who is asking; it never established that
-destroying submitted work was intended — and none of it can be reconstructed.
+History is a read-only screen now — the exports moved to Sessions and the
+delete button is gone, because a record of what was issued is not a place to
+act from. The endpoint is kept and still tested: it is the only way to remove
+an assessment at all, and it must stay unable to erase completed work by
+accident. Delete used to cascade through responses, results and sessions with
+nothing but a passphrase, which proves who is asking and never established
+that destroying submitted work was intended.
 """
 from sqlalchemy import event
 

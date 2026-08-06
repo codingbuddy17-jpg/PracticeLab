@@ -6,6 +6,7 @@ import {
   listAssessmentSessions, deleteAssessmentSessions,
   overrideAssessmentAnswer,
   downloadAssessmentResponsesXlsx,
+  exportAssessmentPDF, exportAnswerKey,
   SessionRow,
 } from '../../api'
 import api from '../../api/client'
@@ -142,6 +143,25 @@ export function SessionsView() {
     }
   }
 
+  /**
+   * Papers and the answer key. Both hand over the exam, so both are
+   * passphrase-gated; the passphrase comes from whatever was verified
+   * elsewhere in the module this session.
+   */
+  async function runDownload(what: 'papers' | 'key') {
+    if (!selectedId) return
+    try {
+      await (what === 'papers'
+        ? exportAssessmentPDF(Number(selectedId))
+        : exportAnswerKey(Number(selectedId)))
+    } catch (e) {
+      const msg = errorMessage(e, 'Download failed')
+      toast.error(msg.includes('passphrase')
+        ? 'Enter the trainer passphrase in Question Bank first — these downloads contain the answers.'
+        : msg)
+    }
+  }
+
   async function downloadResponsesExcel() {
     if (!selectedId) return
     try {
@@ -233,7 +253,18 @@ export function SessionsView() {
                     <Copy size={13} /> Copy Pending IDs
                   </button>
                   <button style={s.btnOutline} onClick={downloadResponsesExcel} title="Download full per-question breakdown as Excel">
-                    <Download size={13} /> Download Responses
+                    <Download size={13} /> Responses (.xlsx)
+                  </button>
+                  {/* These lived on History, which is a read-only record and
+                      the wrong place to act from. Here the assessment is
+                      already chosen and the other downloads sit alongside. */}
+                  <button style={s.btnOutline} onClick={() => runDownload('papers')}
+                    title="Every coder's question paper, as a .zip of PDFs">
+                    <Download size={13} /> Papers (.zip)
+                  </button>
+                  <button style={{ ...s.btnOutline, color: '#4f46e5' }} onClick={() => runDownload('key')}
+                    title="The answer key for this assessment">
+                    <Download size={13} /> Answer Key
                   </button>
                   <button style={s.btnDanger} onClick={handleDelete}>
                     <Trash2 size={13} /> Delete Sessions
