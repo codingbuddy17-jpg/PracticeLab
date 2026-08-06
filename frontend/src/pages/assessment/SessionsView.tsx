@@ -155,10 +155,7 @@ export function SessionsView() {
         ? exportAssessmentPDF(Number(selectedId))
         : exportAnswerKey(Number(selectedId)))
     } catch (e) {
-      const msg = errorMessage(e, 'Download failed')
-      toast.error(msg.includes('passphrase')
-        ? 'Enter the trainer passphrase in Question Bank first — these downloads contain the answers.'
-        : msg)
+      toast.error(errorMessage(e, 'Download failed'))
     }
   }
 

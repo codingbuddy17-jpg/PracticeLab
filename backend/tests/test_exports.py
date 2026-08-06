@@ -138,12 +138,9 @@ class TestRoundTrip:
 class TestAssessmentExports:
     """The Assessment module's exports, same treatment."""
 
-    def test_export_all_needs_no_passphrase(self, client, db):
-        """Ungated at the product owner's direction — see test_assessment_access."""
-        r = client.get("/assessment/questions/export-all",
-                       params={"trainer_name": "T"})
-        assert r.status_code != 403
-
+    def test_export_all_requires_the_passphrase(self, client):
+        assert client.get("/assessment/questions/export-all",
+                          params={"passphrase": "wrong"}).status_code == 403
 
     def test_question_bank_export_all(self, client):
         r = client.get("/assessment/questions/export-all", params={"passphrase": PASSPHRASE})

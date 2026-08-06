@@ -543,6 +543,7 @@ def override_response(
     question_index: int,
     payload: ResponseOverride,
     db: Session = Depends(get_db),
+    _: None = Depends(require_passphrase),
 ):
     """
     Correct one graded answer, with a reason.
