@@ -201,6 +201,25 @@ def resolve_cpt_modifier(code, modifier) -> tuple[str, str]:
     return code_s, mod_s
 
 
+def norm_units(raw) -> int:
+    """
+    Units on a CPT line, defaulting to 1.
+
+    A blank cell means one unit — that is what a coder writing a single
+    procedure leaves behind, and treating it as zero would fail every line
+    nobody thought to annotate. Anything unreadable also falls back to 1 rather
+    than raising: a stray character in a spreadsheet should not stop a chart
+    being graded.
+    """
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        return 1
+    try:
+        n = int(float(str(raw).strip()))
+    except (TypeError, ValueError):
+        return 1
+    return n if n >= 1 else 1
+
+
 # ── Order-independent matching ────────────────────────────────────────────────
 
 def _match_sdx_ip(ak_sdx: list[dict], cdr_sdx: list[dict], penalty: bool):
@@ -432,24 +451,38 @@ def _match_cpt(ak_cpt: list[dict], cdr_cpt: list[dict], penalty: bool,
             if ak_used[ai]:
                 continue
             if a_code == c_code and a_mod == c_mod:
-                # Code + modifier correct. On professional claims the line also
-                # has to point at the right diagnoses; a linkage error is a
-                # different (lesser) mistake than a wrong code, so it costs half
-                # the line rather than the whole thing.
+                # Code + modifier correct. Two things can still be wrong on the
+                # line, and both are lesser mistakes than picking the wrong
+                # procedure — the coder found it and then described it wrongly —
+                # so each costs half the line rather than all of it.
+                #
+                # They do not stack: a line with the wrong pointers AND the
+                # wrong units is still one line, and zeroing it would price a
+                # described-badly line the same as a missed one.
+                credit = 1.0
                 if check_pointers:
                     ak_ptr = resolve_pointers(ak_cpt[ai].get("pointers"), ak_dx or [])
                     cdr_ptr = resolve_pointers(cdr_cpt[ci].get("pointers"), cdr_dx or [])
                     if ak_ptr and ak_ptr != cdr_ptr:
-                        matched += 0.5
+                        credit = 0.5
                         feedback.append(FeedbackRow(
                             "CPT", "Wrong_Pointer",
                             ak_cpt[ai].get("code", ""), cdr_cpt[ci].get("code", ""),
                             f"Dx pointers — key: {pointer_display(ak_cpt[ai].get('pointers'), ak_dx or [])}"
                             f"  |  coded: {pointer_display(cdr_cpt[ci].get('pointers'), cdr_dx or [])}"))
-                    else:
-                        matched += 1
-                else:
-                    matched += 1
+
+                # Units are graded only where the key states them, so keys
+                # written before units existed grade exactly as they did.
+                if "units" in ak_cpt[ai]:
+                    ak_u = norm_units(ak_cpt[ai].get("units"))
+                    cdr_u = norm_units(cdr_cpt[ci].get("units"))
+                    if ak_u != cdr_u:
+                        credit = min(credit, 0.5)
+                        feedback.append(FeedbackRow(
+                            "CPT", "Wrong_Units",
+                            ak_cpt[ai].get("code", ""), cdr_cpt[ci].get("code", ""),
+                            f"Units — key: {ak_u}  |  coded: {cdr_u}"))
+                matched += credit
                 ak_used[ai] = True
                 cdr_used[ci] = True
                 break

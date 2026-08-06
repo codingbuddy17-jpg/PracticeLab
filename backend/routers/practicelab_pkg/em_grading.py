@@ -185,11 +185,15 @@ def _canon_pointers(raw) -> list:
 
 def normalise_cpts(raw) -> list:
     """
-    Normalise procedure CPTs to [{code, modifier, pointers}].
+    Normalise procedure CPTs to [{code, modifier, pointers, units}].
 
     Accepts both shapes so no migration is needed: legacy keys stored
     "code:modifier" strings inside the JSON column, newer ones store dicts
-    carrying diagnosis pointers.
+    carrying diagnosis pointers and units.
+
+    `units` is only present when the source stated it. Absence means "this key
+    predates units", which grading treats as "do not grade units" — different
+    from an explicit 1.
     """
     out = []
     for item in _j(raw):
@@ -197,11 +201,15 @@ def normalise_cpts(raw) -> list:
             code = str(item.get("code") or "").strip().upper()
             if not code:
                 continue
-            out.append({
+            row = {
                 "code": code,
                 "modifier": str(item.get("modifier") or "").strip().upper(),
                 "pointers": _canon_pointers(item.get("pointers")),
-            })
+            }
+            if "units" in item and item.get("units") not in (None, ""):
+                from services.grading_engine import norm_units
+                row["units"] = norm_units(item.get("units"))
+            out.append(row)
             continue
         s = str(item).strip().upper()
         if not s or s == "NONE":
@@ -327,6 +335,7 @@ def grade_em_chart(ak: dict, sub: dict, cfg: dict, overcoding_penalty: bool = Tr
 
     cpt_score = 0.0
     pointer_errors = []
+    unit_errors = []
     if ak_cpt_rows and cpt_w_adj > 0:
         per_cpt = cpt_w_adj / len(ak_cpt_rows)
         used = [False] * len(sub_cpt_rows)
@@ -336,23 +345,31 @@ def grade_em_chart(ak: dict, sub: dict, cfg: dict, overcoding_penalty: bool = Tr
                 if used[i] or a["code"] != s["code"] or a["modifier"] != s["modifier"]:
                     continue
                 used[i] = True
+                credit = 1.0
                 if a["pointers"]:
                     # Pointers are positional, so compare the diagnosis CODES
                     # they resolve to — never the letters themselves.
                     if (resolve_pointers(a["pointers"], ak_dx_ordered)
-                            == resolve_pointers(s["pointers"], sub_dx_ordered)):
-                        matched += 1
-                    else:
+                            != resolve_pointers(s["pointers"], sub_dx_ordered)):
                         # A linkage error is a lesser mistake than a wrong code,
                         # so it costs half the line — same rule as OP/Surgery.
-                        matched += 0.5
+                        credit = 0.5
                         pointer_errors.append({
                             "code": a["code"],
                             "ak": ",".join(a["pointers"]),
                             "sub": ",".join(s["pointers"]) or "(none)",
                         })
-                else:
-                    matched += 1
+
+                # Graded only where the key states units, so older keys are
+                # unaffected. Half the line, and it does not stack with a
+                # pointer error — one line, one half-credit.
+                if "units" in a:
+                    from services.grading_engine import norm_units
+                    ak_u, sub_u = norm_units(a.get("units")), norm_units(s.get("units"))
+                    if ak_u != sub_u:
+                        credit = min(credit, 0.5)
+                        unit_errors.append({"code": a["code"], "ak": ak_u, "sub": sub_u})
+                matched += credit
                 break
         cpt_score = matched * per_cpt
         if overcoding_penalty:
@@ -445,6 +462,7 @@ def grade_em_chart(ak: dict, sub: dict, cfg: dict, overcoding_penalty: bool = Tr
         "method_mismatch": method_mismatch,
         "time_ok": time_ok,
         "pointer_errors": pointer_errors,
+        "unit_errors": unit_errors,
         "modifier_mismatch": modifier_mismatch,
         "ak_em_modifier": ak_mod_n,
         "sub_em_modifier": sub_mod_n,
