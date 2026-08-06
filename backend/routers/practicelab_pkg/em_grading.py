@@ -125,6 +125,196 @@ def em_code_to_level(code: str) -> Optional[str]:
     return _EM_CODE_LEVEL.get(code.strip())
 
 
+# ── Encounter categories ──────────────────────────────────────────────────────
+#
+# Not every E/M encounter is levelled by MDM. A preventive visit is levelled by
+# the patient's age and whether they are new or established; critical care is
+# levelled by total time; a nurse visit has no level at all. The MDM tables
+# were being demanded for all of them, because the three level columns are NOT
+# NULL — so a trainer keying a preventive visit had to invent a COPA level, and
+# the coder then had to guess the same invention to score the 30 reasoning
+# points. That tests neither of them on anything real.
+#
+# Category comes from the E/M code, which is the one thing both the key and the
+# coder always state.
+
+OFFICE = "office"
+INPATIENT_OBSERVATION = "inpatient_observation"
+EMERGENCY = "emergency"
+PREVENTIVE = "preventive"
+CRITICAL_CARE = "critical_care"
+OTHER = "other"
+
+EM_CATEGORIES = (OFFICE, INPATIENT_OBSERVATION, EMERGENCY,
+                 PREVENTIVE, CRITICAL_CARE, OTHER)
+
+EM_CATEGORY_LABELS = {
+    OFFICE: "Office / outpatient",
+    INPATIENT_OBSERVATION: "Inpatient & observation",
+    EMERGENCY: "Emergency department",
+    PREVENTIVE: "Preventive medicine",
+    CRITICAL_CARE: "Critical care",
+    OTHER: "Other",
+}
+
+# The categories whose code selection is driven by the 2023 MDM tables, and so
+# the only ones where the COPA / Data Review / Risk checkoff is the work being
+# assessed.
+MDM_CATEGORIES = {OFFICE, INPATIENT_OBSERVATION, EMERGENCY}
+
+# Explicit code sets, per CPT 2026. Ranges are spelled out rather than
+# range-matched on the numeric value: E/M numbering is not contiguous by
+# category (99238 is a discharge, 99241 was deleted), and a range test would
+# quietly swallow codes added between them in a future edition.
+_CATEGORY_CODES = {
+    OFFICE: {
+        "99202", "99203", "99204", "99205",
+        "99211", "99212", "99213", "99214", "99215",
+    },
+    INPATIENT_OBSERVATION: {
+        "99221", "99222", "99223",          # initial inpatient / observation
+        "99231", "99232", "99233",          # subsequent
+        "99234", "99235", "99236",          # admit & discharge same day
+        "99238", "99239",                   # discharge day management
+    },
+    EMERGENCY: {"99281", "99282", "99283", "99284", "99285"},
+    PREVENTIVE: {
+        "99381", "99382", "99383", "99384", "99385", "99386", "99387",  # new
+        "99391", "99392", "99393", "99394", "99395", "99396", "99397",  # established
+        "99401", "99402", "99403", "99404",          # counselling, individual
+        "99411", "99412", "99429",
+    },
+    CRITICAL_CARE: {
+        "99291", "99292",                            # adult, time-based
+        "99468", "99469", "99471", "99472", "99475", "99476",   # neonatal/paediatric
+        "99477", "99478", "99479", "99480",           # intensive, low birth weight
+    },
+}
+
+_CODE_TO_CATEGORY = {code: cat for cat, codes in _CATEGORY_CODES.items() for code in codes}
+
+# Critical care is billed in one initial unit plus add-on units. 99292 is the
+# add-on, so a long encounter is 99291 once and 99292 as many times as the time
+# supports — the units column on the CPT line is how that count is stated.
+CRITICAL_CARE_INITIAL = "99291"
+CRITICAL_CARE_ADDON = "99292"
+
+
+def em_category(code: str) -> str:
+    """
+    Which kind of encounter this E/M code represents.
+
+    Anything unrecognised is OTHER, never a guess. Home visits, nursing
+    facility, transitional care and telephone/online codes all land there
+    deliberately: they are graded on the codes alone, which is exactly what a
+    category we cannot model should do.
+    """
+    return _CODE_TO_CATEGORY.get(str(code or "").strip().upper(), OTHER)
+
+
+def category_uses_mdm(category: str) -> bool:
+    return category in MDM_CATEGORIES
+
+
+def resolve_category(stored, em_code: str) -> str:
+    """
+    The key's own category if it states one, otherwise derived from its code.
+
+    Keys written before categories existed have nothing stored, and every one
+    of them was an office, ED or inpatient chart — the only kinds the form
+    could express — so deriving gives them the category they already had.
+    """
+    c = str(stored or "").strip().lower()
+    return c if c in EM_CATEGORIES else em_category(em_code)
+
+
+def critical_care_units(cpt_rows: list, em_code: str) -> int:
+    """
+    How many add-on units of 99292 were claimed.
+
+    The add-on can be a repeated line or one line carrying units; both mean the
+    same thing on a claim, so both count the same here.
+    """
+    total = 0
+    for row in cpt_rows:
+        if str(row.get("code", "")).strip().upper() != CRITICAL_CARE_ADDON:
+            continue
+        total += norm_units_or_one(row.get("units"))
+    if str(em_code or "").strip().upper() == CRITICAL_CARE_ADDON:
+        total += 1
+    return total
+
+
+def _minutes(raw) -> Optional[int]:
+    """A minute count, or None when nothing was stated. 0 is not a time."""
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        return None
+    try:
+        n = int(float(str(raw).strip()))
+    except (TypeError, ValueError):
+        return None
+    return n if n > 0 else None
+
+
+def norm_units_or_one(raw) -> int:
+    from services.grading_engine import norm_units
+    return norm_units(raw)
+
+
+# ── Weight distribution ───────────────────────────────────────────────────────
+
+def applicable_weights(cfg: dict, category: str, has_cpts: bool,
+                       level_method: str = "MDM") -> dict:
+    """
+    The weights that apply to THIS chart, renormalised to total 100.
+
+    Every chart has to be scored out of 100 or the numbers stop comparing. A
+    preventive visit has no MDM component, so leaving the 30 reasoning points
+    in the denominator caps it at 70% and a coder who did everything right
+    fails; averaging it against an office chart then compares two different
+    denominators and reports a difference that is purely arithmetic.
+
+    Renormalising happens WITHIN each line, not across the whole chart. Line 1
+    is coding accuracy and Line 2 is reasoning accuracy, and their 70/30 split
+    is a statement about what the assessment values — rescaling across both
+    would let a chart with no procedures quietly reweight reasoning upward.
+    When Line 2 has nothing applicable at all, its points fold into Line 1,
+    because the coding is then the whole of the work.
+
+    Returns a dict of component -> weight. Components absent from the dict do
+    not apply to this chart and are not scored.
+    """
+    line1 = {"em_level": cfg["em_level_weight"], "dx": cfg["dx_weight"]}
+    # A chart with no procedures in the key has no CPT line to score.
+    if has_cpts:
+        line1["cpt"] = cfg["cpt_weight"]
+
+    line2: dict = {}
+    if category == CRITICAL_CARE:
+        # The whole of Line 2 rides on the time, because the time IS the
+        # justification for the code on a critical care encounter.
+        line2["critical_care_time"] = 1.0
+    elif category_uses_mdm(category):
+        if (level_method or "MDM").upper() == "TIME":
+            line2["time"] = 1.0
+        else:
+            line2["copa"] = cfg["copa_weight"]
+            line2["dr"] = cfg["dr_weight"]
+            line2["risk"] = cfg["risk_weight"]
+    # Preventive and Other get neither: nothing beyond the codes is assessed.
+
+    l1_target = cfg["line1_weight"] + (0.0 if line2 else cfg["line2_weight"])
+    l2_target = cfg["line2_weight"] if line2 else 0.0
+
+    def _scale(parts, target):
+        total = sum(parts.values())
+        if total <= 0:
+            return {}
+        return {k: round(v * target / total, 4) for k, v in parts.items()}
+
+    return {**_scale(line1, l1_target), **_scale(line2, l2_target)}
+
+
 # ── Scoring engine ────────────────────────────────────────────────────────────
 
 def _j(v):
@@ -265,17 +455,17 @@ def grade_em_chart(ak: dict, sub: dict, cfg: dict, overcoding_penalty: bool = Tr
     ak_dr = ak.get("dr_level", "")
     ak_risk = ak.get("risk_level", "")
 
-    # ── Adjust weights when no procedure CPTs in answer key ──────────────────
+    # ── What applies to this chart, and what it is worth ─────────────────────
+    # The category decides whether MDM is assessed at all; the weights are then
+    # renormalised so every chart is still scored out of 100.
     ak_cpts = _clean_codes(_j(ak.get("procedure_cpts", "[]")))
-    if not ak_cpts:
-        half = cpt_w / 2
-        em_w_adj = em_w + half
-        dx_w_adj = dx_w + half
-        cpt_w_adj = 0.0
-    else:
-        em_w_adj = em_w
-        dx_w_adj = dx_w
-        cpt_w_adj = cpt_w
+    category = resolve_category(ak.get("em_category"), ak.get("em_code"))
+    ak_method_raw = (ak.get("level_method") or "MDM").upper().strip()
+    weights = applicable_weights(cfg, category, bool(ak_cpts), ak_method_raw)
+    em_w_adj = weights.get("em_level", 0.0)
+    dx_w_adj = weights.get("dx", 0.0)
+    cpt_w_adj = weights.get("cpt", 0.0)
+    uses_mdm = "copa" in weights
 
     # ── Coding Accuracy ───────────────────────────────────────────────────────
     # E/M Level — complexity AND patient type must both match (when AK patient_type != NA)
@@ -425,11 +615,45 @@ def grade_em_chart(ak: dict, sub: dict, cfg: dict, overcoding_penalty: bool = Tr
         correct = sum(1 for a, s in zip(ak_vals, sub_vals) if a > 0 and a == s)
         return round((correct / total_ak) * weight, 2)
 
-    if ak_is_time:
+    cc_minutes_ok = None
+    if category == CRITICAL_CARE:
+        # Critical care is levelled by total time on the date of service, not
+        # by MDM. Graded coder-against-key, independent of any CPT-vs-CMS
+        # reading of where 99292 starts: the key states the time, the coder
+        # states the time, and the codes are graded as codes.
+        cc_w = weights.get("critical_care_time", 0.0)
+        ak_cc = _minutes(ak.get("critical_care_minutes"))
+        sub_cc = _minutes(sub.get("sub_critical_care_minutes"))
+        if ak_cc is None:
+            # The key never stated a time, so there is nothing to grade against
+            # and withholding the points would punish the coder for it.
+            cc_minutes_ok = None
+            reasoning_earned = cc_w
+        elif sub_cc is None:
+            cc_minutes_ok = False
+            reasoning_earned = 0.0
+        elif sub_cc == ak_cc:
+            cc_minutes_ok = True
+            reasoning_earned = cc_w
+        else:
+            # Time was documented and read wrong — the same half-credit the
+            # rest of the app gives to "found it, described it badly".
+            cc_minutes_ok = False
+            reasoning_earned = cc_w / 2
+        copa_element_score = dr_element_score = risk_element_score = 0.0
+        reasoning_accuracy_total = round(reasoning_earned, 2)
+    elif not category_uses_mdm(category):
+        # Preventive and Other are levelled by things the MDM tables do not
+        # describe — age and patient type, or a code set we do not model. Their
+        # Line 2 weight has already been folded into Line 1 by
+        # applicable_weights, so there is nothing left to award here.
+        copa_element_score = dr_element_score = risk_element_score = 0.0
+        reasoning_accuracy_total = 0.0
+    elif ak_is_time:
         # Time-levelled chart: MDM elements are not the operative criteria, so
         # they are not scored. Reasoning credit turns on picking the Time route
         # and reading the time correctly.
-        reasoning_w = copa_w + dr_w + risk_w
+        reasoning_w = weights.get("time", 0.0)
         if not method_ok:
             reasoning_earned = 0.0          # levelled by MDM when time was the basis
         elif time_ok:
@@ -444,9 +668,9 @@ def grade_em_chart(ak: dict, sub: dict, cfg: dict, overcoding_penalty: bool = Tr
         copa_element_score = dr_element_score = risk_element_score = 0.0
         reasoning_accuracy_total = 0.0
     else:
-        copa_element_score = _element_score(copa_fields, ak, sub, copa_w)
-        dr_element_score = _element_score(dr_fields, ak, sub, dr_w)
-        risk_element_score = _element_score(risk_fields, ak, sub, risk_w)
+        copa_element_score = _element_score(copa_fields, ak, sub, weights.get("copa", 0.0))
+        dr_element_score = _element_score(dr_fields, ak, sub, weights.get("dr", 0.0))
+        risk_element_score = _element_score(risk_fields, ak, sub, weights.get("risk", 0.0))
         reasoning_accuracy_total = copa_element_score + dr_element_score + risk_element_score
 
     total_score = round(coding_accuracy_total + reasoning_accuracy_total, 1)
@@ -461,6 +685,13 @@ def grade_em_chart(ak: dict, sub: dict, cfg: dict, overcoding_penalty: bool = Tr
         "sub_level_method": sub_method,
         "method_mismatch": method_mismatch,
         "time_ok": time_ok,
+        "em_category": category,
+        "em_category_label": EM_CATEGORY_LABELS.get(category, "Other"),
+        "uses_mdm": uses_mdm,
+        "applied_weights": weights,
+        "critical_care_minutes_ok": cc_minutes_ok,
+        "ak_critical_care_minutes": _minutes(ak.get("critical_care_minutes")),
+        "sub_critical_care_minutes": _minutes(sub.get("sub_critical_care_minutes")),
         "pointer_errors": pointer_errors,
         "unit_errors": unit_errors,
         "modifier_mismatch": modifier_mismatch,
@@ -525,6 +756,10 @@ class EMAnswerKeyPayload(BaseModel):
     patient_type: Optional[str] = "NA"  # New / Established / NA
     level_method: Optional[str] = "MDM"  # MDM | TIME (office/outpatient only)
     total_time: Optional[int] = None     # total minutes on date of encounter
+    # Blank means "derive from the E/M code", which is what every key written
+    # before categories existed does.
+    em_category: Optional[str] = None
+    critical_care_minutes: Optional[int] = None
     dx_codes: list = []
     procedure_cpts: list = []
     entered_by: str
@@ -657,6 +892,11 @@ def download_em_template():
     # on units at all, so keys written before this column exist are unchanged.
     for i, col in enumerate(("BG", "BH", "BI", "BJ"), start=1):
         hdr(f"{col}1", f"CPT {i} Units (blank = 1)")
+    # Encounter category and the critical care clock, appended for the same
+    # reason. Blank category means "work it out from the E/M code", which is
+    # what every key filled before this column existed says.
+    hdr("BK1", "Encounter Category (blank = from E/M code)")
+    hdr("BL1", "Critical Care Total Minutes (critical care only)")
 
     # Sample row
     ws["A2"] = "EM001"
@@ -673,6 +913,7 @@ def download_em_template():
     ws["AI2"] = "Established"
     ws["BA2"] = "MDM"
     ws["BC2"] = "A"
+    ws["BK2"] = ""
     ws["AJ2"] = "E11.9"
     ws["AK2"] = "I10"
     ws["AL2"] = "Z79.4"
@@ -723,6 +964,10 @@ def upsert_em_answer_key(payload: EMAnswerKeyPayload, db: Session = Depends(get_
 
     dx_codes = json.dumps(d.pop("dx_codes"))
     procedure_cpts = json.dumps(d.pop("procedure_cpts"))
+    # Stored explicitly rather than derived on every read: a trainer can key a
+    # code we have not classified and still say which kind of encounter it is.
+    _category = resolve_category(d.pop("em_category", None), payload.em_code)
+    d.pop("critical_care_minutes", None)
 
     existing = db.execute(
         text("SELECT id FROM em_answer_keys WHERE chart_id = :c"), {"c": chart_id}
@@ -764,6 +1009,8 @@ def upsert_em_answer_key(payload: EMAnswerKeyPayload, db: Session = Depends(get_
                 risk_level=:risk_level, risk_level_overridden=:risk_overridden,
                 em_code=:em_code, em_modifier=:em_modifier, patient_type=:patient_type,
                 level_method=:level_method, total_time=:total_time,
+                em_category=:em_category,
+                critical_care_minutes=:critical_care_minutes,
                 dx_codes=:dx_codes, procedure_cpts=:procedure_cpts,
                 entered_by=:entered_by, entered_at=CURRENT_TIMESTAMP
             WHERE chart_id=:chart_id
@@ -774,6 +1021,9 @@ def upsert_em_answer_key(payload: EMAnswerKeyPayload, db: Session = Depends(get_
                "patient_type": (payload.patient_type or "NA").upper(),
                "level_method": _sanitise_level_method(payload.level_method, payload.em_code),
                "total_time": payload.total_time,
+               "em_category": _category,
+               "critical_care_minutes": (payload.critical_care_minutes
+                                         if _category == CRITICAL_CARE else None),
                "dx_codes": dx_codes, "procedure_cpts": procedure_cpts})
     else:
         db.execute(text("""
@@ -793,7 +1043,8 @@ def upsert_em_answer_key(payload: EMAnswerKeyPayload, db: Session = Depends(get_
                 risk_emergency_major_surgery, risk_hospitalization_escalation,
                 risk_dnr_deescalate, risk_parenteral_controlled,
                 risk_level, risk_level_overridden,
-                em_code, em_modifier, patient_type, level_method, total_time, dx_codes, procedure_cpts,
+                em_code, em_modifier, patient_type, level_method, total_time,
+                em_category, critical_care_minutes, dx_codes, procedure_cpts,
                 entered_by
             ) VALUES (
                 :chart_id,
@@ -811,7 +1062,8 @@ def upsert_em_answer_key(payload: EMAnswerKeyPayload, db: Session = Depends(get_
                 :risk_emergency_major_surgery, :risk_hospitalization_escalation,
                 :risk_dnr_deescalate, :risk_parenteral_controlled,
                 :risk_level, :risk_overridden,
-                :em_code, :em_modifier, :patient_type, :level_method, :total_time, :dx_codes, :procedure_cpts,
+                :em_code, :em_modifier, :patient_type, :level_method, :total_time,
+                :em_category, :critical_care_minutes, :dx_codes, :procedure_cpts,
                 :entered_by
             )
         """), {**d, "chart_id": chart_id, "entered_by": entered_by,
@@ -821,9 +1073,15 @@ def upsert_em_answer_key(payload: EMAnswerKeyPayload, db: Session = Depends(get_
                "patient_type": (payload.patient_type or "NA").upper(),
                "level_method": _sanitise_level_method(payload.level_method, payload.em_code),
                "total_time": payload.total_time,
+               "em_category": _category,
+               "critical_care_minutes": (payload.critical_care_minutes
+                                         if _category == CRITICAL_CARE else None),
                "dx_codes": dx_codes, "procedure_cpts": procedure_cpts})
     db.commit()
-    return {"status": "ok", "copa_level": copa_level, "dr_level": dr_level, "risk_level": risk_level}
+    return {"status": "ok", "copa_level": copa_level, "dr_level": dr_level,
+            "risk_level": risk_level, "em_category": _category,
+            "em_category_label": EM_CATEGORY_LABELS.get(_category, "Other"),
+            "uses_mdm": category_uses_mdm(_category)}
 
 
 @router.delete("/em/answer-key/{chart_id}")
@@ -932,6 +1190,7 @@ def upload_em_answer_keys(
 
         dx_codes = json.dumps(row.get("dx_codes", []))
         procedure_cpts = json.dumps(row.get("procedure_cpts", []))
+        _row_category = resolve_category(row.get("em_category"), em_code)
 
         existing = db.execute(
             text("SELECT id FROM em_answer_keys WHERE chart_id = :c"), {"c": chart.id}
@@ -981,6 +1240,9 @@ def upload_em_answer_keys(
             "level_method": _sanitise_level_method(
                 row.get("level_method"), row.get("em_code")),
             "total_time": row.get("total_time"),
+            "em_category": _row_category,
+            "critical_care_minutes": (row.get("critical_care_minutes")
+                                      if _row_category == CRITICAL_CARE else None),
             "dx_codes": dx_codes,
             "procedure_cpts": procedure_cpts,
             "entered_by": entered_by_val,
@@ -1013,7 +1275,9 @@ def upload_em_answer_keys(
                     risk_dnr_deescalate=:risk_dnr_deescalate, risk_parenteral_controlled=:risk_parenteral_controlled,
                     risk_level=:risk_level, risk_level_overridden=:risk_level_overridden,
                     em_code=:em_code, em_modifier=:em_modifier, patient_type=:patient_type,
-                level_method=:level_method, total_time=:total_time,
+                    level_method=:level_method, total_time=:total_time,
+                    em_category=:em_category,
+                    critical_care_minutes=:critical_care_minutes,
                     dx_codes=:dx_codes, procedure_cpts=:procedure_cpts,
                     entered_by=:entered_by, entered_at=CURRENT_TIMESTAMP
                 WHERE chart_id=:chart_id
@@ -1036,7 +1300,8 @@ def upload_em_answer_keys(
                     risk_emergency_major_surgery, risk_hospitalization_escalation,
                     risk_dnr_deescalate, risk_parenteral_controlled,
                     risk_level, risk_level_overridden,
-                    em_code, em_modifier, patient_type, level_method, total_time, dx_codes, procedure_cpts, entered_by
+                    em_code, em_modifier, patient_type, level_method, total_time,
+                    em_category, critical_care_minutes, dx_codes, procedure_cpts, entered_by
                 ) VALUES (
                     :chart_id,
                     :copa_self_limited, :copa_stable_acute, :copa_stable_chronic,
@@ -1052,7 +1317,8 @@ def upload_em_answer_keys(
                     :risk_emergency_major_surgery, :risk_hospitalization_escalation,
                     :risk_dnr_deescalate, :risk_parenteral_controlled,
                     :risk_level, :risk_level_overridden,
-                    :em_code, :em_modifier, :patient_type, :level_method, :total_time, :dx_codes, :procedure_cpts, :entered_by
+                    :em_code, :em_modifier, :patient_type, :level_method, :total_time,
+                    :em_category, :critical_care_minutes, :dx_codes, :procedure_cpts, :entered_by
                 )
             """), params)
             stored.append(chart_num)

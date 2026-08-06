@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams } from 'react-router-dom'
 import { Flag, Save, ChevronRight, CheckCircle, AlertTriangle, Circle, Send, BookOpen, Plus, X, Info, Copy, Check } from 'lucide-react'
+import { emCategory, categoryUsesMdm, EM_CATEGORY_LABELS } from './practicelab/emCategories'
 import api from '../api/client'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -65,6 +66,7 @@ interface CodeEntry {
     // E/M code + patient type + Dx + CPT
     em_code: string
     em_modifier: string
+    critical_care_minutes?: number | string
     patient_type: 'NEW' | 'ESTABLISHED' | 'NA'
     level_method: 'MDM' | 'TIME'
     total_time: string
@@ -167,6 +169,7 @@ const EMPTY_EM_DATA = () => ({
   risk_emergency_major_surgery: false, risk_hospitalization_escalation: false,
   risk_dnr_deescalate: false, risk_parenteral_controlled: false,
   em_code: '', em_modifier: '', patient_type: 'NA' as 'NEW' | 'ESTABLISHED' | 'NA',
+  critical_care_minutes: '' as number | string,
   level_method: 'MDM' as 'MDM' | 'TIME', total_time: '',
   em_dx: [] as Array<{ code: string }>, em_cpt: [] as Array<{ code: string; modifier: string; pointers?: string[]; units?: number | string }>,
 })
@@ -623,6 +626,14 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
   // ED codes (99281-99285) cannot be levelled by time — MDM only.
   const timeEligible = !chart.specialty.toUpperCase().includes('ED PROFEE')
   const byTime = timeEligible && (emData.level_method || 'MDM') === 'TIME'
+  // Derived from the code the CODER typed, never from the answer key: which
+  // kind of encounter this is forms part of what they are being assessed on,
+  // and reading it off the key would hand them that.
+  const emCat = emCategory(emData.em_code)
+  const criticalCare = emCat === 'critical_care'
+  // An empty code box must not grey out the form before they have started.
+  const mdmApplies = !emData.em_code || categoryUsesMdm(emCat)
+  const mdmOff = byTime || !mdmApplies
   function updateEM(patch: Partial<typeof emData>) {
     onChange({ em_data: { ...emData, ...patch } })
   }
@@ -729,7 +740,32 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
             total time on the date of encounter — the coder chooses, and the two
             can legitimately give different levels. ED codes have no time option,
             so this control is hidden there. */}
-        {timeEligible && (
+        {criticalCare && (
+          <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 10, padding: '12px 14px', marginBottom: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#991b1b', marginBottom: 8 }}>
+              Total critical care time
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <input
+                style={{ ...s.inputField, width: 110, marginBottom: 0 }}
+                placeholder="e.g. 75"
+                inputMode="numeric"
+                value={emData.critical_care_minutes || ''}
+                onChange={e => updateEM({
+                  critical_care_minutes: e.target.value.replace(/[^0-9]/g, '').slice(0, 4),
+                })}
+              />
+              <span style={{ fontSize: 12, color: '#6b7280' }}>minutes on the date of service</span>
+            </div>
+            <div style={{ fontSize: 11, color: '#991b1b', marginTop: 8 }}>
+              Report 99291 once for the initial period, then 99292 for each additional
+              period — as separate lines or one line carrying units, whichever your
+              guidelines use.
+            </div>
+          </div>
+        )}
+
+        {timeEligible && !criticalCare && (
           <div style={{ background: '#f8fafc', border: '1px solid #e5e7eb', borderRadius: 10, padding: '12px 14px', marginBottom: 12 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 8 }}>Level by</div>
             <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -769,8 +805,21 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
 
         {/* MDM sections are greyed rather than hidden: seeing what does not
             apply, and why, is part of the lesson. */}
-        <div style={byTime ? { opacity: 0.45, pointerEvents: 'none' as const } : undefined}
-             aria-disabled={byTime}>
+        {!mdmApplies && (
+          <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10,
+            padding: '10px 14px', marginBottom: 12, fontSize: 12, color: '#92400e' }}>
+            <strong>{EM_CATEGORY_LABELS[emCat]}</strong> — {emData.em_code} is not levelled by
+            medical decision making, so the COPA, Data Review and Risk sections are not scored
+            for this chart. {criticalCare
+              ? 'Enter the total critical care time instead; it carries the reasoning marks.'
+              : 'Your marks come from the E/M code, diagnoses and procedures.'}
+          </div>
+        )}
+
+        {/* MDM sections are greyed rather than hidden: seeing what does not
+            apply, and why, is part of the lesson. */}
+        <div style={mdmOff ? { opacity: 0.45, pointerEvents: 'none' as const } : undefined}
+             aria-disabled={mdmOff}>
 
         {/* ── COPA ── */}
         <EMAccordion title="COPA — Number & Complexity of Problems" open={emOpenSections.copa} onToggle={() => toggleSection('copa')} accent="#7c3aed">

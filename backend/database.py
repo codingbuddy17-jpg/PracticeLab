@@ -547,6 +547,17 @@ def _run_migrations():
     _add_col("em_answer_keys", "level_method", "VARCHAR(10) NOT NULL DEFAULT 'MDM'", "TEXT NOT NULL DEFAULT 'MDM'")
     _add_col("em_answer_keys", "total_time", "INTEGER", "INTEGER")
 
+    # ── E/M encounter category ───────────────────────────────────────────────
+    # Blank on every existing row and derived from the E/M code when read, so
+    # keys written before categories existed keep the category they always had.
+    # The three MDM level columns stay NOT NULL: for a category that does not
+    # use MDM they simply go unread, which needs no schema change and leaves
+    # every stored row valid.
+    _add_col("em_answer_keys", "em_category", "VARCHAR(30)", "TEXT")
+    _add_col("em_answer_keys", "critical_care_minutes", "INTEGER", "INTEGER")
+    _add_col("em_grading_results", "sub_critical_care_minutes", "INTEGER", "INTEGER")
+    _add_col("practice_chart_drafts", "critical_care_minutes", "INTEGER", "INTEGER")
+
     # ── E/M MDM answer keys ───────────────────────────────────────────────────
     _run("""CREATE TABLE IF NOT EXISTS em_answer_keys (
         id INTEGER PRIMARY KEY,

@@ -54,6 +54,11 @@ const RISK_COLORS: Record<string, { bg: string; border: string; text: string }> 
   High: { bg: '#fff1f2', border: '#fca5a5', text: '#991b1b' },
 }
 
+import {
+  EMCategory, EM_CATEGORY_LABELS, EM_CATEGORY_ORDER, EM_CODES_BY_CATEGORY,
+  categoryUsesMdm, resolveCategory,
+} from './emCategories'
+
 // Codes with a CPT total-time band. ED visit codes have none.
 const EM_TIME_ELIGIBLE = ['99202','99203','99204','99205','99212','99213','99214','99215']
 const EM_CODES = ['99202','99203','99204','99205','99211','99212','99213','99214','99215','99281','99282','99283','99284','99285']
@@ -63,6 +68,9 @@ const EM_CODES = ['99202','99203','99204','99205','99211','99212','99213','99214
 function emptyForm() {
   const f: Record<string, any> = { em_code: '', em_modifier: '', patient_type: 'NA',
     level_method: 'MDM', total_time: '',
+    // Blank means "work it out from the E/M code", which is what every key
+    // written before categories existed says.
+    em_category: '', critical_care_minutes: '',
     dx_codes: [''], procedure_cpts: [{ code: '', modifier: '', pointers: [], units: '' }] }
   COPA_FIELDS.forEach(c => { f[c.key] = 0 })
   DR_CAT1_FIELDS.forEach(c => { f[c.key] = 0 })
@@ -141,6 +149,27 @@ export function EMAnswerKeysView() {
     setForm(f => ({ ...f, [key]: val }))
   }
 
+  // What kind of encounter this key describes, and therefore which steps the
+  // form shows. Falls back to the E/M code so a key saved before categories
+  // existed opens on the category it always had.
+  const category: EMCategory = resolveCategory(form.em_category, form.em_code)
+  const mdm = categoryUsesMdm(category)
+  const steps = [
+    ...(mdm ? [
+      { key: 'copa', label: 'COPA' },
+      { key: 'dr', label: 'Data Review' },
+      { key: 'risk', label: 'Risk' },
+    ] : []),
+    { key: 'dx', label: 'Dx Coding' },
+    { key: 'em', label: 'E/M Code & CPT' },
+  ]
+
+  // A non-MDM category has no COPA step to sit on, so a form left open there
+  // would render nothing at all.
+  useEffect(() => {
+    if (!steps.some(s => s.key === expandedSection)) setExpandedSection(steps[0].key)
+  }, [category])
+
   function addDx() { setForm(f => ({ ...f, dx_codes: [...f.dx_codes, ''] })) }
   function removeDx(i: number) { setForm(f => ({ ...f, dx_codes: f.dx_codes.filter((_: any, idx: number) => idx !== i) })) }
   function setDx(i: number, val: string) { setForm(f => { const a = [...f.dx_codes]; a[i] = val; return { ...f, dx_codes: a } }) }
@@ -178,6 +207,9 @@ export function EMAnswerKeysView() {
         // The form holds time as a string; the API expects an int or null.
         total_time: form.level_method === 'TIME' && form.total_time
           ? parseInt(form.total_time, 10) : null,
+        em_category: category,
+        critical_care_minutes: category === 'critical_care' && form.critical_care_minutes
+          ? parseInt(form.critical_care_minutes, 10) : null,
         entered_by: trainerName(),
       }
       const res = await upsertEMAnswerKey(payload)
@@ -358,17 +390,41 @@ export function EMAnswerKeysView() {
             )}
           </div>
 
+          {/* What kind of encounter this is, and therefore what this form asks
+              for. Above the steps because it decides which steps exist. */}
+          <div style={{ marginBottom: 14 }}>
+            <label style={styles.label}>Encounter Category</label>
+            <select style={styles.select} value={category}
+              onChange={e => {
+                const next = e.target.value as EMCategory
+                // Drop a code that does not belong to the new category, rather
+                // than leaving a 99214 sitting under "Preventive".
+                const keep = next === 'other'
+                  || EM_CODES_BY_CATEGORY[next].includes(form.em_code)
+                setForm((f: any) => ({
+                  ...f, em_category: next,
+                  em_code: keep ? f.em_code : '',
+                  critical_care_minutes: next === 'critical_care' ? f.critical_care_minutes : '',
+                }))
+              }}>
+              {EM_CATEGORY_ORDER.map(c => (
+                <option key={c} value={c}>{EM_CATEGORY_LABELS[c]}</option>
+              ))}
+            </select>
+            <div style={{ fontSize: 11, color: '#6b7280', marginTop: 5 }}>
+              {mdm
+                ? 'Levelled by medical decision making — the COPA, Data Review and Risk steps apply.'
+                : category === 'critical_care'
+                  ? 'Levelled by total critical care time on the date of service. The MDM tables do not apply, so the reasoning weight rides on the time instead.'
+                  : 'Levelled by the code itself, not by MDM. This key is graded on the E/M code, diagnoses and procedures, and the MDM weight folds into those.'}
+            </div>
+          </div>
+
           {/* Progress steps */}
           <div style={{ display: 'flex', gap: 0, marginBottom: 20, borderRadius: 8, overflow: 'hidden', border: '1px solid #e2e8f0' }}>
-            {[
-              { key: 'copa', label: 'COPA' },
-              { key: 'dr', label: 'Data Review' },
-              { key: 'risk', label: 'Risk' },
-              { key: 'dx', label: 'Dx Coding' },
-              { key: 'em', label: 'E/M Code & CPT' },
-            ].map((s, i) => (
+            {steps.map((s, i) => (
               <button key={s.key} onClick={() => toggle(s.key)}
-                style={{ flex: 1, padding: '10px 4px', border: 'none', borderRight: i < 4 ? '1px solid #e2e8f0' : 'none',
+                style={{ flex: 1, padding: '10px 4px', border: 'none', borderRight: i < steps.length - 1 ? '1px solid #e2e8f0' : 'none',
                   background: expandedSection === s.key ? '#1e3a5f' : '#fff',
                   color: expandedSection === s.key ? '#fff' : '#374151',
                   fontWeight: 700, fontSize: 11, cursor: 'pointer' }}>
@@ -378,7 +434,7 @@ export function EMAnswerKeysView() {
           </div>
 
           {/* COPA Section */}
-          {expandedSection === 'copa' && (
+          {mdm && expandedSection === 'copa' && (
             <div style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: '#1e3a5f', marginBottom: 12 }}>
                 Number & Complexity of Problems Addressed (COPA)
@@ -414,7 +470,7 @@ export function EMAnswerKeysView() {
           )}
 
           {/* Data Review Section */}
-          {expandedSection === 'dr' && (
+          {mdm && expandedSection === 'dr' && (
             <div style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: '#1e3a5f', marginBottom: 12 }}>Data Review</div>
 
@@ -477,7 +533,7 @@ export function EMAnswerKeysView() {
           )}
 
           {/* Risk Section */}
-          {expandedSection === 'risk' && (
+          {mdm && expandedSection === 'risk' && (
             <div style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: '#1e3a5f', marginBottom: 12 }}>
                 Risk of Complications / Morbidity or Mortality
@@ -544,18 +600,18 @@ export function EMAnswerKeysView() {
               <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
                 <div style={{ flex: 1 }}>
                   <label style={styles.label}>E/M Code *</label>
-                  <select style={styles.select} value={form.em_code} onChange={e => setField('em_code', e.target.value)}>
-                    <option value="">Select E/M code</option>
-                    <optgroup label="Office / Outpatient — New Patient">
-                      {['99202','99203','99204','99205'].map(c => <option key={c}>{c}</option>)}
-                    </optgroup>
-                    <optgroup label="Office / Outpatient — Established Patient">
-                      {['99211','99212','99213','99214','99215'].map(c => <option key={c}>{c}</option>)}
-                    </optgroup>
-                    <optgroup label="Emergency Department">
-                      {['99281','99282','99283','99284','99285'].map(c => <option key={c}>{c}</option>)}
-                    </optgroup>
-                  </select>
+                  {/* Free text for Other: the point of that category is codes
+                      the app does not model, so a fixed list would exclude the
+                      only codes it exists to carry. */}
+                  {category === 'other' ? (
+                    <input style={styles.input} placeholder="e.g. 99347" value={form.em_code}
+                      onChange={e => setField('em_code', e.target.value.trim())} />
+                  ) : (
+                    <select style={styles.select} value={form.em_code} onChange={e => setField('em_code', e.target.value)}>
+                      <option value="">Select E/M code</option>
+                      {EM_CODES_BY_CATEGORY[category].map(c => <option key={c}>{c}</option>)}
+                    </select>
+                  )}
                 </div>
                 <div style={{ width: 120 }}>
                   <label style={styles.label}>Modifier</label>
@@ -567,6 +623,21 @@ export function EMAnswerKeysView() {
               {/* Bulk Excel has carried these since patient type and time-based
                   levelling landed; without them a hand-built key silently
                   defaults to NA / MDM and cannot exercise either rule. */}
+              {category === 'critical_care' && (
+                <div style={{ marginBottom: 16 }}>
+                  <label style={styles.label}>Total Critical Care Time (minutes) *</label>
+                  <input style={{ ...styles.input, width: 160 }} inputMode="numeric"
+                    placeholder="e.g. 75" value={form.critical_care_minutes}
+                    onChange={e => setField('critical_care_minutes',
+                      e.target.value.replace(/[^0-9]/g, '').slice(0, 4))} />
+                  <div style={{ fontSize: 11, color: '#6b7280', marginTop: 5 }}>
+                    The coder's time is graded against this number and nothing else — no
+                    threshold table is applied. Enter 99291 once and 99292 as many units as
+                    the encounter supports on the CPT lines below.
+                  </div>
+                </div>
+              )}
+
               <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
                 <div style={{ flex: 1 }}>
                   <label style={styles.label}>Patient Type</label>

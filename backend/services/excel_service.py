@@ -932,6 +932,8 @@ def parse_em_answer_key_upload(file_bytes: bytes) -> list[dict]:
       BA level_method (MDM / Time)   BB total_time (minutes)
       BC-BF procedure CPT Dx pointers (one cell per CPT, e.g. "1,2")
       BG-BJ procedure CPT units (blank = not graded on units)
+      BK    em_category (blank = derive from the E/M code)
+      BL    critical_care_minutes
     """
     wb = load_workbook(io.BytesIO(file_bytes), data_only=False)
     ws = wb.worksheets[0]
@@ -1007,6 +1009,15 @@ def parse_em_answer_key_upload(file_bytes: bytes) -> list[dict]:
                 line["units"] = norm_units(raw_units)
             procedure_cpts.append(line)
 
+        # BK / BL — encounter category and the critical care clock. Both
+        # appended at the end so no existing index moved.
+        em_category = _v(row, 62).strip().lower().replace(" ", "_").replace("&", "and")
+        _cc = _v(row, 63)
+        try:
+            critical_care_minutes = int(float(_cc)) if _cc else None
+        except (TypeError, ValueError):
+            critical_care_minutes = None
+
         entered_by = _v(row, 51)  # AZ
 
         # BA / BB — levelling method and total time (2021+ office/outpatient).
@@ -1022,6 +1033,8 @@ def parse_em_answer_key_upload(file_bytes: bytes) -> list[dict]:
 
         results.append({
             "chart_number": chart_number,
+            "em_category":                 em_category,
+            "critical_care_minutes":       critical_care_minutes,
             "copa_self_limited":           _int(row, 1),
             "copa_stable_acute":           _int(row, 2),
             "copa_stable_chronic":         _int(row, 3),

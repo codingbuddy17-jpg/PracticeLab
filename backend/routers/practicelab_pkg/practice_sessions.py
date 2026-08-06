@@ -188,6 +188,14 @@ def _em_feedback_items(scoring: dict, ak: dict, em: dict, cfg: dict) -> list:
             "issue": f"Dx pointers on CPT {pe['code']} — key {pe['ak']}, coded {pe['sub']}",
             "ak_code": pe["ak"], "coder_code": pe["sub"],
         })
+    if scoring.get("critical_care_minutes_ok") is False:
+        items.append({
+            "section": "Reasoning Accuracy",
+            "issue": f"Critical care time — key {scoring.get('ak_critical_care_minutes')} min, "
+                     f"coded {scoring.get('sub_critical_care_minutes') or '(none)'} min",
+            "ak_code": str(scoring.get("ak_critical_care_minutes") or ""),
+            "coder_code": str(scoring.get("sub_critical_care_minutes") or ""),
+        })
     for ue in scoring.get("unit_errors", []):
         items.append({
             "section": "Coding Accuracy",
