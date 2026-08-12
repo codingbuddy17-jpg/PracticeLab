@@ -74,13 +74,32 @@ status, rationale, view count, uploader.
 
 ### How pages reach the browser
 
-Files are **not** public. The API generates a **presigned URL** per request,
-valid for one hour by default. So:
+**The API proxies every image. The browser never contacts the storage bucket.**
 
-- Bucket ACLs can stay private
-- A leaked URL expires
-- The bucket must be reachable from the API, not from the user's browser
-  directly
+```
+browser  →  GET /charts/142/page/0  →  API  →  fetches from bucket  →  streams bytes back
+```
+
+`proxy_chart_page` in `routers/charts.py` calls `get_object()` server-side and
+returns a `StreamingResponse`. The browser only ever sees an API URL.
+
+This has real consequences for the internal deployment:
+
+| | |
+|---|---|
+| Does the front end query storage? | **No.** It requests an API path like any other endpoint |
+| Does the browser hold storage credentials? | **No.** They exist only in the backend's environment |
+| Must the bucket be reachable from user browsers? | **No.** Only from the backend |
+| Does the bucket need CORS configured? | **No** |
+| Can the bucket be fully private / internal-network-only? | **Yes** |
+
+> A `get_presigned_url()` helper exists in `services/storage.py` and is
+> imported, but **is never called**. Presigned URLs are not in use. If you read
+> that function and assume browsers fetch directly from the bucket, you will
+> configure network access that is not needed.
+
+Responses carry `Cache-Control: private, max-age=3600`, so a browser re-uses a
+page image for an hour without asking again.
 
 ---
 

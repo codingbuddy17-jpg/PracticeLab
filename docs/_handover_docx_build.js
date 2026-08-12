@@ -274,6 +274,7 @@ const doc = new Document({
         ['2.', 'Where the data lives', true],
         ['2.1', 'Charts — upload, storage keys, presigned URLs', false],
         ['2.2', 'Answer keys and other spreadsheet inputs', false],
+        ['2.3', 'The storage provider: Cloudflare R2', false],
         ['3.', 'Migration runbook', true],
         ['3.1', 'The short answer to "send us the scripts and backup"', false],
         ['3.2', 'What the application needs, and its environment variables', false],
@@ -314,7 +315,8 @@ const doc = new Document({
 
       h2('1.2 The fourth piece, which is not in that dashboard'),
       callout('There is a storage bucket, and it is easy to miss', [
-        'Chart page images are not in the database and not on either service. They sit in S3-compatible object storage, which is a separate provider and does not appear in the hosting dashboard alongside the other three.',
+        'Chart page images are not in the database and not on either service. They sit in Cloudflare R2 — S3-compatible object storage from a separate provider, which does not appear in the hosting dashboard alongside the other three.',
+        'Only the backend talks to it. See 2.3 for what to collect from the Cloudflare account.',
         [{ t: 'A migration that moves the database and both services, and forgets the bucket, produces an application where every chart is a broken image.', b: true }],
       ]),
 
@@ -398,10 +400,31 @@ const doc = new Document({
       rich([{ t: 'charts', code: true }, { t: ' — one row per chart: number, alias, specialty, category, difficulty, status, rationale, view count, uploader.' }]),
 
       h3('How pages reach the browser'),
-      p('Files are not public. The API generates a presigned URL per request, valid for one hour by default. So:'),
-      bullet('Bucket permissions can stay private'),
-      bullet('A leaked URL expires'),
-      bullet("The bucket must be reachable from the API, not from the user's browser directly"),
+      rich([{ t: 'The API proxies every image. The browser never contacts the storage bucket.', b: true }]),
+      code(['browser  →  GET /charts/142/page/0  →  API  →  fetches from bucket  →  streams bytes back']),
+      rich([
+        { t: 'proxy_chart_page', code: true },
+        { t: ' in ' }, { t: 'routers/charts.py', code: true },
+        { t: ' calls ' }, { t: 'get_object()', code: true },
+        { t: ' server-side and returns a streaming response. The browser only ever sees an API URL.' },
+      ]),
+      p('This has real consequences for the internal deployment:'),
+      table(
+        ['Question', 'Answer'],
+        [
+          ['Does the front end query storage?', [{ t: 'No.', b: true }, { t: ' It requests an API path like any other endpoint' }]],
+          ['Does the browser hold storage credentials?', [{ t: 'No.', b: true }, { t: " They exist only in the backend's environment" }]],
+          ['Must the bucket be reachable from user browsers?', [{ t: 'No.', b: true }, { t: ' Only from the backend' }]],
+          ['Does the bucket need CORS configured?', [{ t: 'No', b: true }]],
+          ['Can the bucket be fully private / internal-network-only?', [{ t: 'Yes', b: true }]],
+        ],
+        [5360, 4000],
+      ),
+      callout('Do not be misled by an unused helper', [
+        [{ t: 'A ' }, { t: 'get_presigned_url()', code: true }, { t: ' function exists in ' }, { t: 'services/storage.py', code: true }, { t: ' and is imported, but is never called. Presigned URLs are not in use.' }],
+        [{ t: 'If you read that function and assume browsers fetch directly from the bucket, you will configure network access that is not needed.', b: true }],
+      ]),
+      rich([{ t: 'Responses carry ' }, { t: 'Cache-Control: private, max-age=3600', code: true }, { t: ', so a browser re-uses a page image for an hour without asking again.' }]),
 
       h2('2.2 Answer keys and other spreadsheet inputs'),
       h3('The short version'),
@@ -439,6 +462,63 @@ const doc = new Document({
         { t: 'answer_keys.cpt', code: true },
         { t: ' is queryable with PostgreSQL JSON operators, and its shape is documented above rather than being enforced by the schema.' },
       ]),
+      h2('2.3 The storage provider: Cloudflare R2'),
+      p('The bucket is Cloudflare R2, which speaks the S3 API. The application uses boto3 — the standard AWS SDK — pointed at R2\'s endpoint rather than AWS:'),
+      code([
+        'boto3.client(',
+        '    "s3",',
+        '    endpoint_url=settings.STORAGE_ENDPOINT_URL,',
+        '    aws_access_key_id=settings.STORAGE_ACCESS_KEY,',
+        '    aws_secret_access_key=settings.STORAGE_SECRET_KEY,',
+        '    config=Config(signature_version="s3v4"),',
+        ')',
+      ]),
+      rich([
+        { t: 'Because it is plain S3, the receiving team can point this at ' },
+        { t: 'any', b: true },
+        { t: ' S3-compatible target — AWS S3, MinIO, Ceph, an internal object store — by changing three environment variables. No code change.' },
+      ]),
+
+      h3('What to collect from the Cloudflare account'),
+      table(
+        ['Needed', 'Where it comes from', 'Maps to'],
+        [
+          ['Account ID', 'Cloudflare dashboard → R2', [{ t: 'Part of ' }, { t: 'STORAGE_ENDPOINT_URL', code: true }]],
+          ['R2 API token (Access Key ID + Secret)', 'R2 → Manage API Tokens → Create', [{ t: 'STORAGE_ACCESS_KEY', code: true }, { t: ' / ' }, { t: 'STORAGE_SECRET_KEY', code: true }]],
+          ['Bucket name', 'R2 → Buckets', [{ t: 'STORAGE_BUCKET_NAME', code: true }]],
+        ],
+        [2800, 3200, 3360],
+      ),
+      p('The endpoint takes the form:'),
+      code(['https://<ACCOUNT_ID>.r2.cloudflarestorage.com']),
+      callout('The secret is shown once, at creation', [
+        'If nobody has it, it cannot be recovered — create a new API token instead.',
+        'That is safe: tokens are independent, and issuing a new one does not affect the objects already in the bucket.',
+        'Permissions needed: read and write. The application uploads on chart upload, reads on chart view, and deletes on chart removal.',
+      ]),
+
+      h3('Two routes for the move'),
+      rich([{ t: 'Route A — keep Cloudflare, re-point the new backend at it.', b: true }, { t: ' Fastest, and no data movement. The internal environment must be able to reach ' }, { t: '*.r2.cloudflarestorage.com', code: true }, { t: ' outbound. Keeps a dependency on an external provider, which your security team may or may not accept.' }]),
+      rich([{ t: 'Route B — copy the bucket to internal storage.', b: true }, { t: ' With rclone, which supports R2 and most S3-compatible targets natively:' }]),
+      code(['rclone sync r2:SOURCE_BUCKET internal:TARGET_BUCKET --progress']),
+      p('Or with the AWS CLI, configured against R2\'s endpoint:'),
+      code([
+        'aws s3 sync s3://SOURCE_BUCKET s3://TARGET_BUCKET \\',
+        '  --endpoint-url https://<ACCOUNT_ID>.r2.cloudflarestorage.com',
+      ]),
+      callout('Preserve the object keys exactly', [
+        [{ t: 'Keys are stored in ' }, { t: 'chart_files.storage_key', code: true }, { t: ' and are how the database finds each image.' }],
+        [{ t: 'A copy that re-prefixes or renames keys silently breaks every chart.', b: true }],
+      ]),
+
+      h3('One trap in the environment variables'),
+      rich([
+        { t: 'STORAGE_PUBLIC_URL', code: true },
+        { t: ' is ' }, { t: 'required', b: true },
+        { t: ' — the application will not start without it — but no application code reads it. It is a leftover.' },
+      ]),
+      p('Set it to anything non-empty (the bucket URL is the sensible choice) and do not spend time working out what it should point at. Flagged here because a team debugging a startup failure will otherwise go looking for the meaning of a variable that has none.'),
+
       pageBreak(),
 
       // ══ PART 3 — runbook ═══════════════════════════════════════════════════

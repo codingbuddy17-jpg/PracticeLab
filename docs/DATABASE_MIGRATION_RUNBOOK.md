@@ -197,6 +197,81 @@ copy preserving keys requires no database changes.
 becomes, why no uploaded spreadsheet needs migrating, and how to size the
 bucket.
 
+### 6.1 The current provider: Cloudflare R2
+
+The bucket is **Cloudflare R2**, which speaks the S3 API. The application uses
+`boto3` — the standard AWS SDK — pointed at R2's endpoint rather than AWS:
+
+```python
+boto3.client(
+    "s3",
+    endpoint_url=settings.STORAGE_ENDPOINT_URL,
+    aws_access_key_id=settings.STORAGE_ACCESS_KEY,
+    aws_secret_access_key=settings.STORAGE_SECRET_KEY,
+    config=Config(signature_version="s3v4"),
+)
+```
+
+Because it is plain S3, the receiving team can point this at **any**
+S3-compatible target — AWS S3, MinIO, Ceph, an internal object store — by
+changing three environment variables. No code change.
+
+### 6.2 What to collect from the Cloudflare account
+
+| Needed | Where it comes from | Maps to |
+|---|---|---|
+| Account ID | Cloudflare dashboard → R2 | Part of `STORAGE_ENDPOINT_URL` |
+| R2 API token (Access Key ID + Secret) | R2 → Manage API Tokens → Create | `STORAGE_ACCESS_KEY` / `STORAGE_SECRET_KEY` |
+| Bucket name | R2 → Buckets | `STORAGE_BUCKET_NAME` |
+
+The endpoint takes the form:
+
+```
+https://<ACCOUNT_ID>.r2.cloudflarestorage.com
+```
+
+**The secret is shown once, at creation.** If nobody has it, it cannot be
+recovered — create a new API token. That is safe: tokens are independent, and
+issuing a new one does not affect the objects in the bucket.
+
+Token permissions needed: **read and write** on the bucket. The application
+uploads on chart upload, reads on chart view, and deletes on chart removal.
+
+### 6.3 Two routes for the move
+
+**Route A — keep Cloudflare, re-point the new backend at it.** Fastest, and no
+data movement. The internal environment must be able to reach
+`*.r2.cloudflarestorage.com` outbound. Keeps a dependency on an external
+provider, which your security team may or may not accept.
+
+**Route B — copy the bucket to internal storage.** With `rclone` (which
+supports R2 and most S3-compatible targets natively):
+
+```bash
+rclone sync r2:SOURCE_BUCKET internal:TARGET_BUCKET --progress
+```
+
+Or with the AWS CLI, configured against R2's endpoint:
+
+```bash
+aws s3 sync s3://SOURCE_BUCKET s3://TARGET_BUCKET \
+  --endpoint-url https://<ACCOUNT_ID>.r2.cloudflarestorage.com
+```
+
+**Preserve the object keys exactly.** They are stored in
+`chart_files.storage_key` and are how the database finds each image. A copy
+that re-prefixes or renames keys silently breaks every chart.
+
+### 6.4 One trap in the environment variables
+
+`STORAGE_PUBLIC_URL` is **required** — the application will not start without
+it — but no application code reads it. It is a leftover.
+
+Set it to anything non-empty (the bucket URL is the sensible choice) and do not
+spend time working out what it should point at. Flagged here because a team
+debugging a startup failure will otherwise go looking for the meaning of a
+variable that has none.
+
 ---
 
 ## 7. Verification
