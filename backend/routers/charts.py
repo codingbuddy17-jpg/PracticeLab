@@ -7,7 +7,7 @@ from database import get_db
 from models import Chart, ChartFile, ChartStatus, Specialty, Difficulty, AnswerKey, GradingResult, ChartFeedback, FeedbackStatus
 from schemas import ChartOut, ChartWithRationale, ChartUpdate
 from services.chart_service import get_chart_pages, increment_view, log_audit
-from services.storage import get_s3_client
+from services.storage import open_object
 from config import settings
 
 router = APIRouter(prefix="/charts", tags=["charts"])
@@ -143,10 +143,11 @@ def proxy_chart_page(chart_id: int, page_order: int, db: Session = Depends(get_d
     file = next((f for f in chart.files if f.page_order == page_order), None)
     if not file:
         raise HTTPException(status_code=404, detail="Page not found")
-    client = get_s3_client()
-    obj = client.get_object(Bucket=settings.STORAGE_BUCKET_NAME, Key=file.storage_key)
-    content_type = obj.get("ContentType", "image/png")
-    return StreamingResponse(obj["Body"], media_type=content_type, headers={
+    # The API fetches from storage and streams the bytes back; the browser
+    # never contacts the bucket. That is what lets the bucket stay private,
+    # need no CORS, and be reachable only from the backend.
+    body, content_type = open_object(file.storage_key)
+    return StreamingResponse(body, media_type=content_type, headers={
         "Cache-Control": "private, max-age=3600",
     })
 

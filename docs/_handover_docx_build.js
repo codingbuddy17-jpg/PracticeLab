@@ -580,10 +580,19 @@ const doc = new Document({
       h3('Tier 3 — same three functions, plus think about durability'),
       p('A mounted file share (NFS, SMB) or the server\'s own disk. Simplest to implement — write to a path, read from a path — but the storage is then only as safe as that volume\'s backup, and running more than one API instance requires shared storage rather than local disk. Reasonable for a single-server internal deployment; a step backwards from object storage otherwise.'),
 
-      callout('Tidy this before a Tier 2 or 3 move', [
-        [{ t: 'routers/charts.py', code: true }, { t: ' calls ' }, { t: 'get_object()', code: true }, { t: ' directly rather than going through ' }, { t: 'services/storage.py', code: true }, { t: '. Everything else uses the wrapper.' }],
-        [{ t: 'Move that one call behind the wrapper first, so the storage implementation lives in exactly one file. It is a small change and it turns a two-file swap into a one-file swap.', b: true }],
-      ]),
+      h3('Where the change would be made'),
+      rich([{ t: 'backend/services/storage.py', code: true }, { t: ', and nowhere else.', b: true }, { t: ' Every storage call in the application goes through it:' }]),
+      table(
+        ['Function', 'Used by'],
+        [
+          [[{ t: 'upload_bytes(key, data, content_type)', code: true }], 'Chart upload'],
+          [[{ t: 'open_object(key)', code: true }], [{ t: 'Chart page view — returns ' }, { t: '(body, content_type)', code: true }]],
+          [[{ t: 'delete_object(key)', code: true }], 'Chart removal'],
+        ],
+        [4200, 5160],
+      ),
+      rich([{ t: 'boto3', code: true }, { t: ' is imported in that one file. A Tier 2 or Tier 3 move rewrites the bodies of those three functions and touches nothing else.' }]),
+      rich([{ t: 'get_presigned_url()', code: true }, { t: ' also lives there and is never called — see 2.1. A backend swap can ignore it, or delete it.' }]),
 
       h3('The recommendation'),
       rich([

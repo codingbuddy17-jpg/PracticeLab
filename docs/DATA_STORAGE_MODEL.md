@@ -221,13 +221,22 @@ backup, and horizontal scaling of the API requires shared storage rather than
 local disk. Reasonable for a single-server internal deployment; a step
 backwards from object storage otherwise.
 
-### One thing to tidy before a Tier 2 or 3 move
+### Where the change would be made
 
-`routers/charts.py` calls `get_object()` directly rather than going through
-`services/storage.py`. Everything else uses the wrapper. Before swapping the
-backend, that one call should be moved behind the wrapper so the storage
-implementation lives in exactly one file. It is a small change and it turns a
-two-file swap into a one-file swap.
+**`backend/services/storage.py`, and nowhere else.** Every storage call in the
+application goes through it:
+
+| Function | Used by |
+|---|---|
+| `upload_bytes(key, data, content_type)` | Chart upload |
+| `open_object(key)` | Chart page view — returns `(body, content_type)` |
+| `delete_object(key)` | Chart removal |
+
+`boto3` is imported in that one file. A Tier 2 or Tier 3 move rewrites the
+bodies of those three functions and touches nothing else.
+
+`get_presigned_url()` also lives there and is never called — see 2.1. A backend
+swap can ignore it, or delete it.
 
 ### The recommendation
 

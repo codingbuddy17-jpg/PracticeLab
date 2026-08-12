@@ -24,6 +24,24 @@ def upload_bytes(key: str, data: bytes, content_type: str = "image/png") -> str:
     return key
 
 
+def open_object(key: str, default_content_type: str = "image/png"):
+    """
+    Open an object for streaming. Returns (body, content_type).
+
+    Every read goes through here so the storage backend lives in one file. The
+    chart page endpoint used to call get_object() itself, which meant swapping
+    S3 for anything else — Azure Blob, a mounted share — was a two-file change
+    with one of them easy to miss.
+
+    The body is a streaming handle, not bytes: chart pages are images and the
+    endpoint hands them straight to a StreamingResponse rather than loading
+    each one into memory.
+    """
+    client = get_s3_client()
+    obj = client.get_object(Bucket=settings.STORAGE_BUCKET_NAME, Key=key)
+    return obj["Body"], obj.get("ContentType", default_content_type)
+
+
 def delete_object(key: str):
     client = get_s3_client()
     client.delete_object(Bucket=settings.STORAGE_BUCKET_NAME, Key=key)
