@@ -862,31 +862,22 @@ function PracticeTokensSection({ batchId, isDirect, awaitingCodes }: {
 
   return (
     <div style={{ ...styles.cycleSection, marginBottom: 12 }}>
-      {/* Charts are assigned and no codes exist, so nothing the trainer has done
-          so far is usable by anyone yet. This was the last step of the set-up
-          and the easiest one to walk away without doing. */}
-      {awaitingCodes && existing.length === 0 && !loading && (
-        <div style={{ background: '#f5f3ff', border: '1px solid #ddd6fe', borderRadius: 8,
-          padding: '10px 14px', marginBottom: 10, fontSize: 12, color: '#5b21b6',
-          display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' as const }}>
-          <span style={{ flex: 1, minWidth: 220 }}>
-            <strong>Charts are assigned — one step left.</strong> {isDirect ? 'This coder' : 'Coders'}{' '}
-            cannot start until {isDirect ? 'they have an access code' : 'they have access codes'}.
-          </span>
-          <button
-            onClick={generateTokens}
-            disabled={loading}
-            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 700 }}
-          >
-            <Key size={12} /> {V.makeCodes}
-          </button>
-        </div>
-      )}
-
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <Key size={14} color="#7c3aed" />
           <span style={{ fontWeight: 700, fontSize: 13, color: '#374151' }}>{V.codesPanel}</span>
+          {/* Charts are assigned and no codes exist, so nothing set up so far is
+              usable by anyone yet — the last step, and the easiest to walk away
+              without doing. A line beside the button that already does it; an
+              earlier version put a second identical button directly above this
+              one, which is not urgency, just clutter. */}
+          {awaitingCodes && existing.length === 0 && !loading && (
+            <span style={{ fontSize: 11, fontWeight: 600, color: '#7c3aed', background: '#f5f3ff',
+              border: '1px solid #ddd6fe', borderRadius: 20, padding: '2px 10px' }}>
+              Last step — {isDirect ? 'this coder' : 'coders'} cannot start without{' '}
+              {isDirect ? 'a code' : 'codes'}
+            </span>
+          )}
           {existing.length > 0 && (
             <span style={{ fontSize: 11, background: '#ede9fe', color: '#7c3aed', borderRadius: 20, padding: '2px 8px', fontWeight: 600 }}>
               {existing.length} session{existing.length !== 1 ? 's' : ''}
@@ -898,10 +889,13 @@ function PracticeTokensSection({ batchId, isDirect, awaitingCodes }: {
             <input type="checkbox" checked={showResults} onChange={e => setShowResults(e.target.checked)} />
             Show results to coder
           </label>
+          {/* The single button for this. It grows a ring while it is the
+              outstanding step, rather than being duplicated by a second one. */}
           <button
             onClick={generateTokens}
             disabled={loading}
-            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 700, opacity: loading ? 0.7 : 1 }}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 700, opacity: loading ? 0.7 : 1,
+              boxShadow: (awaitingCodes && existing.length === 0 && !loading) ? '0 0 0 3px #ddd6fe' : 'none' }}
           >
             <Key size={12} /> {loading ? 'Generating…' : existing.length ? V.remakeCodes : V.makeCodes}
           </button>
