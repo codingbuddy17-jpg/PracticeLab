@@ -275,6 +275,7 @@ const doc = new Document({
         ['2.1', 'Charts — upload, storage keys, presigned URLs', false],
         ['2.2', 'Answer keys and other spreadsheet inputs', false],
         ['2.3', 'The storage provider: Cloudflare R2', false],
+        ['2.4', 'Choosing a storage backend for the internal environment', false],
         ['3.', 'Migration runbook', true],
         ['3.1', 'The short answer to "send us the scripts and backup"', false],
         ['3.2', 'What the application needs, and its environment variables', false],
@@ -518,6 +519,85 @@ const doc = new Document({
         { t: ' — the application will not start without it — but no application code reads it. It is a leftover.' },
       ]),
       p('Set it to anything non-empty (the bucket URL is the sensible choice) and do not spend time working out what it should point at. Flagged here because a team debugging a startup failure will otherwise go looking for the meaning of a variable that has none.'),
+
+      pageBreak(),
+      h2('2.4 Choosing a storage backend for the internal environment'),
+      h3('What the application actually requires'),
+      p('Before comparing products, this is the whole requirement. The application performs exactly three storage operations:'),
+      table(
+        ['Operation', 'When'],
+        [
+          [[{ t: 'put_object', code: true }], 'A chart is uploaded — one call per page'],
+          [[{ t: 'get_object', code: true }], 'A chart page is viewed'],
+          [[{ t: 'delete_object', code: true }], 'A chart is removed'],
+        ],
+        [2800, 6560],
+      ),
+      p('That is all. No listing, no multipart uploads, no versioning, no lifecycle rules, no ACLs, no bucket policies, no tagging, no presigned URLs. It stores blobs under keys and reads them back.'),
+      rich([
+        { t: 'This is the least demanding thing an application can ask of object storage', b: true },
+        { t: ', and it means the choice is governed by what your organisation already runs rather than by any capability the app needs.' },
+      ]),
+
+      h3('Tier 1 — change three environment variables, no code change'),
+      rich([{ t: 'Anything that speaks the S3 API. The client is built with a configurable ' }, { t: 'endpoint_url', code: true }, { t: ', so it is already pointed at a non-AWS S3 service today.' }]),
+      table(
+        ['Option', 'Typical enterprise context'],
+        [
+          [[{ t: 'AWS S3', b: true }], 'Already on AWS; the reference implementation'],
+          [[{ t: 'MinIO', b: true }], "Self-hosted, in the org's own datacentre or Kubernetes. The common answer when data must not leave the building"],
+          [[{ t: 'Ceph RADOS Gateway', b: true }], 'Org already runs Ceph for block/object storage'],
+          [[{ t: 'Dell ECS, NetApp StorageGRID, Pure FlashBlade, Hitachi HCP', b: true }], 'On-premises enterprise object storage appliances, all with S3 front ends'],
+          [[{ t: 'Google Cloud Storage', b: true }], 'Via its S3-compatible XML API with HMAC keys — works, but the least-travelled path of these'],
+          [[{ t: 'Wasabi, Backblaze B2', b: true }], 'Lower-cost S3-compatible clouds; usually a cost decision rather than a policy one'],
+        ],
+        [3400, 5960],
+      ),
+      p('For all of these, the change is:'),
+      code([
+        'STORAGE_ENDPOINT_URL   →  the new service\'s endpoint',
+        'STORAGE_ACCESS_KEY     →  new access key',
+        'STORAGE_SECRET_KEY     →  new secret',
+        'STORAGE_BUCKET_NAME    →  new bucket (if renamed)',
+      ]),
+
+      h3('Tier 2 — replace three functions, roughly thirty lines'),
+      p('Backends that do not speak S3. In practice this means one:'),
+      table(
+        ['Option', 'Why it comes up'],
+        [
+          [[{ t: 'Azure Blob Storage', b: true }], 'The single most likely alternative in a Microsoft-centric organisation. It has no native S3 API'],
+        ],
+        [3400, 5960],
+      ),
+      rich([
+        { t: 'services/storage.py', code: true },
+        { t: ' wraps the three operations. Swapping their bodies for the Azure SDK (' },
+        { t: 'azure-storage-blob', code: true },
+        { t: ') is a contained change — the rest of the application calls those wrappers and never touches boto3 directly, with one exception noted below.' },
+      ]),
+
+      h3('Tier 3 — same three functions, plus think about durability'),
+      p('A mounted file share (NFS, SMB) or the server\'s own disk. Simplest to implement — write to a path, read from a path — but the storage is then only as safe as that volume\'s backup, and running more than one API instance requires shared storage rather than local disk. Reasonable for a single-server internal deployment; a step backwards from object storage otherwise.'),
+
+      callout('Tidy this before a Tier 2 or 3 move', [
+        [{ t: 'routers/charts.py', code: true }, { t: ' calls ' }, { t: 'get_object()', code: true }, { t: ' directly rather than going through ' }, { t: 'services/storage.py', code: true }, { t: '. Everything else uses the wrapper.' }],
+        [{ t: 'Move that one call behind the wrapper first, so the storage implementation lives in exactly one file. It is a small change and it turns a two-file swap into a one-file swap.', b: true }],
+      ]),
+
+      h3('The recommendation'),
+      rich([
+        { t: 'If the organisation has ' }, { t: 'any', b: true },
+        { t: ' existing object storage — Ceph, MinIO, StorageGRID, ECS, an AWS account — use it. It is a Tier 1 move: three variables, no code, no testing burden beyond the smoke test.' },
+      ]),
+      p('Reach for Azure Blob only if the organisation is Azure-standardised and object storage elsewhere would be an exception to policy. The work is small but it is real code, and code needs testing that configuration does not.'),
+      p('Avoid the file-share option unless the deployment is genuinely single-server and expected to stay that way.'),
+
+      h3('What does not change, whichever is chosen'),
+      richBullet([{ t: 'The database is untouched. ' }, { t: 'chart_files.storage_key', code: true }, { t: ' holds the same keys' }]),
+      bullet('The browser still never contacts storage — the API proxies every image'),
+      bullet('No CORS configuration is needed on the new backend'),
+      bullet('The bucket needs to be reachable only from the backend, so it can sit entirely inside the internal network'),
 
       pageBreak(),
 

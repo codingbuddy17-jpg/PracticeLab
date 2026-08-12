@@ -156,6 +156,102 @@ enforced by the schema.
 
 ---
 
+## 2.4 Choosing a storage backend for the internal environment
+
+### What the application actually requires
+
+Before comparing products, this is the whole requirement. The application
+performs exactly **three** storage operations:
+
+| Operation | When |
+|---|---|
+| `put_object` | A chart is uploaded — one call per page |
+| `get_object` | A chart page is viewed |
+| `delete_object` | A chart is removed |
+
+That is all. No listing, no multipart uploads, no versioning, no lifecycle
+rules, no ACLs, no bucket policies, no tagging, no presigned URLs (the helper
+exists but is never called). It stores blobs under keys and reads them back.
+
+**This is the least demanding thing an application can ask of object storage**,
+and it means the choice is governed by what your organisation already runs
+rather than by any capability the app needs.
+
+### The three tiers of migration effort
+
+**Tier 1 — change three environment variables, no code change.** Anything that
+speaks the S3 API. The client is constructed with a configurable
+`endpoint_url`, so it is already pointed at a non-AWS S3 service today.
+
+| Option | Typical enterprise context |
+|---|---|
+| **AWS S3** | Already on AWS; the reference implementation |
+| **MinIO** | Self-hosted, runs in the org's own datacentre or Kubernetes. The common answer when data must not leave the building |
+| **Ceph RADOS Gateway** | Org already runs Ceph for block/object storage |
+| **Dell ECS, NetApp StorageGRID, Pure FlashBlade, Hitachi HCP** | On-premises enterprise object storage appliances, all with S3 front ends |
+| **Google Cloud Storage** | Via its S3-compatible XML API with HMAC keys — works, but is the least-travelled path of these |
+| **Wasabi, Backblaze B2** | Lower-cost S3-compatible clouds; usually a cost decision rather than a policy one |
+
+For all of these the change is:
+
+```
+STORAGE_ENDPOINT_URL   → the new service's endpoint
+STORAGE_ACCESS_KEY     → new access key
+STORAGE_SECRET_KEY     → new secret
+STORAGE_BUCKET_NAME    → new bucket (if renamed)
+```
+
+**Tier 2 — replace three functions, roughly thirty lines.** Backends that do
+not speak S3. In practice this means one:
+
+| Option | Why it comes up |
+|---|---|
+| **Azure Blob Storage** | The single most likely alternative in a Microsoft-centric organisation. It has no native S3 API |
+
+`services/storage.py` contains `upload_bytes`, `get_object` usage and
+`delete_object` behind a thin wrapper. Swapping the body of those for the
+Azure SDK (`azure-storage-blob`) is a contained change — the rest of the
+application only ever calls those wrappers and never touches boto3 directly,
+with one exception noted below.
+
+**Tier 3 — same three functions, plus think about durability.** A mounted file
+share (NFS, SMB) or the server's own disk. Simplest to implement — write to a
+path, read from a path — but the storage is then only as safe as that volume's
+backup, and horizontal scaling of the API requires shared storage rather than
+local disk. Reasonable for a single-server internal deployment; a step
+backwards from object storage otherwise.
+
+### One thing to tidy before a Tier 2 or 3 move
+
+`routers/charts.py` calls `get_object()` directly rather than going through
+`services/storage.py`. Everything else uses the wrapper. Before swapping the
+backend, that one call should be moved behind the wrapper so the storage
+implementation lives in exactly one file. It is a small change and it turns a
+two-file swap into a one-file swap.
+
+### The recommendation
+
+If the organisation has **any** existing object storage — Ceph, MinIO,
+StorageGRID, ECS, an AWS account — use it. It is a Tier 1 move: three
+variables, no code, no testing burden beyond the smoke test.
+
+Reach for Azure Blob only if the organisation is Azure-standardised and object
+storage elsewhere would be an exception to policy. The work is small but it is
+real code, and code needs testing that configuration does not.
+
+Avoid the file-share option unless the deployment is genuinely single-server
+and expected to stay that way.
+
+### What does not change, whichever is chosen
+
+- The database is untouched. `chart_files.storage_key` holds the same keys
+- The browser still never contacts storage (see 2.1) — the API proxies
+- No CORS configuration is needed on the new backend
+- The bucket needs to be reachable only from the backend, so it can sit
+  entirely inside the internal network
+
+---
+
 ## 3. What this means for the migration
 
 ### Migrate these
