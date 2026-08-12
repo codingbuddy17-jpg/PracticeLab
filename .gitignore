@@ -21,3 +21,4 @@ loadtest/
 
 # Claude Code agent worktrees (local only)
 .claude/worktrees/
+docs/~$*

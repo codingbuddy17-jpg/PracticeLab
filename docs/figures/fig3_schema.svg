@@ -1,0 +1,115 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="800" viewBox="0 0 1240 800">
+  <style>
+    .ttl   { font-family: Helvetica, Arial, sans-serif; font-size: 24px; font-weight: bold; fill: #1F3864; }
+    .sub   { font-family: Helvetica, Arial, sans-serif; font-size: 16px; fill: #595959; }
+    .dom   { font-family: Helvetica, Arial, sans-serif; font-size: 17px; font-weight: bold; }
+    .cnt   { font-family: Helvetica, Arial, sans-serif; font-size: 13.5px; }
+    .tbl   { font-family: Consolas, "Courier New", monospace; font-size: 13.5px; fill: #333333; }
+    .key   { font-family: Consolas, "Courier New", monospace; font-size: 13.5px; fill: #7B1FA2; font-weight: bold; }
+    .note  { font-family: Helvetica, Arial, sans-serif; font-size: 13.5px; fill: #595959; }
+    .lbl   { font-family: Helvetica, Arial, sans-serif; font-size: 13.5px; fill: #1F3864; font-weight: bold; }
+  </style>
+  <defs>
+    <marker id="a3" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+      <path d="M0,0 L9,3.5 L0,7 Z" fill="#7F7F7F"/>
+    </marker>
+  </defs>
+  <rect width="1240" height="800" fill="#FFFFFF"/>
+
+  <text x="24" y="34" class="ttl">Figure 3 — Schema map</text>
+  <text x="24" y="58" class="sub">32 tables in five domains. Charts sit at the centre; every other domain refers to them.</text>
+
+  <!-- CHART LIBRARY (centre-left) -->
+  <rect x="30" y="90" width="330" height="216" rx="10" fill="#EAF1F8" stroke="#2E75B6" stroke-width="2"/>
+  <text x="48" y="118" class="dom" style="fill:#1F3864">1 · Chart Library</text>
+  <text x="330" y="118" class="cnt" text-anchor="end" style="fill:#2E75B6">6 tables</text>
+  <text x="48" y="146" class="key">charts</text>
+  <text x="175" y="146" class="note">the chart record</text>
+  <text x="48" y="168" class="key">chart_files</text>
+  <text x="175" y="168" class="note">one row per page → storage</text>
+  <text x="48" y="192" class="tbl">chart_sequences</text>
+  <text x="48" y="212" class="tbl">chart_feedback</text>
+  <text x="48" y="232" class="tbl">audit_logs</text>
+  <text x="48" y="252" class="tbl">coding_resources</text>
+  <text x="48" y="284" class="note">Chart numbering, upload metadata,</text>
+  <text x="48" y="300" class="note">retire/restore audit trail</text>
+
+  <!-- PRACTICELAB -->
+  <rect x="390" y="90" width="380" height="300" rx="10" fill="#EAF6EF" stroke="#2E8B57" stroke-width="2"/>
+  <text x="408" y="118" class="dom" style="fill:#1E6B41">2 · PracticeLab</text>
+  <text x="750" y="118" class="cnt" text-anchor="end" style="fill:#2E8B57">12 tables</text>
+  <text x="408" y="146" class="key">answer_keys</text>
+  <text x="530" y="146" class="note">parsed from Excel · JSON columns</text>
+  <text x="408" y="168" class="tbl">batches</text>
+  <text x="408" y="188" class="tbl">batch_coders</text>
+  <text x="408" y="208" class="tbl">batch_charts</text>
+  <text x="408" y="228" class="tbl">batch_allocation_cycles</text>
+  <text x="408" y="248" class="tbl">grading_results</text>
+  <text x="408" y="268" class="tbl">grading_feedback</text>
+  <text x="408" y="288" class="tbl">submissions</text>
+  <text x="408" y="308" class="tbl">ed_rubric_details</text>
+  <text x="408" y="328" class="tbl">scoring_configs</text>
+  <text x="408" y="348" class="tbl">self_practice_submissions</text>
+  <text x="408" y="368" class="tbl">self_practice_results</text>
+
+  <!-- E/M -->
+  <rect x="800" y="90" width="410" height="130" rx="10" fill="#F5EEF8" stroke="#8E44AD" stroke-width="2"/>
+  <text x="818" y="118" class="dom" style="fill:#6C3483">3 · PracticeLab — E/M</text>
+  <text x="1190" y="118" class="cnt" text-anchor="end" style="fill:#8E44AD">3 tables</text>
+  <text x="818" y="146" class="key">em_answer_keys</text>
+  <text x="978" y="146" class="note">47 columns · MDM elements</text>
+  <text x="818" y="168" class="tbl">em_grading_results</text>
+  <text x="818" y="188" class="tbl">em_scoring_configs</text>
+  <text x="818" y="210" class="note">Created by migration DDL only — not in the ORM models</text>
+
+  <!-- practice sessions -->
+  <rect x="800" y="240" width="410" height="150" rx="10" fill="#FEF6E7" stroke="#B9770E" stroke-width="2"/>
+  <text x="818" y="268" class="dom" style="fill:#8A5A00">4 · Practice sessions</text>
+  <text x="1190" y="268" class="cnt" text-anchor="end" style="fill:#B9770E">3 tables</text>
+  <text x="818" y="296" class="key">practice_sessions</text>
+  <text x="978" y="296" class="note">access codes · per cycle</text>
+  <text x="818" y="318" class="tbl">practice_chart_drafts</text>
+  <text x="818" y="338" class="tbl">practice_results</text>
+  <text x="818" y="362" class="note">Where coders actually work. Results are mirrored</text>
+  <text x="818" y="380" class="note">into grading_results for reporting.</text>
+
+  <!-- assessment -->
+  <rect x="30" y="430" width="740" height="200" rx="10" fill="#FDEDEC" stroke="#C0392B" stroke-width="2"/>
+  <text x="48" y="458" class="dom" style="fill:#922B21">5 · Assessment (MCQ)</text>
+  <text x="750" y="458" class="cnt" text-anchor="end" style="fill:#C0392B">8 tables</text>
+  <text x="48" y="486" class="key">assessment_questions</text>
+  <text x="230" y="486" class="note">the question bank — parsed from Excel</text>
+  <text x="48" y="508" class="tbl">assessment_configs</text>
+  <text x="48" y="528" class="tbl">generated_assessments</text>
+  <text x="48" y="548" class="tbl">generated_assessment_students</text>
+  <text x="410" y="508" class="tbl">assessment_sessions</text>
+  <text x="410" y="528" class="tbl">assessment_responses</text>
+  <text x="410" y="548" class="tbl">assessment_results</text>
+  <text x="410" y="568" class="tbl">assessment_audit_log</text>
+  <text x="48" y="596" class="note">Independent of charts — assessments are multiple-choice papers, not coding work.</text>
+  <text x="48" y="616" class="note">This domain never references the Chart Library.</text>
+
+  <!-- object storage -->
+  <rect x="800" y="430" width="410" height="140" rx="10" fill="#FFFFFF" stroke="#A9762A" stroke-width="2.5" stroke-dasharray="6,4"/>
+  <text x="818" y="458" class="dom" style="fill:#8A5A00">Object storage — not a database</text>
+  <text x="818" y="486" class="note">Chart page images, one PNG per page.</text>
+  <text x="818" y="510" class="key">charts/{chart_id}/{page}_{filename}.png</text>
+  <text x="818" y="536" class="note">Reached only from chart_files.storage_key.</text>
+  <text x="818" y="556" class="note">Backed up separately from the database.</text>
+
+  <!-- relationship arrows -->
+  <line x1="362" y1="160" x2="386" y2="160" stroke="#7F7F7F" stroke-width="1.8" marker-end="url(#a3)"/>
+  <text x="374" y="150" class="lbl" text-anchor="middle"> </text>
+  <line x1="772" y1="150" x2="796" y2="150" stroke="#7F7F7F" stroke-width="1.8" marker-end="url(#a3)"/>
+  <line x1="772" y1="300" x2="796" y2="300" stroke="#7F7F7F" stroke-width="1.8" marker-end="url(#a3)"/>
+  <path d="M 195 306 L 195 408 L 1005 408 L 1005 426" fill="none" stroke="#A9762A" stroke-width="2" stroke-dasharray="5,4" marker-end="url(#a3)"/>
+  <rect x="500" y="392" width="330" height="24" rx="4" fill="#FFFFFF" stroke="none"/>
+  <text x="665" y="409" class="lbl" text-anchor="middle" style="fill:#8A5A00">chart_files.storage_key points into the bucket</text>
+
+  <!-- footnote -->
+  <rect x="30" y="660" width="1180" height="112" rx="8" fill="#FAFAFA" stroke="#D9D9D9"/>
+  <text x="52" y="688" class="dom" style="fill:#1F3864">Reading this map for a migration</text>
+  <text x="52" y="714" class="note">• All 32 tables move together in a single pg_dump. There is no per-domain export.</text>
+  <text x="52" y="736" class="note">• Domains 3 and 4 exist only in the migration DDL, not in the ORM models — a schema built from the models alone omits them.</text>
+  <text x="52" y="758" class="note">• Object storage is the one thing outside the database, and the one thing a database backup does not protect.</text>
+</svg>
