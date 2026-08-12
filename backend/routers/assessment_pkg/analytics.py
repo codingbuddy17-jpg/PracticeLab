@@ -681,18 +681,39 @@ def analytics_coder(
     }
 
 
+def _qkey(assessment_id, question_id) -> tuple:
+    """
+    What identifies a question for analytics.
+
+    A bank id is globally unique, but a standalone question never enters the
+    bank and is numbered by its position within its own paper — SA-0001,
+    SA-0002 — so two standalone papers both contain an SA-0001. Keyed on the id
+    alone, one paper's topic silently claimed the other's responses, and the
+    two halves of this module even disagreed about which: batch-drill kept the
+    first it saw, the shared meta kept the last.
+
+    Pairing the id with its assessment removes the ambiguity, and removes it
+    for papers already in the database — renumbering at generation would only
+    have helped papers not yet created.
+    """
+    return (assessment_id, question_id)
+
+
 def _build_response_meta(db: Session, f: Optional[AFilters] = None) -> tuple:
     """
-    Build two dicts across the submitted sessions IN THE SELECTED WINDOW:
-      qid_specialty: Dict[str, str]  — question_id -> specialty
-      qid_topic:     Dict[str, str]  — question_id -> topic
-    Returns (qid_specialty, qid_topic, submitted_session_ids)
+    Metadata for the submitted sessions IN THE SELECTED WINDOW.
+
+    Returns (spec_of, topic_of, submitted_session_ids), where the first two are
+    callables taking an AssessmentResponse — they need the response's assessment
+    to resolve it, so they resolve it rather than making five call sites each
+    remember to.
     """
     base = _session_q(db, f) if f else db.query(AssessmentSession)
     submitted_sessions = base.filter(
         AssessmentSession.status == "submitted"
     ).all()
     submitted_session_ids = [s.id for s in submitted_sessions]
+    session_assessment = {s.id: s.assessment_id for s in submitted_sessions}
 
     # Collect unique slot ids to avoid re-parsing the same slot multiple times
     slot_ids = list(set(
@@ -704,15 +725,16 @@ def _build_response_meta(db: Session, f: Optional[AFilters] = None) -> tuple:
         .all()
     ) if slot_ids else []
 
-    qid_specialty: Dict[str, str] = {}
-    qid_topic: Dict[str, str] = {}
+    qid_specialty: Dict[tuple, str] = {}
+    qid_topic: Dict[tuple, str] = {}
     for slot in slots:
         qs = _parse_questions(slot.questions_json)
         for q in qs:
             qid = q.get("question_id", "")
             if qid:
-                qid_specialty[qid] = q.get("specialty", "") or "Unknown"
-                qid_topic[qid] = q.get("topic", "") or "Unknown"
+                key = _qkey(slot.assessment_id, qid)
+                qid_specialty[key] = q.get("specialty", "") or "Unknown"
+                qid_topic[key] = q.get("topic", "") or "Unknown"
 
     # sessions without a direct slot FK — fall back to assessment_id lookup
     sessions_without_slot = [s for s in submitted_sessions if not s.student_slot_id]
@@ -727,17 +749,24 @@ def _build_response_meta(db: Session, f: Optional[AFilters] = None) -> tuple:
             qs = _parse_questions(slot.questions_json)
             for q in qs:
                 qid = q.get("question_id", "")
-                if qid and qid not in qid_specialty:
-                    qid_specialty[qid] = q.get("specialty", "") or "Unknown"
-                    qid_topic[qid] = q.get("topic", "") or "Unknown"
+                key = _qkey(slot.assessment_id, qid)
+                if qid and key not in qid_specialty:
+                    qid_specialty[key] = q.get("specialty", "") or "Unknown"
+                    qid_topic[key] = q.get("topic", "") or "Unknown"
 
-    return qid_specialty, qid_topic, submitted_session_ids
+    def _lookup(table):
+        def resolve(resp) -> str:
+            aid = session_assessment.get(resp.session_id)
+            return table.get(_qkey(aid, resp.question_id), "Unknown")
+        return resolve
+
+    return _lookup(qid_specialty), _lookup(qid_topic), submitted_session_ids
 
 
 @router.get("/analytics/by-specialty")
 def analytics_by_specialty(db: Session = Depends(get_db), f: AFilters = Depends(filters)):
     """Aggregate accuracy and volume metrics grouped by specialty across all assessments."""
-    qid_specialty, _qid_topic, submitted_session_ids = _build_response_meta(db, f)
+    spec_of, _topic_of, submitted_session_ids = _build_response_meta(db, f)
 
     if not submitted_session_ids:
         return {"specialties": []}
@@ -753,7 +782,7 @@ def analytics_by_specialty(db: Session = Depends(get_db), f: AFilters = Depends(
     for resp in responses:
         if not answered(resp):
             continue
-        sp = qid_specialty.get(resp.question_id, "Unknown")
+        sp = spec_of(resp)
         if sp not in spec_map:
             spec_map[sp] = {"correct": 0, "total": 0, "coders": set()}
         spec_map[sp]["total"] += 1
@@ -779,7 +808,7 @@ def analytics_by_specialty(db: Session = Depends(get_db), f: AFilters = Depends(
 @router.get("/analytics/by-topic")
 def analytics_by_topic(db: Session = Depends(get_db), f: AFilters = Depends(filters)):
     """Aggregate accuracy and volume metrics grouped by topic across all assessments."""
-    qid_specialty, qid_topic, submitted_session_ids = _build_response_meta(db, f)
+    spec_of, topic_of, submitted_session_ids = _build_response_meta(db, f)
 
     if not submitted_session_ids:
         return {"topics": []}
@@ -795,8 +824,8 @@ def analytics_by_topic(db: Session = Depends(get_db), f: AFilters = Depends(filt
     for resp in responses:
         if not answered(resp):
             continue
-        tp = qid_topic.get(resp.question_id, "Unknown")
-        sp = qid_specialty.get(resp.question_id, "Unknown")
+        tp = topic_of(resp)
+        sp = spec_of(resp)
         if tp not in topic_map:
             topic_map[tp] = {"correct": 0, "total": 0, "coders": set(), "specialties": set()}
         topic_map[tp]["total"] += 1
@@ -823,30 +852,61 @@ def analytics_by_topic(db: Session = Depends(get_db), f: AFilters = Depends(filt
 
 @router.get("/analytics/by-batch")
 def analytics_by_batch(db: Session = Depends(get_db)):
+    """
+    Every batch, with its assessments and their scores.
+
+    Loaded by join rather than by three unbounded table reads. This used to
+    pull every assessment, every result and every session into Python and group
+    them with a nested scan — the exact shape the overview was rewritten away
+    from, and the comment there still explains why: fine on a few hundred rows
+    and fatal on a year of them. Only SUBMITTED sessions with a result can
+    contribute a score, so only those are fetched.
+    """
     assessments = db.query(GeneratedAssessment).order_by(GeneratedAssessment.generated_at.desc()).all()
-    all_results = db.query(AssessmentResult).all()
-    result_map = {r.session_id: r for r in all_results}
-    all_sessions = db.query(AssessmentSession).all()
+
+    # One pass over the rows that can actually contribute, keyed by assessment.
+    rows = (db.query(AssessmentSession, AssessmentResult)
+            .join(AssessmentResult, AssessmentResult.session_id == AssessmentSession.id)
+            .filter(AssessmentSession.status == "submitted")
+            .all())
+    by_assessment: Dict[int, List] = {}
+    for sess, res in rows:
+        by_assessment.setdefault(sess.assessment_id, []).append((sess, res))
+
+    # Counted separately: a coder who was issued a session is in the batch even
+    # if they never submitted, and the old nested scan quietly agreed by only
+    # counting submitters. Kept to submitters so the number does not change
+    # meaning here — pending and lapsed are reported beside it instead.
+    pending_rows = (db.query(AssessmentSession.assessment_id, AssessmentSession.status,
+                             func.count(AssessmentSession.id))
+                    .group_by(AssessmentSession.assessment_id, AssessmentSession.status)
+                    .all())
+    status_by_assessment: Dict[int, Dict[str, int]] = {}
+    for aid, status, n in pending_rows:
+        status_by_assessment.setdefault(aid, {})[status] = n
 
     marks = _thresholds(db)
     batch_map: Dict[str, Dict] = {}
     for a in assessments:
         batch_key = a.batch_name or "Ungrouped"
         if batch_key not in batch_map:
-            batch_map[batch_key] = {"assessments": [], "all_scores": [], "all_passes": [], "coders": set()}
+            batch_map[batch_key] = {"assessments": [], "all_scores": [], "all_passes": [],
+                                    "coders": set(), "pending": 0, "in_progress": 0,
+                                    "expired": 0}
 
         a_mark = marks.get(a.id, DEFAULT_PASS_THRESHOLD)
-        a_sessions = [s for s in all_sessions if s.assessment_id == a.id and s.status == "submitted"]
         a_scores, a_passes = [], []
-        for s in a_sessions:
-            r = result_map.get(s.id)
-            if r:
-                a_scores.append(r.score_pct)
-                # A batch can span assessments with different bars, so the pass
-                # flag has to travel with the score — a bare list of numbers
-                # cannot be re-judged later against one mark without lying.
-                a_passes.append(r.score_pct >= a_mark)
-                batch_map[batch_key]["coders"].add(coder_key(s))
+        for s, r in by_assessment.get(a.id, []):
+            a_scores.append(r.score_pct)
+            # A batch can span assessments with different bars, so the pass
+            # flag has to travel with the score — a bare list of numbers
+            # cannot be re-judged later against one mark without lying.
+            a_passes.append(r.score_pct >= a_mark)
+            batch_map[batch_key]["coders"].add(coder_key(s))
+
+        counts = status_by_assessment.get(a.id, {})
+        for st in ("pending", "in_progress", "expired"):
+            batch_map[batch_key][st] += counts.get(st, 0)
 
         a_pass_rate = round(sum(a_passes) / len(a_passes) * 100, 1) if a_passes else None
         a_avg = round(sum(a_scores) / len(a_scores), 1) if a_scores else None
@@ -869,6 +929,11 @@ def analytics_by_batch(db: Session = Depends(get_db)):
             "assessment_count": len(d["assessments"]),
             "total_coders": len(d["coders"]),
             "submitted_count": len(scores),
+            # 5 of 50 must not read like 5 of 5. The counts sit beside the
+            # submitted figure rather than being inferred from it.
+            "pending_count": d["pending"],
+            "in_progress_count": d["in_progress"],
+            "expired_count": d["expired"],
             "avg_score": round(sum(scores) / len(scores), 1) if scores else None,
             "pass_rate": (round(sum(d.get("all_passes", [])) / len(d["all_passes"]) * 100, 1)
                           if d.get("all_passes") else None),
@@ -906,14 +971,19 @@ def analytics_batch_drill(batch_name: str, db: Session = Depends(get_db)):
     slots = db.query(GeneratedAssessmentStudent).filter(GeneratedAssessmentStudent.id.in_(slot_ids)).all() if slot_ids else []
     fallback_slots = db.query(GeneratedAssessmentStudent).filter(GeneratedAssessmentStudent.assessment_id.in_(assessment_ids)).all()
 
-    qid_topic: Dict[str, str] = {}
-    qid_specialty: Dict[str, str] = {}
+    # Keyed by (assessment_id, question_id), the same as the shared meta. Keyed
+    # on the id alone these two halves of the module disagreed: this one kept
+    # the first standalone SA-0001 it saw and the other kept the last, so the
+    # drill and the topic tab reported different topics for identical data.
+    qid_topic: Dict[tuple, str] = {}
+    qid_specialty: Dict[tuple, str] = {}
     for slot in list(slots) + list(fallback_slots):
         for q in _parse_questions(slot.questions_json):
             qid = q.get("question_id", "")
-            if qid and qid not in qid_topic:
-                qid_topic[qid] = q.get("topic", "") or "Unknown"
-                qid_specialty[qid] = q.get("specialty", "") or "Unknown"
+            key = _qkey(slot.assessment_id, qid)
+            if qid and key not in qid_topic:
+                qid_topic[key] = q.get("topic", "") or "Unknown"
+                qid_specialty[key] = q.get("specialty", "") or "Unknown"
 
     # coder → topic accuracy
     coder_topic: Dict[str, Dict[str, Dict]] = {}
@@ -932,7 +1002,7 @@ def analytics_batch_drill(batch_name: str, db: Session = Depends(get_db)):
         # does not NAME. Carry the readable label alongside, or the matrix shows
         # a column of bare ids nobody can match to a person.
         coder_label.setdefault(coder, {"coder_name": s.coder_name, "employee_id": s.employee_id})
-        topic = qid_topic.get(resp.question_id, "Unknown")
+        topic = qid_topic.get(_qkey(s.assessment_id, resp.question_id), "Unknown")
         coder_topic.setdefault(coder, {}).setdefault(topic, {"correct": 0, "total": 0})
         coder_topic[coder][topic]["total"] += 1
         if effective_correct(resp):
@@ -964,6 +1034,11 @@ def analytics_batch_drill(batch_name: str, db: Session = Depends(get_db)):
         for topic in all_topics:
             d = topic_data.get(topic)
             row["topics"][topic] = round(d["correct"] / d["total"] * 100, 1) if d and d["total"] else None
+            # 100% off one question and 100% off twenty are not the same
+            # evidence, and the cell showed them identically. The counts travel
+            # with the percentage so the screen can say which it is looking at.
+            row.setdefault("topic_counts", {})[topic] = (
+                {"correct": d["correct"], "total": d["total"]} if d and d["total"] else None)
 
         sess_list = coder_sessions.get(coder, [])
         if sess_list:
@@ -998,8 +1073,13 @@ def analytics_batch_drill(batch_name: str, db: Session = Depends(get_db)):
             "total": totals,
         })
 
-    weak_topics = [t for t in topic_summary if t["accuracy_pct"] is not None and t["accuracy_pct"] < 80]
-    strong_topics = [t for t in topic_summary if t["accuracy_pct"] is not None and t["accuracy_pct"] >= 90]
+    # Coaching bands, deliberately not the assessment's pass mark: a paper can
+    # be set at 70 or 90, but "needs work" and "solid" are a training judgement
+    # and stay put so batches remain comparable. Published so the screen can
+    # say which numbers it used rather than leaving them to be guessed.
+    WEAK_BELOW, STRONG_AT = 80, 90
+    weak_topics = [t for t in topic_summary if t["accuracy_pct"] is not None and t["accuracy_pct"] < WEAK_BELOW]
+    strong_topics = [t for t in topic_summary if t["accuracy_pct"] is not None and t["accuracy_pct"] >= STRONG_AT]
     weak_topics.sort(key=lambda x: x["accuracy_pct"])
     strong_topics.sort(key=lambda x: -(x["accuracy_pct"] or 0))
 
@@ -1025,6 +1105,8 @@ def analytics_batch_drill(batch_name: str, db: Session = Depends(get_db)):
         "topic_summary": topic_summary,
         "weak_topics": weak_topics,
         "strong_topics": strong_topics,
+        "weak_below": WEAK_BELOW,
+        "strong_at": STRONG_AT,
         "assessments": [{"id": a.id, "name": a.assessment_name, "generated_at": a.generated_at.isoformat() if a.generated_at else None} for a in assessments],
     }
 
@@ -1325,7 +1407,7 @@ def analytics_question_signals(
 
 @router.get("/analytics/coder-matrix")
 def analytics_coder_matrix(db: Session = Depends(get_db), f: AFilters = Depends(filters)):
-    qid_specialty, _qid_topic, submitted_session_ids = _build_response_meta(db, f)
+    spec_of, _topic_of, submitted_session_ids = _build_response_meta(db, f)
     if not submitted_session_ids:
         return {"coders": [], "specialties": []}
 
@@ -1357,7 +1439,7 @@ def analytics_coder_matrix(db: Session = Depends(get_db), f: AFilters = Depends(
             continue
         key = coder_key(s)
         coder_label.setdefault(key, {"coder_name": s.coder_name, "employee_id": s.employee_id})
-        sp = qid_specialty.get(resp.question_id, "Unknown")
+        sp = spec_of(resp)
         coder_spec.setdefault(key, {}).setdefault(sp, {"correct": 0, "total": 0})
         coder_spec[key][sp]["total"] += 1
         if effective_correct(resp):

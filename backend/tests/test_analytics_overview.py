@@ -185,3 +185,54 @@ def test_the_rates_carry_the_counts_behind_them(client, db):
     assert d["total_submitted"] == 1
     assert d["completion_rate"] == 50.0
     assert d["auto_submitted_count"] == 0
+
+
+# ── by-batch: bounded work, and counts beside the submitted figure ───────────
+
+def test_by_batch_does_not_scale_its_queries_with_the_data(client, db):
+    """
+    It loaded every assessment, every result and every session and grouped them
+    with a nested scan in Python — the shape the overview was rewritten away
+    from, for the reason the comment there still gives: fine on a few hundred
+    rows and fatal on a year of them.
+    """
+    from sqlalchemy import event
+
+    for i in range(6):
+        _generate(client, db, name=f"Paper {i}", batch=f"Wave {i % 2}", seed=(i == 0))
+    for s in db.query(AssessmentSession).all():
+        client.post(f"/assessment/take/{s.session_token}/start")
+        client.post(f"/assessment/take/{s.session_token}/submit",
+                    json={"auto_submitted": False})
+
+    n = {"q": 0}
+    bind = db.get_bind()
+
+    def before(conn, cur, stmt, params, ctx, many):
+        n["q"] += 1
+
+    event.listen(bind, "before_cursor_execute", before)
+    try:
+        body = client.get("/assessment/analytics/by-batch").json()
+    finally:
+        event.remove(bind, "before_cursor_execute", before)
+
+    assert len(body["batches"]) == 2
+    assert n["q"] < 12, f"query count scales with the number of assessments: {n['q']}"
+
+
+def test_by_batch_reports_what_has_not_been_submitted(client, db):
+    """
+    5 submitted out of 50 must not read like 5 out of 5. The counts sit beside
+    the submitted figure rather than being inferred from its absence.
+    """
+    gen = _generate(client, db, name="Half done", batch="Wave 1", coders=[
+        {"coder_name": "Alice"}, {"coder_name": "Bob"}])
+    t = gen["sessions"][0]["session_token"]
+    client.post(f"/assessment/take/{t}/start")
+    client.post(f"/assessment/take/{t}/submit", json={"auto_submitted": False})
+
+    batch = client.get("/assessment/analytics/by-batch").json()["batches"][0]
+    assert batch["submitted_count"] == 1
+    assert batch["pending_count"] == 1
+    assert batch["expired_count"] == 0

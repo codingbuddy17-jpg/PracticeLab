@@ -40,7 +40,19 @@ function BatchList({ batches, expanded, setExpanded, drillData, drillLoading, to
   batches: any[]; expanded: string | null; setExpanded: (v: string | null) => void;
   drillData: Record<string, any>; drillLoading: string | null; toggleBatch: (name: string) => void;
 }) {
-  const { pageData, Paginator } = usePagination(batches, 10)
+  // Sort before search: at ten batches you want the worst one first, at fifty
+  // you want to find one by name. Sorting earns its place sooner.
+  const [sortBy, setSortBy] = useState<'recent' | 'pass_rate' | 'avg_score' | 'coders'>('recent')
+  const sorted = [...batches].sort((a, b) => {
+    // A batch with nothing submitted has no rate to rank on. Sorting it to the
+    // top as "worst" would put the emptiest batches in front of the weakest.
+    const nullLast = (x: number | null) => (x == null ? Infinity : x)
+    if (sortBy === 'pass_rate') return nullLast(a.pass_rate) - nullLast(b.pass_rate)
+    if (sortBy === 'avg_score') return nullLast(a.avg_score) - nullLast(b.avg_score)
+    if (sortBy === 'coders') return (b.total_coders || 0) - (a.total_coders || 0)
+    return 0   // the API already returns newest first
+  })
+  const { pageData, Paginator } = usePagination(sorted, 10)
   // Reports are fetched rather than window.open()'d, so a failure surfaces as a
   // toast instead of a blank tab showing raw JSON. Keyed by batch so the button
   // that was pressed is the one that shows progress.
@@ -59,6 +71,22 @@ function BatchList({ batches, expanded, setExpanded, drillData, drillLoading, to
 
   return (
     <>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' as const }}>
+        <span style={{ fontSize: 11, color: '#6b7280', fontWeight: 600 }}>Sort by</span>
+        {([['recent', 'Most recent'], ['pass_rate', 'Lowest pass rate'],
+           ['avg_score', 'Lowest avg score'], ['coders', 'Most coders']] as const).map(([k, label]) => (
+          <button key={k} onClick={() => setSortBy(k)}
+            style={{
+              padding: '5px 12px', borderRadius: 8, cursor: 'pointer',
+              fontSize: 11, fontWeight: 700,
+              border: sortBy === k ? '1px solid #7c3aed' : '1px solid #e5e7eb',
+              background: sortBy === k ? '#f5f3ff' : '#fff',
+              color: sortBy === k ? '#7c3aed' : '#6b7280',
+            }}>
+            {label}
+          </button>
+        ))}
+      </div>
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       {pageData.map((batch: any) => {
         const isOpen = expanded === batch.batch_name
@@ -86,9 +114,18 @@ function BatchList({ batches, expanded, setExpanded, drillData, drillLoading, to
                   <div style={{ fontSize: 20, fontWeight: 800, color: rateColor(batch.pass_rate) }}>{fmt(batch.pass_rate)}</div>
                   <div style={{ fontSize: 11, color: '#9ca3af' }}>Pass Rate</div>
                 </div>
+                {/* 5 of 50 must not read like 5 of 5. */}
                 <div style={{ textAlign: 'right' }}>
                   <div style={{ fontSize: 20, fontWeight: 800, color: '#374151' }}>{batch.submitted_count}</div>
                   <div style={{ fontSize: 11, color: '#9ca3af' }}>Submitted</div>
+                  {(batch.pending_count > 0 || batch.in_progress_count > 0 || batch.expired_count > 0) && (
+                    <div style={{ fontSize: 10, color: '#b45309', fontWeight: 600, marginTop: 2, whiteSpace: 'nowrap' as const }}>
+                      {[batch.pending_count && `${batch.pending_count} waiting`,
+                        batch.in_progress_count && `${batch.in_progress_count} in progress`,
+                        batch.expired_count && `${batch.expired_count} lapsed`]
+                        .filter(Boolean).join(' · ')}
+                    </div>
+                  )}
                 </div>
                 <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', gap: 8 }}>
                   <ReportButton
@@ -116,12 +153,21 @@ function BatchList({ batches, expanded, setExpanded, drillData, drillLoading, to
                 {drill && !isDrillLoading && (
                   <div>
                     <div style={{ marginTop: 20, marginBottom: 20 }}>
-                      <div style={{ fontSize: 13, fontWeight: 800, color: '#111', marginBottom: 10 }}>Training Need Identification (TNI)</div>
+                      <div style={{ fontSize: 13, fontWeight: 800, color: '#111', marginBottom: 4 }}>Training Need Identification (TNI)</div>
+                      {/* Coaching bands, deliberately not the paper's pass mark —
+                          a paper can be set at 70 or 90, but "needs work" and
+                          "solid" are a training judgement and stay put so
+                          batches stay comparable. Said out loud rather than
+                          left to be inferred from the colours. */}
+                      <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 10 }}>
+                        Weak below {drill.weak_below ?? 80}% · strong at {drill.strong_at ?? 90}% and above.
+                        These are coaching bands, not the pass mark each paper was graded against.
+                      </div>
                       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' as const }}>
                         <div style={{ flex: 1, minWidth: 200 }}>
                           <div style={{ fontSize: 11, fontWeight: 700, color: '#dc2626', textTransform: 'uppercase' as const, letterSpacing: 0.4, marginBottom: 6 }}>✗ Weak Topics (need training)</div>
                           {drill.weak_topics.length === 0
-                            ? <div style={{ fontSize: 12, color: '#9ca3af' }}>None — all topics above 80%</div>
+                            ? <div style={{ fontSize: 12, color: '#9ca3af' }}>None — every topic at or above {drill.weak_below ?? 80}%</div>
                             : drill.weak_topics.map((t: any, i: number) => (
                               <div key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#fee2e2', color: '#991b1b', borderRadius: 20, padding: '4px 12px', margin: '3px 4px 3px 0', fontSize: 12, fontWeight: 700 }}>
                                 {t.topic} <span style={{ opacity: 0.7 }}>{t.accuracy_pct}%</span>
@@ -132,7 +178,7 @@ function BatchList({ batches, expanded, setExpanded, drillData, drillLoading, to
                         <div style={{ flex: 1, minWidth: 200 }}>
                           <div style={{ fontSize: 11, fontWeight: 700, color: '#16a34a', textTransform: 'uppercase' as const, letterSpacing: 0.4, marginBottom: 6 }}>✓ Strong Topics (well performed)</div>
                           {drill.strong_topics.length === 0
-                            ? <div style={{ fontSize: 12, color: '#9ca3af' }}>None above 90% yet</div>
+                            ? <div style={{ fontSize: 12, color: '#9ca3af' }}>None at {drill.strong_at ?? 90}% yet</div>
                             : drill.strong_topics.map((t: any, i: number) => (
                               <div key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#dcfce7', color: '#166534', borderRadius: 20, padding: '4px 12px', margin: '3px 4px 3px 0', fontSize: 12, fontWeight: 700 }}>
                                 {t.topic} <span style={{ opacity: 0.7 }}>{t.accuracy_pct}%</span>
@@ -286,10 +332,20 @@ function CoderTopicMatrix({ drill }: { drill: any }) {
                     </td>
                     {topics.map((tp: string) => {
                       const acc = row.topics[tp]
+                      const n = row.topic_counts?.[tp]
                       const bg = acc == null ? '#f9fafb' : acc >= 90 ? 'rgba(22,163,74,0.14)' : acc >= 80 ? 'rgba(217,119,6,0.12)' : 'rgba(220,38,38,0.1)'
                       return (
-                        <td key={tp} style={{ padding: '7px 10px', textAlign: 'center', background: bg, fontWeight: 700, fontSize: 12, color: scoreColor(acc) }}>
+                        <td key={tp}
+                          title={n ? `${n.correct} of ${n.total} correct` : 'No questions on this topic'}
+                          style={{ padding: '7px 10px', textAlign: 'center', background: bg, fontWeight: 700, fontSize: 12, color: scoreColor(acc) }}>
                           {acc != null ? `${acc}%` : '—'}
+                          {/* 100% off one question is not 100% off twenty, and
+                              the cell showed them identically. */}
+                          {n && (
+                            <div style={{ fontSize: 9, fontWeight: 600, color: '#9ca3af' }}>
+                              {n.correct}/{n.total}
+                            </div>
+                          )}
                         </td>
                       )
                     })}
