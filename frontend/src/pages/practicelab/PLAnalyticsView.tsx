@@ -214,6 +214,19 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
     () => (localStorage.getItem(SCOPE_STORAGE_KEY) as any) || 'formal'
   )
   useEffect(() => { localStorage.setItem(SCOPE_STORAGE_KEY, scope) }, [scope])
+  // A default should describe the data that exists, not a shape it might have.
+  // In an organisation whose work is mostly direct assignments, opening on
+  // "Batches" shows an empty screen and reads as "nothing has been captured" —
+  // when in fact everything was, just out of scope. Switches once, on the first
+  // visit only, and never argues with a choice the trainer has made.
+  const [autoScoped, setAutoScoped] = useState(() => !!localStorage.getItem(SCOPE_STORAGE_KEY))
+  useEffect(() => {
+    if (autoScoped || !overview) return
+    setAutoScoped(true)
+    if ((overview.total_graded || 0) === 0 && (overview.out_of_scope_results || 0) > 0) {
+      setScope('all')
+    }
+  }, [overview, autoScoped])
   const [matrixCoderSearch, setMatrixCoderSearch] = useState('')
   // "Batch" is wrong wording under the Direct scope, where no row is a batch.
   const unitLabel = scope === 'direct' ? 'Assignment' : 'Batch'
@@ -675,6 +688,21 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
               </button>
             ))}
           </div>
+          {/* An omission the trainer can see is a choice; one they cannot is a
+              screen that lies about how much work exists. */}
+          {scope !== 'all' && (overview?.out_of_scope_results || 0) > 0 && (
+            <button
+              onClick={() => setScope('all')}
+              title="Show batches and direct assignments together"
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px',
+                borderRadius: 8, border: '1px solid #fde68a', background: '#fffbeb',
+                color: '#92400e', fontSize: 11, fontWeight: 700, cursor: 'pointer',
+              }}>
+              {overview.out_of_scope_results} graded chart{overview.out_of_scope_results === 1 ? '' : 's'}{' '}
+              {scope === 'formal' ? 'from direct assignments' : 'from batches'} not shown — show both
+            </button>
+          )}
           {refreshing && (
             <span style={{ fontSize: 11, color: '#0f766e', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
               <Loader size={12} /> Updating…

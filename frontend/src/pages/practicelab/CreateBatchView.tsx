@@ -126,10 +126,29 @@ export function CreateBatchView({ onCreated, onCancel, scoringCfg, directMode: d
     <div style={styles.section}>
       <div style={styles.sectionTitle}>{directMode ? 'New Direct Assignment' : 'Create New Batch'}</div>
 
+      {/* "Formal Batch / Direct Assignment" read like two products, and a
+          trainer had to already know the difference to choose. They are one
+          thing with a scope switch: same creation, same allocation, same access
+          codes, same coder form, same grading. What actually differs is whether
+          the work counts toward cohort analytics — so that is what the choice
+          now says, with the label kept underneath for anyone who knows it. */}
       {directModeProp === undefined && (
-        <div style={styles.modeToggle}>
-          <button style={!directMode ? styles.modeTabActive : styles.modeTab} onClick={() => setDirectMode(false)}>Formal Batch</button>
-          <button style={directMode ? styles.modeTabActive : styles.modeTab} onClick={() => { setDirectMode(true); setForm(f => ({ ...f, charts_per_coder: 1 })) }}>Direct Assignment</button>
+        <div style={{ marginBottom: 14 }}>
+          <div style={styles.modeToggle}>
+            <button style={!directMode ? styles.modeTabActive : styles.modeTab}
+              onClick={() => setDirectMode(false)}>
+              Counts toward cohort analytics
+            </button>
+            <button style={directMode ? styles.modeTabActive : styles.modeTab}
+              onClick={() => { setDirectMode(true); setForm(f => ({ ...f, charts_per_coder: 1 })) }}>
+              Tracked separately
+            </button>
+          </div>
+          <div style={{ fontSize: 11, color: '#6b7280', marginTop: 6 }}>
+            {directMode
+              ? <><strong>Direct assignment.</strong> Graded and reported exactly like batch work, but kept out of cohort averages and trends so a one-off refresher does not move the team's numbers. Analytics shows it under "Direct Assignments" or "Both".</>
+              : <><strong>Batch.</strong> Counts toward team averages, pass rates and trends — the right choice for a cohort assessment everyone sits.</>}
+          </div>
         </div>
       )}
 

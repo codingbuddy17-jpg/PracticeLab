@@ -191,7 +191,19 @@ def analytics_overview(
     ip_cfg = db.query(ScoringConfig).filter(ScoringConfig.specialty_type == "IP").first()
     op_cfg = db.query(ScoringConfig).filter(ScoringConfig.specialty_type == "OP").first()
 
+    # What the CURRENT scope is leaving out. A screen that quietly omits most of
+    # the work looks like a screen with no data in it, and the trainer has no
+    # way to tell the difference.
+    out_of_scope = 0
+    if scope != "all":
+        other = _gr_base(db, from_date, to_date, specialty)
+        other = other.join(Batch, GradingResult.batch_id == Batch.id).filter(
+            Batch.is_direct_assignment == (scope == "formal"))
+        out_of_scope = other.count()
+
     return {
+        "scope": scope,
+        "out_of_scope_results": out_of_scope,
         "total_batches": b_base.count(),
         "open_batches": b_base.filter(Batch.status == BatchStatus.OPEN).count(),
         "complete_batches": b_base.filter(Batch.status == BatchStatus.CLOSED).count(),
@@ -884,15 +896,27 @@ def coder_report_pdf(
     coder_name: str,
     from_date: Optional[str] = None, to_date: Optional[str] = None, specialty: Optional[str] = None,
     emp_id: Optional[str] = None,
+    scope: str = "formal",
     db: Session = Depends(get_db),
 ):
     summary = coder_summary(coder_name, from_date, to_date, specialty, emp_id, db)
     if not summary:
         raise HTTPException(status_code=404, detail="No data for this coder")
 
-    team_base = _gr_base(db, from_date, to_date, specialty, exclude_direct=True)
+    # The population this coder is compared against. Hardcoded to exclude direct
+    # assignments, which in a mostly-direct organisation builds the "team
+    # average" from very little — or nothing — while the report still prints a
+    # comparison as though it meant something. It follows the caller's scope
+    # now, and the report says which population it used.
+    exclude_direct = (scope or "formal").lower() == "formal"
+    team_base = _gr_base(db, from_date, to_date, specialty, exclude_direct=exclude_direct)
+    if (scope or "").lower() == "direct":
+        team_base = team_base.join(Batch, GradingResult.batch_id == Batch.id).filter(
+            Batch.is_direct_assignment == True)
     team_scores = [r.total_score for r in team_base.all()]
     team_avg_score = round(sum(team_scores) / len(team_scores), 1) if team_scores else None
+    team_scope_label = {"formal": "batch work only", "direct": "direct assignments only"}.get(
+        (scope or "formal").lower(), "batch and direct-assignment work")
 
     if from_date or to_date:
         period_label = f"Period: {from_date or 'start'} to {to_date or 'today'}"
@@ -902,7 +926,8 @@ def coder_report_pdf(
         period_label += f"  |  Specialty: {specialty}"
 
     pdf_bytes = generate_coder_report_pdf(coder_name, summary, team_avg_score=team_avg_score,
-                                          period_label=period_label)
+                                          period_label=period_label,
+                                          team_scope_label=team_scope_label)
     safe_name = coder_name.replace(" ", "_")
     return StreamingResponse(
         io.BytesIO(pdf_bytes),

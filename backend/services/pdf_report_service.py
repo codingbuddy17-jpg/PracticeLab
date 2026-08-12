@@ -403,7 +403,8 @@ def _batch_verdict(bs: dict, pass_threshold: int = 80):
 
 def generate_coder_report_pdf(coder_name: str, summary: dict, team_avg_score: Optional[float] = None,
                               period_label: Optional[str] = None,
-                              scope_label: Optional[str] = None) -> bytes:
+                              scope_label: Optional[str] = None,
+                              team_scope_label: str = "batch work only") -> bytes:
     buf = io.BytesIO()
     doc = _doc(buf)
     elements = []
@@ -454,7 +455,11 @@ def generate_coder_report_pdf(coder_name: str, summary: dict, team_avg_score: Op
         diff_hex = "#1A7A4C" if diff > 0 else "#B23A33" if diff < 0 else "#6B6457"
         elements.append(Spacer(1, 8))
         elements.append(Paragraph(
-            f"vs team average ({team_avg_score}%, formal batches): "
+            # Says which population the average was built from. "formal
+            # batches" was hardcoded even when the caller had asked for
+            # something else, so the line could name a comparison the number
+            # had not been computed against.
+            f"vs team average ({team_avg_score}%, {team_scope_label}): "
             f"<font color='{diff_hex}'><b>{'+' if diff > 0 else ''}{diff} points</b></font>",
             ParagraphStyle("benchline", parent=NORMAL, textColor=colors.HexColor("#33312b"))
         ))

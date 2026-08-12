@@ -426,30 +426,44 @@ def close_batch(batch_id: int, payload: BatchClose, db: Session = Depends(get_db
     if batch.status == BatchStatus.CLOSED:
         raise HTTPException(status_code=400, detail="Batch is already closed")
 
-    # Direct assignments use in-browser practice sessions — no BatchChart submissions
-    if not batch.is_direct_assignment:
-        pending_submissions = (db.query(BatchChart)
-                               .filter(BatchChart.batch_id == batch_id,
-                                       BatchChart.submission_status == SubmissionStatus.PENDING)
-                               .count())
-        pending_drg = 0
-        if _is_ip(batch.specialty):
-            pending_drg = (db.query(GradingResult)
-                           .filter(GradingResult.batch_id == batch_id,
-                                   GradingResult.drg_flag == True,
-                                   GradingResult.drg_reviewed == False)
-                           .count())
+    # What blocks a close is ungraded work, and that is the same question in
+    # both flows — so it is asked the same way in both.
+    #
+    # This used to count BatchChart rows still marked PENDING, and skip the
+    # check entirely for direct assignments. Nothing has set that column to
+    # SUBMITTED since the offline Excel grading path was removed in July, so
+    # every ordinary batch had charts permanently pending and could not be
+    # closed at all; only Edits/Denials, whose rubric still writes the column,
+    # escaped. The column is a vestige. Graded results are the fact.
+    graded_pairs = {
+        (r.coder_name, r.chart_id)
+        for r in db.query(GradingResult.coder_name, GradingResult.chart_id)
+        .filter(GradingResult.batch_id == batch_id,
+                GradingResult.total_score.isnot(None)).all()
+    }
+    ungraded = sum(
+        1 for a in db.query(BatchChart).filter(BatchChart.batch_id == batch_id).all()
+        if (a.coder_name, a.chart_id) not in graded_pairs
+    )
+    pending_drg = 0
+    if _is_ip(batch.specialty):
+        pending_drg = (db.query(GradingResult)
+                       .filter(GradingResult.batch_id == batch_id,
+                               GradingResult.drg_flag == True,
+                               GradingResult.drg_reviewed == False)
+                       .count())
 
-        blockers = []
-        if pending_submissions:
-            blockers.append(f"{pending_submissions} chart(s) still pending submission")
-        if pending_drg:
-            blockers.append(f"{pending_drg} DRG review(s) unresolved")
-        if blockers:
-            raise HTTPException(
-                status_code=409,
-                detail={"reason": "Cannot close batch — grading incomplete", "blockers": blockers},
-            )
+    blockers = []
+    if ungraded:
+        blockers.append(f"{ungraded} assigned chart(s) not yet graded")
+    if pending_drg:
+        blockers.append(f"{pending_drg} DRG review(s) unresolved")
+    if blockers:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot close — {'; '.join(blockers)}. "
+                   f"Use force-close if this is deliberate.",
+        )
 
     batch.status = BatchStatus.CLOSED
     batch.closed_at = datetime.utcnow()
