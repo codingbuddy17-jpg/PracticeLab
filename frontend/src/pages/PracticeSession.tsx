@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams } from 'react-router-dom'
 import { Flag, Save, ChevronRight, CheckCircle, AlertTriangle, Circle, Send, BookOpen, Plus, X, Info, Copy, Check } from 'lucide-react'
-import { emCategory, categoryUsesMdm, EM_CATEGORY_LABELS } from './practicelab/emCategories'
+import {
+  EMCategory, emCategory, categoryUsesMdm, EM_CATEGORY_LABELS, EM_CATEGORY_ORDER,
+} from './practicelab/emCategories'
 import api from '../api/client'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -66,6 +68,7 @@ interface CodeEntry {
     // E/M code + patient type + Dx + CPT
     em_code: string
     em_modifier: string
+    em_category?: string
     critical_care_minutes?: number | string
     patient_type: 'NEW' | 'ESTABLISHED' | 'NA'
     level_method: 'MDM' | 'TIME'
@@ -169,6 +172,9 @@ const EMPTY_EM_DATA = () => ({
   risk_emergency_major_surgery: false, risk_hospitalization_escalation: false,
   risk_dnr_deescalate: false, risk_parenteral_controlled: false,
   em_code: '', em_modifier: '', patient_type: 'NA' as 'NEW' | 'ESTABLISHED' | 'NA',
+  // Office is the commonest encounter and the one the MDM tables were written
+  // for, so it is the least surprising place to start.
+  em_category: 'office' as string,
   critical_care_minutes: '' as number | string,
   level_method: 'MDM' as 'MDM' | 'TIME', total_time: '',
   em_dx: [] as Array<{ code: string }>, em_cpt: [] as Array<{ code: string; modifier: string; pointers?: string[]; units?: number | string }>,
@@ -626,14 +632,25 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
   // ED codes (99281-99285) cannot be levelled by time — MDM only.
   const timeEligible = !chart.specialty.toUpperCase().includes('ED PROFEE')
   const byTime = timeEligible && (emData.level_method || 'MDM') === 'TIME'
-  // Derived from the code the CODER typed, never from the answer key: which
-  // kind of encounter this is forms part of what they are being assessed on,
-  // and reading it off the key would hand them that.
-  const emCat = emCategory(emData.em_code)
+  // The coder states the category; it is not read off their code.
+  //
+  // Deriving it made the code the only signal, so a typo — 99219 for 99291 —
+  // silently reshaped the form and nothing could warn about it, because there
+  // was nothing for it to disagree WITH. Two independent statements make the
+  // disagreement visible in both directions. It also stops the form thrashing
+  // on every keystroke: "9", "99", "992" are all unrecognised, so the MDM
+  // sections used to grey out and flip back while the coder was still typing.
+  //
+  // The key's own category is never consulted here — which kind of encounter
+  // this is forms part of what the coder is being assessed on.
+  const emCat: EMCategory = (emData.em_category as EMCategory) || 'office'
   const criticalCare = emCat === 'critical_care'
-  // An empty code box must not grey out the form before they have started.
-  const mdmApplies = !emData.em_code || categoryUsesMdm(emCat)
+  const mdmApplies = categoryUsesMdm(emCat)
   const mdmOff = byTime || !mdmApplies
+  // Ungraded: the code already carries the category, so scoring both would
+  // charge a coder twice for one misreading. This warns and lets them through.
+  const codeCat = emData.em_code ? emCategory(emData.em_code) : null
+  const categoryMismatch = !!codeCat && codeCat !== emCat && codeCat !== 'other'
   function updateEM(patch: Partial<typeof emData>) {
     onChange({ em_data: { ...emData, ...patch } })
   }
@@ -735,6 +752,39 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
           })}
         </div>
 
+        {/* ── Encounter category ──
+            First decision on the chart, and the one that decides what the rest
+            of this form asks for. The coder reads the note, recognises the kind
+            of encounter, and then picks the code — so this sits above the code,
+            in the order the work actually happens. */}
+        <div style={{ background: '#f8fafc', border: '1px solid #e5e7eb', borderRadius: 10, padding: '12px 14px', marginBottom: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 8 }}>
+            Encounter category
+          </div>
+          <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+            {EM_CATEGORY_ORDER.map(c => (
+              <label key={c} style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13, color: '#374151' }}>
+                <input
+                  type="radio"
+                  name={`em_category_${chart.chart_id}`}
+                  checked={emCat === c}
+                  /* Switching category never clears the MDM entries or the
+                     clock — a coder changing their mind must not lose work. */
+                  onChange={() => updateEM({ em_category: c })}
+                />
+                {EM_CATEGORY_LABELS[c]}
+              </label>
+            ))}
+          </div>
+          <div style={{ fontSize: 11, color: '#6b7280', marginTop: 8 }}>
+            {mdmApplies
+              ? 'Levelled by medical decision making — complete the COPA, Data Review and Risk sections.'
+              : criticalCare
+                ? 'Levelled by total critical care time, not by MDM. Enter the time below; the MDM sections are not scored for this chart.'
+                : 'Levelled by the code itself, not by MDM. You are scored on the E/M code, diagnoses and procedures; the MDM sections are not scored for this chart.'}
+          </div>
+        </div>
+
         {/* ── Levelling method ──
             Since 2021 an office/outpatient visit may be levelled by MDM OR by
             total time on the date of encounter — the coder chooses, and the two
@@ -765,7 +815,10 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
           </div>
         )}
 
-        {timeEligible && !criticalCare && (
+        {/* Only the MDM-levelled categories have a Time alternative at all.
+            Offering "Level by MDM / Total Time" on a preventive visit asks the
+            coder to choose between two routes neither of which applies. */}
+        {timeEligible && mdmApplies && (
           <div style={{ background: '#f8fafc', border: '1px solid #e5e7eb', borderRadius: 10, padding: '12px 14px', marginBottom: 12 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 8 }}>Level by</div>
             <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -805,14 +858,17 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
 
         {/* MDM sections are greyed rather than hidden: seeing what does not
             apply, and why, is part of the lesson. */}
-        {!mdmApplies && (
+        {/* The whole point of asking for the category separately: the code and
+            the category are two independent statements, so they can disagree,
+            and a disagreement is nearly always a typo. Warn, never block — a
+            coder with a defensible reason keeps the last word. */}
+        {categoryMismatch && (
           <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10,
             padding: '10px 14px', marginBottom: 12, fontSize: 12, color: '#92400e' }}>
-            <strong>{EM_CATEGORY_LABELS[emCat]}</strong> — {emData.em_code} is not levelled by
-            medical decision making, so the COPA, Data Review and Risk sections are not scored
-            for this chart. {criticalCare
-              ? 'Enter the total critical care time instead — it is graded as part of the code.'
-              : 'Your marks come from the E/M code, diagnoses and procedures.'}
+            <strong>Check this before you submit.</strong> You selected{' '}
+            <strong>{EM_CATEGORY_LABELS[emCat]}</strong>, but {emData.em_code} is
+            a {EM_CATEGORY_LABELS[codeCat!].toLowerCase()} code. If the code is a typo, fix it;
+            if you meant it, leave it — the category itself is not scored.
           </div>
         )}
 

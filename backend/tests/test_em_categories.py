@@ -8,8 +8,11 @@ so a trainer keying a well-woman exam had to invent an MDM level and the coder
 then had to guess the same invention to earn thirty points. Both were being
 tested on a fiction.
 
-The category comes from the E/M code, which is the one thing the key and the
-coder both always state.
+The answer key states its category (falling back to its E/M code for keys
+written before the field existed), and the key alone decides how a chart is
+graded. The coder states one too, on their own form — but theirs is ungraded:
+it shapes what their form asks for and warns them when it disagrees with the
+code they typed. Scoring both would charge them twice for one misreading.
 """
 import pytest
 
@@ -363,3 +366,36 @@ def test_the_feedback_names_both_clocks(db):
                                {"em_code": "99291"}, CFG)
     row = next(i for i in items if "Critical care time" in i["issue"])
     assert "75" in row["issue"] and "40" in row["issue"]
+
+
+# ── the coder states a category, and it is not scored ────────────────────────
+
+def test_the_coders_category_cannot_move_their_score():
+    """
+    The coder picks the encounter category on their own form, so the field
+    reaches the grader as sub_em_category. It must not be scored: the E/M code
+    already carries the category, and grading both would charge a coder twice
+    for one misreading. It exists to shape their form and to warn them when it
+    disagrees with the code they typed.
+    """
+    ak = _key(em_code="99396", em_category="preventive")
+    for claimed in ("preventive", "office", "critical_care", "", None):
+        got = grade_em_chart(ak, _sub(sub_em_code="99396", sub_em_category=claimed), CFG)
+        assert got["total_score"] == 100.0, f"claiming {claimed!r} changed the score"
+
+
+def test_the_key_alone_decides_how_a_chart_is_graded():
+    """A coder who selects the wrong category is still graded on the key's."""
+    ak = _key(em_code="99396", em_category="preventive")
+    got = grade_em_chart(ak, _sub(sub_em_code="99396", sub_em_category="critical_care"), CFG)
+    assert got["em_category"] == PREVENTIVE
+    assert got["uses_mdm"] is False
+
+
+def test_a_coders_critical_care_time_is_ignored_off_a_non_critical_care_key():
+    """Their clock only counts where the key says the encounter is timed."""
+    ak = _key(em_code="99214")
+    with_time = grade_em_chart(
+        ak, _sub(sub_em_category="critical_care", sub_critical_care_minutes=75), CFG)
+    without = grade_em_chart(ak, _sub(), CFG)
+    assert with_time["total_score"] == without["total_score"]
