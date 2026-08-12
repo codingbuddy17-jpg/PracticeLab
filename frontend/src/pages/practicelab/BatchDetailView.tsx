@@ -399,7 +399,17 @@ function AllocationPanel({ batch, onDone }: { batch: any; onDone: () => void }) 
 export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
   const [batch, setBatch] = useState<any>(null)
   const [loading, setLoading] = useState(true)
-  const [showAllocationPanel, setShowAllocationPanel] = useState(false)
+  // Open on a batch with no cycles yet: there is exactly one thing to do next,
+  // so hiding it behind a reveal click buys the trainer nothing. Once a cycle
+  // exists, running another is a deliberate act and stays behind the button.
+  const [showAllocationPanel, setShowAllocationPanel] = useState(
+    () => (batch.allocation_cycles?.length || 0) === 0 && batch.status === 'Open')
+  // A batch that arrives with cycles already run must not spring the panel open.
+  const [panelPinned, setPanelPinned] = useState(false)
+  useEffect(() => {
+    if (panelPinned) return
+    setShowAllocationPanel((batch.allocation_cycles?.length || 0) === 0 && batch.status === 'Open')
+  }, [batch.id, batch.allocation_cycles?.length, batch.status, panelPinned])
   const [closing, setClosing] = useState(false)
   const [confirmingClose, setConfirmingClose] = useState(false)
   const [showNoteBox, setShowNoteBox] = useState(false)
@@ -582,12 +592,13 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
           <span style={{ fontWeight: 700, fontSize: 14, color: '#374151' }}>{V.assignments} ({batch.allocation_cycles?.length || 0})</span>
           {isOpen && (
-            <button style={{ ...styles.primaryBtn, background: '#4f46e5' }} onClick={() => setShowAllocationPanel(p => !p)}>
+            <button style={{ ...styles.primaryBtn, background: '#4f46e5' }}
+              onClick={() => { setPanelPinned(true); setShowAllocationPanel(p => !p) }}>
               {showAllocationPanel ? '✕ Cancel' : `▶ ${V.assignAgain}`}
             </button>
           )}
         </div>
-        {showAllocationPanel && isOpen && <AllocationPanel batch={batch} onDone={() => { setShowAllocationPanel(false); loadBatch() }} />}
+        {showAllocationPanel && isOpen && <AllocationPanel batch={batch} onDone={() => { setPanelPinned(true); setShowAllocationPanel(false); loadBatch() }} />}
         {(batch.allocation_cycles || []).length === 0 && !showAllocationPanel && (
           <div style={{ fontSize: 13, color: '#6b7280', padding: '14px 16px', background: '#f8fafc', borderRadius: 8, border: '1px dashed #e5e7eb' }}>
             {isDirectAssignment
@@ -749,7 +760,7 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
         })}
       </div>
 
-      <PracticeTokensSection batchId={batchId} isDirect={isDirectAssignment} />
+      <PracticeTokensSection batchId={batchId} isDirect={isDirectAssignment} awaitingCodes={hasCycles} />
 
       <div style={styles.cycleSection}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
@@ -780,7 +791,9 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
 
 // ── Practice Tokens Section ────────────────────────────────────────────────────
 
-function PracticeTokensSection({ batchId, isDirect }: { batchId: number; isDirect?: boolean }) {
+function PracticeTokensSection({ batchId, isDirect, awaitingCodes }: {
+  batchId: number; isDirect?: boolean; awaitingCodes?: boolean
+}) {
   const V = vocab(isDirect)
   const [tokens, setTokens] = useState<{ coder_name: string; token: string; reused: boolean }[] | null>(null)
   const [existing, setExisting] = useState<{ session_id: number; coder_name: string; token: string; status: string; submitted_at: string | null }[]>([])
@@ -845,6 +858,27 @@ function PracticeTokensSection({ batchId, isDirect }: { batchId: number; isDirec
 
   return (
     <div style={{ ...styles.cycleSection, marginBottom: 12 }}>
+      {/* Charts are assigned and no codes exist, so nothing the trainer has done
+          so far is usable by anyone yet. This was the last step of the set-up
+          and the easiest one to walk away without doing. */}
+      {awaitingCodes && existing.length === 0 && !loading && (
+        <div style={{ background: '#f5f3ff', border: '1px solid #ddd6fe', borderRadius: 8,
+          padding: '10px 14px', marginBottom: 10, fontSize: 12, color: '#5b21b6',
+          display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' as const }}>
+          <span style={{ flex: 1, minWidth: 220 }}>
+            <strong>Charts are assigned — one step left.</strong> {isDirect ? 'This coder' : 'Coders'}{' '}
+            cannot start until {isDirect ? 'they have an access code' : 'they have access codes'}.
+          </span>
+          <button
+            onClick={generateTokens}
+            disabled={loading}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 700 }}
+          >
+            <Key size={12} /> {V.makeCodes}
+          </button>
+        </div>
+      )}
+
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <Key size={14} color="#7c3aed" />

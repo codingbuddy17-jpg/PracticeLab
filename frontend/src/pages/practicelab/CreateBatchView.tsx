@@ -33,6 +33,24 @@ export function CreateBatchView({ onCreated, onCancel, scoringCfg, directMode: d
     } catch { setPool(null) }
   }
 
+  /**
+   * Is the pool big enough for what is being asked of it?
+   *
+   * The preview used to report a raw count and leave the arithmetic to the
+   * trainer, so an assignment for 8 coders x 5 charts against a pool of 12
+   * looked fine on this screen and only revealed the shortfall as a toast
+   * after allocation had already run. Everything needed to answer it is on
+   * this form; it just was not being asked.
+   *
+   * Only charts WITH an answer key can be graded, so that is the number that
+   * has to cover the requirement — not total_matching.
+   */
+  const gradable = pool?.with_answer_key ?? 0
+  const needed = directMode ? 0 : coders.length * form.charts_per_coder
+  // Direct assignment picks charts by hand, so charts-per-coder is a cap
+  // rather than a requirement and there is no total to fall short of.
+  const shortfall = directMode ? 0 : Math.max(0, needed - gradable)
+
   function toggleDifficulty(d: string) {
     setForm(f => ({
       ...f,
@@ -168,10 +186,45 @@ export function CreateBatchView({ onCreated, onCancel, scoringCfg, directMode: d
       )}
 
       {pool && (
-        <div style={styles.infoBox}>
-          <strong>Pool preview:</strong> {pool.total_matching} matching charts
-          {pool.with_answer_key != null && <> · {pool.with_answer_key} have answer keys</>}
-          {pool.with_answer_key === 0 && <span style={{ color: '#dc2626', marginLeft: 8 }}>⚠ Upload answer keys before running allocation.</span>}
+        <div style={{
+          ...styles.infoBox,
+          ...(shortfall > 0
+            ? { background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e' }
+            : {}),
+        }}>
+          <div>
+            <strong>Pool preview:</strong> {pool.total_matching} matching charts
+            {pool.with_answer_key != null && <> · {pool.with_answer_key} with answer keys</>}
+          </div>
+
+          {gradable === 0 ? (
+            <div style={{ color: '#dc2626', marginTop: 6, fontWeight: 600 }}>
+              ⚠ No chart here has an answer key, so nothing can be graded. Upload keys before
+              running allocation.
+            </div>
+          ) : directMode ? (
+            <div style={{ marginTop: 6, color: '#6b7280' }}>
+              You pick the charts by hand on the next screen, so this is what you have to
+              choose from.
+            </div>
+          ) : coders.length === 0 ? (
+            <div style={{ marginTop: 6, color: '#6b7280' }}>
+              Add coders below to see whether the pool covers them.
+            </div>
+          ) : shortfall > 0 ? (
+            <div style={{ marginTop: 6, fontWeight: 600 }}>
+              ⚠ Short by {shortfall}. {coders.length} coder{coders.length === 1 ? '' : 's'} ×{' '}
+              {form.charts_per_coder} chart{form.charts_per_coder === 1 ? '' : 's'} ={' '}
+              <strong>{needed} needed</strong>, {gradable} gradable available. Reduce charts per
+              coder, widen the filters, or upload more answer keys — allocation will otherwise
+              assign everyone whatever it can and stop short.
+            </div>
+          ) : (
+            <div style={{ marginTop: 6, color: '#15803d', fontWeight: 600 }}>
+              ✓ {coders.length} coder{coders.length === 1 ? '' : 's'} × {form.charts_per_coder}{' '}
+              chart{form.charts_per_coder === 1 ? '' : 's'} = {needed} needed. Pool is sufficient.
+            </div>
+          )}
         </div>
       )}
 
