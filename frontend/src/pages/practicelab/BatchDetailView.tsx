@@ -684,7 +684,7 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
               </div>
             </div>
             {c.randomisation_stats && (
-              <RandomisationStatsCard stats={c.randomisation_stats} itemLabel="charts" tokens={c.coder_tokens} />
+              <RandomisationStatsCard stats={c.randomisation_stats} itemLabel="charts" tokens={c.coder_tokens} poolNotes={c.coder_pool_notes} />
             )}
           </div>
         ))}

@@ -169,6 +169,84 @@ def add_coders_to_batch(batch_id: int, payload: AddCoders, db: Session = Depends
     return {"added": added, "skipped_duplicates": skipped}
 
 
+def _draw_for_coder(pool, seen_counts: dict, prior_sets: list, want: int):
+    """
+    Pick this coder's charts for one cycle.
+
+    Exhaustion is per COder. Alice having seen everything says nothing about
+    Bob, so each coder is drawn against their own history and one running dry
+    never holds up anyone else.
+
+    Charts are grouped by how many times THIS coder has already had them and
+    taken from the least-seen group first, shuffled within each group. That
+    gives the guarantee that matters — nothing repeats while anything unseen
+    remains — and then, once the pool really is exhausted, keeps going instead
+    of stopping: a second round is drawn from the once-seen charts, a third
+    from the twice-seen, and so on, so repetition stays as even and as far
+    apart as the pool allows.
+
+    A recycled round also avoids reproducing a set the coder has already sat,
+    where the pool leaves any alternative — the same charts in the same company
+    is the case where a coder is most likely to be recalling rather than coding.
+
+    Returns (charts, note) where note describes the state of their pool.
+    """
+    if not pool:
+        return [], {"state": "empty", "message": "no charts match the pool filters",
+                    "unseen_left": 0, "round": 0}
+
+    tiers: dict[int, list] = {}
+    for chart in pool:
+        tiers.setdefault(seen_counts.get(chart.id, 0), []).append(chart)
+    for group in tiers.values():
+        random.shuffle(group)
+
+    unseen = len(tiers.get(0, []))
+
+    def _take():
+        out = []
+        for level in sorted(tiers):
+            if len(out) >= want:
+                break
+            out.extend(tiers[level][: want - len(out)])
+        return out
+
+    assigned = _take()
+
+    # Only a fully recycled draw can repeat a previous set; reshuffle a few
+    # times before accepting one. Bounded, because a pool of exactly `want`
+    # charts has no alternative to offer and must not spin.
+    if assigned and unseen == 0 and prior_sets:
+        for _ in range(8):
+            if {c.id for c in assigned} not in prior_sets:
+                break
+            for group in tiers.values():
+                random.shuffle(group)
+            assigned = _take()
+
+    round_no = min(seen_counts.get(c.id, 0) for c in assigned) + 1 if assigned else 0
+
+    if unseen == 0:
+        message = (f"every chart in the pool has been sat — recycling for round {round_no}"
+                   if len(pool) > want else
+                   f"pool is only {len(pool)} chart(s); the same set repeats each cycle")
+        state = "recycling"
+    elif unseen < want:
+        message = (f"only {unseen} unseen chart(s) left — this cycle repeats "
+                   f"{want - unseen} of them")
+        state = "nearly_exhausted"
+    elif unseen <= want * 2:
+        message = f"{unseen} unseen chart(s) left — enough for about "\
+                  f"{unseen // want} more cycle(s)"
+        state = "running_low"
+    else:
+        message = ""
+        state = "healthy"
+
+    return assigned, {"state": state, "message": message,
+                      "unseen_left": unseen, "round": round_no}
+
+
 @router.post("/batches/{batch_id}/run-allocation")
 def run_allocation(batch_id: int, payload: AllocationRun, db: Session = Depends(get_db)):
     """Run a new allocation cycle for an open batch. Excludes charts already assigned in prior cycles."""
@@ -193,9 +271,18 @@ def run_allocation(batch_id: int, payload: AllocationRun, db: Session = Depends(
     specialty = batch.specialty
 
     existing = db.query(BatchChart).filter(BatchChart.batch_id == batch_id).all()
-    assigned_per_coder: dict[str, set] = {}
+    # How many times each coder has had each chart, and which sets they were
+    # given in which cycle. Counts drive the draw; the sets stop a recycled
+    # round handing back an identical selection to one they have already sat.
+    seen_count: dict[str, dict] = {}
+    prior_sets: dict[str, list] = {}
+    _by_cycle: dict[tuple, set] = {}
     for a in existing:
-        assigned_per_coder.setdefault(a.coder_name, set()).add(a.chart_id)
+        seen_count.setdefault(a.coder_name, {})
+        seen_count[a.coder_name][a.chart_id] = seen_count[a.coder_name].get(a.chart_id, 0) + 1
+        _by_cycle.setdefault((a.coder_name, a.cycle_id), set()).add(a.chart_id)
+    for (cname, _cyc), chart_set in _by_cycle.items():
+        prior_sets.setdefault(cname, []).append(chart_set)
 
     if payload.manual_chart_ids:
         pool = (db.query(Chart)
@@ -242,29 +329,17 @@ def run_allocation(batch_id: int, payload: AllocationRun, db: Session = Depends(
     pool_warnings = []
     coder_chart_sets: dict[str, set] = {}   # for randomisation stats
 
+    coder_notes: dict[str, dict] = {}
+
     for coder in coders:
-        already = assigned_per_coder.get(coder.coder_name, set())
-        if payload.manual_chart_ids:
-            available = [c for c in pool if c.id not in already]
-            if not available:
-                pool_warnings.append(f"{coder.coder_name}: all selected charts already assigned — skipped")
-                continue
-            random.shuffle(available)
-            assigned = available[:charts_per_coder]
-        else:
-            available = [c for c in pool if c.id not in already]
-            pool_size = len(available)
-            if pool_size == 0:
-                pool_warnings.append(f"{coder.coder_name}: pool exhausted (all charts previously assigned)")
-                continue
-            if pool_size < charts_per_coder:
-                pool_warnings.append(
-                    f"{coder.coder_name}: only {pool_size} chart(s) available in pool "
-                    f"(requested {charts_per_coder}) — assigning all available"
-                )
-            shuffled = available.copy()
-            random.shuffle(shuffled)
-            assigned = shuffled[:charts_per_coder]  # never exceed available pool
+        counts = seen_count.get(coder.coder_name, {})
+        assigned, note = _draw_for_coder(
+            pool, counts, prior_sets.get(coder.coder_name, []), charts_per_coder)
+        coder_notes[coder.coder_name] = note
+        if note["message"]:
+            pool_warnings.append(f"{coder.coder_name}: {note['message']}")
+        if not assigned:
+            continue
 
         for chart in assigned:
             db.add(BatchChart(
@@ -285,6 +360,9 @@ def run_allocation(batch_id: int, payload: AllocationRun, db: Session = Depends(
     # a few seconds, leaving a short-allocated cycle indistinguishable from a
     # clean one the next time anyone looks at the batch.
     cycle.warnings = pool_warnings or None
+    # Persisted with the cycle so "Alice is one cycle from recycling" is still
+    # readable next month, rather than living only in a toast.
+    cycle.coder_pool_notes = coder_notes or None
 
     db.commit()
     return {
@@ -292,6 +370,7 @@ def run_allocation(batch_id: int, payload: AllocationRun, db: Session = Depends(
         "cycle_number": cycle_number,
         "assigned": assigned_counts,
         "warnings": pool_warnings,
+        "coder_pool_notes": coder_notes,
         "randomisation_stats": rand_stats,
     }
 
@@ -784,6 +863,7 @@ def get_batch(batch_id: int, db: Session = Depends(get_db)):
                 # them off the codes panel, which lists the latest cycle, is how
                 # a trainer hands someone the wrong one.
                 "coder_tokens": tokens_by_cycle.get(c.id, {}),
+                "coder_pool_notes": c.coder_pool_notes or {},
             }
             for c in cycles
         ],

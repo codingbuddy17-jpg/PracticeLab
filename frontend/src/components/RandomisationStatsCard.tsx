@@ -33,6 +33,8 @@ interface Props {
   itemLabel?: string   // 'questions' or 'charts'
   /** coder name -> access code for this cycle. Omitted where codes do not apply. */
   tokens?: Record<string, string>
+  /** coder name -> pool state at this cycle: how much unseen work they had left. */
+  poolNotes?: Record<string, { state: string; message: string; unseen_left: number; round: number }>
 }
 
 function Badge({ pct }: { pct: number | null | undefined }) {
@@ -52,7 +54,7 @@ function Badge({ pct }: { pct: number | null | undefined }) {
   )
 }
 
-export default function RandomisationStatsCard({ stats, itemLabel = 'items', tokens }: Props) {
+export default function RandomisationStatsCard({ stats, itemLabel = 'items', tokens, poolNotes }: Props) {
   const [expanded, setExpanded] = useState(false)
 
   if (!stats) return null
@@ -61,6 +63,9 @@ export default function RandomisationStatsCard({ stats, itemLabel = 'items', tok
   // Only widen the table where codes exist to show. A cycle whose codes have
   // not been generated yet gets the table it always had.
   const showTokens = !!tokens && Object.keys(tokens).length > 0
+  // Only where at least one coder has something worth saying. A column of
+  // dashes on a healthy batch is noise.
+  const showNotes = !!poolNotes && Object.values(poolNotes).some(n => n && n.state !== 'healthy')
   const topOverlaps = Array.isArray(stats.top_overlaps) ? stats.top_overlaps : []
 
   return (
@@ -117,6 +122,7 @@ export default function RandomisationStatsCard({ stats, itemLabel = 'items', tok
                     which is how a trainer ends up handing someone the code for
                     work they have already done. */}
                 {showTokens && <th style={th}>Access code</th>}
+                {showNotes && <th style={th}>Pool left</th>}
                 <th style={th}>Uniqueness</th>
                 <th style={th}>Unique {itemLabel}</th>
                 <th style={th}>Shared with others</th>
@@ -141,6 +147,31 @@ export default function RandomisationStatsCard({ stats, itemLabel = 'items', tok
                         ) : (
                           <span style={{ color: '#9ca3af' }}>not issued</span>
                         )}
+                      </td>
+                    )}
+                    {showNotes && (
+                      <td style={td}>
+                        {(() => {
+                          const n = poolNotes?.[c.name]
+                          if (!n || n.state === 'healthy') {
+                            return <span style={{ color: '#9ca3af' }}>—</span>
+                          }
+                          const tone = n.state === 'recycling'
+                            ? { c: '#b45309', bg: '#fffbeb', b: '#fde68a' }
+                            : n.state === 'nearly_exhausted'
+                              ? { c: '#b45309', bg: '#fffbeb', b: '#fde68a' }
+                              : { c: '#0369a1', bg: '#f0f9ff', b: '#bae6fd' }
+                          const label = n.state === 'recycling'
+                            ? `recycling · round ${n.round}`
+                            : `${n.unseen_left} unseen`
+                          return (
+                            <span title={n.message} style={{
+                              fontSize: 11, fontWeight: 700, color: tone.c, background: tone.bg,
+                              border: `1px solid ${tone.b}`, borderRadius: 20, padding: '2px 9px',
+                              cursor: 'help', whiteSpace: 'nowrap',
+                            }}>{label}</span>
+                          )
+                        })()}
                       </td>
                     )}
                     <td style={td}><Badge pct={c.uniqueness_pct} /></td>

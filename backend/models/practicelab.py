@@ -107,6 +107,10 @@ class BatchAllocationCycle(Base):
     # only toasts — six seconds and gone — so a trainer who stepped away had no
     # way to discover afterwards that some coders got fewer charts than asked.
     warnings = Column(JSON, nullable=True)
+    # Per-coder pool state at the time of this cycle: how many unseen charts
+    # they had left, which recycled round they are on, and a sentence saying
+    # so. Kept per cycle because a coder's pool empties on their own schedule.
+    coder_pool_notes = Column(JSON, nullable=True)
 
     batch = relationship("Batch", back_populates="allocation_cycles")
     assignments = relationship("BatchChart", back_populates="cycle")
