@@ -35,6 +35,19 @@ class QuestionStatus(str, enum.Enum):
 
 
 class AssessmentQuestion(Base):
+    """
+    One multiple-choice question in the bank.
+
+    question_id is the trainer-facing identifier from the upload spreadsheet
+    and is unique across the bank. Questions generated for a single paper
+    without entering the bank get ids of the form SA-0001, numbered within
+    that paper — so two standalone papers both contain an SA-0001, and
+    anything keyed on question_id alone must pair it with its assessment.
+
+    Retiring a question sets status rather than deleting it, so papers already
+    generated from it still render.
+    """
+
     __tablename__ = "assessment_questions"
 
     id = Column(Integer, primary_key=True)
@@ -57,6 +70,14 @@ class AssessmentQuestion(Base):
 
 
 class AssessmentConfig(Base):
+    """
+    A saved recipe for generating a paper: how many questions, how many
+    coders, the specialty mix and how difficulty is distributed.
+
+    Optional. A trainer can generate without saving one, in which case the
+    generated assessment has no config_id.
+    """
+
     __tablename__ = "assessment_configs"
 
     id = Column(Integer, primary_key=True)
@@ -73,6 +94,22 @@ class AssessmentConfig(Base):
 
 
 class GeneratedAssessment(Base):
+    """
+    One paper, issued to a named set of coders on a date.
+
+    batch_name groups papers into a cohort for reporting; it is free text and
+    may be absent, in which case analytics treats the paper as "Ungrouped".
+
+    pass_threshold is the bar for THIS paper. It was once a module constant of
+    90, which is punishing for multiple choice and invisible to the trainer
+    setting the paper — different assessments legitimately carry different
+    bars, and every figure judged against it must use the paper's own.
+
+    randomisation_stats records how distinct the coders' question sets were,
+    persisted rather than shown once, so the quality of a draw is still
+    inspectable later.
+    """
+
     __tablename__ = "generated_assessments"
 
     id = Column(Integer, primary_key=True)
@@ -94,6 +131,18 @@ class GeneratedAssessment(Base):
 
 
 class GeneratedAssessmentStudent(Base):
+    """
+    One coder's individual paper, with their questions frozen at generation.
+
+    questions_json holds the exact set they were served, in their order, with
+    the option order they saw — shuffling is per coder, so a stored answer
+    letter is only meaningful against this row. Anything comparing answers
+    across coders must compare option TEXT, not letters.
+
+    Frozen deliberately: editing a question in the bank afterwards must not
+    change a paper someone has already sat.
+    """
+
     __tablename__ = "generated_assessment_students"
 
     id = Column(Integer, primary_key=True)
@@ -105,6 +154,15 @@ class GeneratedAssessmentStudent(Base):
 
 
 class AssessmentAuditLog(Base):
+    """
+    Trainer actions on the assessment module that change a record or a result:
+    deleting an assessment, correcting a graded answer, bulk question changes.
+
+    A corrected score that cannot be traced is worth less than the original,
+    so the reason a trainer gave is carried into details rather than being
+    discarded once applied.
+    """
+
     __tablename__ = "assessment_audit_log"
 
     id = Column(Integer, primary_key=True)

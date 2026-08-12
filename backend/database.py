@@ -434,6 +434,15 @@ def _run_migrations():
     _PK = "INTEGER PRIMARY KEY AUTOINCREMENT" if is_sqlite else "SERIAL PRIMARY KEY"
 
     # ── in-browser practice sessions ─────────────────────────────────────────
+    #
+    # NOTE: these three tables have no SQLAlchemy model either. They are where
+    # coders actually work — every submission in the application arrives
+    # through them.
+    #
+    # One coder's access to one allocation cycle's charts. The token is the
+    # code a trainer hands out; it is the only credential a coder needs, and
+    # there is no login. Keyed per cycle, so a coder working cycle 2 holds a
+    # different token from the one they used for cycle 1.
     _run(f"""CREATE TABLE IF NOT EXISTS practice_sessions (
         id {_PK},
         batch_id INTEGER REFERENCES batches(id),
@@ -448,6 +457,9 @@ def _run_migrations():
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )""")
 
+    # Work in progress on one chart: the codes a coder has entered but not yet
+    # submitted. Saved as they type so a closed tab or a lost connection does
+    # not cost them the chart. Superseded by practice_results once submitted.
     _run(f"""CREATE TABLE IF NOT EXISTS practice_chart_drafts (
         id {_PK},
         session_id INTEGER REFERENCES practice_sessions(id) NOT NULL,
@@ -472,6 +484,11 @@ def _run_migrations():
     _add_col("practice_chart_drafts", "ed_rationale", "TEXT", "TEXT")
     _add_col("practice_chart_drafts", "em_data", "TEXT", "TEXT")
 
+    # The graded outcome for one chart in one session, with the feedback shown
+    # to the coder. Every row here is mirrored into grading_results as it is
+    # written, because that is the table all analytics and both PDF reports
+    # read — without the mirror, in-browser work would be invisible to every
+    # report in the application.
     _run(f"""CREATE TABLE IF NOT EXISTS practice_results (
         id {_PK},
         session_id INTEGER REFERENCES practice_sessions(id) NOT NULL,
@@ -566,6 +583,19 @@ def _run_migrations():
 
 
     # ── E/M MDM answer keys ───────────────────────────────────────────────────
+    #
+    # NOTE: this table and the two below have no SQLAlchemy model. They exist
+    # only here, so a schema built from models/ alone is missing the entire E/M
+    # subsystem while appearing complete.
+    #
+    # The answer key for an Evaluation & Management chart. E/M is graded
+    # differently from other specialties: as well as codes, the key records the
+    # medical decision-making elements a coder should have identified — the
+    # COPA, Data Review and Risk counts — and the complexity level each set
+    # implies. em_category says which kind of encounter it is, because not
+    # every category is levelled by MDM: preventive visits are levelled by age
+    # and patient type, critical care by total time. The level columns are
+    # simply unread for those.
     _run("""CREATE TABLE IF NOT EXISTS em_answer_keys (
         id INTEGER PRIMARY KEY,
         chart_id INTEGER REFERENCES charts(id) NOT NULL UNIQUE,
@@ -616,6 +646,12 @@ def _run_migrations():
     )""")
 
     # ── E/M grading results ───────────────────────────────────────────────────
+    #
+    # The E/M breakdown behind one graded chart: what the coder submitted for
+    # each MDM element, the level derived from it, and the score awarded per
+    # component. Linked one-to-one to the grading_results row that carries the
+    # headline score, so E/M charts report alongside every other specialty
+    # while keeping their own detail.
     _run("""CREATE TABLE IF NOT EXISTS em_grading_results (
         id INTEGER PRIMARY KEY,
         result_id INTEGER REFERENCES grading_results(id) NOT NULL UNIQUE,
@@ -700,6 +736,13 @@ def _run_migrations():
     _add_col("practice_chart_drafts", "critical_care_minutes", "INTEGER", "INTEGER")
 
     # ── E/M scoring config ────────────────────────────────────────────────────
+    #
+    # Weights for E/M grading, held separately from scoring_configs because the
+    # scheme is different: two lines rather than components. Line 1 is coding
+    # accuracy (the E/M level, procedures and diagnoses), line 2 is reasoning
+    # accuracy (the MDM elements). Whichever parts apply to a given chart are
+    # renormalised to 100 at grading time, so every chart is scored out of the
+    # same total regardless of category.
     _run("""CREATE TABLE IF NOT EXISTS em_scoring_configs (
         id INTEGER PRIMARY KEY,
         line1_weight FLOAT NOT NULL DEFAULT 70.0,

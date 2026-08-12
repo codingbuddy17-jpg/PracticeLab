@@ -64,6 +64,20 @@ class AnswerKey(Base):
 
 
 class Batch(Base):
+    """
+    A unit of assigned coding work: a set of coders, a pool of charts, and the
+    scoring rules to grade them by.
+
+    is_direct_assignment distinguishes the two flows a trainer sees. Both
+    create, allocate, issue access codes, grade and report through identical
+    code; the flag decides only the wording on screen and whether the work
+    counts toward cohort analytics. A one-off refresher for a single coder
+    should not move a team's averages.
+
+    Charts are not assigned at creation. That happens per allocation cycle, so
+    a batch can be topped up over weeks without a coder ever repeating a chart.
+    """
+
     __tablename__ = "batches"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -117,6 +131,15 @@ class BatchAllocationCycle(Base):
 
 
 class BatchCoder(Base):
+    """
+    A coder on a batch's roster.
+
+    emp_id is the stable identity where an organisation issues one; coder_name
+    is free text and two people can share it. Reporting keys on emp_id when
+    present and falls back to the name, so this row is where that identity is
+    captured.
+    """
+
     __tablename__ = "batch_coders"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -128,6 +151,19 @@ class BatchCoder(Base):
 
 
 class BatchChart(Base):
+    """
+    One chart assigned to one coder, in one allocation cycle.
+
+    The uniqueness guarantee lives here: allocation excludes every chart a
+    coder already has a row for in this batch, so nothing repeats while
+    anything unseen remains. Two coders holding the same chart in one cycle is
+    intended — it is the only way their answers on it can be compared.
+
+    submission_status is a vestige of the removed offline Excel workflow.
+    Nothing sets it to SUBMITTED outside the Edits/Denials rubric path; graded
+    work is determined from GradingResult.
+    """
+
     __tablename__ = "batch_charts"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -143,6 +179,15 @@ class BatchChart(Base):
 
 
 class Submission(Base):
+    """
+    A coder's submitted codes for one chart, from the removed offline Excel
+    workflow.
+
+    Retained for historical records. Current work is captured by the
+    practice-session tables and mirrored into GradingResult; nothing writes
+    here any more.
+    """
+
     __tablename__ = "submissions"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -162,6 +207,22 @@ class Submission(Base):
 
 
 class GradingResult(Base):
+    """
+    The score for one coder on one chart. The reporting table.
+
+    Every analytics endpoint and both PDF reports read this, whichever flow
+    produced the work: in-browser practice results are mirrored here as they
+    are graded, and historical rows were backfilled. Keyed on
+    (batch_id, coder_name, chart_id), so re-grading updates in place.
+
+    Two scoring schemes sit side by side and answer different questions.
+    total_score is the weighted score against the configured component
+    weights. The dpo_* columns are Diagnosis/POA/Procedure accuracy —
+    proportion of codes correct — kept as raw correct/total counts as well as
+    percentages so cumulative figures aggregate correctly rather than
+    averaging averages.
+    """
+
     __tablename__ = "grading_results"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -207,6 +268,16 @@ class GradingResult(Base):
 
 
 class GradingFeedback(Base):
+    """
+    One specific mistake on one graded chart — what the key said, what the
+    coder wrote, and which kind of error it was.
+
+    This is what a coder reads to learn from, and what the Error Analysis
+    reporting aggregates over. E/M grading emits free-text issues that do not
+    map to the IssueType enum; those stay in the practice-result payload and
+    are not written here.
+    """
+
     __tablename__ = "grading_feedback"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -279,6 +350,18 @@ class SelfPracticeResult(Base):
 
 
 class ScoringConfig(Base):
+    """
+    How a specialty type is scored: component weights, pass mark and which
+    scoring methods are enabled.
+
+    One row per specialty_type — IP, OP, EDSP — not per specialty. Weights
+    must total 100, which the update endpoint enforces.
+
+    Changes apply to gradings performed afterwards. Results already stored
+    keep the scores they were given, so a config change cannot silently
+    restate a closed batch.
+    """
+
     __tablename__ = "scoring_configs"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -301,6 +384,11 @@ class ScoringConfig(Base):
 
 
 class CodingResource(Base):
+    """
+    A reference link a trainer publishes to coders — guidelines, a coding
+    manual, an internal policy page. Display order is manual via sort_order.
+    """
+
     __tablename__ = "coding_resources"
 
     id = Column(Integer, primary_key=True, index=True)
