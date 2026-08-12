@@ -2,7 +2,12 @@
 import api from './client'
 import type { Chart, ChartWithRationale, SearchResult, BulkUploadResult, BulkUploadMeta } from '../types'
 
-export async function searchCharts(params: Record<string, string | number | undefined>): Promise<SearchResult> {
+/**
+ * Chart search. `include_trainer_fields: true` adds difficulty, which the
+ * server withholds by default — it is trainer metadata and the coder-facing
+ * library must not receive it.
+ */
+export async function searchCharts(params: Record<string, string | number | boolean | undefined>): Promise<SearchResult> {
   const { data } = await api.get('/charts/search', { params })
   return data
 }

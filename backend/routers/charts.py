@@ -56,6 +56,12 @@ def search_charts(
     answer_key_status: Optional[str] = None,
     page: int = 1,
     page_size: int = 20,
+    # Difficulty is trainer metadata: it exists so a trainer can match work to a
+    # coder's level and build a balanced set. Sent to a coder it either excuses
+    # a poor result or seeds doubt about a good one, so it leaves the server
+    # only when a trainer screen asks for it — off by default, because the
+    # default is what the coder-facing library gets.
+    include_trainer_fields: bool = False,
     db: Session = Depends(get_db),
 ):
     query = db.query(Chart).filter(Chart.status == status)
@@ -89,10 +95,19 @@ def search_charts(
         "page": page,
         "page_size": page_size,
         "results": [
-            {**ChartOut.model_validate(c).model_dump(mode="json"), "has_answer_key": c.id in keyed_ids}
+            _visible(ChartOut.model_validate(c).model_dump(mode="json"),
+                     c.id in keyed_ids, include_trainer_fields)
             for c in results
         ],
     }
+
+
+def _visible(row: dict, has_key: bool, trainer: bool) -> dict:
+    """One chart row, with trainer-only fields dropped unless asked for."""
+    row["has_answer_key"] = has_key
+    if not trainer:
+        row.pop("difficulty", None)
+    return row
 
 
 @router.get("/categories")

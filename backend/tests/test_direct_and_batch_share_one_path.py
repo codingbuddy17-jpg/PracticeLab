@@ -180,3 +180,49 @@ def test_a_coder_is_not_told_a_charts_difficulty(client, db):
         assert not c.get("difficulty"), "difficulty is still being sent to the coder"
     # The things that describe the chart rather than the person stay.
     assert charts[0]["category"] == "Ortho"
+
+
+def test_the_chart_library_withholds_difficulty_from_a_coder(client, db):
+    """
+    The coder's front door. Difficulty is trainer metadata; a coder who can see
+    it either steers around the hard charts or reads a poor result as the
+    chart's fault rather than their own.
+    """
+    db.add(Chart(chart_number="LIB01", specialty=Specialty.SDS, category="Ortho",
+                 difficulty=Difficulty.ADVANCED, status=ChartStatus.ACTIVE,
+                 uploaded_by="t"))
+    db.commit()
+
+    row = client.get("/charts/search", params={"q": "LIB01"}).json()["results"][0]
+    assert "difficulty" not in row, "difficulty is still sent to the coder-facing library"
+    # Everything that describes the chart rather than the coder stays.
+    assert row["chart_number"] == "LIB01"
+    assert row["category"] == "Ortho"
+    assert row["specialty"] == "SDS"
+
+
+def test_a_trainer_screen_can_still_ask_for_difficulty(client, db):
+    """Off by default, because the default is what the coder gets."""
+    db.add(Chart(chart_number="LIB02", specialty=Specialty.SDS, category="Ortho",
+                 difficulty=Difficulty.ADVANCED, status=ChartStatus.ACTIVE,
+                 uploaded_by="t"))
+    db.commit()
+
+    row = client.get("/charts/search",
+                     params={"q": "LIB02", "include_trainer_fields": True}).json()["results"][0]
+    assert row["difficulty"] == "Advanced"
+
+
+def test_filtering_by_difficulty_still_works_without_revealing_it(client, db):
+    """
+    A trainer building a batch filters on difficulty. That the filter works is
+    separate from whether the value comes back in the rows.
+    """
+    for num, diff in (("LIB03", Difficulty.BEGINNER), ("LIB04", Difficulty.ADVANCED)):
+        db.add(Chart(chart_number=num, specialty=Specialty.SDS, category="T",
+                     difficulty=diff, status=ChartStatus.ACTIVE, uploaded_by="t"))
+    db.commit()
+
+    rows = client.get("/charts/search", params={"difficulty": "Advanced"}).json()["results"]
+    assert [r["chart_number"] for r in rows] == ["LIB04"]
+    assert "difficulty" not in rows[0]

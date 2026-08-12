@@ -41,6 +41,7 @@ export function TrainerCharts() {
     setSelected(new Set())
     try {
       const res = await searchCharts({
+        include_trainer_fields: true,
         q: query.trim() || undefined,
         specialty: specialty || undefined,
         status,

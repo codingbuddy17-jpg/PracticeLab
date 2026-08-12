@@ -5,11 +5,11 @@ import toast from 'react-hot-toast'
 import { searchCharts, getCategories, getResources } from '../api'
 import { ChartViewer } from '../components/ChartViewer'
 import { useLocalStorage } from '../hooks/useLocalStorage'
-import type { Chart, Specialty, Difficulty } from '../types'
-import { SPECIALTIES, DIFFICULTIES } from '../types'
-import { SPECIALTY_COLORS, DIFFICULTY_COLORS } from '../theme'
+import type { Chart, Specialty } from '../types'
+import { SPECIALTIES } from '../types'
+import { SPECIALTY_COLORS } from '../theme'
 
-type SortOption = 'chart_number' | 'difficulty' | 'recent'
+type SortOption = 'chart_number' | 'recent'
 
 export function CoderHome() {
   const navigate = useNavigate()
@@ -20,7 +20,6 @@ export function CoderHome() {
   const [query, setQuery] = useState('')
   const [specialty, setSpecialty] = useState<Specialty | ''>('')
   const [category, setCategory] = useState('')
-  const [difficulty, setDifficulty] = useState<Difficulty | ''>('')
   const [sort, setSort] = useState<SortOption>('chart_number')
   const [categories, setCategories] = useState<string[]>([])
   const [hasSearched, setHasSearched] = useState(false)
@@ -38,10 +37,10 @@ export function CoderHome() {
     getResources().then(setResources).catch(() => {})
   }, [])
 
-  const hasFilters = !!(specialty || category || difficulty)
+  const hasFilters = !!(specialty || category)
 
   const doSearch = useCallback(async (p = 1) => {
-    if (!query.trim() && !specialty && !category && !difficulty) {
+    if (!query.trim() && !specialty && !category) {
       toast.error('Enter a chart number or select a filter to search')
       return
     }
@@ -52,7 +51,6 @@ export function CoderHome() {
         q: query || undefined,
         specialty: specialty || undefined,
         category: category || undefined,
-        difficulty: difficulty || undefined,
         page: p,
         page_size: 20,
       })
@@ -63,11 +61,11 @@ export function CoderHome() {
     } finally {
       setLoading(false)
     }
-  }, [query, specialty, category, difficulty])
+  }, [query, specialty, category])
 
   useEffect(() => {
     if (hasSearched) doSearch(1)
-  }, [specialty, category, difficulty])
+  }, [specialty, category])
 
   useEffect(() => {
     getCategories(specialty || undefined).then(d => setCategories(Array.isArray(d) ? d : []))
@@ -77,7 +75,6 @@ export function CoderHome() {
     setQuery('')
     setSpecialty('')
     setCategory('')
-    setDifficulty('')
     setHasSearched(false)
     setResults([])
     setTotal(0)
@@ -89,10 +86,6 @@ export function CoderHome() {
   }
 
   const sortedResults = [...results].sort((a, b) => {
-    if (sort === 'difficulty') {
-      const order = { Beginner: 0, Intermediate: 1, Advanced: 2 }
-      return order[a.difficulty] - order[b.difficulty]
-    }
     if (sort === 'recent') return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     return a.chart_number.localeCompare(b.chart_number)
   })
@@ -212,10 +205,12 @@ export function CoderHome() {
               {categories.map(c => <option key={c} value={c} />)}
             </datalist>
 
-            <select style={styles.select} value={difficulty} onChange={e => setDifficulty(e.target.value as Difficulty | '')}>
-              <option value="">All Difficulties</option>
-              {DIFFICULTIES.map(d => <option key={d} value={d}>{d}</option>)}
-            </select>
+            {/* No difficulty filter, sort or badge anywhere on this screen.
+                Difficulty is trainer metadata — it exists so a trainer can
+                match work to someone's level — and a coder who can see it
+                either avoids the hard charts or reads a poor result as the
+                chart's fault. The server withholds the field from this call
+                entirely, so there is nothing here to filter or sort on. */}
 
             {hasFilters && (
               <button style={styles.clearFiltersBtn} onClick={clearFilters}>
@@ -267,7 +262,7 @@ export function CoderHome() {
           {!hasSearched ? (
             <div style={styles.emptyState}>
               <div style={styles.emptyTitle}>Search for a chart to get started</div>
-              <div style={styles.emptySub}>Enter a chart number, or use the filters above to browse by specialty, category or difficulty.</div>
+              <div style={styles.emptySub}>Enter a chart number, or use the filters above to browse by specialty or category.</div>
             </div>
           ) : loading ? (
             <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden' }}>
@@ -287,7 +282,6 @@ export function CoderHome() {
                   <ArrowUpDown size={13} color="#9ca3af" />
                   <select style={styles.sortSelect} value={sort} onChange={e => setSort(e.target.value as SortOption)}>
                     <option value="chart_number">Chart Number</option>
-                    <option value="difficulty">Difficulty</option>
                     <option value="recent">Recently Added</option>
                   </select>
                 </div>
@@ -295,7 +289,6 @@ export function CoderHome() {
               <div style={styles.list}>
                 {sortedResults.map(chart => {
                   const sc = SPECIALTY_COLORS[chart.specialty]
-                  const dc = DIFFICULTY_COLORS[chart.difficulty]
                   return (
                     <button key={chart.id} style={styles.listRow} onClick={() => openChart(chart)}>
                       <div style={{ ...styles.listAccent, background: sc.bg }} />
@@ -305,7 +298,6 @@ export function CoderHome() {
                       </div>
                       <div style={{ ...styles.listSpecBadge, background: sc.light, color: sc.bg }}>{chart.specialty}</div>
                       <div style={styles.listCategory}>{chart.category}</div>
-                      <div style={{ ...styles.listDiffBadge, ...dc }}>{chart.difficulty}</div>
                       <div style={styles.listArrow}>→</div>
                     </button>
                   )

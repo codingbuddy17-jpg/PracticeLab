@@ -140,7 +140,7 @@ export function EMAnswerKeysView() {
   async function searchChartsByNumber() {
     if (!chartSearch.trim()) return
     try {
-      const res = await searchCharts({ q: chartSearch, specialty: 'E/M', page: 1, page_size: 10 })
+      const res = await searchCharts({ q: chartSearch, specialty: 'E/M', page: 1, page_size: 10, include_trainer_fields: true })
       setChartResults(res.results || [])
     } catch { toast.error('Search failed') }
   }
