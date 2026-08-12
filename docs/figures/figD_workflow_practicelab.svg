@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="880" viewBox="0 0 1240 880">
+  <style>
+    .ttl{font-family:Helvetica,Arial;font-size:30px;font-weight:bold;fill:#1F3864}
+    .sub{font-family:Helvetica,Arial;font-size:20px;fill:#595959}
+    .stepn{font-family:Helvetica,Arial;font-size:17.5px;font-weight:bold;fill:#FFFFFF}
+    .stept{font-family:Helvetica,Arial;font-size:20px;font-weight:bold;fill:#1F3864}
+    .stepd{font-family:Helvetica,Arial;font-size:17.5px;fill:#404040}
+    .tbl{font-family:Consolas,monospace;font-size:17px;fill:#2E8B57}
+    .tblh{font-family:Helvetica,Arial;font-size:14px;font-weight:bold;letter-spacing:1px;fill:#8C8C8C}
+    .who{font-family:Helvetica,Arial;font-size:14px;font-weight:bold;letter-spacing:1px}
+    .note{font-family:Helvetica,Arial;font-size:17.5px;fill:#595959}
+  </style>
+  <defs>
+    <marker id="w" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+      <path d="M0,0 L10,4 L0,8 Z" fill="#2E8B57"/>
+    </marker>
+  </defs>
+  <rect width="1240" height="880" fill="#FFFFFF"/>
+  <text x="24" y="36" class="ttl">Figure D — PracticeLab workflow: from batch to score</text>
+  <text x="24" y="60" class="sub">What a trainer and a coder each do, and which tables are written at every step.</text>
+
+  <!-- lane headers -->
+  <rect x="24" y="86" width="700" height="26" rx="4" fill="#EAF6EF"/>
+  <text x="40" y="104" class="who" fill="#1E6B41">TRAINER AND CODER ACTIONS</text>
+  <rect x="740" y="86" width="476" height="26" rx="4" fill="#F5F5F5"/>
+  <text x="756" y="104" class="tblh">TABLES WRITTEN</text>
+
+  <!-- steps -->
+  <g>
+    <circle cx="56" cy="150" r="16" fill="#2E8B57"/><text x="56" y="155" class="stepn" text-anchor="middle">1</text>
+    <text x="88" y="146" class="stept">Trainer creates a batch</text>
+    <text x="88" y="168" class="stepd">Names it, picks a specialty, sets the chart pool filters and adds the coder roster.</text>
+    <text x="756" y="146" class="tbl">batches</text>
+    <text x="756" y="168" class="tbl">batch_coders</text>
+  </g>
+  <line x1="56" y1="176" x2="56" y2="212" stroke="#2E8B57" stroke-width="2" marker-end="url(#w)"/>
+
+  <g>
+    <circle cx="56" cy="240" r="16" fill="#2E8B57"/><text x="56" y="245" class="stepn" text-anchor="middle">2</text>
+    <text x="88" y="236" class="stept">Trainer runs an allocation cycle</text>
+    <text x="88" y="258" class="stepd">Charts are drawn for each coder — least-seen first, so nothing repeats while</text>
+    <text x="88" y="278" class="stepd">anything unseen remains. Access codes are issued in the same action.</text>
+    <text x="756" y="236" class="tbl">batch_allocation_cycles</text>
+    <text x="756" y="258" class="tbl">batch_charts</text>
+    <text x="756" y="280" class="tbl">practice_sessions</text>
+  </g>
+  <line x1="56" y1="292" x2="56" y2="328" stroke="#2E8B57" stroke-width="2" marker-end="url(#w)"/>
+
+  <g>
+    <circle cx="56" cy="356" r="16" fill="#2E8B57"/><text x="56" y="361" class="stepn" text-anchor="middle">3</text>
+    <text x="88" y="352" class="stept">Coder opens their access code and codes the charts</text>
+    <text x="88" y="374" class="stepd">One row per chart, saved as they work so a lost connection costs nothing.</text>
+    <text x="88" y="394" class="stepd">No login — the code is the only credential.</text>
+    <text x="756" y="352" class="tbl">practice_chart_drafts</text>
+  </g>
+  <line x1="56" y1="408" x2="56" y2="444" stroke="#2E8B57" stroke-width="2" marker-end="url(#w)"/>
+
+  <g>
+    <circle cx="56" cy="472" r="16" fill="#2E8B57"/><text x="56" y="477" class="stepn" text-anchor="middle">4</text>
+    <text x="88" y="468" class="stept">Coder submits — grading runs immediately</text>
+    <text x="88" y="490" class="stepd">Their codes are compared against the answer key for that chart. The result is</text>
+    <text x="88" y="510" class="stepd">written twice: once for the coder, once into the table all reporting reads.</text>
+    <text x="756" y="468" class="tbl">practice_results</text>
+    <text x="756" y="490" class="tbl">grading_results</text>
+    <text x="756" y="512" class="tbl">grading_feedback</text>
+  </g>
+  <line x1="56" y1="524" x2="56" y2="560" stroke="#2E8B57" stroke-width="2" marker-end="url(#w)"/>
+
+  <g>
+    <circle cx="56" cy="588" r="16" fill="#2E8B57"/><text x="56" y="593" class="stepn" text-anchor="middle">5</text>
+    <text x="88" y="584" class="stept">Trainer reviews results and analytics</text>
+    <text x="88" y="606" class="stepd">Scores, per-chart breakdowns and error patterns. Reads only, writes nothing —</text>
+    <text x="88" y="626" class="stepd">except a DRG decision on inpatient charts, which updates the result in place.</text>
+    <text x="756" y="584" class="tbl">reads grading_results</text>
+    <text x="756" y="606" class="tbl">reads grading_feedback</text>
+  </g>
+  <line x1="56" y1="640" x2="56" y2="676" stroke="#2E8B57" stroke-width="2" marker-end="url(#w)"/>
+
+  <g>
+    <circle cx="56" cy="704" r="16" fill="#2E8B57"/><text x="56" y="709" class="stepn" text-anchor="middle">6</text>
+    <text x="88" y="700" class="stept">Trainer closes the batch — or runs another cycle</text>
+    <text x="88" y="722" class="stepd">Closing refuses while any assigned chart is ungraded. Running another cycle</text>
+    <text x="88" y="742" class="stepd">returns to step 2 and draws from what each coder has not yet seen.</text>
+    <text x="756" y="700" class="tbl">batches.status</text>
+  </g>
+
+  <rect x="24" y="780" width="1192" height="80" rx="6" fill="#FAFAFA" stroke="#D9D9D9"/>
+  <text x="46" y="808" class="note">The answer key must exist before step 4 — a chart with no key cannot be graded and the result is never written.</text>
+  <text x="46" y="832" class="note">Keys are uploaded separately (Excel or the in-app editor) into answer_keys, or em_answer_keys for E/M charts.</text>
+</svg>

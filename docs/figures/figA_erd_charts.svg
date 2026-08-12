@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="880" viewBox="0 0 1240 880">
+<style>
+    .ttl{font-family:Helvetica,Arial;font-size:24px;font-weight:bold;fill:#1F3864}
+    .sub{font-family:Helvetica,Arial;font-size:15px;fill:#595959}
+    .tname{font-family:Helvetica,Arial;font-size:15px;font-weight:bold;fill:#FFFFFF}
+    .col{font-family:Consolas,monospace;font-size:12.5px;fill:#333333}
+    .pk{font-family:Consolas,monospace;font-size:12.5px;fill:#B9770E;font-weight:bold}
+    .fk{font-family:Consolas,monospace;font-size:12.5px;fill:#2E75B6;font-weight:bold}
+    .note{font-family:Helvetica,Arial;font-size:13px;fill:#595959}
+    .rel{font-family:Helvetica,Arial;font-size:12px;fill:#7F7F7F}
+    .lgd{font-family:Helvetica,Arial;font-size:13px;fill:#404040}
+</style>
+<defs><marker id="fk" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+<path d="M0,0 L9,3.5 L0,7 Z" fill="#7F7F7F"/></marker></defs>
+<rect width="1240" height="880" fill="#FFFFFF"/>
+<text x="24" y="36" class="ttl">Figure A — Chart Library</text>
+<text x="24" y="60" class="sub">Six tables. charts is the parent; every other domain in the application also refers to it.</text>
+<rect x="60" y="130" width="270" height="234" rx="6" fill="#FFFFFF" stroke="#2E75B6" stroke-width="2"/>
+<rect x="60" y="130" width="270" height="28" rx="6" fill="#2E75B6"/>
+<rect x="60" y="148" width="270" height="10" fill="#2E75B6"/>
+<text x="72" y="149" class="tname">charts</text>
+<text x="72" y="178" class="pk">id PK</text>
+<text x="72" y="197" class="col">chart_number</text>
+<text x="72" y="216" class="col">specialty</text>
+<text x="72" y="235" class="col">category</text>
+<text x="72" y="254" class="col">difficulty</text>
+<text x="72" y="273" class="col">alias</text>
+<text x="72" y="292" class="col">rationale</text>
+<text x="72" y="311" class="col">status</text>
+<text x="72" y="330" class="col">uploaded_by</text>
+<text x="72" y="349" class="col">view_count</text>
+<rect x="500" y="110" width="290" height="177" rx="6" fill="#FFFFFF" stroke="#2E75B6" stroke-width="2"/>
+<rect x="500" y="110" width="290" height="28" rx="6" fill="#2E75B6"/>
+<rect x="500" y="128" width="290" height="10" fill="#2E75B6"/>
+<text x="512" y="129" class="tname">chart_files</text>
+<text x="512" y="158" class="pk">id PK</text>
+<text x="512" y="177" class="fk">chart_id FK</text>
+<text x="512" y="196" class="col">storage_key</text>
+<text x="512" y="215" class="col">original_filename</text>
+<text x="512" y="234" class="col">page_order</text>
+<text x="512" y="253" class="col">total_pages</text>
+<text x="512" y="272" class="col">page_text</text>
+<rect x="500" y="350" width="290" height="139" rx="6" fill="#FFFFFF" stroke="#2E75B6" stroke-width="2"/>
+<rect x="500" y="350" width="290" height="28" rx="6" fill="#2E75B6"/>
+<rect x="500" y="368" width="290" height="10" fill="#2E75B6"/>
+<text x="512" y="369" class="tname">audit_logs</text>
+<text x="512" y="398" class="pk">id PK</text>
+<text x="512" y="417" class="fk">chart_id FK</text>
+<text x="512" y="436" class="col">action</text>
+<text x="512" y="455" class="col">actor</text>
+<text x="512" y="474" class="col">details</text>
+<rect x="500" y="530" width="290" height="158" rx="6" fill="#FFFFFF" stroke="#2E75B6" stroke-width="2"/>
+<rect x="500" y="530" width="290" height="28" rx="6" fill="#2E75B6"/>
+<rect x="500" y="548" width="290" height="10" fill="#2E75B6"/>
+<text x="512" y="549" class="tname">chart_feedback</text>
+<text x="512" y="578" class="pk">id PK</text>
+<text x="512" y="597" class="fk">chart_id FK</text>
+<text x="512" y="616" class="col">chart_number</text>
+<text x="512" y="635" class="col">reporter</text>
+<text x="512" y="654" class="col">issues</text>
+<text x="512" y="673" class="col">status</text>
+<rect x="880" y="110" width="310" height="290" rx="8" fill="#FAFAFA" stroke="#D9D9D9" stroke-dasharray="5,4"/>
+<text x="900" y="136" class="rel">NO FOREIGN KEYS — STANDALONE</text>
+<rect x="900" y="150" width="270" height="101" rx="6" fill="#FFFFFF" stroke="#2E75B6" stroke-width="2"/>
+<rect x="900" y="150" width="270" height="28" rx="6" fill="#2E75B6"/>
+<rect x="900" y="168" width="270" height="10" fill="#2E75B6"/>
+<text x="912" y="169" class="tname">chart_sequences</text>
+<text x="912" y="198" class="pk">id PK</text>
+<text x="912" y="217" class="col">prefix</text>
+<text x="912" y="236" class="col">last_number</text>
+<rect x="900" y="270" width="270" height="120" rx="6" fill="#FFFFFF" stroke="#2E75B6" stroke-width="2"/>
+<rect x="900" y="270" width="270" height="28" rx="6" fill="#2E75B6"/>
+<rect x="900" y="288" width="270" height="10" fill="#2E75B6"/>
+<text x="912" y="289" class="tname">coding_resources</text>
+<text x="912" y="318" class="pk">id PK</text>
+<text x="912" y="337" class="col">title</text>
+<text x="912" y="356" class="col">url</text>
+<text x="912" y="375" class="col">sort_order</text>
+<line x1="496" y1="200" x2="334" y2="230" stroke="#7F7F7F" stroke-width="1.8" marker-end="url(#fk)"/>
+<text x="415.0" y="209.0" class="rel" text-anchor="middle">pages</text>
+<line x1="496" y1="410" x2="334" y2="300" stroke="#7F7F7F" stroke-width="1.8" marker-end="url(#fk)"/>
+<text x="415.0" y="349.0" class="rel" text-anchor="middle">history</text>
+<line x1="496" y1="590" x2="334" y2="350" stroke="#7F7F7F" stroke-width="1.8" marker-end="url(#fk)"/>
+<text x="415.0" y="464.0" class="rel" text-anchor="middle">reports</text>
+<text x="60" y="470" class="note">One chart has many pages, many audit entries</text>
+<text x="60" y="492" class="note">and may have many feedback reports.</text>
+<rect x="60" y="730" width="1130" height="76" rx="6" fill="#FDF7EE" stroke="#E8C99A"/>
+<text x="80" y="758" class="note" style="fill:#8A5A00">chart_files.storage_key holds the object key of one page image in the bucket.</text>
+<text x="80" y="782" class="note" style="fill:#8A5A00">The images themselves are not in the database and are not covered by a database backup.</text>
+
+<rect x="880" y="440" width="330" height="66" rx="6" fill="#FAFAFA" stroke="#D9D9D9"/>
+<text x="894" y="464" class="pk">id PK</text>
+<text x="970" y="464" class="lgd">primary key</text>
+<text x="894" y="486" class="fk">chart_id FK</text>
+<text x="1000" y="486" class="lgd">foreign key — arrow points to parent</text>
+</svg>

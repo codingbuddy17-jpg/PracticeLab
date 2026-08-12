@@ -1,0 +1,3534 @@
+{
+ "answer_keys": {
+  "cols": [
+   {
+    "name": "id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": true
+   },
+   {
+    "name": "chart_id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "specialty",
+    "type": "VARCHAR(14)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "pdx_code",
+    "type": "VARCHAR(20)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "pdx_poa",
+    "type": "VARCHAR(5)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "sdx",
+    "type": "JSON",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "pcs",
+    "type": "JSON",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "cpt",
+    "type": "JSON",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "facility_level",
+    "type": "VARCHAR(20)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "profee_level",
+    "type": "VARCHAR(20)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "entered_by",
+    "type": "VARCHAR(100)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "created_at",
+    "type": "DATETIME",
+    "notnull": false,
+    "default": "CURRENT_TIMESTAMP",
+    "pk": false
+   },
+   {
+    "name": "updated_at",
+    "type": "DATETIME",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   }
+  ],
+  "fks": [
+   {
+    "col": "chart_id",
+    "ref_table": "charts",
+    "ref_col": "id"
+   }
+  ],
+  "uniq": [
+   "sqlite_autoindex_answer_keys_1"
+  ]
+ },
+ "assessment_audit_log": {
+  "cols": [
+   {
+    "name": "id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": true
+   },
+   {
+    "name": "trainer_name",
+    "type": "VARCHAR(100)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "action",
+    "type": "VARCHAR(50)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "specialty",
+    "type": "VARCHAR(50)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "details",
+    "type": "TEXT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "created_at",
+    "type": "DATETIME",
+    "notnull": false,
+    "default": "CURRENT_TIMESTAMP",
+    "pk": false
+   }
+  ],
+  "fks": [],
+  "uniq": []
+ },
+ "assessment_configs": {
+  "cols": [
+   {
+    "name": "id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": true
+   },
+   {
+    "name": "name",
+    "type": "VARCHAR(200)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "total_questions",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "student_count",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "specialty_mix",
+    "type": "JSON",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "difficulty_mode",
+    "type": "VARCHAR(10)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "difficulty_mix",
+    "type": "JSON",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "created_by",
+    "type": "VARCHAR(100)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "created_at",
+    "type": "DATETIME",
+    "notnull": false,
+    "default": "CURRENT_TIMESTAMP",
+    "pk": false
+   }
+  ],
+  "fks": [],
+  "uniq": []
+ },
+ "assessment_questions": {
+  "cols": [
+   {
+    "name": "id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": true
+   },
+   {
+    "name": "question_id",
+    "type": "VARCHAR(20)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "specialty",
+    "type": "VARCHAR(50)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "question_text",
+    "type": "TEXT",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "option_a",
+    "type": "TEXT",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "option_b",
+    "type": "TEXT",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "option_c",
+    "type": "TEXT",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "option_d",
+    "type": "TEXT",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "correct_answer",
+    "type": "VARCHAR(1)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "difficulty",
+    "type": "VARCHAR(10)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "topic",
+    "type": "VARCHAR(100)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "question_type",
+    "type": "VARCHAR(20)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "status",
+    "type": "VARCHAR(10)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "shuffle_options",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "last_used_at",
+    "type": "DATETIME",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "uploaded_by",
+    "type": "VARCHAR(100)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "created_at",
+    "type": "DATETIME",
+    "notnull": false,
+    "default": "CURRENT_TIMESTAMP",
+    "pk": false
+   }
+  ],
+  "fks": [],
+  "uniq": [
+   "ix_assessment_questions_question_id"
+  ]
+ },
+ "assessment_responses": {
+  "cols": [
+   {
+    "name": "id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": true
+   },
+   {
+    "name": "session_id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "question_index",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "question_id",
+    "type": "VARCHAR(20)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "selected_answer",
+    "type": "VARCHAR(1)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "is_correct",
+    "type": "BOOLEAN",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "override_is_correct",
+    "type": "BOOLEAN",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "override_reason",
+    "type": "TEXT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "override_by",
+    "type": "VARCHAR(100)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "override_at",
+    "type": "DATETIME",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "answered_at",
+    "type": "DATETIME",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   }
+  ],
+  "fks": [
+   {
+    "col": "session_id",
+    "ref_table": "assessment_sessions",
+    "ref_col": "id"
+   }
+  ],
+  "uniq": []
+ },
+ "assessment_results": {
+  "cols": [
+   {
+    "name": "id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": true
+   },
+   {
+    "name": "session_id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "total_questions",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "correct_count",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "score_pct",
+    "type": "FLOAT",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "time_taken_seconds",
+    "type": "INTEGER",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "submitted_at",
+    "type": "DATETIME",
+    "notnull": false,
+    "default": "CURRENT_TIMESTAMP",
+    "pk": false
+   }
+  ],
+  "fks": [
+   {
+    "col": "session_id",
+    "ref_table": "assessment_sessions",
+    "ref_col": "id"
+   }
+  ],
+  "uniq": [
+   "sqlite_autoindex_assessment_results_1"
+  ]
+ },
+ "assessment_sessions": {
+  "cols": [
+   {
+    "name": "id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": true
+   },
+   {
+    "name": "session_token",
+    "type": "VARCHAR(20)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "assessment_id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "coder_name",
+    "type": "VARCHAR(100)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "employee_id",
+    "type": "VARCHAR(50)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "duration_minutes",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "expires_at",
+    "type": "DATETIME",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "student_slot_id",
+    "type": "INTEGER",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "started_at",
+    "type": "DATETIME",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "time_limit_ends_at",
+    "type": "DATETIME",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "submitted_at",
+    "type": "DATETIME",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "auto_submitted",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "status",
+    "type": "VARCHAR(20)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "last_saved_at",
+    "type": "DATETIME",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "created_at",
+    "type": "DATETIME",
+    "notnull": false,
+    "default": "CURRENT_TIMESTAMP",
+    "pk": false
+   }
+  ],
+  "fks": [
+   {
+    "col": "student_slot_id",
+    "ref_table": "generated_assessment_students",
+    "ref_col": "id"
+   },
+   {
+    "col": "assessment_id",
+    "ref_table": "generated_assessments",
+    "ref_col": "id"
+   }
+  ],
+  "uniq": [
+   "ix_assessment_sessions_session_token"
+  ]
+ },
+ "audit_logs": {
+  "cols": [
+   {
+    "name": "id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": true
+   },
+   {
+    "name": "chart_id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "action",
+    "type": "VARCHAR(50)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "actor",
+    "type": "VARCHAR(100)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "details",
+    "type": "TEXT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "created_at",
+    "type": "DATETIME",
+    "notnull": false,
+    "default": "CURRENT_TIMESTAMP",
+    "pk": false
+   }
+  ],
+  "fks": [
+   {
+    "col": "chart_id",
+    "ref_table": "charts",
+    "ref_col": "id"
+   }
+  ],
+  "uniq": []
+ },
+ "batch_allocation_cycles": {
+  "cols": [
+   {
+    "name": "id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": true
+   },
+   {
+    "name": "batch_id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "cycle_number",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "run_at",
+    "type": "DATETIME",
+    "notnull": false,
+    "default": "CURRENT_TIMESTAMP",
+    "pk": false
+   },
+   {
+    "name": "run_by",
+    "type": "VARCHAR(100)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "charts_per_coder",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "notes",
+    "type": "VARCHAR(300)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "randomisation_stats",
+    "type": "JSON",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "warnings",
+    "type": "JSON",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "coder_pool_notes",
+    "type": "JSON",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   }
+  ],
+  "fks": [
+   {
+    "col": "batch_id",
+    "ref_table": "batches",
+    "ref_col": "id"
+   }
+  ],
+  "uniq": []
+ },
+ "batch_charts": {
+  "cols": [
+   {
+    "name": "id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": true
+   },
+   {
+    "name": "batch_id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "cycle_id",
+    "type": "INTEGER",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "coder_name",
+    "type": "VARCHAR(100)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "chart_id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "submission_status",
+    "type": "VARCHAR(9)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   }
+  ],
+  "fks": [
+   {
+    "col": "chart_id",
+    "ref_table": "charts",
+    "ref_col": "id"
+   },
+   {
+    "col": "cycle_id",
+    "ref_table": "batch_allocation_cycles",
+    "ref_col": "id"
+   },
+   {
+    "col": "batch_id",
+    "ref_table": "batches",
+    "ref_col": "id"
+   }
+  ],
+  "uniq": []
+ },
+ "batch_coders": {
+  "cols": [
+   {
+    "name": "id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": true
+   },
+   {
+    "name": "batch_id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "coder_name",
+    "type": "VARCHAR(100)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "emp_id",
+    "type": "VARCHAR(50)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   }
+  ],
+  "fks": [
+   {
+    "col": "batch_id",
+    "ref_table": "batches",
+    "ref_col": "id"
+   }
+  ],
+  "uniq": []
+ },
+ "batches": {
+  "cols": [
+   {
+    "name": "id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": true
+   },
+   {
+    "name": "name",
+    "type": "VARCHAR(200)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "specialty",
+    "type": "VARCHAR(14)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "categories",
+    "type": "JSON",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "difficulties",
+    "type": "JSON",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "charts_per_coder",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "created_by",
+    "type": "VARCHAR(100)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "created_at",
+    "type": "DATETIME",
+    "notnull": false,
+    "default": "CURRENT_TIMESTAMP",
+    "pk": false
+   },
+   {
+    "name": "status",
+    "type": "VARCHAR(6)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "use_weighted",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "use_dpo",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "is_direct_assignment",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "closed_at",
+    "type": "DATETIME",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "closed_by",
+    "type": "VARCHAR(100)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "force_closed",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "force_close_reason",
+    "type": "TEXT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "notes",
+    "type": "JSON",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "tags",
+    "type": "JSON",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   }
+  ],
+  "fks": [],
+  "uniq": []
+ },
+ "chart_feedback": {
+  "cols": [
+   {
+    "name": "id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": true
+   },
+   {
+    "name": "chart_id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "chart_number",
+    "type": "VARCHAR(20)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "reporter",
+    "type": "VARCHAR(100)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "issues",
+    "type": "VARCHAR(500)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "notes",
+    "type": "TEXT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "status",
+    "type": "VARCHAR(8)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "resolved_by",
+    "type": "VARCHAR(100)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "resolved_at",
+    "type": "DATETIME",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "created_at",
+    "type": "DATETIME",
+    "notnull": false,
+    "default": "CURRENT_TIMESTAMP",
+    "pk": false
+   }
+  ],
+  "fks": [
+   {
+    "col": "chart_id",
+    "ref_table": "charts",
+    "ref_col": "id"
+   }
+  ],
+  "uniq": []
+ },
+ "chart_files": {
+  "cols": [
+   {
+    "name": "id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": true
+   },
+   {
+    "name": "chart_id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "storage_key",
+    "type": "VARCHAR(500)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "original_filename",
+    "type": "VARCHAR(255)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "page_order",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "total_pages",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "page_text",
+    "type": "TEXT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "uploaded_by",
+    "type": "VARCHAR(100)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "uploaded_at",
+    "type": "DATETIME",
+    "notnull": false,
+    "default": "CURRENT_TIMESTAMP",
+    "pk": false
+   }
+  ],
+  "fks": [
+   {
+    "col": "chart_id",
+    "ref_table": "charts",
+    "ref_col": "id"
+   }
+  ],
+  "uniq": []
+ },
+ "chart_sequences": {
+  "cols": [
+   {
+    "name": "prefix",
+    "type": "VARCHAR(10)",
+    "notnull": true,
+    "default": null,
+    "pk": true
+   },
+   {
+    "name": "last_number",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   }
+  ],
+  "fks": [],
+  "uniq": [
+   "sqlite_autoindex_chart_sequences_1"
+  ]
+ },
+ "charts": {
+  "cols": [
+   {
+    "name": "id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": true
+   },
+   {
+    "name": "chart_number",
+    "type": "VARCHAR(20)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "specialty",
+    "type": "VARCHAR(14)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "category",
+    "type": "VARCHAR(200)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "difficulty",
+    "type": "VARCHAR(12)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "alias",
+    "type": "VARCHAR(100)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "rationale",
+    "type": "TEXT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "status",
+    "type": "VARCHAR(7)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "uploaded_by",
+    "type": "VARCHAR(100)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "view_count",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "created_at",
+    "type": "DATETIME",
+    "notnull": false,
+    "default": "CURRENT_TIMESTAMP",
+    "pk": false
+   },
+   {
+    "name": "updated_at",
+    "type": "DATETIME",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   }
+  ],
+  "fks": [],
+  "uniq": [
+   "ix_charts_chart_number"
+  ]
+ },
+ "coding_resources": {
+  "cols": [
+   {
+    "name": "id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": true
+   },
+   {
+    "name": "title",
+    "type": "VARCHAR(200)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "description",
+    "type": "VARCHAR(500)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "url",
+    "type": "VARCHAR(1000)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "created_by",
+    "type": "VARCHAR(100)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "sort_order",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "created_at",
+    "type": "DATETIME",
+    "notnull": false,
+    "default": "CURRENT_TIMESTAMP",
+    "pk": false
+   }
+  ],
+  "fks": [],
+  "uniq": []
+ },
+ "ed_rubric_details": {
+  "cols": [
+   {
+    "name": "id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": true
+   },
+   {
+    "name": "result_id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "review_pass",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "research_coding_pass",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "research_payer_pass",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "research_nuances_pass",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "resolution_pass",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "rationale_tier",
+    "type": "VARCHAR(20)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "trainer_note",
+    "type": "TEXT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "graded_by",
+    "type": "VARCHAR(100)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "graded_at",
+    "type": "DATETIME",
+    "notnull": false,
+    "default": "CURRENT_TIMESTAMP",
+    "pk": false
+   }
+  ],
+  "fks": [
+   {
+    "col": "result_id",
+    "ref_table": "grading_results",
+    "ref_col": "id"
+   }
+  ],
+  "uniq": [
+   "sqlite_autoindex_ed_rubric_details_1"
+  ]
+ },
+ "em_answer_keys": {
+  "cols": [
+   {
+    "name": "id",
+    "type": "INTEGER",
+    "notnull": false,
+    "default": null,
+    "pk": true
+   },
+   {
+    "name": "chart_id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "copa_self_limited",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": "0",
+    "pk": false
+   },
+   {
+    "name": "copa_stable_acute",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": "0",
+    "pk": false
+   },
+   {
+    "name": "copa_stable_chronic",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": "0",
+    "pk": false
+   },
+   {
+    "name": "copa_acute_uncomplicated",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": "0",
+    "pk": false
+   },
+   {
+    "name": "copa_chronic_exacerbation",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": "0",
+    "pk": false
+   },
+   {
+    "name": "copa_undiagnosed_new",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": "0",
+    "pk": false
+   },
+   {
+    "name": "copa_acute_systemic",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": "0",
+    "pk": false
+   },
+   {
+    "name": "copa_acute_complicated_injury",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": "0",
+    "pk": false
+   },
+   {
+    "name": "copa_chronic_severe",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": "0",
+    "pk": false
+   },
+   {
+    "name": "copa_threat_to_life",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": "0",
+    "pk": false
+   },
+   {
+    "name": "copa_level",
+    "type": "VARCHAR(20)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "copa_level_overridden",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": "FALSE",
+    "pk": false
+   },
+   {
+    "name": "dr_prior_external_notes",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": "0",
+    "pk": false
+   },
+   {
+    "name": "dr_review_test_results",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": "0",
+    "pk": false
+   },
+   {
+    "name": "dr_order_tests",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": "0",
+    "pk": false
+   },
+   {
+    "name": "dr_independent_historian",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": "FALSE",
+    "pk": false
+   },
+   {
+    "name": "dr_independent_interpretation",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": "FALSE",
+    "pk": false
+   },
+   {
+    "name": "dr_external_discussion",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": "FALSE",
+    "pk": false
+   },
+   {
+    "name": "dr_level",
+    "type": "VARCHAR(20)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "dr_level_overridden",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": "FALSE",
+    "pk": false
+   },
+   {
+    "name": "risk_low",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": "FALSE",
+    "pk": false
+   },
+   {
+    "name": "risk_prescription_drug_mgmt",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": "FALSE",
+    "pk": false
+   },
+   {
+    "name": "risk_minor_surgery_with_factors",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": "FALSE",
+    "pk": false
+   },
+   {
+    "name": "risk_elective_major_no_factors",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": "FALSE",
+    "pk": false
+   },
+   {
+    "name": "risk_hospitalization",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": "FALSE",
+    "pk": false
+   },
+   {
+    "name": "risk_sdoh",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": "FALSE",
+    "pk": false
+   },
+   {
+    "name": "risk_drug_intensive_monitoring",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": "FALSE",
+    "pk": false
+   },
+   {
+    "name": "risk_elective_major_with_factors",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": "FALSE",
+    "pk": false
+   },
+   {
+    "name": "risk_emergency_major_surgery",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": "FALSE",
+    "pk": false
+   },
+   {
+    "name": "risk_hospitalization_escalation",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": "FALSE",
+    "pk": false
+   },
+   {
+    "name": "risk_dnr_deescalate",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": "FALSE",
+    "pk": false
+   },
+   {
+    "name": "risk_parenteral_controlled",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": "FALSE",
+    "pk": false
+   },
+   {
+    "name": "risk_level",
+    "type": "VARCHAR(20)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "risk_level_overridden",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": "FALSE",
+    "pk": false
+   },
+   {
+    "name": "em_code",
+    "type": "VARCHAR(10)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "em_modifier",
+    "type": "VARCHAR(10)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "dx_codes",
+    "type": "TEXT",
+    "notnull": true,
+    "default": "'[]'",
+    "pk": false
+   },
+   {
+    "name": "procedure_cpts",
+    "type": "TEXT",
+    "notnull": true,
+    "default": "'[]'",
+    "pk": false
+   },
+   {
+    "name": "entered_by",
+    "type": "VARCHAR(100)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "entered_at",
+    "type": "TIMESTAMP",
+    "notnull": false,
+    "default": "CURRENT_TIMESTAMP",
+    "pk": false
+   },
+   {
+    "name": "patient_type",
+    "type": "TEXT",
+    "notnull": true,
+    "default": "'NA'",
+    "pk": false
+   },
+   {
+    "name": "level_method",
+    "type": "TEXT",
+    "notnull": true,
+    "default": "'MDM'",
+    "pk": false
+   },
+   {
+    "name": "total_time",
+    "type": "INTEGER",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "em_category",
+    "type": "TEXT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "critical_care_minutes",
+    "type": "INTEGER",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   }
+  ],
+  "fks": [
+   {
+    "col": "chart_id",
+    "ref_table": "charts",
+    "ref_col": "id"
+   }
+  ],
+  "uniq": [
+   "sqlite_autoindex_em_answer_keys_1"
+  ]
+ },
+ "em_grading_results": {
+  "cols": [
+   {
+    "name": "id",
+    "type": "INTEGER",
+    "notnull": false,
+    "default": null,
+    "pk": true
+   },
+   {
+    "name": "result_id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "sub_copa_self_limited",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": "0",
+    "pk": false
+   },
+   {
+    "name": "sub_copa_stable_acute",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": "0",
+    "pk": false
+   },
+   {
+    "name": "sub_copa_stable_chronic",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": "0",
+    "pk": false
+   },
+   {
+    "name": "sub_copa_acute_uncomplicated",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": "0",
+    "pk": false
+   },
+   {
+    "name": "sub_copa_chronic_exacerbation",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": "0",
+    "pk": false
+   },
+   {
+    "name": "sub_copa_undiagnosed_new",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": "0",
+    "pk": false
+   },
+   {
+    "name": "sub_copa_acute_systemic",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": "0",
+    "pk": false
+   },
+   {
+    "name": "sub_copa_acute_complicated_injury",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": "0",
+    "pk": false
+   },
+   {
+    "name": "sub_copa_chronic_severe",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": "0",
+    "pk": false
+   },
+   {
+    "name": "sub_copa_threat_to_life",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": "0",
+    "pk": false
+   },
+   {
+    "name": "sub_dr_prior_external_notes",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": "0",
+    "pk": false
+   },
+   {
+    "name": "sub_dr_review_test_results",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": "0",
+    "pk": false
+   },
+   {
+    "name": "sub_dr_order_tests",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": "0",
+    "pk": false
+   },
+   {
+    "name": "sub_dr_independent_historian",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": "FALSE",
+    "pk": false
+   },
+   {
+    "name": "sub_dr_independent_interpretation",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": "FALSE",
+    "pk": false
+   },
+   {
+    "name": "sub_dr_external_discussion",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": "FALSE",
+    "pk": false
+   },
+   {
+    "name": "sub_risk_low",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": "FALSE",
+    "pk": false
+   },
+   {
+    "name": "sub_risk_prescription_drug_mgmt",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": "FALSE",
+    "pk": false
+   },
+   {
+    "name": "sub_risk_minor_surgery_with_factors",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": "FALSE",
+    "pk": false
+   },
+   {
+    "name": "sub_risk_elective_major_no_factors",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": "FALSE",
+    "pk": false
+   },
+   {
+    "name": "sub_risk_hospitalization",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": "FALSE",
+    "pk": false
+   },
+   {
+    "name": "sub_risk_sdoh",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": "FALSE",
+    "pk": false
+   },
+   {
+    "name": "sub_risk_drug_intensive_monitoring",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": "FALSE",
+    "pk": false
+   },
+   {
+    "name": "sub_risk_elective_major_with_factors",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": "FALSE",
+    "pk": false
+   },
+   {
+    "name": "sub_risk_emergency_major_surgery",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": "FALSE",
+    "pk": false
+   },
+   {
+    "name": "sub_risk_hospitalization_escalation",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": "FALSE",
+    "pk": false
+   },
+   {
+    "name": "sub_risk_dnr_deescalate",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": "FALSE",
+    "pk": false
+   },
+   {
+    "name": "sub_risk_parenteral_controlled",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": "FALSE",
+    "pk": false
+   },
+   {
+    "name": "sub_em_code",
+    "type": "VARCHAR(10)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "sub_em_modifier",
+    "type": "VARCHAR(10)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "sub_dx_codes",
+    "type": "TEXT",
+    "notnull": true,
+    "default": "'[]'",
+    "pk": false
+   },
+   {
+    "name": "sub_procedure_cpts",
+    "type": "TEXT",
+    "notnull": true,
+    "default": "'[]'",
+    "pk": false
+   },
+   {
+    "name": "derived_copa_level",
+    "type": "VARCHAR(20)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "derived_dr_level",
+    "type": "VARCHAR(20)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "derived_risk_level",
+    "type": "VARCHAR(20)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "em_level_score",
+    "type": "FLOAT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "cpt_score",
+    "type": "FLOAT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "dx_score",
+    "type": "FLOAT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "coding_accuracy_total",
+    "type": "FLOAT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "copa_element_score",
+    "type": "FLOAT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "dr_element_score",
+    "type": "FLOAT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "risk_element_score",
+    "type": "FLOAT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "reasoning_accuracy_total",
+    "type": "FLOAT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "sub_critical_care_minutes",
+    "type": "INTEGER",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   }
+  ],
+  "fks": [
+   {
+    "col": "result_id",
+    "ref_table": "grading_results",
+    "ref_col": "id"
+   }
+  ],
+  "uniq": [
+   "sqlite_autoindex_em_grading_results_1"
+  ]
+ },
+ "em_scoring_configs": {
+  "cols": [
+   {
+    "name": "id",
+    "type": "INTEGER",
+    "notnull": false,
+    "default": null,
+    "pk": true
+   },
+   {
+    "name": "line1_weight",
+    "type": "FLOAT",
+    "notnull": true,
+    "default": "70.0",
+    "pk": false
+   },
+   {
+    "name": "line2_weight",
+    "type": "FLOAT",
+    "notnull": true,
+    "default": "30.0",
+    "pk": false
+   },
+   {
+    "name": "em_level_weight",
+    "type": "FLOAT",
+    "notnull": true,
+    "default": "23.33",
+    "pk": false
+   },
+   {
+    "name": "cpt_weight",
+    "type": "FLOAT",
+    "notnull": true,
+    "default": "23.33",
+    "pk": false
+   },
+   {
+    "name": "dx_weight",
+    "type": "FLOAT",
+    "notnull": true,
+    "default": "23.34",
+    "pk": false
+   },
+   {
+    "name": "copa_weight",
+    "type": "FLOAT",
+    "notnull": true,
+    "default": "10.0",
+    "pk": false
+   },
+   {
+    "name": "dr_weight",
+    "type": "FLOAT",
+    "notnull": true,
+    "default": "10.0",
+    "pk": false
+   },
+   {
+    "name": "risk_weight",
+    "type": "FLOAT",
+    "notnull": true,
+    "default": "10.0",
+    "pk": false
+   },
+   {
+    "name": "pass_threshold",
+    "type": "FLOAT",
+    "notnull": true,
+    "default": "80.0",
+    "pk": false
+   },
+   {
+    "name": "overcoding_penalty",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": "TRUE",
+    "pk": false
+   },
+   {
+    "name": "updated_by",
+    "type": "VARCHAR(100)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "updated_at",
+    "type": "TIMESTAMP",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   }
+  ],
+  "fks": [],
+  "uniq": []
+ },
+ "generated_assessment_students": {
+  "cols": [
+   {
+    "name": "id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": true
+   },
+   {
+    "name": "assessment_id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "student_label",
+    "type": "VARCHAR(50)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "questions_json",
+    "type": "JSON",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   }
+  ],
+  "fks": [
+   {
+    "col": "assessment_id",
+    "ref_table": "generated_assessments",
+    "ref_col": "id"
+   }
+  ],
+  "uniq": []
+ },
+ "generated_assessments": {
+  "cols": [
+   {
+    "name": "id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": true
+   },
+   {
+    "name": "config_id",
+    "type": "INTEGER",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "assessment_name",
+    "type": "VARCHAR(200)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "batch_name",
+    "type": "VARCHAR(100)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "student_count",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "generated_by",
+    "type": "VARCHAR(100)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "generated_at",
+    "type": "DATETIME",
+    "notnull": false,
+    "default": "CURRENT_TIMESTAMP",
+    "pk": false
+   },
+   {
+    "name": "randomisation_stats",
+    "type": "JSON",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "is_standalone",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "pass_threshold",
+    "type": "INTEGER",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   }
+  ],
+  "fks": [
+   {
+    "col": "config_id",
+    "ref_table": "assessment_configs",
+    "ref_col": "id"
+   }
+  ],
+  "uniq": []
+ },
+ "grading_feedback": {
+  "cols": [
+   {
+    "name": "id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": true
+   },
+   {
+    "name": "result_id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "section",
+    "type": "VARCHAR(3)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "issue_type",
+    "type": "VARCHAR(14)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "ak_code",
+    "type": "VARCHAR(50)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "coder_code",
+    "type": "VARCHAR(50)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "detail",
+    "type": "VARCHAR(200)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   }
+  ],
+  "fks": [
+   {
+    "col": "result_id",
+    "ref_table": "grading_results",
+    "ref_col": "id"
+   }
+  ],
+  "uniq": []
+ },
+ "grading_results": {
+  "cols": [
+   {
+    "name": "id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": true
+   },
+   {
+    "name": "batch_id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "submission_id",
+    "type": "INTEGER",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "coder_name",
+    "type": "VARCHAR(100)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "emp_id",
+    "type": "VARCHAR(50)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "chart_id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "specialty",
+    "type": "VARCHAR(14)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "pdx_score",
+    "type": "INTEGER",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "sdx_score",
+    "type": "INTEGER",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "pcs_score",
+    "type": "INTEGER",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "cpt_score",
+    "type": "INTEGER",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "drg_score",
+    "type": "INTEGER",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "drg_flag",
+    "type": "BOOLEAN",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "drg_reviewed",
+    "type": "BOOLEAN",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "drg_override",
+    "type": "VARCHAR(5)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "drg_reviewed_by",
+    "type": "VARCHAR(100)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "drg_reviewed_at",
+    "type": "DATETIME",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "total_score",
+    "type": "INTEGER",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "pass_fail",
+    "type": "VARCHAR(4)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "graded_at",
+    "type": "DATETIME",
+    "notnull": false,
+    "default": "CURRENT_TIMESTAMP",
+    "pk": false
+   },
+   {
+    "name": "dpo_dx_accuracy",
+    "type": "FLOAT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "dpo_poa_accuracy",
+    "type": "FLOAT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "dpo_proc_accuracy",
+    "type": "FLOAT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "dpo_overall_accuracy",
+    "type": "FLOAT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "dpo_dx_correct",
+    "type": "INTEGER",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "dpo_dx_total",
+    "type": "INTEGER",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "dpo_poa_correct",
+    "type": "INTEGER",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "dpo_poa_total",
+    "type": "INTEGER",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "dpo_proc_correct",
+    "type": "INTEGER",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "dpo_proc_total",
+    "type": "INTEGER",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   }
+  ],
+  "fks": [
+   {
+    "col": "chart_id",
+    "ref_table": "charts",
+    "ref_col": "id"
+   },
+   {
+    "col": "submission_id",
+    "ref_table": "submissions",
+    "ref_col": "id"
+   },
+   {
+    "col": "batch_id",
+    "ref_table": "batches",
+    "ref_col": "id"
+   }
+  ],
+  "uniq": []
+ },
+ "practice_chart_drafts": {
+  "cols": [
+   {
+    "name": "id",
+    "type": "INTEGER",
+    "notnull": false,
+    "default": null,
+    "pk": true
+   },
+   {
+    "name": "session_id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "chart_id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "pdx_code",
+    "type": "VARCHAR(20)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "pdx_poa",
+    "type": "VARCHAR(5)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "sdx",
+    "type": "TEXT",
+    "notnull": false,
+    "default": "'[]'",
+    "pk": false
+   },
+   {
+    "name": "pcs",
+    "type": "TEXT",
+    "notnull": false,
+    "default": "'[]'",
+    "pk": false
+   },
+   {
+    "name": "cpt",
+    "type": "TEXT",
+    "notnull": false,
+    "default": "'[]'",
+    "pk": false
+   },
+   {
+    "name": "ed_review",
+    "type": "TEXT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "ed_research",
+    "type": "TEXT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "ed_resolution",
+    "type": "TEXT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "ed_rationale",
+    "type": "TEXT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "flagged",
+    "type": "BOOLEAN",
+    "notnull": false,
+    "default": "FALSE",
+    "pk": false
+   },
+   {
+    "name": "coder_notes",
+    "type": "TEXT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "updated_at",
+    "type": "TIMESTAMP",
+    "notnull": false,
+    "default": "CURRENT_TIMESTAMP",
+    "pk": false
+   },
+   {
+    "name": "em_data",
+    "type": "TEXT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "facility_level",
+    "type": "TEXT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "profee_level",
+    "type": "TEXT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "critical_care_minutes",
+    "type": "INTEGER",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   }
+  ],
+  "fks": [
+   {
+    "col": "chart_id",
+    "ref_table": "charts",
+    "ref_col": "id"
+   },
+   {
+    "col": "session_id",
+    "ref_table": "practice_sessions",
+    "ref_col": "id"
+   }
+  ],
+  "uniq": []
+ },
+ "practice_results": {
+  "cols": [
+   {
+    "name": "id",
+    "type": "INTEGER",
+    "notnull": false,
+    "default": null,
+    "pk": true
+   },
+   {
+    "name": "session_id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "chart_id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "specialty",
+    "type": "VARCHAR(50)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "total_score",
+    "type": "INTEGER",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "pass_fail",
+    "type": "VARCHAR(10)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "drg_flag",
+    "type": "BOOLEAN",
+    "notnull": false,
+    "default": "FALSE",
+    "pk": false
+   },
+   {
+    "name": "feedback",
+    "type": "TEXT",
+    "notnull": false,
+    "default": "'[]'",
+    "pk": false
+   },
+   {
+    "name": "pdx_submitted",
+    "type": "VARCHAR(20)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "pdx_answer_key",
+    "type": "VARCHAR(20)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "pdx_correct",
+    "type": "BOOLEAN",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "sdx_submitted",
+    "type": "TEXT",
+    "notnull": false,
+    "default": "'[]'",
+    "pk": false
+   },
+   {
+    "name": "sdx_answer_key",
+    "type": "TEXT",
+    "notnull": false,
+    "default": "'[]'",
+    "pk": false
+   },
+   {
+    "name": "pcs_submitted",
+    "type": "TEXT",
+    "notnull": false,
+    "default": "'[]'",
+    "pk": false
+   },
+   {
+    "name": "pcs_answer_key",
+    "type": "TEXT",
+    "notnull": false,
+    "default": "'[]'",
+    "pk": false
+   },
+   {
+    "name": "cpt_submitted",
+    "type": "TEXT",
+    "notnull": false,
+    "default": "'[]'",
+    "pk": false
+   },
+   {
+    "name": "cpt_answer_key",
+    "type": "TEXT",
+    "notnull": false,
+    "default": "'[]'",
+    "pk": false
+   },
+   {
+    "name": "ed_review",
+    "type": "TEXT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "ed_research",
+    "type": "TEXT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "ed_resolution",
+    "type": "TEXT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "ed_rationale",
+    "type": "TEXT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "ed_scored",
+    "type": "BOOLEAN",
+    "notnull": false,
+    "default": "FALSE",
+    "pk": false
+   },
+   {
+    "name": "ed_review_pass",
+    "type": "BOOLEAN",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "ed_research_coding_pass",
+    "type": "BOOLEAN",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "ed_research_payer_pass",
+    "type": "BOOLEAN",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "ed_research_nuances_pass",
+    "type": "BOOLEAN",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "ed_resolution_pass",
+    "type": "BOOLEAN",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "ed_rationale_tier",
+    "type": "VARCHAR(30)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "ed_trainer_note",
+    "type": "TEXT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "ed_graded_by",
+    "type": "VARCHAR(100)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "drg_reviewed",
+    "type": "BOOLEAN",
+    "notnull": false,
+    "default": "FALSE",
+    "pk": false
+   },
+   {
+    "name": "drg_override",
+    "type": "VARCHAR(20)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "drg_reviewed_by",
+    "type": "VARCHAR(100)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "drg_reviewed_at",
+    "type": "TIMESTAMP",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "facility_level_submitted",
+    "type": "TEXT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "facility_level_answer_key",
+    "type": "TEXT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "profee_level_submitted",
+    "type": "TEXT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "profee_level_answer_key",
+    "type": "TEXT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   }
+  ],
+  "fks": [
+   {
+    "col": "chart_id",
+    "ref_table": "charts",
+    "ref_col": "id"
+   },
+   {
+    "col": "session_id",
+    "ref_table": "practice_sessions",
+    "ref_col": "id"
+   }
+  ],
+  "uniq": []
+ },
+ "practice_sessions": {
+  "cols": [
+   {
+    "name": "id",
+    "type": "INTEGER",
+    "notnull": false,
+    "default": null,
+    "pk": true
+   },
+   {
+    "name": "batch_id",
+    "type": "INTEGER",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "cycle_id",
+    "type": "INTEGER",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "coder_name",
+    "type": "VARCHAR(100)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "specialty",
+    "type": "VARCHAR(50)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "token",
+    "type": "VARCHAR(20)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "chart_ids",
+    "type": "TEXT",
+    "notnull": true,
+    "default": "'[]'",
+    "pk": false
+   },
+   {
+    "name": "show_results_to_coder",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": "FALSE",
+    "pk": false
+   },
+   {
+    "name": "status",
+    "type": "VARCHAR(20)",
+    "notnull": true,
+    "default": "'pending'",
+    "pk": false
+   },
+   {
+    "name": "submitted_at",
+    "type": "TIMESTAMP",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "created_at",
+    "type": "TIMESTAMP",
+    "notnull": false,
+    "default": "CURRENT_TIMESTAMP",
+    "pk": false
+   }
+  ],
+  "fks": [
+   {
+    "col": "cycle_id",
+    "ref_table": "batch_allocation_cycles",
+    "ref_col": "id"
+   },
+   {
+    "col": "batch_id",
+    "ref_table": "batches",
+    "ref_col": "id"
+   }
+  ],
+  "uniq": [
+   "sqlite_autoindex_practice_sessions_1"
+  ]
+ },
+ "scoring_configs": {
+  "cols": [
+   {
+    "name": "id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": true
+   },
+   {
+    "name": "specialty_type",
+    "type": "VARCHAR(10)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "pdx_weight",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "sdx_weight",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "pcs_weight",
+    "type": "INTEGER",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "drg_weight",
+    "type": "INTEGER",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "cpt_weight",
+    "type": "INTEGER",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "facility_level_weight",
+    "type": "INTEGER",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "profee_level_weight",
+    "type": "INTEGER",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "pass_threshold",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "drg_triggers",
+    "type": "JSON",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "overcoding_penalty",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "weighted_enabled",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "dpo_enabled",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "dpo_pass_threshold",
+    "type": "FLOAT",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "updated_by",
+    "type": "VARCHAR(100)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "updated_at",
+    "type": "DATETIME",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   }
+  ],
+  "fks": [],
+  "uniq": [
+   "sqlite_autoindex_scoring_configs_1"
+  ]
+ },
+ "self_practice_results": {
+  "cols": [
+   {
+    "name": "id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": true
+   },
+   {
+    "name": "submission_id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "chart_id",
+    "type": "INTEGER",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "chart_number",
+    "type": "VARCHAR(20)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "specialty",
+    "type": "VARCHAR(14)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "weighted_score",
+    "type": "INTEGER",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "pass_fail",
+    "type": "VARCHAR(4)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "dpo_dx_accuracy",
+    "type": "FLOAT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "dpo_poa_accuracy",
+    "type": "FLOAT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "dpo_proc_accuracy",
+    "type": "FLOAT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "dpo_overall_accuracy",
+    "type": "FLOAT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "error_message",
+    "type": "VARCHAR(300)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "feedback_items",
+    "type": "JSON",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   }
+  ],
+  "fks": [
+   {
+    "col": "chart_id",
+    "ref_table": "charts",
+    "ref_col": "id"
+   },
+   {
+    "col": "submission_id",
+    "ref_table": "self_practice_submissions",
+    "ref_col": "id"
+   }
+  ],
+  "uniq": []
+ },
+ "self_practice_submissions": {
+  "cols": [
+   {
+    "name": "id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": true
+   },
+   {
+    "name": "coder_name",
+    "type": "VARCHAR(100)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "emp_id",
+    "type": "VARCHAR(50)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "source",
+    "type": "VARCHAR(20)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "status",
+    "type": "VARCHAR(20)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "trainer_feedback",
+    "type": "TEXT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "reviewed_by",
+    "type": "VARCHAR(100)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "reviewed_at",
+    "type": "DATETIME",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "submitted_at",
+    "type": "DATETIME",
+    "notnull": false,
+    "default": "CURRENT_TIMESTAMP",
+    "pk": false
+   }
+  ],
+  "fks": [],
+  "uniq": []
+ },
+ "submissions": {
+  "cols": [
+   {
+    "name": "id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": true
+   },
+   {
+    "name": "batch_id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "coder_name",
+    "type": "VARCHAR(100)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "chart_id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "specialty",
+    "type": "VARCHAR(14)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "pdx_code",
+    "type": "VARCHAR(20)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "pdx_poa",
+    "type": "VARCHAR(5)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "sdx",
+    "type": "JSON",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "pcs",
+    "type": "JSON",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "cpt",
+    "type": "JSON",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "submitted_at",
+    "type": "DATETIME",
+    "notnull": false,
+    "default": "CURRENT_TIMESTAMP",
+    "pk": false
+   }
+  ],
+  "fks": [
+   {
+    "col": "chart_id",
+    "ref_table": "charts",
+    "ref_col": "id"
+   },
+   {
+    "col": "batch_id",
+    "ref_table": "batches",
+    "ref_col": "id"
+   }
+  ],
+  "uniq": []
+ }
+}
