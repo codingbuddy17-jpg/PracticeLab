@@ -193,6 +193,10 @@ is a broken link**. You need one of:
 Storage keys follow the pattern `charts/{chart_id}/...`, so a straight bucket
 copy preserving keys requires no database changes.
 
+`DATA_STORAGE_MODEL.md` covers this in full: what a chart upload actually
+becomes, why no uploaded spreadsheet needs migrating, and how to size the
+bucket.
+
 ---
 
 ## 7. Verification
