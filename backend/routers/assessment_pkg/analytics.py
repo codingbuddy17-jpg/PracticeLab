@@ -19,7 +19,20 @@ router = APIRouter()
 # Fallback only — used for assessments generated before the bar became a
 # property of the paper. 90 was the hardcoded value; keeping it means existing
 # figures do not move underneath anyone.
+# Analytics reads the trainer's verdict where one exists, never the raw grader
+# result. It used to read resp.is_correct in fourteen places and effective_correct
+# in none — so a correction moved the score on Sessions and the result row (which
+# rescore_session rewrites) while every breakdown recomputed from responses stayed
+# stale. The tab did not lag corrections uniformly; it disagreed with ITSELF,
+# headline against breakdown, which is the version that destroys trust in a number.
+from services.assessment_scoring import answered, effective_correct
+
 DEFAULT_PASS_THRESHOLD = 90.0
+# A pass RATE is the share of a cohort who passed; a pass THRESHOLD is the score
+# one paper must reach. Judging a 78% pass rate against the 90 score bar reads
+# the cohort as failing when it is doing fine. Mirrors PASS_RATE_TARGET in the
+# analytics helpers so the screen and the PDFs agree.
+PASS_RATE_TARGET = 70.0
 PASS_THRESHOLD = DEFAULT_PASS_THRESHOLD          # legacy alias
 
 
@@ -369,9 +382,9 @@ def analytics_by_assessment(assessment_id: int, db: Session = Depends(get_db)):
                     "correct": 0,
                     "total": 0,
                 }
-            if resp.is_correct is not None:
+            if answered(resp):
                 q_meta[qid]["total"] += 1
-                if resp.is_correct:
+                if effective_correct(resp):
                     q_meta[qid]["correct"] += 1
 
     question_accuracy = []
@@ -582,7 +595,7 @@ def analytics_coder(
     topic_acc: Dict[str, Dict] = {}
     diff_acc: Dict[str, Dict] = {}
     for resp in responses:
-        if resp.is_correct is None:
+        if not answered(resp):
             continue
         qid = resp.question_id
         topic = q_topic.get(qid, "Unknown")
@@ -590,12 +603,12 @@ def analytics_coder(
 
         topic_acc.setdefault(topic, {"correct": 0, "total": 0})
         topic_acc[topic]["total"] += 1
-        if resp.is_correct:
+        if effective_correct(resp):
             topic_acc[topic]["correct"] += 1
 
         diff_acc.setdefault(diff, {"correct": 0, "total": 0})
         diff_acc[diff]["total"] += 1
-        if resp.is_correct:
+        if effective_correct(resp):
             diff_acc[diff]["correct"] += 1
 
     topic_strength = sorted([
@@ -642,6 +655,12 @@ def analytics_coder(
         # bars, so say when they do rather than drawing one line as if it
         # governed every point.
         "default_pass_threshold": DEFAULT_PASS_THRESHOLD,
+        # The bar this coder's papers were actually marked against, so the PDF
+        # stops carrying its own hardcoded one and disagreeing with the screen.
+        "pass_threshold": (
+            sorted({ch_marks.get(s_.assessment_id, DEFAULT_PASS_THRESHOLD) for s_ in sessions})[0]
+            if sessions else DEFAULT_PASS_THRESHOLD),
+        "pass_rate_target": PASS_RATE_TARGET,
         "pass_thresholds_vary": len({
             ch_marks.get(s_.assessment_id, DEFAULT_PASS_THRESHOLD) for s_ in sessions
         }) > 1,
@@ -722,13 +741,13 @@ def analytics_by_specialty(db: Session = Depends(get_db), f: AFilters = Depends(
     # Per-specialty accumulators
     spec_map: Dict[str, Dict] = {}
     for resp in responses:
-        if resp.is_correct is None:
+        if not answered(resp):
             continue
         sp = qid_specialty.get(resp.question_id, "Unknown")
         if sp not in spec_map:
             spec_map[sp] = {"correct": 0, "total": 0, "coders": set()}
         spec_map[sp]["total"] += 1
-        if resp.is_correct:
+        if effective_correct(resp):
             spec_map[sp]["correct"] += 1
         spec_map[sp]["coders"].add(resp.session_id)
 
@@ -764,14 +783,14 @@ def analytics_by_topic(db: Session = Depends(get_db), f: AFilters = Depends(filt
     # Per-topic accumulators (also track specialty for context)
     topic_map: Dict[str, Dict] = {}
     for resp in responses:
-        if resp.is_correct is None:
+        if not answered(resp):
             continue
         tp = qid_topic.get(resp.question_id, "Unknown")
         sp = qid_specialty.get(resp.question_id, "Unknown")
         if tp not in topic_map:
             topic_map[tp] = {"correct": 0, "total": 0, "coders": set(), "specialties": set()}
         topic_map[tp]["total"] += 1
-        if resp.is_correct:
+        if effective_correct(resp):
             topic_map[tp]["correct"] += 1
         topic_map[tp]["coders"].add(resp.session_id)
         topic_map[tp]["specialties"].add(sp)
@@ -893,7 +912,7 @@ def analytics_batch_drill(batch_name: str, db: Session = Depends(get_db)):
 
     session_map = {s.id: s for s in sessions}
     for resp in responses:
-        if resp.is_correct is None:
+        if not answered(resp):
             continue
         s = session_map.get(resp.session_id)
         if not s:
@@ -906,7 +925,7 @@ def analytics_batch_drill(batch_name: str, db: Session = Depends(get_db)):
         topic = qid_topic.get(resp.question_id, "Unknown")
         coder_topic.setdefault(coder, {}).setdefault(topic, {"correct": 0, "total": 0})
         coder_topic[coder][topic]["total"] += 1
-        if resp.is_correct:
+        if effective_correct(resp):
             coder_topic[coder][topic]["correct"] += 1
 
     for s in sessions:
@@ -988,6 +1007,9 @@ def analytics_batch_drill(batch_name: str, db: Session = Depends(get_db)):
         "avg_score": round(sum(all_scores) / len(all_scores), 1) if all_scores else None,
         "pass_rate": (round(sum(all_passes) / len(all_passes) * 100, 1)
                       if all_passes else None),
+        # Both bars, so the PDF judges each figure against its own kind.
+        "pass_rate_target": PASS_RATE_TARGET,
+        "default_pass_threshold": DEFAULT_PASS_THRESHOLD,
         "all_topics": all_topics,
         "coder_rows": coder_rows,
         "topic_summary": topic_summary,
@@ -1222,7 +1244,7 @@ def analytics_question_signals(
         d = stats.setdefault(qid, {"attempts": 0, "correct": 0, "blank": 0,
                                    "options": {}, "coders": set()})
         d["attempts"] += 1
-        if r.is_correct:
+        if effective_correct(r):
             d["correct"] += 1
         if not r.selected_answer:
             d["blank"] += 1
@@ -1318,7 +1340,7 @@ def analytics_coder_matrix(db: Session = Depends(get_db), f: AFilters = Depends(
     coder_label: Dict[str, Dict[str, Any]] = {}
 
     for resp in responses:
-        if resp.is_correct is None:
+        if not answered(resp):
             continue
         s = session_map.get(resp.session_id)
         if not s:
@@ -1328,7 +1350,7 @@ def analytics_coder_matrix(db: Session = Depends(get_db), f: AFilters = Depends(
         sp = qid_specialty.get(resp.question_id, "Unknown")
         coder_spec.setdefault(key, {}).setdefault(sp, {"correct": 0, "total": 0})
         coder_spec[key][sp]["total"] += 1
-        if resp.is_correct:
+        if effective_correct(resp):
             coder_spec[key][sp]["correct"] += 1
 
     for s in sessions:

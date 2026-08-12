@@ -686,16 +686,27 @@ def generate_assessment_coder_report_pdf(coder_name: str, data: dict) -> bytes:
     avg_score = data.get("avg_score") or 0
     total = data.get("total_assessments_taken", 0)
     pass_rate = data.get("pass_rate") or 0
-    PASS_THRESHOLD = 90
+    # The bar this coder's papers were actually marked against. Hardcoding 90
+    # here meant a paper set at 80 was reported against a standard it was never
+    # marked on, and the PDF handed to the coder disagreed with the screen the
+    # trainer was reading.
+    pass_threshold = data.get("pass_threshold") or data.get("default_pass_threshold") or 90
+    # The "nearly there" band sits below the bar rather than at a fixed 80,
+    # which was above some thresholds and below others.
+    near_threshold = round(pass_threshold * 0.9)
 
-    if avg_score >= PASS_THRESHOLD:
+    if avg_score >= pass_threshold:
         headline, color, bg, border = "STRONG PERFORMER", GREEN, GREEN_BG, GREEN_BORDER
-    elif avg_score >= 80:
+    elif avg_score >= near_threshold:
         headline, color, bg, border = "ON TRACK", AMBER, AMBER_BG, AMBER_BORDER
     else:
         headline, color, bg, border = "NEEDS IMPROVEMENT", RED, RED_BG, RED_BORDER
 
-    detail = f"{avg_score}% average across {total} assessments. Pass rate: {pass_rate}%."
+    bar = f"{pass_threshold:g}% pass mark"
+    if data.get("pass_thresholds_vary"):
+        bar += " (papers carried different marks; the lowest is used here)"
+    detail = (f"{avg_score}% average across {total} assessments, against a {bar}. "
+              f"Pass rate: {pass_rate}%.")
     elements.append(_verdict_box(headline, detail, color, bg, border))
     elements.append(Spacer(1, 12))
 
@@ -736,7 +747,7 @@ def generate_assessment_coder_report_pdf(coder_name: str, data: dict) -> bytes:
         topic_rows = [
             [
                 Paragraph(t["topic"], NORMAL),
-                _score_cell(t.get("accuracy_pct"), pass_threshold=PASS_THRESHOLD),
+                _score_cell(t.get("accuracy_pct"), pass_threshold=pass_threshold),
                 Paragraph(f"{t.get('correct', 0)}/{t.get('total', 0)}", NORMAL),
             ]
             for t in topic_strength
@@ -750,7 +761,7 @@ def generate_assessment_coder_report_pdf(coder_name: str, data: dict) -> bytes:
         diff_rows = [
             [
                 Paragraph(d["difficulty"], NORMAL),
-                _score_cell(d.get("accuracy_pct"), pass_threshold=PASS_THRESHOLD),
+                _score_cell(d.get("accuracy_pct"), pass_threshold=pass_threshold),
                 Paragraph(f"{d.get('correct', 0)}/{d.get('total', 0)}", NORMAL),
             ]
             for d in difficulty_breakdown
@@ -759,7 +770,7 @@ def generate_assessment_coder_report_pdf(coder_name: str, data: dict) -> bytes:
         elements.append(Spacer(1, 12))
 
     if topic_strength:
-        strong_topics = [t for t in topic_strength if (t.get("accuracy_pct") or 0) >= PASS_THRESHOLD]
+        strong_topics = [t for t in topic_strength if (t.get("accuracy_pct") or 0) >= pass_threshold]
         weak_topics = [t for t in topic_strength if (t.get("accuracy_pct") or 0) < 80]
         left = _ranked_box(
             "Strong Topics (>=90%)", strong_topics, GREEN, GREEN_BG, GREEN_BORDER, "None at 90%+ yet",
@@ -787,7 +798,7 @@ def generate_assessment_coder_report_pdf(coder_name: str, data: dict) -> bytes:
             hist_rows.append([
                 Paragraph(sh.get("assessment_name", "—"), NORMAL),
                 Paragraph(date_str, NORMAL),
-                _score_cell(sh.get("score_pct"), pass_threshold=PASS_THRESHOLD),
+                _score_cell(sh.get("score_pct"), pass_threshold=pass_threshold),
                 Paragraph(f"{sh.get('correct_count', 0)}/{sh.get('total_questions', 0)}", NORMAL),
                 Paragraph(_fmt_time(sh.get("time_taken_seconds")), NORMAL),
                 result_p,
@@ -814,20 +825,29 @@ def generate_assessment_batch_report_pdf(data: dict) -> bytes:
     submitted_count = data.get("submitted_count", 0)
     avg_score = data.get("avg_score") or 0
     pass_rate = data.get("pass_rate") or 0
-    PASS_THRESHOLD = 90
+    # A pass RATE is the share of a cohort who passed; a pass THRESHOLD is the
+    # score one paper must reach. This judged the rate against 90 — the score
+    # bar — so a cohort where 78% of coders passed was reported BELOW TARGET.
+    rate_target = data.get("pass_rate_target") or 70
+    acceptable_floor = round(rate_target * 0.75)
+
+    # Cell colouring is about a SCORE, so it uses the score bar — not the rate
+    # target the verdict above is judged on. Two different questions.
+    pass_threshold = data.get("default_pass_threshold") or 90
 
     _header(elements, "Batch Performance Report", [
         f"Batch: {batch_name}  |  {assessment_count} Assessments  |  {total_coders} Coders",
     ])
 
-    if pass_rate >= PASS_THRESHOLD:
+    if pass_rate >= rate_target:
         headline, color, bg, border = "STRONG BATCH", GREEN, GREEN_BG, GREEN_BORDER
-    elif pass_rate >= 75:
+    elif pass_rate >= acceptable_floor:
         headline, color, bg, border = "ACCEPTABLE", AMBER, AMBER_BG, AMBER_BORDER
     else:
         headline, color, bg, border = "BELOW TARGET", RED, RED_BG, RED_BORDER
 
-    detail = f"{pass_rate}% pass rate across {submitted_count} submissions. Average score: {avg_score}%."
+    detail = (f"{pass_rate}% pass rate across {submitted_count} submissions, against a "
+              f"{rate_target:g}% target. Average score: {avg_score}%.")
     elements.append(_verdict_box(headline, detail, color, bg, border))
     elements.append(Spacer(1, 12))
 
@@ -869,7 +889,7 @@ def generate_assessment_batch_report_pdf(data: dict) -> bytes:
         ts_rows = [
             [
                 Paragraph(t["topic"], NORMAL),
-                _score_cell(t.get("accuracy_pct"), pass_threshold=PASS_THRESHOLD),
+                _score_cell(t.get("accuracy_pct"), pass_threshold=pass_threshold),
                 Paragraph(f"{t.get('correct', 0)}/{t.get('total', 0)}", NORMAL),
             ]
             for t in topic_summary
@@ -897,7 +917,7 @@ def generate_assessment_batch_report_pdf(data: dict) -> bytes:
                 delta_p = Paragraph("0", delta_gray)
             cr_rows.append([
                 Paragraph(c.get("coder_name", "—"), NORMAL),
-                _score_cell(c.get("latest_score"), pass_threshold=PASS_THRESHOLD),
+                _score_cell(c.get("latest_score"), pass_threshold=pass_threshold),
                 delta_p,
                 Paragraph(str(c.get("assessment_count", 0)), NORMAL),
             ])

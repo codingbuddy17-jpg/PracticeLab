@@ -40,6 +40,18 @@ def questions_for_session(session: AssessmentSession, db: Session) -> list:
     return json.loads(qs) if isinstance(qs, str) else (qs or [])
 
 
+def answered(response: AssessmentResponse) -> bool:
+    """
+    Whether this question was attempted at all.
+
+    is_correct is NULL for a question the coder never answered, which is a
+    different thing from answering it wrongly — it must not be counted in an
+    accuracy denominator. A trainer can still correct such a response, so an
+    override makes it count.
+    """
+    return response.is_correct is not None or response.override_is_correct is not None
+
+
 def effective_correct(response: AssessmentResponse) -> bool:
     """
     Whether this answer counts as right — the trainer's verdict where one
