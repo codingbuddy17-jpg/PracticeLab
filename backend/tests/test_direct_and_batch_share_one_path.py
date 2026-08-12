@@ -142,3 +142,41 @@ def test_a_batch_with_ungraded_work_still_refuses_to_close(client, db):
     r = client.post(f"/practicelab/batches/{b.id}/close", json={"closed_by": "Trainer"})
     assert r.status_code == 400
     assert "not yet graded" in r.json()["detail"].lower()
+
+
+# ── what a coder is allowed to see ───────────────────────────────────────────
+
+def test_a_coder_is_not_told_a_charts_difficulty(client, db):
+    """
+    Difficulty exists so a trainer can match work to someone's level. In front
+    of the coder it either excuses a poor result or seeds doubt about a good
+    one, so it is not sent at all — not merely hidden by the screen.
+    """
+    from models import BatchAllocationCycle
+    from sqlalchemy import text
+
+    chart = Chart(chart_number="DIFF01", specialty=Specialty.SDS, category="Ortho",
+                  difficulty=Difficulty.ADVANCED, status=ChartStatus.ACTIVE,
+                  uploaded_by="t")
+    db.add(chart)
+    b = Batch(name="Diff", specialty=Specialty.SDS, charts_per_coder=1, created_by="t")
+    db.add(b)
+    db.flush()
+    cyc = BatchAllocationCycle(batch_id=b.id, cycle_number=1, run_by="t", charts_per_coder=1)
+    db.add(cyc)
+    db.add(BatchCoder(batch_id=b.id, coder_name="Alice"))
+    db.flush()
+    db.add(BatchChart(batch_id=b.id, cycle_id=cyc.id, coder_name="Alice", chart_id=chart.id))
+    db.commit()
+
+    tok = client.post("/practicelab/practice-sessions/generate-tokens",
+                      json={"batch_id": b.id}).json()["tokens"][0]["token"]
+    body = client.get(f"/practicelab/practice-sessions/by-token/{tok}").json()
+
+    charts = body.get("charts") or []
+    assert charts, "fixture sanity: the coder should have a chart"
+    assert "Advanced" not in str(body), "the chart's difficulty reached the coder"
+    for c in charts:
+        assert not c.get("difficulty"), "difficulty is still being sent to the coder"
+    # The things that describe the chart rather than the person stay.
+    assert charts[0]["category"] == "Ortho"

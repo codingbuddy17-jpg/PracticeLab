@@ -934,9 +934,23 @@ function PracticeTokensSection({ batchId, isDirect, awaitingCodes }: {
           )}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#6b7280', cursor: 'pointer' }}>
-            <input type="checkbox" checked={showResults} onChange={e => setShowResults(e.target.checked)} />
+          {/* Fixed at issue time. The coder's session reads this flag when it
+              renders, so flipping it afterwards would retroactively reveal — or
+              hide — results for someone who has already submitted. It was also
+              simply ignored: the value is written on insert and there is no
+              update path, so a trainer ticking it here changed nothing and was
+              told nothing. Locked and explained beats silently inert. */}
+          <label
+            title={existing.length > 0
+              ? 'Fixed when the codes were issued — changing it now would alter what coders who have already submitted can see.'
+              : 'Whether coders see their score after submitting. Fixed once codes are issued.'}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12,
+              color: existing.length > 0 ? '#9ca3af' : '#6b7280',
+              cursor: existing.length > 0 ? 'not-allowed' : 'pointer' }}>
+            <input type="checkbox" checked={showResults} disabled={existing.length > 0}
+              onChange={e => setShowResults(e.target.checked)} />
             Show results to coder
+            {existing.length > 0 && <span style={{ fontSize: 10 }}>(set at issue)</span>}
           </label>
           {/* The single button for this. It grows a ring while it is the
               outstanding step, rather than being duplicated by a second one. */}

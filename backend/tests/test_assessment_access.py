@@ -200,3 +200,33 @@ def test_the_question_bank_is_still_gated(client, a_question):
     """The bank returns correct_answer for every question, and stays shut."""
     assert client.get("/assessment/questions",
                       params={"specialty": "ICD10CM"}).status_code == 403
+
+
+# ── trainer metadata does not travel with the paper ──────────────────────────
+
+def test_a_coder_is_not_told_a_questions_difficulty(client, db):
+    """
+    Difficulty exists so a trainer can build a balanced paper. Telling a coder
+    mid-question that this one is "Hard" invites them to second-guess an answer
+    they had right, which grades their nerve rather than their coding. Stripped
+    server-side alongside correct_answer, not merely hidden by the screen.
+    """
+    from conftest import seed_question_pool
+
+    seed_question_pool(db)
+    gen = client.post("/assessment/generate", json={
+        "assessment_name": "No difficulty", "coders": [{"coder_name": "Alice"}],
+        "duration_minutes": 30, "total_questions": 2,
+        "specialty_mix": [{"specialty": "IP-DRG", "pct": 1.0, "topic_filter": ""}],
+        "difficulty_mode": "auto", "generated_by": "t",
+        "save_config": False, "randomise": True,
+    }).json()
+    token = gen["sessions"][0]["session_token"]
+    started = client.post(f"/assessment/take/{token}/start").json()
+
+    assert started["questions"], "fixture sanity: the coder should have questions"
+    for q in started["questions"]:
+        assert "difficulty" not in q, "difficulty reached the coder"
+        assert "correct_answer" not in q, "the answer reached the coder"
+    # What they do need is still there.
+    assert started["questions"][0]["question_text"]

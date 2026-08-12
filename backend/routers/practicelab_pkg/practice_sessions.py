@@ -350,7 +350,11 @@ def get_practice_session(token: str, db: Session = Depends(get_db)):
                     "chart_number": chart.chart_number,
                     "specialty": chart.specialty.value if chart.specialty else specialty,
                     "category": chart.category or "",
-                    "difficulty": chart.difficulty.value if chart.difficulty else "",
+                    # Difficulty is deliberately NOT sent. It exists so a
+                    # trainer can match work to a coder's level; in front of the
+                    # coder it either excuses a poor result or seeds doubt about
+                    # a good one. Category and specialty stay — those describe
+                    # the chart, not an expectation of the person coding it.
                 })
 
         # Load any saved drafts for this session

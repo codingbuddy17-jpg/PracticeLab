@@ -50,10 +50,18 @@ def _questions_for_session(session: AssessmentSession, db: Session):
     return qs
 
 
+# Fields a coder must never be sent. correct_answer is the obvious one.
+# difficulty is trainer metadata: it exists so a trainer can build a balanced
+# paper, and telling a coder mid-question that this one is "Hard" invites them
+# to second-guess an answer they had right — it grades their nerve rather than
+# their coding.
+_TRAINER_ONLY_FIELDS = {"correct_answer", "difficulty"}
+
+
 def _strip_answers(questions: list) -> list:
-    """Remove correct_answer from questions before sending to coder."""
+    """Remove trainer-only fields from questions before sending to the coder."""
     return [
-        {k: v for k, v in q.items() if k != "correct_answer"}
+        {k: v for k, v in q.items() if k not in _TRAINER_ONLY_FIELDS}
         for q in questions
     ]
 

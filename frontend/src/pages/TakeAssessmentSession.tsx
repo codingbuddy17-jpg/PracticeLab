@@ -394,11 +394,9 @@ export function TakeAssessmentSession() {
             <>
               <div style={s.qHeader}>
                 <span style={s.qNumber}>Question {currentIdx + 1} of {questions.length}</span>
-                {currentQ.difficulty && (
-                  <span style={{ ...s.diffBadge, background: currentQ.difficulty === 'Easy' ? '#dcfce7' : currentQ.difficulty === 'Hard' ? '#fee2e2' : '#fef9c3', color: currentQ.difficulty === 'Easy' ? '#15803d' : currentQ.difficulty === 'Hard' ? '#dc2626' : '#854d0e' }}>
-                    {currentQ.difficulty}
-                  </span>
-                )}
+                {/* Difficulty is not shown, and no longer sent. Telling a
+                    coder mid-question that this one is "Hard" invites them to
+                    second-guess an answer they had right. */}
               </div>
 
               <div style={s.qText}>{currentQ.question_text}</div>

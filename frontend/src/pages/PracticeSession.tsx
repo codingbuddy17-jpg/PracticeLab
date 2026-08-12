@@ -713,7 +713,10 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
           <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
             <Chip label={chart.specialty} />
             {chart.category && <Chip label={chart.category} color="#065f46" bg="#d1fae5" />}
-            {chart.difficulty && <Chip label={chart.difficulty} color="#b45309" bg="#fef9c3" />}
+            {/* No difficulty chip. It is trainer metadata for matching work to a
+                coder's level; shown to the coder it either excuses a poor
+                result or seeds doubt about a good one. The server no longer
+                sends it either. */}
           </div>
         </div>
         <button
