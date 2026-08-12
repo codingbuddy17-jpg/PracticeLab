@@ -213,6 +213,11 @@ function AllocationPanel({ batch, onDone }: { batch: any; onDone: () => void }) 
     charts_per_coder: batch.charts_per_coder,
     notes: '',
     assignMode: (isDirect ? 'manual' : 'random') as 'random' | 'manual',
+    // On by default: a cycle with charts and no codes is inert, and issuing
+    // them was a separate trip to a separate panel. Off is still available for
+    // a trainer preparing a cycle now and releasing it later.
+    generate_codes: true,
+    show_results: false,
   })
   const [includedCoders, setIncludedCoders] = useState<Set<string>>(new Set(allCoderNames))
 
@@ -267,7 +272,26 @@ function AllocationPanel({ batch, onDone }: { batch: any; onDone: () => void }) 
       })
       toast.dismiss(tid)
       const assignedCount = Object.values(res.assigned).reduce((a: number, b: any) => a + b, 0)
-      toast.success(`Cycle ${res.cycle_number} complete — ${assignedCount} charts assigned`)
+
+      // Assigning charts without issuing codes leaves a cycle nobody can act
+      // on, so the two are one act by default. Kept as a separate call rather
+      // than folded into the allocation endpoint: if this half fails, the
+      // allocation still stands and the codes panel can finish the job.
+      let codeNote = ''
+      if (form.generate_codes) {
+        try {
+          const gen = await api.post('/practicelab/practice-sessions/generate-tokens', {
+            batch_id: batch.id,
+            cycle_id: res.cycle_id,
+            show_results_to_coder: form.show_results,
+          })
+          codeNote = ` · ${gen.data.tokens.length} access code${gen.data.tokens.length !== 1 ? 's' : ''} issued`
+        } catch (err: any) {
+          toast(`Charts assigned, but access codes were not issued: ${err?.response?.data?.detail || 'unknown error'}. Use Create Access Codes below.`,
+            { icon: '⚠️', duration: 9000 })
+        }
+      }
+      toast.success(`Cycle ${res.cycle_number} complete — ${assignedCount} charts assigned${codeNote}`)
       if (res.warnings.length) res.warnings.forEach((w: string) => toast(w, { icon: '⚠️', duration: 6000 }))
       onDone()
     } catch (err: any) {
@@ -386,10 +410,35 @@ function AllocationPanel({ batch, onDone }: { batch: any; onDone: () => void }) 
           )}
         </div>
       )}
+      {/* Assigning charts and issuing codes are one act, not two: a cycle with
+          charts and no codes is inert, and nobody can start. Unticking keeps
+          the old two-step behaviour for a trainer staging a cycle in advance. */}
+      <div style={{ display: 'flex', gap: 18, alignItems: 'center', flexWrap: 'wrap' as const, marginBottom: 12 }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, fontWeight: 600, color: '#374151', cursor: 'pointer' }}>
+          <input type="checkbox" checked={form.generate_codes}
+            onChange={e => setForm(f => ({ ...f, generate_codes: e.target.checked }))} />
+          Issue access codes now
+          <span style={{ fontWeight: 400, color: '#6b7280' }}>
+            — {isDirect ? 'the coder' : 'coders'} cannot start without them
+          </span>
+        </label>
+        {form.generate_codes && (
+          <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: '#6b7280', cursor: 'pointer' }}>
+            <input type="checkbox" checked={form.show_results}
+              onChange={e => setForm(f => ({ ...f, show_results: e.target.checked }))} />
+            Show results to coder
+          </label>
+        )}
+      </div>
+
       <div style={{ display: 'flex', gap: 10 }}>
         <button style={(running || includedCoders.size === 0) ? { ...styles.primaryBtn, opacity: 0.6 } : styles.primaryBtn}
           disabled={running || includedCoders.size === 0} onClick={handleRun}>
-          {running ? <><Loader size={14} /> Running…</> : isDirect ? `▶ ${V.assign}` : `▶ Run Cycle ${nextCycle}`}
+          {running
+            ? <><Loader size={14} /> Running…</>
+            : isDirect
+              ? `▶ ${V.assign}${form.generate_codes ? ' & issue codes' : ''}`
+              : `▶ Run Cycle ${nextCycle}${form.generate_codes ? ' & issue codes' : ''}`}
         </button>
       </div>
     </div>
@@ -635,7 +684,7 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
               </div>
             </div>
             {c.randomisation_stats && (
-              <RandomisationStatsCard stats={c.randomisation_stats} itemLabel="charts" />
+              <RandomisationStatsCard stats={c.randomisation_stats} itemLabel="charts" tokens={c.coder_tokens} />
             )}
           </div>
         ))}

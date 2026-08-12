@@ -31,6 +31,8 @@ export interface RandomisationStats {
 interface Props {
   stats: RandomisationStats
   itemLabel?: string   // 'questions' or 'charts'
+  /** coder name -> access code for this cycle. Omitted where codes do not apply. */
+  tokens?: Record<string, string>
 }
 
 function Badge({ pct }: { pct: number | null | undefined }) {
@@ -50,12 +52,15 @@ function Badge({ pct }: { pct: number | null | undefined }) {
   )
 }
 
-export default function RandomisationStatsCard({ stats, itemLabel = 'items' }: Props) {
+export default function RandomisationStatsCard({ stats, itemLabel = 'items', tokens }: Props) {
   const [expanded, setExpanded] = useState(false)
 
   if (!stats) return null
 
   const perCoder = Array.isArray(stats.per_coder) ? stats.per_coder : []
+  // Only widen the table where codes exist to show. A cycle whose codes have
+  // not been generated yet gets the table it always had.
+  const showTokens = !!tokens && Object.keys(tokens).length > 0
   const topOverlaps = Array.isArray(stats.top_overlaps) ? stats.top_overlaps : []
 
   return (
@@ -107,6 +112,11 @@ export default function RandomisationStatsCard({ stats, itemLabel = 'items' }: P
             <thead>
               <tr style={{ background: '#f1f5f9' }}>
                 <th style={th}>Coder</th>
+                {/* Sessions are keyed by cycle, so the code here is the one for
+                    THIS cycle. The codes panel lists the latest cycle only,
+                    which is how a trainer ends up handing someone the code for
+                    work they have already done. */}
+                {showTokens && <th style={th}>Access code</th>}
                 <th style={th}>Uniqueness</th>
                 <th style={th}>Unique {itemLabel}</th>
                 <th style={th}>Shared with others</th>
@@ -119,6 +129,20 @@ export default function RandomisationStatsCard({ stats, itemLabel = 'items' }: P
                 return (
                   <tr key={c.name} style={{ borderBottom: '1px solid #e5e7eb' }}>
                     <td style={td}>{c.name}</td>
+                    {showTokens && (
+                      <td style={{ ...td, fontFamily: 'monospace', fontSize: 12 }}>
+                        {tokens?.[c.name] ? (
+                          <span
+                            onClick={() => navigator.clipboard?.writeText(tokens[c.name])}
+                            title="Click to copy"
+                            style={{ cursor: 'pointer', color: '#7c3aed', fontWeight: 700 }}>
+                            {tokens[c.name]}
+                          </span>
+                        ) : (
+                          <span style={{ color: '#9ca3af' }}>not issued</span>
+                        )}
+                      </td>
+                    )}
                     <td style={td}><Badge pct={c.uniqueness_pct} /></td>
                     <td style={{ ...td, color: '#374151' }}>{unique} / {stats.items_per_coder ?? 0}</td>
                     <td style={{ ...td, color: sharedItems.length ? '#dc2626' : '#9ca3af' }}>

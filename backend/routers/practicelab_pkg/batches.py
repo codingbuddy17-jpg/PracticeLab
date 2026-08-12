@@ -681,6 +681,15 @@ def get_batch(batch_id: int, db: Session = Depends(get_db)):
                    .filter(BatchChart.batch_id == batch_id)
                    .join(Chart, Chart.id == BatchChart.chart_id).all())
 
+    # cycle_id -> {coder_name: token}. One query rather than one per cycle: a
+    # batch that has run a dozen cycles would otherwise pay a round trip each.
+    tokens_by_cycle: dict[int, dict] = {}
+    for _cid, _cname, _tok in db.execute(_text(
+        "SELECT cycle_id, coder_name, token FROM practice_sessions WHERE batch_id = :b"
+    ), {"b": batch_id}).fetchall():
+        if _cid is not None:
+            tokens_by_cycle.setdefault(_cid, {})[_cname] = _tok
+
     coder_map: dict[str, list] = {}
     for a in assignments:
         coder_map.setdefault(a.coder_name, []).append({
@@ -769,6 +778,12 @@ def get_batch(batch_id: int, db: Session = Depends(get_db)):
                 ),
                 "randomisation_stats": parse_stats(c.randomisation_stats),
                 "warnings": c.warnings or [],
+                # The access code each coder got FOR THIS CYCLE. Sessions are
+                # already keyed by cycle, so a coder running cycle 2 has a
+                # different code from the one they used for cycle 1 — reading
+                # them off the codes panel, which lists the latest cycle, is how
+                # a trainer hands someone the wrong one.
+                "coder_tokens": tokens_by_cycle.get(c.id, {}),
             }
             for c in cycles
         ],
