@@ -30,8 +30,12 @@ export function OverviewTab({ filters = NO_FILTERS }: { filters?: AFilters }) {
         <KpiCard label="Coders Assessed" value={String(data.unique_coders_assessed)} icon={<User size={14} />} />
         <KpiCard label="Overall Pass Rate" value={fmt(data.overall_pass_rate)} color={rateColor(data.overall_pass_rate)} icon={<Award size={14} />} />
         <KpiCard label="Avg Score" value={fmt(data.avg_score)} color={scoreColor(data.avg_score, data.default_pass_threshold)} icon={<TrendingUp size={14} />} />
-        <KpiCard label="Completion Rate" value={fmt(data.completion_rate)} icon={<CheckCircle size={14} />} />
-        <KpiCard label="Auto-submit Rate" value={fmt(data.auto_submit_rate)} color={data.auto_submit_rate > 20 ? '#d97706' : undefined} icon={<Clock size={14} />} />
+        <KpiCard label="Completion Rate" value={fmt(data.completion_rate)}
+          sub={`${data.total_submitted} of ${data.total_sessions} sessions${data.expired_sessions ? ` · ${data.expired_sessions} lapsed unstarted` : ''}`}
+          icon={<CheckCircle size={14} />} />
+        <KpiCard label="Auto-submit Rate" value={fmt(data.auto_submit_rate)}
+          sub={`${data.auto_submitted_count} of ${data.total_submitted} submitted`}
+          color={data.auto_submit_rate > 20 ? '#d97706' : undefined} icon={<Clock size={14} />} />
       </div>
 
       {/* A pass rate means nothing without the bar it was measured against, and
@@ -68,7 +72,15 @@ export function OverviewTab({ filters = NO_FILTERS }: { filters?: AFilters }) {
       )}
 
       {data.top_specialties && data.top_specialties.length > 0 && (
-        <Panel title="Top Specialties by Submission Volume">
+        <Panel title="Most Tested Specialties">
+          {/* Counts how often a specialty's questions APPEAR on the papers
+              coders sat — 20 questions across 3 coders is 60. It says what has
+              been tested most, not how anyone performed and not how many
+              submissions there were. The old title said "Submission Volume",
+              which was neither. */}
+          <div style={{ fontSize: 11, color: '#9ca3af', marginBottom: 10 }}>
+            By question appearances across submitted papers — what is tested most, not how it scored.
+          </div>
           <div style={{ display: 'flex', gap: 14 }}>
             {data.top_specialties.map((s: any, i: number) => (
               <div key={i} style={{ flex: 1, background: 'rgba(124,58,237,0.07)', borderRadius: 12, padding: '14px 18px', border: '1px solid rgba(124,58,237,0.15)' }}>

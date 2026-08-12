@@ -162,6 +162,25 @@ def finalise_overdue_sessions(db: Session, assessment_id: Optional[int] = None) 
         s.auto_submitted = True
         closed.append(s.id)
 
+    # A pending session whose start window lapsed is the other half of the same
+    # fact, and it had no home at all: nothing ever wrote "expired" to the
+    # status column, so the Sessions screen computed it for display and every
+    # other reader — analytics included — saw a session that was still
+    # "pending" eight months later. Completion rate counted it as merely not
+    # done yet, forever, with no way to tell that from a coder who never came.
+    #
+    # Nothing to score: they never answered a question, so no result is written.
+    lapsed = db.query(AssessmentSession).filter(
+        AssessmentSession.status == "pending",
+        AssessmentSession.expires_at.isnot(None),
+    )
+    if assessment_id is not None:
+        lapsed = lapsed.filter(AssessmentSession.assessment_id == assessment_id)
+    for s in lapsed.all():
+        if now > as_utc(s.expires_at):
+            s.status = "expired"
+            closed.append(s.id)
+
     if closed:
         db.commit()
     return closed

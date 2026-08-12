@@ -59,7 +59,13 @@ export function fmtTime(sec: number | null | undefined): string {
   return `${m}m ${s}s`
 }
 
-export function KpiCard({ label, value, color, icon }: { label: string; value: string; color?: string; icon?: React.ReactNode }) {
+export function KpiCard({ label, value, color, icon, sub }: {
+  label: string; value: string; color?: string; icon?: React.ReactNode
+  /** The counts behind a percentage. A rate without its denominator is a
+   *  number nobody can act on — and mixing up the two is what produced the
+   *  pass-rate bug this module already carried once. */
+  sub?: string
+}) {
   return (
     <div style={{
       background: 'rgba(255,255,255,0.72)',
@@ -79,6 +85,9 @@ export function KpiCard({ label, value, color, icon }: { label: string; value: s
       <div style={{ fontSize: 26, fontWeight: 800, color: color || '#111', letterSpacing: -0.5 }}>
         {value}
       </div>
+      {sub && (
+        <div style={{ fontSize: 11, color: '#9ca3af', fontWeight: 600, marginTop: 3 }}>{sub}</div>
+      )}
     </div>
   )
 }

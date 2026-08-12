@@ -178,11 +178,13 @@ def analytics_overview(db: Session = Depends(get_db), f: AFilters = Depends(filt
     expired_sessions = [s for s in all_sessions if s.status == "expired"]
     total_submitted = len(submitted_sessions)
 
-    # Assessments represented in this window, not every assessment ever made —
-    # otherwise the headline count contradicts every figure beside it.
+    # Assessments represented in this window — the same meaning whether or not
+    # a filter is on. It used to fall back to "every assessment ever generated"
+    # when unfiltered, so the headline silently changed definition the moment
+    # someone picked a date range, and counted papers that no figure beside it
+    # described.
     assessment_ids = sorted({s.assessment_id for s in all_sessions})
-    total_assessments = (len(assessment_ids) if f.active
-                         else db.query(GeneratedAssessment).count())
+    total_assessments = len(assessment_ids)
 
     # Pass rate — each result against its own assessment's bar. Scoped to this
     # window's sessions rather than every result in the table.
@@ -191,16 +193,20 @@ def analytics_overview(db: Session = Depends(get_db), f: AFilters = Depends(filt
                .filter(AssessmentResult.session_id.in_(session_ids)).all()
                if session_ids else [])
     marks = _thresholds(db)
+    # Only the papers on this screen. Judged against every threshold in the
+    # database, a filtered view of one batch marked entirely at 90 still warned
+    # that pass marks varied — because some unrelated paper from March used 80.
+    window_marks = {aid: marks.get(aid, DEFAULT_PASS_THRESHOLD) for aid in assessment_ids}
     sess_assessment = {s.id: s.assessment_id for s in all_sessions}
     passed = sum(1 for r in results if _passed(r, marks, sess_assessment))
     overall_pass_rate = round(passed / len(results) * 100, 1) if results else 0.0
     avg_score = round(sum(r.score_pct for r in results) / len(results), 1) if results else 0.0
 
-    # Completion rate = submitted / (submitted + expired + pending/in_progress)
-    non_submitted = [s for s in all_sessions if s.status != "submitted"]
+    # Completion rate — submitted out of every session issued in this window,
+    # which now includes the lapsed ones as their own status rather than as
+    # perpetual "pending".
     completion_rate = round(total_submitted / total_sessions * 100, 1) if total_sessions else 0.0
 
-    # Auto-submit rate
     auto_submitted_count = sum(1 for s in submitted_sessions if s.auto_submitted)
     auto_submit_rate = round(auto_submitted_count / total_submitted * 100, 1) if total_submitted else 0.0
 
@@ -264,7 +270,11 @@ def analytics_overview(db: Session = Depends(get_db), f: AFilters = Depends(filt
         # A pass rate is not readable without its bar, and the bars can differ
         # per assessment — say so rather than implying one number governs all.
         "default_pass_threshold": DEFAULT_PASS_THRESHOLD,
-        "pass_thresholds_vary": len({m for m in marks.values()}) > 1,
+        "pass_thresholds_vary": len(set(window_marks.values())) > 1,
+        # Denominators, so each percentage says what it is made of. A rate
+        # without its counts is a number nobody can act on.
+        "expired_sessions": len(expired_sessions),
+        "auto_submitted_count": auto_submitted_count,
         "avg_score": avg_score,
         "completion_rate": completion_rate,
         "auto_submit_rate": auto_submit_rate,

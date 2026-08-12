@@ -204,9 +204,14 @@ def list_sessions(assessment_id: int, db: Session = Depends(get_db)):
     now = datetime.now(timezone.utc)
     rows = []
     for s in sessions:
-        # A pending session that never started simply lapses — nothing to score.
+        # The sweep persists this now, so the status on the row is the status.
+        # Computing it here as well was how "expired" came to exist on one
+        # screen and nowhere else — analytics read the column and saw a session
+        # still pending months after its window closed. Kept as a fallback for
+        # the moment between a window lapsing and the next sweep landing.
         effective_status = "expired" if (
-            s.status == "pending" and now > as_utc(s.expires_at)
+            s.status == "pending" and s.expires_at is not None
+            and now > as_utc(s.expires_at)
         ) else s.status
 
         result = db.query(AssessmentResult).filter(AssessmentResult.session_id == s.id).first()
