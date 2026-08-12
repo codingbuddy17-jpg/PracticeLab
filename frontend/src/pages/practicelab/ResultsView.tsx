@@ -23,6 +23,13 @@ export function ResultsView({ batchId }: any) {
 
   const { batch_summary: bs, coder_summaries, is_ip, use_dpo } = data
 
+  // The per-chart DPO column only earns its width when the batch is scored on
+  // DPO and at least one chart actually carries a figure — a specialty that
+  // does not compute it would otherwise get a column of dashes.
+  const showChartDpo = !!use_dpo && (coder_summaries || []).some(
+    (c: any) => (c.charts || []).some((ch: any) => ch.dpo_overall_accuracy != null))
+  const chartCols = showChartDpo ? '100px 1fr 90px 110px 70px' : '100px 1fr 100px 70px'
+
   function copySummary() {
     const lines = [
       `Batch: ${data.batch_name}`,
@@ -207,10 +214,17 @@ export function ResultsView({ batchId }: any) {
                   </div>
 
                   {/* Per-chart header */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '100px 1fr 100px 70px', gap: 8, padding: '8px 12px', fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid #f0f0f0' }}>
+                  {/* This column showed total_score under the heading
+                      "Accuracy", which is the weighted score and not an
+                      accuracy figure at all. DPO accuracy was already in the
+                      per-chart payload and simply never rendered — the two
+                      numbers answer different questions and now sit side by
+                      side, which is how they read on the coder summary above. */}
+                  <div style={{ display: 'grid', gridTemplateColumns: chartCols, gap: 8, padding: '8px 12px', fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid #f0f0f0' }}>
                     <span>Chart</span>
                     <span>Category</span>
-                    <span style={{ textAlign: 'center' }}>Accuracy</span>
+                    <span style={{ textAlign: 'center' }}>Score</span>
+                    {showChartDpo && <span style={{ textAlign: 'center' }}>Accuracy (DPO)</span>}
                     <span style={{ textAlign: 'center' }}>Result</span>
                   </div>
 
@@ -221,7 +235,7 @@ export function ResultsView({ batchId }: any) {
                       <div key={ch.chart_number}>
                         <div
                           className={ci % 2 === 1 ? 'pl-tr-alt' : 'pl-tr'}
-                          style={{ display: 'grid', gridTemplateColumns: '100px 1fr 100px 70px', gap: 8, padding: '10px 12px', alignItems: 'center', cursor: ch.feedback?.length ? 'pointer' : 'default' }}
+                          style={{ display: 'grid', gridTemplateColumns: chartCols, gap: 8, padding: '10px 12px', alignItems: 'center', cursor: ch.feedback?.length ? 'pointer' : 'default' }}
                           onClick={() => ch.feedback?.length && setExpandedChart(chartOpen ? null : chartKey)}
                         >
                           <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontWeight: 600, fontSize: 13 }}>
@@ -239,6 +253,15 @@ export function ResultsView({ batchId }: any) {
                               <span title={`DRG reviewed by ${ch.drg_reviewed_by}${ch.drg_reviewed_at ? ' on ' + new Date(ch.drg_reviewed_at).toLocaleDateString() : ''}`} style={{ marginLeft: 4, fontSize: 10, color: '#6b7280', cursor: 'help' }}>✓DRG</span>
                             )}
                           </span>
+                          {showChartDpo && (
+                            <span style={{ textAlign: 'center', fontWeight: 700, fontSize: 13,
+                              color: ch.dpo_overall_accuracy != null ? scoreColor(ch.dpo_overall_accuracy) : '#d1d5db' }}>
+                              {/* Blank rather than 0% where this chart carries no
+                                  DPO figure — a specialty that does not compute it
+                                  has not scored zero. */}
+                              {ch.dpo_overall_accuracy != null ? `${ch.dpo_overall_accuracy}%` : '—'}
+                            </span>
+                          )}
                           <span style={{ textAlign: 'center' }}>
                             {(() => { const b = pfBadge(ch.pass_fail); return <span style={{ fontWeight: 700, fontSize: 12, color: b.color }}>{b.label}</span> })()}
                           </span>
