@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Loader, ChevronDown, ChevronRight, FileDown } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { getAssessmentAnalyticsByBatch, getAssessmentAnalyticsBatchDrill, downloadAssessmentBatchReport, downloadAssessmentBatchCoderReportsZip } from '../../../api'
-import { rateColor, scoreColor, fmt, LoadingSpinner, EmptyState } from './helpers'
+import { rateColor, scoreColor, fmt, LoadingSpinner, EmptyState, ReportButton } from './helpers'
 import { usePagination } from '../../../components/Paginator'
 
 export function BatchAnalysisTab() {
@@ -90,12 +90,22 @@ function BatchList({ batches, expanded, setExpanded, drillData, drillLoading, to
                   <div style={{ fontSize: 20, fontWeight: 800, color: '#374151' }}>{batch.submitted_count}</div>
                   <div style={{ fontSize: 11, color: '#9ca3af' }}>Submitted</div>
                 </div>
-                <button onClick={(e) => { e.stopPropagation(); runDownload(`pdf:${batch.batch_name}`, () => downloadAssessmentBatchReport(batch.batch_name)) }} disabled={dlBusy === `pdf:${batch.batch_name}`} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 13px', borderRadius: 9, background: 'linear-gradient(135deg, #7c3aed, #4f46e5)', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}>
-                  <FileDown size={12} /> {dlBusy === `pdf:${batch.batch_name}` ? 'Preparing…' : 'PDF Report'}
-                </button>
-                <button onClick={(e) => { e.stopPropagation(); runDownload(`zip:${batch.batch_name}`, () => downloadAssessmentBatchCoderReportsZip(batch.batch_name)) }} disabled={dlBusy === `zip:${batch.batch_name}`} title={`Download individual PDF reports for all ${batch.total_coders} coders as a ZIP`} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 13px', borderRadius: 9, background: 'linear-gradient(135deg, #059669, #047857)', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}>
-                  <FileDown size={12} /> {dlBusy === `zip:${batch.batch_name}` ? 'Preparing…' : 'All Coder Reports (.zip)'}
-                </button>
+                <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', gap: 8 }}>
+                  <ReportButton
+                    label="Batch Report (.pdf)"
+                    icon={<FileDown size={12} />}
+                    busy={dlBusy === `pdf:${batch.batch_name}`}
+                    onClick={() => runDownload(`pdf:${batch.batch_name}`, () => downloadAssessmentBatchReport(batch.batch_name))}
+                  />
+                  <ReportButton
+                    tone="secondary"
+                    label="All Coder Reports (.zip)"
+                    icon={<FileDown size={12} />}
+                    busy={dlBusy === `zip:${batch.batch_name}`}
+                    title={`One PDF per coder for all ${batch.total_coders} coders, zipped`}
+                    onClick={() => runDownload(`zip:${batch.batch_name}`, () => downloadAssessmentBatchCoderReportsZip(batch.batch_name))}
+                  />
+                </div>
               </div>
             </div>
 

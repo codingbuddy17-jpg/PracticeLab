@@ -3,7 +3,7 @@ import { Download, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { getAssessmentAnalyticsCoderMatrix, downloadAssessmentCoderMatrixXlsx } from '../../../api'
 import type { AFilters } from '../../../api'
-import { scoreColor, fmt, DEFAULT_PASS, Panel, LoadingSpinner, EmptyState } from './helpers'
+import { scoreColor, fmt, DEFAULT_PASS, Panel, LoadingSpinner, EmptyState, ReportButton } from './helpers'
 import { usePagination } from '../../../components/Paginator'
 
 const NO_FILTERS: AFilters = {}
@@ -94,11 +94,15 @@ export function CoderMatrixTab({ filters = NO_FILTERS }: { filters?: AFilters })
           </span>
         )}
 
-        <button onClick={handleExport} disabled={exporting}
-          title="Every coder against every specialty — the whole grid, not just this page"
-          style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, padding: '6px 13px', borderRadius: 8, border: '1px solid #e5e7eb', background: '#fff', color: '#374151', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>
-          <Download size={13} /> {exporting ? 'Preparing…' : 'Export (.xlsx)'}
-        </button>
+        <div style={{ marginLeft: 'auto' }}>
+          <ReportButton
+            label="Matrix (.xlsx)"
+            icon={<Download size={13} />}
+            busy={exporting}
+            title="Every coder against every specialty — the whole grid, not just this page"
+            onClick={handleExport}
+          />
+        </div>
       </div>
 
       <Panel title={`Coder × Specialty Matrix (${coders.length} coder${coders.length === 1 ? '' : 's'}, ${specialties.length} specialties)`}>

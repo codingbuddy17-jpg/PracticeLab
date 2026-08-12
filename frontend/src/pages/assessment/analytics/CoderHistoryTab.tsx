@@ -5,7 +5,7 @@ import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tool
 import { getAssessmentAnalyticsCoder, downloadAssessmentCoderReport } from '../../../api'
 import { usePagination } from '../../../components/Paginator'
 import { recent, tickInterval, TREND_WINDOWS } from '../../practicelab/chartScale'
-import { rateColor, DEFAULT_PASS, scoreColor, fmt, fmtTime, Panel, PassBadge, DiffBadge, LoadingSpinner, EmptyState, inputStyle, searchBtnStyle } from './helpers'
+import { rateColor, DEFAULT_PASS, scoreColor, fmt, fmtTime, Panel, PassBadge, DiffBadge, LoadingSpinner, EmptyState, inputStyle, searchBtnStyle, ReportButton } from './helpers'
 
 export function CoderHistoryTab() {
   const [coderName, setCoderName] = useState('')
@@ -121,14 +121,14 @@ function CoderHistoryContent({ data }: { data: any }) {
               <div style={{ fontSize: 11, color: '#6b7280', fontWeight: 600 }}>Assessments</div>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>
-              <button onClick={handleDownloadPdf} disabled={includedCount === 0 || downloading}
-                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 10, background: includedCount === 0 ? '#e5e7eb' : 'linear-gradient(135deg, #7c3aed, #4f46e5)', color: includedCount === 0 ? '#9ca3af' : '#fff', border: 'none', cursor: includedCount === 0 ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 700 }}>
-                <FileDown size={13} />
-                {downloading ? 'Preparing…' : excludedIds.size > 0 ? `PDF (${includedCount} assessments)` : 'Download PDF Report'}
-              </button>
-              {downloadError && (
-                <div style={{ fontSize: 11, color: '#b91c1c', fontWeight: 600, maxWidth: 260, textAlign: 'right' }}>{downloadError}</div>
-              )}
+              <ReportButton
+                label={excludedIds.size > 0 ? `Coder Report (${includedCount} assessments)` : 'Coder Report (.pdf)'}
+                icon={<FileDown size={13} />}
+                busy={downloading}
+                disabled={includedCount === 0}
+                error={downloadError}
+                onClick={handleDownloadPdf}
+              />
               {allSessionIds.length > 1 && (
                 <button onClick={() => setShowFilter(v => !v)}
                   style={{ fontSize: 11, color: '#7c3aed', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, textDecoration: 'underline', padding: 0 }}>

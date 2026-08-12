@@ -165,3 +165,60 @@ export const searchBtnStyle: React.CSSProperties = {
   color: '#fff', border: 'none', cursor: 'pointer',
   fontSize: 13, fontWeight: 700,
 }
+
+/**
+ * One look for every report this module produces.
+ *
+ * The four downloads — matrix XLSX, coder PDF, batch PDF, batch coder ZIP —
+ * had three different visual treatments between them: two competing gradients
+ * and a plain outline button, in three different corners. Same kind of action,
+ * three appearances, which is most of why the reports felt scattered across
+ * the module rather than being a set.
+ *
+ * They stay in their tabs deliberately. A batch report belongs beside the
+ * batch and a coder report beside the coder; collecting them into one Reports
+ * screen would separate each report from the thing it is about. What they
+ * needed was to look like one family, not to live in one place.
+ */
+export function ReportButton({ label, icon, onClick, busy, disabled, title, error, tone = 'primary' }: {
+  label: string
+  icon?: React.ReactNode
+  onClick: () => void
+  busy?: boolean
+  disabled?: boolean
+  title?: string
+  error?: string | null
+  /** 'primary' for the report itself, 'secondary' for a companion export. */
+  tone?: 'primary' | 'secondary'
+}) {
+  const off = !!disabled || !!busy
+  const primary = tone === 'primary'
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 5, alignItems: 'flex-end' }}>
+      <button
+        onClick={onClick}
+        disabled={off}
+        title={title}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap',
+          padding: '8px 15px', borderRadius: 9, fontSize: 12, fontWeight: 700,
+          cursor: off ? 'not-allowed' : 'pointer',
+          border: primary ? 'none' : '1px solid #e5e7eb',
+          background: off
+            ? '#e5e7eb'
+            : primary ? 'linear-gradient(135deg, #7c3aed, #4f46e5)' : '#fff',
+          color: off ? '#9ca3af' : primary ? '#fff' : '#374151',
+          opacity: busy ? 0.85 : 1,
+        }}>
+        {busy ? <Loader size={13} /> : icon}
+        {/* One word for the wait, everywhere. Three tabs said three things. */}
+        {busy ? 'Preparing…' : label}
+      </button>
+      {error && (
+        <div style={{ fontSize: 11, color: '#b91c1c', fontWeight: 600, maxWidth: 280, textAlign: 'right' }}>
+          {error}
+        </div>
+      )}
+    </div>
+  )
+}
