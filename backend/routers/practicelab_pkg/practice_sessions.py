@@ -71,6 +71,10 @@ class ChartCodeEntry(BaseModel):
     # common
     flagged: bool = False
     coder_notes: Optional[str] = None
+    # Inpatient only: the coder is saying this chart cannot be coded as
+    # documented and needs a physician query. The query text lives in
+    # coder_notes, which the form makes mandatory once this is set.
+    query_flag: bool = False
 
 
 class SaveChartDraft(BaseModel):
@@ -361,7 +365,7 @@ def get_practice_session(token: str, db: Session = Depends(get_db)):
         drafts = db.execute(text(
             "SELECT chart_id, pdx_code, pdx_poa, sdx, pcs, cpt, "
             "ed_review, ed_research, ed_resolution, ed_rationale, flagged, coder_notes, em_data, "
-            "facility_level, profee_level "
+            "facility_level, profee_level, query_flag "
             "FROM practice_chart_drafts WHERE session_id=:s"
         ), {"s": sess_id}).fetchall()
 
@@ -383,6 +387,7 @@ def get_practice_session(token: str, db: Session = Depends(get_db)):
                 "flagged": bool(d[10]), "coder_notes": d[11],
                 "em_data": em_data,
                 "facility_level": d[13], "profee_level": d[14],
+                "query_flag": bool(d[15]),
             }
 
         return {
@@ -431,7 +436,8 @@ def save_draft(session_id: int, payload: SaveChartDraft, db: Session = Depends(g
                   pdx_code=:pdx, pdx_poa=:poa, sdx=:sdx, pcs=:pcs, cpt=:cpt,
                   facility_level=:facl, profee_level=:prol,
                   ed_review=:er, ed_research=:eres, ed_resolution=:erl, ed_rationale=:era,
-                  em_data=:em, flagged=:fl, coder_notes=:cn, updated_at=CURRENT_TIMESTAMP
+                  em_data=:em, flagged=:fl, coder_notes=:cn, query_flag=:qf,
+                  updated_at=CURRENT_TIMESTAMP
                 WHERE session_id=:s AND chart_id=:c
             """), {
                 "pdx": entry.pdx_code, "poa": entry.pdx_poa,
@@ -441,7 +447,7 @@ def save_draft(session_id: int, payload: SaveChartDraft, db: Session = Depends(g
                 "er": entry.ed_review, "eres": entry.ed_research,
                 "erl": entry.ed_resolution, "era": entry.ed_rationale,
                 "em": em_json,
-                "fl": entry.flagged, "cn": entry.coder_notes,
+                "fl": entry.flagged, "cn": entry.coder_notes, "qf": entry.query_flag,
                 "s": session_id, "c": entry.chart_id,
             })
         else:
@@ -450,10 +456,10 @@ def save_draft(session_id: int, payload: SaveChartDraft, db: Session = Depends(g
                   (session_id, chart_id, pdx_code, pdx_poa, sdx, pcs, cpt,
                    facility_level, profee_level,
                    ed_review, ed_research, ed_resolution, ed_rationale,
-                   em_data, flagged, coder_notes, updated_at)
+                   em_data, flagged, coder_notes, query_flag, updated_at)
                 VALUES (:s, :c, :pdx, :poa, :sdx, :pcs, :cpt,
                         :facl, :prol,
-                        :er, :eres, :erl, :era, :em, :fl, :cn, CURRENT_TIMESTAMP)
+                        :er, :eres, :erl, :era, :em, :fl, :cn, :qf, CURRENT_TIMESTAMP)
             """), {
                 "s": session_id, "c": entry.chart_id,
                 "pdx": entry.pdx_code, "poa": entry.pdx_poa,
@@ -463,7 +469,7 @@ def save_draft(session_id: int, payload: SaveChartDraft, db: Session = Depends(g
                 "er": entry.ed_review, "eres": entry.ed_research,
                 "erl": entry.ed_resolution, "era": entry.ed_rationale,
                 "em": em_json,
-                "fl": entry.flagged, "cn": entry.coder_notes,
+                "fl": entry.flagged, "cn": entry.coder_notes, "qf": entry.query_flag,
             })
 
     db.commit()
@@ -505,7 +511,8 @@ def submit_practice_session(session_id: int, payload: SubmitPracticeSession, db:
                   pdx_code=:pdx, pdx_poa=:poa, sdx=:sdx, pcs=:pcs, cpt=:cpt,
                   facility_level=:facl, profee_level=:prol,
                   ed_review=:er, ed_research=:eres, ed_resolution=:erl, ed_rationale=:era,
-                  em_data=:em, flagged=:fl, coder_notes=:cn, updated_at=CURRENT_TIMESTAMP
+                  em_data=:em, flagged=:fl, coder_notes=:cn, query_flag=:qf,
+                  updated_at=CURRENT_TIMESTAMP
                 WHERE session_id=:s AND chart_id=:c
             """), {
                 "pdx": entry.pdx_code, "poa": entry.pdx_poa,
@@ -515,7 +522,7 @@ def submit_practice_session(session_id: int, payload: SubmitPracticeSession, db:
                 "er": entry.ed_review, "eres": entry.ed_research,
                 "erl": entry.ed_resolution, "era": entry.ed_rationale,
                 "em": em_json,
-                "fl": entry.flagged, "cn": entry.coder_notes,
+                "fl": entry.flagged, "cn": entry.coder_notes, "qf": entry.query_flag,
                 "s": session_id, "c": entry.chart_id,
             })
         else:
@@ -524,10 +531,10 @@ def submit_practice_session(session_id: int, payload: SubmitPracticeSession, db:
                   (session_id, chart_id, pdx_code, pdx_poa, sdx, pcs, cpt,
                    facility_level, profee_level,
                    ed_review, ed_research, ed_resolution, ed_rationale,
-                   em_data, flagged, coder_notes, updated_at)
+                   em_data, flagged, coder_notes, query_flag, updated_at)
                 VALUES (:s, :c, :pdx, :poa, :sdx, :pcs, :cpt,
                         :facl, :prol,
-                        :er, :eres, :erl, :era, :em, :fl, :cn, CURRENT_TIMESTAMP)
+                        :er, :eres, :erl, :era, :em, :fl, :cn, :qf, CURRENT_TIMESTAMP)
             """), {
                 "s": session_id, "c": entry.chart_id,
                 "pdx": entry.pdx_code, "poa": entry.pdx_poa,
@@ -537,7 +544,7 @@ def submit_practice_session(session_id: int, payload: SubmitPracticeSession, db:
                 "er": entry.ed_review, "eres": entry.ed_research,
                 "erl": entry.ed_resolution, "era": entry.ed_rationale,
                 "em": em_json,
-                "fl": entry.flagged, "cn": entry.coder_notes,
+                "fl": entry.flagged, "cn": entry.coder_notes, "qf": entry.query_flag,
             })
 
     is_ed_batch = _is_ed(specialty)
@@ -766,6 +773,7 @@ def _upsert_practice_result(db, session_id, entry, specialty, graded=False,
             "pcs_ak": json.dumps(ak_rec.pcs or []) if ak_rec else "[]",
             "cpt_sub": json.dumps(entry.cpt),
             "cpt_ak": json.dumps(ak_rec.cpt or []) if ak_rec else "[]",
+            "qf": bool(entry.query_flag),
         }
     else:
         vals = {
@@ -775,6 +783,7 @@ def _upsert_practice_result(db, session_id, entry, specialty, graded=False,
             "sdx_sub": json.dumps(entry.sdx), "sdx_ak": "[]",
             "pcs_sub": json.dumps(entry.pcs), "pcs_ak": "[]",
             "cpt_sub": json.dumps(entry.cpt), "cpt_ak": "[]",
+            "qf": bool(entry.query_flag),
         }
 
     if existing:
@@ -784,7 +793,8 @@ def _upsert_practice_result(db, session_id, entry, specialty, graded=False,
               feedback=:fb, pdx_submitted=:pdx_sub, pdx_answer_key=:pdx_ak, pdx_correct=:pdx_ok,
               sdx_submitted=:sdx_sub, sdx_answer_key=:sdx_ak,
               pcs_submitted=:pcs_sub, pcs_answer_key=:pcs_ak,
-              cpt_submitted=:cpt_sub, cpt_answer_key=:cpt_ak
+              cpt_submitted=:cpt_sub, cpt_answer_key=:cpt_ak,
+              query_flag=:qf
             WHERE session_id=:s AND chart_id=:c
         """), vals)
     else:
@@ -794,17 +804,27 @@ def _upsert_practice_result(db, session_id, entry, specialty, graded=False,
                feedback, pdx_submitted, pdx_answer_key, pdx_correct,
                sdx_submitted, sdx_answer_key,
                pcs_submitted, pcs_answer_key,
-               cpt_submitted, cpt_answer_key)
+               cpt_submitted, cpt_answer_key, query_flag)
             VALUES
               (:s, :c, :sp, :tot, :pf, :drg_f, :fb,
                :pdx_sub, :pdx_ak, :pdx_ok,
-               :sdx_sub, :sdx_ak, :pcs_sub, :pcs_ak, :cpt_sub, :cpt_ak)
+               :sdx_sub, :sdx_ak, :pcs_sub, :pcs_ak, :cpt_sub, :cpt_ak, :qf)
         """), vals)
 
     # Mirror into grading_results so analytics + PDF reports can see this work
     if graded and result_kwargs:
         _sync_grading_result(db, session_id, entry.chart_id, specialty,
                              result_kwargs, feedback_items)
+
+
+def _iso(v):
+    """
+    Timestamps written by raw SQL come back as datetimes on Postgres and as
+    strings on SQLite. Both reach the API layer, so neither may be assumed.
+    """
+    if not v:
+        return None
+    return v.isoformat() if hasattr(v, "isoformat") else v
 
 
 def _build_coder_results(session_id: int, db) -> list:
@@ -823,7 +843,9 @@ def _build_coder_results(session_id: int, db) -> list:
                pr.ed_scored, pr.ed_review_pass, pr.ed_research_coding_pass,
                pr.ed_research_payer_pass, pr.ed_research_nuances_pass,
                pr.ed_resolution_pass, pr.ed_rationale_tier, pr.ed_trainer_note,
-               pr.drg_reviewed, pr.drg_override
+               pr.drg_reviewed, pr.drg_override,
+               pr.query_flag, pr.query_reviewed, pr.query_verdict,
+               pr.query_trainer_note, pr.query_reviewed_by, pr.query_reviewed_at
         FROM practice_results pr
         JOIN charts c ON c.id = pr.chart_id
         LEFT JOIN practice_chart_drafts pcd
@@ -858,6 +880,11 @@ def _build_coder_results(session_id: int, db) -> list:
             "ed_rationale_tier": r[29], "ed_trainer_note": r[30],
             "drg_reviewed": bool(r[31]) if r[31] is not None else False,
             "drg_override": r[32],
+            "query_flag": bool(r[33]) if r[33] is not None else False,
+            "query_reviewed": bool(r[34]) if r[34] is not None else False,
+            "query_verdict": r[35], "query_trainer_note": r[36],
+            "query_reviewed_by": r[37],
+            "query_reviewed_at": _iso(r[38]),
         })
     return results
 
@@ -905,7 +932,7 @@ def trainer_review_session(session_id: int, db: Session = Depends(get_db)):
         "session_id": session_id,
         "coder_name": sess[0], "specialty": sess[1],
         "status": sess[2],
-        "submitted_at": sess[3].isoformat() if sess[3] else None,
+        "submitted_at": _iso(sess[3]),
         "charts": results,
     }
 
@@ -1181,6 +1208,67 @@ def drg_review_practice_chart(
     return {"reviewed": True, "drg_error": payload.drg_error, "total_score": new_total, "pass_fail": new_pf}
 
 
+# ── Trainer-facing: physician query review ───────────────────────────────────
+
+QUERY_VERDICTS = {"appropriate", "not_warranted", "poorly_framed"}
+
+
+class QueryReviewPayload(BaseModel):
+    verdict: str             # appropriate | not_warranted | poorly_framed
+    trainer_note: Optional[str] = None
+    reviewed_by: str = "Trainer"
+
+
+@router.post("/practice-sessions/{session_id}/chart/{chart_id}/query-review")
+def query_review_practice_chart(
+    session_id: int, chart_id: int,
+    payload: QueryReviewPayload, db: Session = Depends(get_db)
+):
+    """
+    Trainer's verdict on a physician query the coder raised.
+
+    Unlike the DRG review this does not move the score — there is no query
+    component in scoring_configs to award or withhold, so inventing one here
+    would change what every existing IP score means. The verdict is recorded
+    for coaching and reporting only.
+    """
+    from sqlalchemy import text
+
+    verdict = (payload.verdict or "").strip().lower()
+    if verdict not in QUERY_VERDICTS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"verdict must be one of {sorted(QUERY_VERDICTS)}",
+        )
+
+    row = db.execute(text(
+        "SELECT query_flag, query_reviewed FROM practice_results "
+        "WHERE session_id=:s AND chart_id=:c"
+    ), {"s": session_id, "c": chart_id}).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Result not found")
+    if not row[0]:
+        raise HTTPException(status_code=400, detail="No physician query was raised on this chart")
+
+    _sess_batch = db.execute(text(
+        "SELECT batch_id FROM practice_sessions WHERE id=:s"
+    ), {"s": session_id}).fetchone()
+    if _sess_batch:
+        assert_batch_open(db, _sess_batch[0], "record a query decision")
+
+    db.execute(text("""
+        UPDATE practice_results SET
+          query_reviewed=TRUE, query_verdict=:v, query_trainer_note=:tn,
+          query_reviewed_by=:rb, query_reviewed_at=CURRENT_TIMESTAMP
+        WHERE session_id=:s AND chart_id=:c
+    """), {
+        "v": verdict, "tn": (payload.trainer_note or None),
+        "rb": payload.reviewed_by, "s": session_id, "c": chart_id,
+    })
+    db.commit()
+    return {"reviewed": True, "verdict": verdict}
+
+
 # ── Re-grade a practice session (after answer key uploaded) ──────────────────
 
 @router.post("/practice-sessions/{session_id}/regrade")
@@ -1213,7 +1301,7 @@ def regrade_practice_session(session_id: int, db: Session = Depends(get_db)):
 
     drafts = db.execute(text(
         "SELECT chart_id, pdx_code, pdx_poa, sdx, pcs, cpt, flagged, coder_notes, "
-        "em_data, facility_level, profee_level "
+        "em_data, facility_level, profee_level, query_flag "
         "FROM practice_chart_drafts WHERE session_id=:s"
     ), {"s": session_id}).fetchall()
 
@@ -1244,6 +1332,7 @@ def regrade_practice_session(session_id: int, db: Session = Depends(get_db)):
         entry.em_data = json.loads(d[8]) if isinstance(d[8], str) else (d[8] or None)
         entry.facility_level = d[9]
         entry.profee_level = d[10]
+        entry.query_flag = bool(d[11])
 
         sub_data = {
             "pdx_code": entry.pdx_code or "",

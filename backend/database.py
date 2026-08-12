@@ -483,6 +483,9 @@ def _run_migrations():
     _add_col("practice_chart_drafts", "ed_resolution", "TEXT", "TEXT")
     _add_col("practice_chart_drafts", "ed_rationale", "TEXT", "TEXT")
     _add_col("practice_chart_drafts", "em_data", "TEXT", "TEXT")
+    # Physician query: the coder's judgement that the record is not codeable as
+    # documented. Inpatient only — the query text itself goes in coder_notes.
+    _add_col("practice_chart_drafts", "query_flag", "BOOLEAN DEFAULT FALSE", "BOOLEAN DEFAULT FALSE")
 
     # The graded outcome for one chart in one session, with the feedback shown
     # to the coder. Every row here is mirrored into grading_results as it is
@@ -539,6 +542,15 @@ def _run_migrations():
     _add_col("practice_results", "ed_rationale_tier", "VARCHAR(30)", "TEXT")
     _add_col("practice_results", "ed_trainer_note", "TEXT", "TEXT")
     _add_col("practice_results", "ed_graded_by", "VARCHAR(100)", "TEXT")
+    # Physician query raised by the coder, and the trainer's verdict on it.
+    # Reviewed the same way a DRG flag is, but it does not move the score —
+    # there is no query component in scoring_configs to award or withhold.
+    _add_col("practice_results", "query_flag", "BOOLEAN DEFAULT FALSE", "BOOLEAN DEFAULT FALSE")
+    _add_col("practice_results", "query_reviewed", "BOOLEAN DEFAULT FALSE", "BOOLEAN DEFAULT FALSE")
+    _add_col("practice_results", "query_verdict", "VARCHAR(20)", "VARCHAR(20)")
+    _add_col("practice_results", "query_trainer_note", "TEXT", "TEXT")
+    _add_col("practice_results", "query_reviewed_by", "VARCHAR(100)", "VARCHAR(100)")
+    _add_col("practice_results", "query_reviewed_at", "TIMESTAMP", "TIMESTAMP")
 
     # ── Fix practice tables: attach sequences so PG auto-increments id ──────────
     # Tables were created with INTEGER PRIMARY KEY (no sequence on PG). Each step

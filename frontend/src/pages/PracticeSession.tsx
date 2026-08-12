@@ -32,6 +32,9 @@ interface CodeEntry {
   ed_rationale: string
   flagged: boolean
   coder_notes: string
+  // Inpatient only — the coder is saying the record cannot be coded as
+  // documented. The query text goes in coder_notes, which becomes mandatory.
+  query_flag: boolean
   // E/M MDM fields
   em_data?: {
     // COPA counts
@@ -195,8 +198,16 @@ const EMPTY_ENTRY = (chart_id: number): CodeEntry => ({
   ed_rationale: '',
   flagged: false,
   coder_notes: '',
+  query_flag: false,
   em_data: EMPTY_EM_DATA(),
 })
+
+// A raised physician query with no query written is not a submittable chart —
+// the note field IS the query, so an empty one leaves the trainer nothing to
+// review. Inpatient only; no other specialty shows the control.
+function queryTextMissing(entry: CodeEntry | undefined, ip: boolean): boolean {
+  return !!(ip && entry?.query_flag && !(entry.coder_notes || '').trim())
+}
 
 function chartStatus(entry: CodeEntry, ip: boolean, ed: boolean, em: boolean): 'complete' | 'partial' | 'empty' {
   if (em) {
@@ -280,6 +291,7 @@ export function PracticeSession() {
           ed_rationale: draft?.ed_rationale || '',
           flagged: draft?.flagged || false,
           coder_notes: draft?.coder_notes || '',
+          query_flag: draft?.query_flag || false,
           em_data: savedEm ? { ...EMPTY_EM_DATA(), ...savedEm } : EMPTY_EM_DATA(),
         }
       }
@@ -360,6 +372,14 @@ export function PracticeSession() {
   // ── Submit ──────────────────────────────────────────────────────────────────
   async function handleSubmit() {
     if (!session) return
+    const missingQuery = session.charts.filter(c => queryTextMissing(entries[c.chart_id], ip))
+    if (missingQuery.length > 0) {
+      const first = missingQuery[0]
+      showToast(`Write your query for ${first.chart_number} before submitting`)
+      setActiveChartId(first.chart_id)
+      setView('coding')
+      return
+    }
     setSubmitting(true)
     try {
       const res = await api.post(`/practicelab/practice-sessions/${session.session_id}/submit`, {
@@ -441,6 +461,8 @@ export function PracticeSession() {
     const partial = charts.filter(c => chartStatus(entries[c.chart_id], ip, ed, em) === 'partial').length
     const empty = charts.filter(c => chartStatus(entries[c.chart_id], ip, ed, em) === 'empty').length
     const flagged = charts.filter(c => entries[c.chart_id]?.flagged).length
+    const queried = charts.filter(c => ip && entries[c.chart_id]?.query_flag).length
+    const queryGaps = charts.filter(c => queryTextMissing(entries[c.chart_id], ip))
 
     return (
       <div style={{ fontFamily: 'system-ui, sans-serif', maxWidth: 700, margin: '0 auto', padding: '32px 20px' }}>
@@ -451,6 +473,7 @@ export function PracticeSession() {
         <div style={{ fontSize: 14, color: '#6b7280', marginBottom: 20 }}>
           {complete} chart{complete !== 1 ? 's' : ''} coded
           {flagged > 0 ? ` · ${flagged} flagged for review` : ''}
+          {queried > 0 ? ` · ${queried} sent for physician query` : ''}
           {partial > 0 ? ` · ${partial} ${ed ? 'incomplete' : 'missing POA'}` : ''}
           {empty > 0 ? ` · ${empty} not started` : ''}
         </div>
@@ -459,12 +482,16 @@ export function PracticeSession() {
           {charts.map(c => {
             const st = chartStatus(entries[c.chart_id], ip, ed, em)
             const fl = entries[c.chart_id]?.flagged
+            const qGap = queryTextMissing(entries[c.chart_id], ip)
+            const qOn = ip && entries[c.chart_id]?.query_flag
             return (
-              <div key={c.chart_id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10 }}>
+              <div key={c.chart_id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', background: qGap ? '#fffafa' : '#fff', border: `1px solid ${qGap ? '#fecaca' : '#e5e7eb'}`, borderRadius: 10 }}>
                 {st === 'complete' ? <CheckCircle size={16} color="#059669" /> : st === 'partial' ? <AlertTriangle size={16} color="#f59e0b" /> : <Circle size={16} color="#d1d5db" />}
                 <span style={{ fontWeight: 600, fontSize: 14 }}>{c.chart_number}</span>
                 <span style={{ fontSize: 13, color: '#6b7280', flex: 1 }}>{c.category}</span>
                 {fl && <Flag size={13} color="#f59e0b" />}
+                {qOn && !qGap && <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: '#fef3c7', color: '#b45309' }}>Query raised</span>}
+                {qGap && <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: '#fee2e2', color: '#dc2626' }}>Query not written</span>}
                 {st === 'empty' && <span style={{ fontSize: 12, color: '#9ca3af' }}>Not started</span>}
                 {st === 'partial' && <span style={{ fontSize: 12, color: '#f59e0b' }}>{ed ? 'Incomplete' : 'Missing POA'}</span>}
                 <button onClick={() => { setActiveChartId(c.chart_id); setView('coding') }} style={{ fontSize: 12, color: '#7c3aed', background: 'none', border: 'none', cursor: 'pointer' }}>Edit</button>
@@ -473,10 +500,21 @@ export function PracticeSession() {
           })}
         </div>
 
+        {queryGaps.length > 0 && (
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 12,
+                        padding: '12px 14px', borderRadius: 10, background: '#fef2f2', border: '1px solid #fecaca' }}>
+            <AlertTriangle size={16} color="#dc2626" style={{ flexShrink: 0, marginTop: 1 }} />
+            <div style={{ fontSize: 13, color: '#b91c1c', lineHeight: 1.5 }}>
+              <strong>{queryGaps.length} chart{queryGaps.length !== 1 ? 's' : ''} sent for query with no query written.</strong>
+              {' '}Open {queryGaps.map(c => c.chart_number).join(', ')} and write the question you would raise with the physician.
+            </div>
+          </div>
+        )}
         <button
           onClick={handleSubmit}
-          disabled={submitting}
-          style={{ ...s.submitBtn, opacity: submitting ? 0.7 : 1 }}
+          disabled={submitting || queryGaps.length > 0}
+          style={{ ...s.submitBtn, opacity: submitting || queryGaps.length > 0 ? 0.5 : 1,
+                   cursor: queryGaps.length > 0 ? 'not-allowed' : 'pointer' }}
         >
           <Send size={15} />
           {submitting ? 'Submitting…' : 'Submit All Charts'}
@@ -629,6 +667,8 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
     })
   }
   const emData = entry.em_data || EMPTY_EM_DATA()
+  const queryOn = ip && entry.query_flag
+  const queryNoteMissing = queryOn && !entry.coder_notes.trim()
   // ED codes (99281-99285) cannot be levelled by time — MDM only.
   const timeEligible = !chart.specialty.toUpperCase().includes('ED PROFEE')
   const byTime = timeEligible && (emData.level_method || 'MDM') === 'TIME'
@@ -1322,11 +1362,68 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
       )}
       </>}
 
-      {/* Optional notes */}
-      <Section title={ed ? "Additional Notes (Optional)" : "Notes for Trainer (Optional)"} type="notes">
+      {/* Physician query — inpatient only, after the codes */}
+      {ip && (
+        <Section title="Physician Query" type="notes">
+          <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 10 }}>
+            Does this chart need to go for a physician query before it can be coded as documented?
+          </div>
+          <div style={{ display: 'flex', gap: 10 }}>
+            {[{ v: false, label: 'No' }, { v: true, label: 'Yes — send for query' }].map(o => {
+              const on = entry.query_flag === o.v
+              return (
+                <button
+                  key={String(o.v)}
+                  onClick={() => onChange({ query_flag: o.v })}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 8, padding: '9px 16px',
+                    borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600,
+                    border: `1.5px solid ${on ? (o.v ? '#d97706' : '#059669') : '#e5e7eb'}`,
+                    background: on ? (o.v ? '#fffbeb' : '#f0fdf4') : '#fff',
+                    color: on ? (o.v ? '#b45309' : '#059669') : '#6b7280',
+                  }}
+                >
+                  <span style={{
+                    width: 14, height: 14, borderRadius: '50%', flexShrink: 0,
+                    border: `2px solid ${on ? (o.v ? '#d97706' : '#059669') : '#d1d5db'}`,
+                    background: on ? (o.v ? '#d97706' : '#059669') : '#fff',
+                    boxShadow: on ? 'inset 0 0 0 2px #fff' : 'none',
+                  }} />
+                  {o.label}
+                </button>
+              )
+            })}
+          </div>
+          {entry.query_flag && (
+            <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'flex-start',
+                          padding: '10px 12px', borderRadius: 8,
+                          background: queryNoteMissing ? '#fef2f2' : '#fffbeb',
+                          border: `1px solid ${queryNoteMissing ? '#fecaca' : '#fde68a'}` }}>
+              <AlertTriangle size={15} color={queryNoteMissing ? '#dc2626' : '#d97706'} style={{ flexShrink: 0, marginTop: 1 }} />
+              <div style={{ fontSize: 12, color: queryNoteMissing ? '#b91c1c' : '#92400e', lineHeight: 1.5 }}>
+                {queryNoteMissing
+                  ? <><strong>Your query is required.</strong> Write the question you would put to the physician in the notes box below — this chart cannot be submitted until you do.</>
+                  : <>Your query is recorded in the notes below and will be reviewed by your trainer.</>}
+              </div>
+            </div>
+          )}
+        </Section>
+      )}
+
+      {/* Notes — mandatory once a query is raised, because that box holds the query */}
+      <Section
+        title={queryOn ? 'Your Query to the Physician' : ed ? 'Additional Notes (Optional)' : 'Notes for Trainer (Optional)'}
+        required={queryOn}
+        type="notes"
+      >
         <textarea
-          style={{ ...s.inputField, height: 72, resize: 'vertical', fontFamily: 'system-ui, sans-serif' }}
-          placeholder="Any questions or notes about this chart…"
+          style={{
+            ...s.inputField, height: 72, resize: 'vertical', fontFamily: 'system-ui, sans-serif',
+            ...(queryNoteMissing ? { borderColor: '#dc2626', background: '#fffafa' } : {}),
+          }}
+          placeholder={queryOn
+            ? 'Write the query you would raise with the physician — what is unclear, and what you need clarified…'
+            : 'Any questions or notes about this chart…'}
           value={entry.coder_notes}
           onChange={e => onChange({ coder_notes: e.target.value })}
         />

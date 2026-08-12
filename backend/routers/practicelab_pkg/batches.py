@@ -806,6 +806,21 @@ def get_batch(batch_id: int, db: Session = Depends(get_db)):
                                      GradingResult.drg_reviewed == False)
                              .count())
 
+    # Physician queries awaiting a trainer verdict. Counted only for charts the
+    # coder actually marked for query — this is not a per-chart obligation, so
+    # a batch with no queries raised must report zero, not "all charts pending".
+    # The flag lives in practice_results, not grading_results, so this cannot
+    # ride along with the DRG count above.
+    pending_query_count = 0
+    if _is_ip(batch.specialty):
+        pending_query_count = db.execute(_text("""
+            SELECT COUNT(*) FROM practice_results pr
+            JOIN practice_sessions ps ON ps.id = pr.session_id
+            WHERE ps.batch_id = :b
+              AND pr.query_flag
+              AND NOT COALESCE(pr.query_reviewed, FALSE)
+        """), {"b": batch_id}).scalar() or 0
+
     # For direct assignments: build coder_map from practice sessions + results
     direct_graded_count = 0
     if batch.is_direct_assignment:
@@ -856,6 +871,7 @@ def get_batch(batch_id: int, db: Session = Depends(get_db)):
         "tags": batch.tags or [],
         "pending_submissions": pending_submissions_count,
         "pending_drg_review": pending_drg_count,
+        "pending_query_review": pending_query_count,
         "is_direct_assignment": bool(batch.is_direct_assignment),
         "direct_graded_count": direct_graded_count,
         "allocation_cycles": [

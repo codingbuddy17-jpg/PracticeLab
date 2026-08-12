@@ -523,6 +523,10 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
     ? (batch.direct_graded_count || 0) > 0
     : totalSubmitted > 0
   const pendingDRG = isIP && (batch.pending_drg_review ?? 0) > 0
+  // Only charts a coder marked for query are counted, so this is zero on a
+  // batch where nobody raised one. It is deliberately NOT a close blocker —
+  // the verdict is coaching, and it does not move any score.
+  const pendingQueryCount = isIP ? (batch.pending_query_review ?? 0) : 0
   const pendingSubs = batch.pending_submissions ?? 0
   const closeBlockers: string[] = []
   if (!isDirectAssignment) {
@@ -622,6 +626,12 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 8, padding: '6px 14px', fontSize: 13 }}>
               <AlertCircle size={14} color="#d97706" />
               <span style={{ fontWeight: 700, color: '#92400e' }}>{batch.pending_drg_review} DRG review{batch.pending_drg_review !== 1 ? 's' : ''} pending</span>
+            </div>
+          )}
+          {pendingQueryCount > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '6px 14px', fontSize: 13 }}>
+              <AlertCircle size={14} color="#d97706" />
+              <span style={{ fontWeight: 700, color: '#92400e' }}>{pendingQueryCount} physician quer{pendingQueryCount !== 1 ? 'ies' : 'y'} pending review</span>
             </div>
           )}
           {canClose && (
@@ -1040,6 +1050,19 @@ const ED_RUBRIC_ITEMS = [
 ]
 const RATIONALE_SCORES: Record<string, number> = { acceptable: 5, needs_improvement: 3, not_acceptable: 0 }
 
+// Trainer verdicts on a physician query raised by the coder. Recorded for
+// coaching; none of them move the chart score.
+const QUERY_VERDICT_OPTIONS = [
+  { value: 'appropriate',   label: 'Appropriate',      color: '#059669' },
+  { value: 'poorly_framed', label: 'Needs Rewording',  color: '#d97706' },
+  { value: 'not_warranted', label: 'Not Warranted',    color: '#dc2626' },
+]
+const QUERY_VERDICT_LABELS: Record<string, string> = {
+  appropriate: 'Query was appropriate',
+  poorly_framed: 'Query was warranted but poorly framed',
+  not_warranted: 'Query was not warranted',
+}
+
 function isEDSpecialty(sp: string) {
   const s = sp.toUpperCase()
   return s.includes('EDIT') || s.includes('DENIAL')
@@ -1050,6 +1073,8 @@ function ReviewModal({ reviewData, onClose, onRefresh }: { reviewData: any; onCl
   const [rubrics, setRubrics] = useState<Record<number, any>>({})
   const [scoring, setScoring] = useState<number | null>(null)
   const [drgSaving, setDrgSaving] = useState<number | null>(null)
+  const [querySaving, setQuerySaving] = useState<number | null>(null)
+  const [queryNotes, setQueryNotes] = useState<Record<number, string>>({})
 
   function initRubric(chartId: number, c: any) {
     setRubrics(prev => ({
@@ -1084,6 +1109,22 @@ function ReviewModal({ reviewData, onClose, onRefresh }: { reviewData: any; onCl
       toast.error('Failed to save DRG review')
     }
     setDrgSaving(null)
+  }
+
+  async function submitQueryReview(sessionId: number, chartId: number, verdict: string) {
+    setQuerySaving(chartId)
+    try {
+      await api.post(`/practicelab/practice-sessions/${sessionId}/chart/${chartId}/query-review`, {
+        verdict,
+        trainer_note: queryNotes[chartId] || '',
+        reviewed_by: 'Trainer',
+      })
+      toast.success('Query decision saved')
+      onRefresh()
+    } catch {
+      toast.error('Failed to save query decision')
+    }
+    setQuerySaving(null)
   }
 
   async function submitRubric(sessionId: number, chartId: number) {
@@ -1224,6 +1265,8 @@ function ReviewModal({ reviewData, onClose, onRefresh }: { reviewData: any; onCl
                   {hasDRG && !drgDone && <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: '#fee2e2', color: '#dc2626' }}>⚑ DRG Review Needed</span>}
                   {hasDRG && drgDone && <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: '#d1fae5', color: '#059669' }}>✓ DRG Reviewed{c.drg_override ? ` — ${c.drg_override}` : ''}</span>}
                   {c.flagged && <span style={{ fontSize: 11, background: '#fef9c3', color: '#b45309', borderRadius: 6, padding: '1px 6px' }}>Flagged</span>}
+                  {c.query_flag && !c.query_reviewed && <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: '#fef3c7', color: '#b45309' }}>⚑ Query Review Needed</span>}
+                  {c.query_flag && c.query_reviewed && <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: '#d1fae5', color: '#059669' }}>✓ Query Reviewed</span>}
                 </div>
                 {noAK ? (
                   <div style={{ fontSize: 12, color: '#92400e' }}>
@@ -1279,7 +1322,58 @@ function ReviewModal({ reviewData, onClose, onRefresh }: { reviewData: any; onCl
                     )}
                   </>
                 )}
-                {c.coder_notes && (
+                {c.query_flag && (
+                  <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 8,
+                                background: c.query_reviewed ? '#f0fdf4' : '#fffbeb',
+                                border: `1px solid ${c.query_reviewed ? '#bbf7d0' : '#fde68a'}` }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6,
+                                  color: c.query_reviewed ? '#059669' : '#b45309' }}>
+                      {c.query_reviewed ? '✓ Query Reviewed' : '⚑ Physician Query — Review Required'}
+                    </div>
+                    <div style={{ fontSize: 12, color: '#374151', background: '#fff', border: '1px solid #e5e7eb',
+                                  borderRadius: 6, padding: '8px 10px', marginBottom: 8, whiteSpace: 'pre-wrap' }}>
+                      {c.coder_notes || <span style={{ color: '#9ca3af' }}>No query text recorded.</span>}
+                    </div>
+                    {c.query_reviewed ? (
+                      <div style={{ fontSize: 11, color: '#6b7280' }}>
+                        {QUERY_VERDICT_LABELS[c.query_verdict || ''] || c.query_verdict}
+                        {c.query_reviewed_by ? ` — ${c.query_reviewed_by}` : ''}
+                        {c.query_trainer_note ? <div style={{ marginTop: 4, fontStyle: 'italic' }}>{c.query_trainer_note}</div> : null}
+                      </div>
+                    ) : (
+                      <>
+                        <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 8 }}>
+                          Was this query warranted, and is it well framed? This decision is recorded for
+                          coaching — it does not change the chart score.
+                        </div>
+                        <textarea
+                          style={{ width: '100%', boxSizing: 'border-box', height: 54, resize: 'vertical',
+                                   fontSize: 12, fontFamily: 'system-ui, sans-serif', padding: '7px 9px',
+                                   border: '1px solid #e5e7eb', borderRadius: 6, marginBottom: 8 }}
+                          placeholder="Feedback for the coder (optional)…"
+                          value={queryNotes[c.chart_id] || ''}
+                          onChange={e => setQueryNotes(p => ({ ...p, [c.chart_id]: e.target.value }))}
+                        />
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                          {QUERY_VERDICT_OPTIONS.map(o => (
+                            <button
+                              key={o.value}
+                              disabled={querySaving === c.chart_id}
+                              onClick={() => submitQueryReview(reviewData.session_id, c.chart_id, o.value)}
+                              style={{ padding: '6px 14px', background: o.color, color: '#fff', border: 'none',
+                                       borderRadius: 6, fontSize: 12, fontWeight: 700,
+                                       cursor: querySaving === c.chart_id ? 'wait' : 'pointer',
+                                       opacity: querySaving === c.chart_id ? 0.7 : 1 }}
+                            >
+                              {o.label}
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+                {c.coder_notes && !c.query_flag && (
                   <div style={{ marginTop: 6, fontSize: 12, color: '#6b7280', fontStyle: 'italic' }}>Notes: {c.coder_notes}</div>
                 )}
               </div>
