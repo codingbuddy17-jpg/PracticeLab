@@ -466,7 +466,7 @@ def generate_coder_report_pdf(coder_name: str, summary: dict, team_avg_score: Op
         elements.append(_trend_line_chart(trend_points))
 
     if dpo and any(dpo.get(k) is not None for k in ("dx_accuracy", "proc_accuracy", "drg_accuracy")):
-        _section_heading(elements, "Accuracy Breakdown")
+        _section_heading(elements, "Accuracy (DPO) Breakdown")
         dpo_rows = []
         # PCS and CPT are different code sets; a generic "Procedure accuracy"
         # reads as whichever the trainer's specialty uses, which is a guess.

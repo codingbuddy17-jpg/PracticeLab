@@ -402,14 +402,18 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
   // Open on a batch with no cycles yet: there is exactly one thing to do next,
   // so hiding it behind a reveal click buys the trainer nothing. Once a cycle
   // exists, running another is a deliberate act and stays behind the button.
-  const [showAllocationPanel, setShowAllocationPanel] = useState(
-    () => (batch.allocation_cycles?.length || 0) === 0 && batch.status === 'Open')
-  // A batch that arrives with cycles already run must not spring the panel open.
+  //
+  // Starts closed and is opened by the effect below once the batch has actually
+  // loaded. `batch` is null on the first render — reading it in the initialiser
+  // crashed the screen before the fetch had a chance to run.
+  const [showAllocationPanel, setShowAllocationPanel] = useState(false)
+  // A deliberate open or close pins the panel, so a background refresh cannot
+  // spring it open again while the trainer is working.
   const [panelPinned, setPanelPinned] = useState(false)
   useEffect(() => {
-    if (panelPinned) return
+    if (panelPinned || !batch) return
     setShowAllocationPanel((batch.allocation_cycles?.length || 0) === 0 && batch.status === 'Open')
-  }, [batch.id, batch.allocation_cycles?.length, batch.status, panelPinned])
+  }, [batch?.id, batch?.allocation_cycles?.length, batch?.status, panelPinned])
   const [closing, setClosing] = useState(false)
   const [confirmingClose, setConfirmingClose] = useState(false)
   const [showNoteBox, setShowNoteBox] = useState(false)

@@ -252,7 +252,7 @@ export function CreateBatchView({ onCreated, onCancel, scoringCfg, directMode: d
               <span style={{ fontSize: 12, fontWeight: 800, color: '#6b21a8' }}>SP</span>
               <div style={{ fontSize: 13, color: '#6b21a8' }}>
                 <strong>ED Single Path scoring applies for this specialty.</strong>
-                <div style={{ fontWeight: 400, marginTop: 2 }}>Accuracy counts shared Dx, facility/profee levels, and additional CPTs. Diagnosis pointers are not used.</div>
+                <div style={{ fontWeight: 400, marginTop: 2 }}>Accuracy (DPO) counts shared Dx, facility/profee levels, and additional CPTs. Diagnosis pointers are not used.</div>
               </div>
             </div>
             <label style={styles.methodOption}>
@@ -269,7 +269,7 @@ export function CreateBatchView({ onCreated, onCancel, scoringCfg, directMode: d
                 disabled={activeCfg ? activeCfg.dpo_enabled === false : false}
                 onChange={e => setForm(f => ({ ...f, use_dpo: e.target.checked }))} />
               <div>
-                <div style={styles.methodLabel}>Accuracy <span style={{ ...styles.methodBadge, background: '#dbeafe', color: '#1d4ed8' }}>Supplementary</span></div>
+                <div style={styles.methodLabel}>Accuracy (DPO) <span style={{ ...styles.methodBadge, background: '#dbeafe', color: '#1d4ed8' }}>Supplementary</span></div>
                 <div style={styles.methodDesc}>Defect rate across Dx, facility/profee levels, and CPT opportunities</div>
               </div>
             </label>
@@ -301,7 +301,7 @@ export function CreateBatchView({ onCreated, onCancel, scoringCfg, directMode: d
                 disabled={activeCfg ? activeCfg.dpo_enabled === false : false}
                 onChange={e => setForm(f => ({ ...f, use_dpo: e.target.checked }))} />
               <div>
-                <div style={styles.methodLabel}>Accuracy <span style={{ ...styles.methodBadge, background: '#dbeafe', color: '#1d4ed8' }}>Supplementary</span></div>
+                <div style={styles.methodLabel}>Accuracy (DPO) <span style={{ ...styles.methodBadge, background: '#dbeafe', color: '#1d4ed8' }}>Supplementary</span></div>
                 <div style={styles.methodDesc}>Defect rate per code opportunity — shows Dx{isIP ? ', POA' : ''} and procedure accuracy % per coder</div>
               </div>
             </label>

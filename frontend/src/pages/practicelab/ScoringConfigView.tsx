@@ -322,7 +322,7 @@ export function ScoringConfigView() {
           </label>
           <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontSize: 13 }}>
             <input type="checkbox" checked={f.dpo_enabled ?? true} onChange={e => updateField(tab, 'dpo_enabled', e.target.checked)} />
-            <span><strong>Accuracy</strong> enabled (supplementary, shows per-area accuracy %)</span>
+            <span><strong>Accuracy (DPO)</strong> enabled (supplementary, shows per-area accuracy %)</span>
           </label>
           {!(f.weighted_enabled ?? true) && !(f.dpo_enabled ?? true) && (
             <div style={{ color: '#dc2626', fontSize: 12 }}>At least one method must remain enabled</div>
@@ -330,7 +330,7 @@ export function ScoringConfigView() {
         </div>
         <div style={{ marginTop: 14 }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 4 }}>
-            Accuracy Pass Threshold <span style={styles.hint}>(for supplementary reference only)</span>
+            Accuracy (DPO) Pass Threshold <span style={styles.hint}>(for supplementary reference only)</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <input type="number" min={50} max={100} style={{ ...styles.input, width: 80 }}

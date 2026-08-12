@@ -171,7 +171,7 @@ export function ResultsView({ batchId }: any) {
                     {/* Header bar */}
                     <div style={{ background: '#ede9fe', padding: '7px 18px', display: 'flex', gap: 24 }}>
                       <span style={{ fontSize: 11, fontWeight: 700, color: '#6366f1', textTransform: 'uppercase' as const, letterSpacing: 0.7 }}>Cumulative — This Batch</span>
-                      {use_dpo && c.cumulative_dpo && <span style={{ fontSize: 11, fontWeight: 700, color: '#a78bfa', textTransform: 'uppercase' as const, letterSpacing: 0.7, marginLeft: 'auto' }}>Accuracy</span>}
+                      {use_dpo && c.cumulative_dpo && <span style={{ fontSize: 11, fontWeight: 700, color: '#a78bfa', textTransform: 'uppercase' as const, letterSpacing: 0.7, marginLeft: 'auto' }}>Accuracy (DPO)</span>}
                     </div>
                     <div style={{ display: 'flex', alignItems: 'stretch' }}>
                       {/* Left: core stats */}
