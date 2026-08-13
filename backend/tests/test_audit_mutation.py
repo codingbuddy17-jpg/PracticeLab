@@ -1,0 +1,450 @@
+"""
+The mutation engine must produce claims a coder could plausibly have written.
+
+Random-but-valid mutation is the failure mode: it yields claims nobody would
+ever produce, so auditors learn to spot the generator instead of learning the
+job. These tests pin the constraints that keep a claim believable, and the
+determinism that makes a disputed finding reproducible months later.
+"""
+import random
+import pytest
+
+from models.charts import Specialty
+from services.audit_mutation import (
+    Corpus, MutationConfig, claim_from_key, generate, planting_budget,
+    total_codes, _mutate_pcs_code, PCS_MUTABLE_POSITIONS,
+)
+
+
+class FakeKey:
+    def __init__(self, pdx_code="J18.9", pdx_poa="Y", sdx=None, pcs=None, cpt=None):
+        self.pdx_code = pdx_code
+        self.pdx_poa = pdx_poa
+        self.sdx = sdx if sdx is not None else []
+        self.pcs = pcs if pcs is not None else []
+        self.cpt = cpt if cpt is not None else []
+        self.facility_level = None
+        self.profee_level = None
+
+
+def ip_key(n_sdx=8, n_pcs=3):
+    return FakeKey(
+        sdx=[{"code": f"E11.{i}", "poa": "Y", "ccmcc": "CC" if i % 3 == 0 else "-"}
+             for i in range(n_sdx)],
+        pcs=[{"code": f"0DTJ{i}ZZ"} for i in range(n_pcs)],
+    )
+
+
+def op_key(n_sdx=5, n_cpt=4):
+    return FakeKey(
+        sdx=[{"code": f"M17.{i}", "poa": "", "ccmcc": ""} for i in range(n_sdx)],
+        cpt=[{"code": f"2744{i}", "modifier": "RT" if i % 2 else "", "units": 1}
+             for i in range(n_cpt)],
+    )
+
+
+CORPUS = Corpus(
+    dx_codes=[f"E11.{i}" for i in range(30)] + [f"I50.{i}" for i in range(10)]
+             + ["N17.9", "I10", "J44.1"],
+    pcs_codes=[f"0DTJ{c}ZZ" for c in "0123456789"] + ["0DT60ZZ", "0DB70ZX"],
+    modifiers=["59", "51", "25", "RT", "LT"],
+)
+
+
+def _sections(gt):
+    return [(r["section"], r["action"]) for r in gt]
+
+
+# ── determinism ──────────────────────────────────────────────────────────────
+
+class TestDeterminism:
+
+    def test_the_same_seed_rebuilds_the_same_claim(self):
+        """
+        The whole freeze/dispute story depends on this. If a seed did not
+        reproduce, a finding disputed months later could not be re-examined.
+        """
+        a = generate(ip_key(), Specialty.IP_DRG, seed=4242, corpus=CORPUS)
+        b = generate(ip_key(), Specialty.IP_DRG, seed=4242, corpus=CORPUS)
+        assert a == b
+
+    def test_different_seeds_give_different_claims(self):
+        """Otherwise a chart in a later cycle carries the identical errors."""
+        results = {
+            str(generate(ip_key(), Specialty.IP_DRG, seed=s, corpus=CORPUS)[1])
+            for s in range(20)
+        }
+        assert len(results) > 1
+
+    def test_the_generator_never_touches_global_random_state(self):
+        random.seed(99)
+        expected = random.random()
+        random.seed(99)
+        generate(ip_key(), Specialty.IP_DRG, seed=1, corpus=CORPUS)
+        assert random.random() == expected
+
+
+# ── constraints that keep a claim believable ─────────────────────────────────
+
+class TestConstraints:
+
+    @pytest.mark.parametrize("seed", range(40))
+    def test_a_section_is_never_emptied(self, seed):
+        """
+        A claim with no secondaries at all is not a flawed claim, it is a
+        broken one — and no coder would submit it.
+        """
+        claim, gt = generate(ip_key(), Specialty.IP_DRG, seed=seed, corpus=CORPUS)
+        assert claim["sdx"], f"seed {seed} emptied SDx"
+        assert claim["pcs"], f"seed {seed} emptied PCS"
+
+    @pytest.mark.parametrize("seed", range(40))
+    def test_pdx_is_never_blanked(self, seed):
+        """PDx can be wrong. It cannot be absent."""
+        claim, _ = generate(ip_key(), Specialty.IP_DRG, seed=seed, corpus=CORPUS)
+        assert claim["pdx_code"]
+
+    @pytest.mark.parametrize("seed", range(40))
+    def test_one_mutation_per_line(self, seed):
+        """
+        Two errors on one line make the correct finding ambiguous and the
+        scoring arbitrary.
+        """
+        _, gt = generate(ip_key(), Specialty.IP_DRG, seed=seed, corpus=CORPUS)
+        touched = [(r["section"], r["line"]) for r in gt if "line" in r]
+        assert len(touched) == len(set(touched)), f"seed {seed}: {touched}"
+
+    @pytest.mark.parametrize("seed", range(30))
+    def test_a_two_code_chart_is_barely_touched(self, seed):
+        """
+        Density scales with the key. Breaking one of two codes is half the
+        chart — that reads as broken, not flawed.
+        """
+        key = FakeKey(sdx=[{"code": "I10", "poa": "Y", "ccmcc": "-"}])
+        claim, gt = generate(key, Specialty.IP_DRG, seed=seed, corpus=CORPUS)
+        assert len(gt) <= 1
+        assert claim["sdx"]
+
+    def test_the_budget_never_exceeds_the_configured_cap(self):
+        cfg = MutationConfig(max_auto_plantings=3, max_section_share=90)
+        for seed in range(30):
+            _, gt = generate(ip_key(n_sdx=25, n_pcs=10), Specialty.IP_DRG,
+                             seed=seed, cfg=cfg, corpus=CORPUS)
+            assert len(gt) <= 3
+
+    def test_a_rich_chart_can_reach_the_cap_of_ten(self):
+        """10 is meant to be reachable but rare — it needs 30-40 codes."""
+        best = max(
+            len(generate(ip_key(n_sdx=30, n_pcs=12), Specialty.IP_DRG,
+                         seed=s, corpus=CORPUS)[1])
+            for s in range(40)
+        )
+        assert best == 10
+
+
+# ── ground truth is usable ───────────────────────────────────────────────────
+
+class TestGroundTruth:
+
+    @pytest.mark.parametrize("seed", range(40))
+    def test_every_recorded_line_points_at_a_real_row(self, seed):
+        """
+        The bug this guards: a removal or insertion shifts every later line,
+        and a finding still pointing at the old index would score as a miss no
+        matter what the auditor did.
+        """
+        claim, gt = generate(ip_key(), Specialty.IP_DRG, seed=seed, corpus=CORPUS)
+        for rec in gt:
+            if "line" not in rec:
+                continue
+            rows = {"SDx": claim["sdx"], "PCS": claim["pcs"],
+                    "CPT": claim["cpt"], "PDx": [claim]}[rec["section"]]
+            assert 0 <= rec["line"] < len(rows), f"seed {seed}: {rec}"
+
+    @pytest.mark.parametrize("seed", range(40))
+    def test_a_revise_records_what_the_claim_actually_shows(self, seed):
+        """
+        claim_value must match the flawed claim, or the auditor is told to
+        correct something that is not on their screen.
+        """
+        claim, gt = generate(ip_key(), Specialty.IP_DRG, seed=seed, corpus=CORPUS)
+        for rec in gt:
+            if rec["action"] != "Revise":
+                continue
+            if rec["section"] == "SDx":
+                row = claim["sdx"][rec["line"]]
+                got = row.get(rec["field"] if rec["field"] != "code" else "code")
+            elif rec["section"] == "PCS":
+                got = claim["pcs"][rec["line"]]["code"]
+            elif rec["section"] == "CPT":
+                got = claim["cpt"][rec["line"]].get(rec["field"])
+            else:
+                got = claim["pdx_code"] if rec["field"] == "code" else claim["pdx_poa"]
+            assert str(got or "") == str(rec["claim_value"] or ""), f"seed {seed}: {rec}"
+
+    @pytest.mark.parametrize("seed", range(40))
+    def test_an_add_names_a_code_that_is_no_longer_on_the_claim(self, seed):
+        claim, gt = generate(ip_key(), Specialty.IP_DRG, seed=seed, corpus=CORPUS)
+        present = {s["code"] for s in claim["sdx"]} | {p["code"] for p in claim["pcs"]}
+        for rec in gt:
+            if rec["action"] == "Add":
+                assert rec["correct_value"] not in present, f"seed {seed}: {rec}"
+
+    @pytest.mark.parametrize("seed", range(40))
+    def test_a_delete_names_a_code_that_IS_on_the_claim(self, seed):
+        claim, gt = generate(ip_key(), Specialty.IP_DRG, seed=seed, corpus=CORPUS)
+        for rec in gt:
+            if rec["action"] == "Delete":
+                assert claim["sdx"][rec["line"]]["code"] == rec["claim_value"]
+
+    def test_a_pdx_swap_is_one_finding_not_two(self):
+        """
+        An auditor thinks "wrong principal diagnosis", and on IP-DRG it is the
+        single most valuable catch. Two findings would double-count it.
+        """
+        cfg = MutationConfig(mix_swap_pdx=100, mix_omit_sdx=0, mix_omit_proc=0,
+                             mix_modifier_missing=0, mix_modifier_wrong=0,
+                             mix_substitute=0, mix_units=0, mix_poa=0,
+                             mix_spurious=0)
+        claim, gt = generate(ip_key(), Specialty.IP_DRG, seed=7, cfg=cfg,
+                             corpus=CORPUS, budget=1)
+        assert len(gt) == 1
+        assert gt[0]["section"] == "PDx" and gt[0]["action"] == "Revise"
+        # The displaced principal really did land in the secondaries.
+        assert gt[0]["correct_value"] in {s["code"] for s in claim["sdx"]}
+
+    def test_a_swap_only_draws_from_the_leading_secondaries(self):
+        """
+        Swapping with the ninth secondary produces a claim that is obviously
+        wrong rather than arguably wrong, which teaches nothing.
+        """
+        cfg = MutationConfig(mix_swap_pdx=100, mix_omit_sdx=0, mix_omit_proc=0,
+                             mix_modifier_missing=0, mix_modifier_wrong=0,
+                             mix_substitute=0, mix_units=0, mix_poa=0,
+                             mix_spurious=0)
+        for seed in range(25):
+            _, gt = generate(ip_key(n_sdx=12), Specialty.IP_DRG, seed=seed,
+                             cfg=cfg, corpus=CORPUS, budget=1)
+            if gt:
+                assert gt[0]["swapped_with_line"] < 3
+
+
+# ── PCS: one character, and it means something ───────────────────────────────
+
+class TestPCSMutation:
+
+    def test_exactly_one_character_changes(self):
+        rng = random.Random(3)
+        for _ in range(50):
+            out, _what = _mutate_pcs_code("0DTJ4ZZ", CORPUS, rng)
+            assert len(out) == 7
+            diffs = [i for i in range(7) if out[i] != "0DTJ4ZZ"[i]]
+            assert len(diffs) == 1
+
+    def test_section_and_body_system_are_never_touched(self):
+        """
+        Changing character 1 or 2 lands in a different chapter entirely, which
+        reads as a typo rather than a coding decision.
+        """
+        rng = random.Random(11)
+        for _ in range(60):
+            out, _ = _mutate_pcs_code("0DTJ4ZZ", CORPUS, rng)
+            assert out[:2] == "0D"
+
+    def test_the_changed_character_is_named(self):
+        """
+        "Revise PCS line 2, root operation" is a self-explaining finding;
+        "revise PCS line 2" is not.
+        """
+        rng = random.Random(5)
+        seen = {_mutate_pcs_code("0DTJ4ZZ", CORPUS, rng)[1] for _ in range(80)}
+        assert seen <= set(PCS_MUTABLE_POSITIONS.values())
+        assert len(seen) >= 3
+
+
+# ── the weights behave as the observations describe ──────────────────────────
+
+class TestMix:
+
+    def test_omissions_dominate(self):
+        """
+        ~80% of real audit findings are missed codes, and 90-95% of the
+        secondary-diagnosis ones are missing SDx.
+        """
+        adds = total = 0
+        for seed in range(150):
+            _, gt = generate(ip_key(), Specialty.IP_DRG, seed=seed, corpus=CORPUS)
+            adds += sum(1 for r in gt if r["action"] == "Add")
+            total += len(gt)
+        assert total > 0
+        assert 0.45 <= adds / total <= 0.80, adds / total
+
+    def test_cc_mcc_secondaries_are_preferred_for_omission(self):
+        """
+        Preferred, not exclusive — an auditor who learns only CC/MCC codes go
+        missing has learned the generator.
+        """
+        key_fn = lambda: FakeKey(
+            sdx=[{"code": f"E11.{i}", "poa": "Y",
+                  "ccmcc": "CC" if i < 4 else "-"} for i in range(8)],
+            pcs=[{"code": "0DTJ0ZZ"}, {"code": "0DTJ1ZZ"}],
+        )
+        cc = plain = 0
+        for seed in range(120):
+            _, gt = generate(key_fn(), Specialty.IP_DRG, seed=seed, corpus=CORPUS)
+            for r in gt:
+                if r["action"] == "Add" and r["section"] == "SDx":
+                    if str((r["entry"] or {}).get("ccmcc")).upper() in ("CC", "MCC"):
+                        cc += 1
+                    else:
+                        plain += 1
+        assert cc > plain, f"CC/MCC {cc} vs plain {plain}"
+        assert plain > 0, "plain secondaries must still be drawn sometimes"
+
+    def test_pcs_character_mutation_actually_fires(self):
+        """
+        Regression: substitute_pcs began life as a fallback INSIDE substitute,
+        which made it unreachable — diagnosis substitution nearly always
+        succeeded first, so the most realistic procedure error there is never
+        appeared in a single generated claim. It needs its own weight.
+        """
+        kinds = []
+        for seed in range(300):
+            _, gt = generate(ip_key(), Specialty.IP_DRG, seed=seed, corpus=CORPUS)
+            kinds += [r["kind"] for r in gt]
+        pcs_share = kinds.count("substitute_pcs") / len(kinds)
+        assert pcs_share > 0.03, f"only {pcs_share:.1%} — is it reachable?"
+
+    def test_a_pcs_revision_names_which_character_moved(self):
+        for seed in range(200):
+            _, gt = generate(ip_key(), Specialty.IP_DRG, seed=seed, corpus=CORPUS)
+            for r in gt:
+                if r["kind"] == "substitute_pcs":
+                    assert r["pcs_character"] in PCS_MUTABLE_POSITIONS.values()
+                    assert len(r["claim_value"]) == len(r["correct_value"])
+
+    def test_a_kind_the_corpus_cannot_support_gives_up_its_weight(self):
+        """
+        Feasibility is corpus-aware. Without that, the draw keeps selecting
+        substitution on a chart with no prefix siblings, fails, and burns the
+        retry budget — so the chart ends up with fewer plantings than asked
+        for and the effective mix drifts away from the config.
+        """
+        # M17.x has no family in CORPUS, so substitution is impossible here.
+        key = FakeKey(pdx_code="M17.0",
+                      sdx=[{"code": f"M17.{i}", "poa": "", "ccmcc": ""}
+                           for i in range(1, 9)],
+                      cpt=[{"code": f"2744{i}", "modifier": "RT", "units": 1}
+                           for i in range(4)])
+        short = 0
+        for seed in range(60):
+            _, gt = generate(key, Specialty.SURGERY, seed=seed, corpus=CORPUS,
+                             budget=3)
+            if len(gt) < 3:
+                short += 1
+            assert all(r["kind"] != "substitute" for r in gt)
+        assert short == 0, f"{short}/60 charts came up short of their budget"
+
+    def test_the_advanced_tier_pulls_in_the_harder_kinds(self):
+        def share(tier):
+            hard = total = 0
+            for seed in range(120):
+                _, gt = generate(ip_key(), Specialty.IP_DRG, seed=seed,
+                                 corpus=CORPUS, tier=tier)
+                hard += sum(1 for r in gt
+                            if r["kind"] in ("swap_pdx", "substitute", "substitute_pcs"))
+                total += len(gt)
+            return hard / max(total, 1)
+        assert share("advanced") > share("foundational")
+
+    def test_spurious_codes_survive_on_a_diagnosis_only_chart(self):
+        """
+        Spurious never renormalises out — you can always add a code that should
+        not be there — so it grows on sparse charts rather than vanishing.
+        """
+        key = FakeKey(sdx=[{"code": f"E11.{i}", "poa": "", "ccmcc": ""}
+                           for i in range(4)], pcs=[], cpt=[])
+        kinds = set()
+        for seed in range(60):
+            _, gt = generate(key, Specialty.ANCILLARY, seed=seed, corpus=CORPUS)
+            kinds |= {r["kind"] for r in gt}
+        assert "spurious" in kinds
+
+
+# ── shape-driven feasibility ─────────────────────────────────────────────────
+
+class TestFeasibility:
+
+    def test_a_chart_with_no_procedures_never_draws_a_procedure_mutation(self):
+        key = FakeKey(sdx=[{"code": f"E11.{i}", "poa": "", "ccmcc": ""}
+                           for i in range(6)], pcs=[], cpt=[])
+        for seed in range(60):
+            _, gt = generate(key, Specialty.ANCILLARY, seed=seed, corpus=CORPUS)
+            assert all(r["section"] in ("SDx", "PDx") for r in gt)
+
+    def test_ip_drg_never_draws_a_units_mutation(self):
+        """Units are not coded on an inpatient claim."""
+        for seed in range(60):
+            _, gt = generate(ip_key(), Specialty.IP_DRG, seed=seed, corpus=CORPUS)
+            assert all(r.get("field") != "units" for r in gt)
+
+    def test_a_chart_with_no_modifiers_never_draws_a_modifier_mutation(self):
+        key = FakeKey(sdx=[{"code": "M17.1", "poa": "", "ccmcc": ""},
+                           {"code": "M17.2", "poa": "", "ccmcc": ""}],
+                      cpt=[{"code": "27447", "modifier": "", "units": 1},
+                           {"code": "27448", "modifier": "", "units": 1}])
+        for seed in range(60):
+            _, gt = generate(key, Specialty.SURGERY, seed=seed, corpus=CORPUS)
+            assert all(r.get("field") != "modifier" for r in gt)
+
+    def test_an_outpatient_chart_can_draw_units_and_modifiers(self):
+        fields = set()
+        for seed in range(80):
+            _, gt = generate(op_key(), Specialty.SURGERY, seed=seed, corpus=CORPUS)
+            fields |= {r.get("field") for r in gt}
+        assert "units" in fields
+        assert "modifier" in fields
+
+    def test_an_empty_key_yields_an_empty_claim_and_no_findings(self):
+        claim, gt = generate(FakeKey(pdx_code="", sdx=[], pcs=[], cpt=[]),
+                             Specialty.IP_DRG, seed=1, corpus=CORPUS)
+        assert gt == []
+        assert total_codes(claim) == 0
+
+    def test_an_empty_corpus_still_produces_a_valid_claim(self):
+        """
+        A fresh install has no other keys to draw plausible wrong codes from.
+        It must degrade to structural mutation, not crash.
+        """
+        for seed in range(30):
+            claim, gt = generate(ip_key(), Specialty.IP_DRG, seed=seed,
+                                 corpus=Corpus())
+            assert claim["sdx"] and claim["pdx_code"]
+
+
+# ── DRG impact is recorded, not inferred later ───────────────────────────────
+
+class TestDRGImpact:
+
+    def test_pcs_and_pdx_findings_are_always_drg_impacting(self):
+        for seed in range(40):
+            _, gt = generate(ip_key(), Specialty.IP_DRG, seed=seed, corpus=CORPUS)
+            for r in gt:
+                if r["section"] in ("PDx", "PCS"):
+                    assert r["drg_impacting"] is True
+
+    def test_a_plain_secondary_omission_is_not_drg_impacting(self):
+        """
+        A secondary that is neither CC nor MCC cannot move the DRG — the same
+        rule grading_engine already applies to coder submissions.
+        """
+        seen = False
+        for seed in range(80):
+            _, gt = generate(ip_key(), Specialty.IP_DRG, seed=seed, corpus=CORPUS)
+            for r in gt:
+                if r["action"] == "Add" and r["section"] == "SDx":
+                    cc = str((r["entry"] or {}).get("ccmcc")).upper()
+                    if cc not in ("CC", "MCC"):
+                        assert r["drg_impacting"] is False
+                        seen = True
+        assert seen

@@ -15,6 +15,12 @@ from models.assessment import (
     GeneratedAssessmentStudent, AssessmentAuditLog, AssessmentSession,
     AssessmentResponse, AssessmentResult,
 )
+from models.auditor import (
+    AuditSource, AuditAction,
+    AuditKeySet, AuditBatch, AuditBatchAuditor, AuditAllocationCycle,
+    AuditAssignment, AuditSession, AuditChartDraft, AuditResult,
+    AuditScoringConfig,
+)
 
 __all__ = [
     "Specialty", "Difficulty", "ChartStatus", "FeedbackStatus",
@@ -28,4 +34,8 @@ __all__ = [
     "AssessmentQuestion", "AssessmentConfig", "GeneratedAssessment",
     "GeneratedAssessmentStudent", "AssessmentAuditLog", "AssessmentSession",
     "AssessmentResponse", "AssessmentResult",
+    "AuditSource", "AuditAction",
+    "AuditKeySet", "AuditBatch", "AuditBatchAuditor", "AuditAllocationCycle",
+    "AuditAssignment", "AuditSession", "AuditChartDraft", "AuditResult",
+    "AuditScoringConfig",
 ]
