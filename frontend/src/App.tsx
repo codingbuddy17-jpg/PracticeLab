@@ -17,6 +17,7 @@ const TakeAssessmentSession = lazy(() => import('./pages/TakeAssessmentSession')
 const PracticeEntry         = lazy(() => import('./pages/PracticeEntry').then(m => ({ default: m.PracticeEntry })))
 const PracticeSession       = lazy(() => import('./pages/PracticeSession').then(m => ({ default: m.PracticeSession })))
 const AuditSession          = lazy(() => import('./pages/AuditSession').then(m => ({ default: m.AuditSession })))
+const TrainerAuditor        = lazy(() => import('./pages/TrainerAuditor').then(m => ({ default: m.TrainerAuditor })))
 
 function PageLoader() {
   return (
@@ -40,6 +41,8 @@ export default function App() {
           <Route path="/trainer/analytics" element={<ChartLibraryAnalytics />} />
           <Route path="/trainer/feedback" element={<TrainerFeedback />} />
           <Route path="/trainer/practicelab" element={<TrainerPracticeLab />} />
+          <Route path="/trainer/auditor" element={<TrainerAuditor />} />
+          <Route path="/trainer/auditor/:tab" element={<TrainerAuditor />} />
           <Route path="/trainer/assessment" element={<AssessmentHome />} />
           {/* Same component, tab read from the URL — see AssessmentHome. */}
           <Route path="/trainer/assessment/:tab" element={<AssessmentHome />} />

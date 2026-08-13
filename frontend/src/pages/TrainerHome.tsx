@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { FileText, BookOpen, GraduationCap, ChevronRight, ClipboardList } from 'lucide-react'
-import { getPLAnalyticsOverview, getChartStats, getAssessmentStats, getAssessmentOverview } from '../api'
+import { FileText, BookOpen, GraduationCap, ChevronRight, ClipboardList, ClipboardCheck } from 'lucide-react'
+import { getPLAnalyticsOverview, getChartStats, getAssessmentStats, getAssessmentOverview, listAuditBatches, listAuditKeySets } from '../api'
 
 export function TrainerHome() {
   const [plStats, setPlStats] = useState<any>(null)
   const [chartStats, setChartStats] = useState<any>(null)
   const [assessmentStats, setAssessmentStats] = useState<{ totalActive: number; totalSpecialties: number } | null>(null)
+  const [auditStats, setAuditStats] = useState<{ batches: number; open: number; scored: number; curated: number } | null>(null)
   const [assessOverview, setAssessOverview] = useState<any>(null)
 
   function load() {
@@ -17,6 +18,17 @@ export function TrainerHome() {
     getPLAnalyticsOverview({}, 'all').then(setPlStats).catch(() => {})
     getChartStats().then(setChartStats).catch(() => {})
     getAssessmentOverview().then(setAssessOverview).catch(() => {})
+    // Auditor tiles fail quietly — a trainer home page must render even if one
+    // module's stats endpoint is unavailable.
+    Promise.all([listAuditBatches(), listAuditKeySets()]).then(([b, k]) => {
+      const batches = b.batches || []
+      setAuditStats({
+        batches: batches.length,
+        open: batches.filter((x: Record<string, unknown>) => x.status === 'Open').length,
+        scored: batches.reduce((n: number, x: Record<string, unknown>) => n + Number(x.scored || 0), 0),
+        curated: new Set((k.sets || []).map((x: Record<string, unknown>) => x.chart_id)).size,
+      })
+    }).catch(() => {})
     getAssessmentStats()
       .then(rows => {
         const totalActive = rows.reduce((s, r) => s + r.active, 0)
@@ -171,6 +183,48 @@ export function TrainerHome() {
                   <div style={{ ...styles.bentoBar, width: `${plStats.overall_pass_rate}%` }} />
                 </div>
               )}
+            </div>
+          </Link>
+        </div>
+
+        {/* Auditor bento — its own full-width area below Coder, so it keeps all
+            three stat cells. Rose/violet marks it apart from PracticeLab's teal;
+            amber and red are avoided because they mean "needs attention"
+            everywhere else in this app. */}
+        <div style={{ ...styles.bentoGrid, marginTop: 10 }}>
+          <Link to="/trainer/auditor" style={{ ...styles.bentoCell, ...styles.bentoCellMain, background: 'linear-gradient(145deg, #be185d 0%, #9333ea 100%)' }}>
+            <div style={styles.bentoTag}>Chart Audit Engine</div>
+            <div style={styles.bentoTitle}>
+              <ClipboardCheck size={20} style={{ flexShrink: 0 }} />
+              PracticeLab — Auditor
+            </div>
+            <div style={styles.bentoSubtitle}>
+              Plant errors · Allocate · Score findings · Detection patterns
+            </div>
+            <div style={styles.bentoCta}>
+              Open <ChevronRight size={14} strokeWidth={2.5} />
+            </div>
+          </Link>
+
+          <Link to="/trainer/auditor/batches" style={{ ...styles.bentoCell, ...styles.bentoCellStat, background: 'rgba(253,242,248,0.6)' }}>
+            <div style={styles.bentoStatNum}>{auditStats?.batches ?? '—'}</div>
+            <div style={styles.bentoStatLabel}>Audit Batches</div>
+            <div style={styles.bentoStatSub}>
+              {auditStats ? `${auditStats.open} open · ${auditStats.scored} chart(s) scored` : '—'}
+            </div>
+          </Link>
+
+          <Link to="/trainer/auditor/keys" style={{ ...styles.bentoCell, ...styles.bentoCellStat, background: 'rgba(250,245,255,0.6)' }}>
+            <div style={styles.bentoStatNum}>{auditStats?.curated ?? '—'}</div>
+            <div style={styles.bentoStatLabel}>Curated Charts</div>
+            <div style={styles.bentoStatSub}>charts with plantings you authored</div>
+          </Link>
+
+          <Link to="/trainer/auditor/config" style={{ ...styles.bentoCell, ...styles.bentoCellStat, background: 'rgba(255,255,255,0.6)' }}>
+            <div style={styles.bentoStatLabel}>Add · Revise · Delete</div>
+            <div style={{ fontSize: 13, color: '#6b7280', marginTop: 4, lineHeight: 1.5 }}>
+              Findings are scored on what an auditor actually does to a chart, weighted
+              and renormalised over what each chart carries.
             </div>
           </Link>
         </div>
