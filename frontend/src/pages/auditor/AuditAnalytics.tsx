@@ -104,15 +104,15 @@ function Overview({ o }: { o: any }) {
             {(['add', 'revise', 'delete'] as const).map(k => (
               <Big key={k} small label={k[0].toUpperCase() + k.slice(1)}
                 value={pct(o[k].accuracy)}
-                sub={o[k].planted ? `${o[k].found}/${o[k].planted}` : 'none planted'} />
+                sub={o[k].planted ? `${o[k].found}/${o[k].planted}` : 'none introduced'} />
             ))}
             <Big small label="DRG-impacting" value={pct(o.drg_accuracy)}
-              sub={o.drg_planted ? `${o.drg_found}/${o.drg_planted}` : 'none planted'} />
+              sub={o.drg_planted ? `${o.drg_found}/${o.drg_planted}` : 'none introduced'} />
             <Big small label="Query calls" value={pct(o.query_accuracy)}
               sub={o.query_charts ? `${o.query_correct}/${o.query_charts}` : 'none authored'} />
           </div>
           <div style={s.note}>
-            Pooled — total found over total planted. Roughly three quarters of plantings
+            Pooled — total found over total introduced. Roughly three quarters of errors
             are omissions, so a single figure would read high for someone who only ever
             hunts for missing codes. DRG impact is kept separate rather than blended in as
             a weight.
@@ -128,7 +128,7 @@ function Overview({ o }: { o: any }) {
               sub={`across ${o.charts_with_over_calls} chart(s)`} />
             <Big small label="Found but corrected wrongly" value={String(o.detected_not_corrected)}
               sub="not scored — reported" />
-            <Big small label="Opportunities" value={String(o.opportunities)} sub="total planted" />
+            <Big small label="Opportunities" value={String(o.opportunities)} sub="total introduced" />
           </div>
           <div style={s.note}>
             “Found 4 of 4, corrected 2” and “found 2 of 4” both score 50% and are entirely
@@ -178,8 +178,8 @@ function Rows({ rows, nameKey, subKey }: { rows: any[]; nameKey: string; subKey:
       <div style={{ padding: '10px 16px' }}>
         <div style={s.note}>
           Audit accuracy averages chart scores; the component columns pool findings over
-          plantings, with the counts shown so a rate on two opportunities is not read like
-          a rate on twenty. NA means nothing of that type was ever planted.
+          errors, with the counts shown so a rate on two opportunities is not read like
+          a rate on twenty. NA means nothing of that type was ever introduced.
         </div>
       </div>
     </div>
@@ -194,7 +194,7 @@ function cell(c: any) {
 // ── detection patterns ───────────────────────────────────────────────────────
 
 function Detection({ d }: { d: any }) {
-  if (!d || !d.total_plantings) return <div style={s.empty}>Nothing planted and scored yet.</div>
+  if (!d || !d.total_plantings) return <div style={s.empty}>No errors introduced and scored yet.</div>
   return (
     <>
       {d.weakest.length > 0 && (
@@ -215,7 +215,7 @@ function Detection({ d }: { d: any }) {
               </div>
             ))}
             <div style={s.note}>
-              Only kinds planted at least {d.min_for_pattern} times appear here — a
+              Only kinds introduced at least {d.min_for_pattern} times appear here — a
               curriculum should not be built on a single miss.
             </div>
           </div>
@@ -227,7 +227,7 @@ function Detection({ d }: { d: any }) {
               says which errors a cohort cannot see, rather than which codes they get wrong." />
 
       <Bucket title="Real errors versus generated ones" rows={d.by_origin}
-        note="Plantings taken from what your own coders actually submitted, against ones
+        note="Errors taken from what your own coders actually submitted, against ones
               the system invented. Only the first number describes the job — and it is
               usually the lower of the two." />
 

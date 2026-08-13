@@ -294,7 +294,7 @@ def _session_summary(s) -> dict:
         "revise_planted": s.revise_planted,
         "delete_accuracy": s.delete_accuracy, "delete_found": s.delete_found,
         "delete_planted": s.delete_planted,
-        "component_basis": "pooled findings over plantings",
+        "component_basis": "pooled findings over errors introduced",
         "drg_accuracy": s.drg_accuracy,
         "drg_impacting_found": s.drg_impacting_found,
         "drg_impacting_planted": s.drg_impacting_planted,

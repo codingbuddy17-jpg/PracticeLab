@@ -202,7 +202,7 @@ export function TrainerHome() {
               PracticeLab — Auditor
             </div>
             <div style={styles.bentoSubtitle}>
-              Plant errors · Allocate · Score findings · Detection patterns
+              Introduce errors · Allocate · Score findings · Detection patterns
             </div>
             <div style={styles.bentoCta}>
               Open <ChevronRight size={14} strokeWidth={2.5} />
@@ -220,7 +220,7 @@ export function TrainerHome() {
           <Link to="/trainer/auditor/keys" style={{ ...styles.bentoCell, ...styles.bentoCellStat, background: 'rgba(250,245,255,0.6)' }}>
             <div style={styles.bentoStatNum}>{auditStats?.curated ?? '—'}</div>
             <div style={styles.bentoStatLabel}>Curated Charts</div>
-            <div style={styles.bentoStatSub}>charts with plantings you authored</div>
+            <div style={styles.bentoStatSub}>charts with errors you authored</div>
           </Link>
 
           {/* Spans columns 2-3 on the second row, like the wide chip in every

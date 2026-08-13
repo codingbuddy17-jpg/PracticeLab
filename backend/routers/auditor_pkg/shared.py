@@ -109,7 +109,7 @@ def parse_specialty(value: str) -> Specialty:
         raise HTTPException(
             status_code=400,
             detail=(f"{specialty.value} cannot be audited. Edits & Denials are "
-                    f"rubric-graded with no coded key to plant errors in, and "
+                    f"rubric-graded with no coded key to introduce errors into, and "
                     f"E/M needs its own audit design."))
     return specialty
 

@@ -9,7 +9,7 @@ import { searchCharts } from '../../api'
 import s from './styles'
 
 /**
- * The trainer's planting library.
+ * The trainer's audit keys.
  *
  * A set records what the AUDITOR must find, not what the system should break.
  * That direction is deliberate: it is the same shape the generator emits and
@@ -31,7 +31,7 @@ export function AuditKeys({ trainer }: { trainer: string }) {
 
   const load = useCallback(async () => {
     try { setSets((await listAuditKeySets()).sets) }
-    catch { toast.error('Could not load the planting library') }
+    catch { toast.error('Could not load the audit keys') }
   }, [])
   useEffect(() => { load() }, [load])
 
@@ -50,10 +50,10 @@ export function AuditKeys({ trainer }: { trainer: string }) {
 
   return (
     <div>
-      <div style={s.h1}>Planting Library</div>
+      <div style={s.h1}>Audit Keys</div>
       <div style={s.sub}>
         Author what an auditor should find on a chart. Stored sets are permanent and
-        reusable; charts without one are planted by the system instead.
+        reusable; charts without one get their errors from the system instead.
       </div>
 
       <div style={{ display: 'flex', gap: 8, marginTop: 18, maxWidth: 480 }}>
@@ -70,7 +70,7 @@ export function AuditKeys({ trainer }: { trainer: string }) {
               <span style={{ fontWeight: 700, fontSize: 13 }}>{c.chart_number as string}</span>
               <span style={s.chip}>{c.specialty as string}</span>
               <span style={{ fontSize: 12, color: '#6b7280' }}>{c.category as string}</span>
-              <span style={{ marginLeft: 'auto', ...s.linkBtn }}>Author plantings →</span>
+              <span style={{ marginLeft: 'auto', ...s.linkBtn }}>Author errors →</span>
             </button>
           ))}
         </div>
@@ -83,7 +83,7 @@ export function AuditKeys({ trainer }: { trainer: string }) {
         <div style={{ padding: '12px 16px' }}>
           {sets.length === 0 ? (
             <div style={s.empty}>
-              Nothing authored yet. Every chart is planted by the system until you curate it.
+              Nothing authored yet. Every chart gets its errors from the system until you curate it.
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -92,14 +92,14 @@ export function AuditKeys({ trainer }: { trainer: string }) {
                   onClick={() => setChartId(k.chart_id as number)}>
                   <span style={{ fontWeight: 700, fontSize: 13 }}>{k.chart_number as string}</span>
                   <span style={{ fontSize: 13 }}>{k.name as string}</span>
-                  <span style={s.chip}>{k.planting_count as number} planting(s)</span>
+                  <span style={s.chip}>{k.planting_count as number} error(s)</span>
                   {k.query_expected !== null && (
                     <span style={{ ...s.chip, background: '#fffbeb', color: '#b45309' }}>
                       query {k.query_expected ? 'expected' : 'not needed'}
                     </span>
                   )}
                   {(k.always_plant as boolean) && (
-                    <span style={{ ...s.chip, background: '#fef2f2', color: '#dc2626' }}>always planted</span>
+                    <span style={{ ...s.chip, background: '#fef2f2', color: '#dc2626' }}>always used</span>
                   )}
                   <span style={{ marginLeft: 'auto', fontSize: 11, color: '#9ca3af' }}>
                     {k.authored_by as string}
@@ -200,26 +200,26 @@ function ChartKeyEditor({ chartId, trainer, onBack }: {
 
   return (
     <div style={{ maxWidth: 900 }}>
-      <button style={s.backBtn} onClick={onBack}><ChevronLeft size={14} /> Planting library</button>
+      <button style={s.backBtn} onClick={onBack}><ChevronLeft size={14} /> Audit Keys</button>
       <div style={s.rowBetween}>
         <div>
           <div style={s.h1}>{data.chart_number}</div>
           <div style={s.sub}>{data.specialty}</div>
         </div>
         {!editing && data.has_answer_key && data.auditable && (
-          <button style={s.primaryBtn} onClick={startNew}><Plus size={15} /> New planting set</button>
+          <button style={s.primaryBtn} onClick={startNew}><Plus size={15} /> New error set</button>
         )}
       </div>
 
       {!data.auditable && (
         <div style={s.warnBox}>
           This specialty cannot be audited — Edits &amp; Denials are rubric-graded with no
-          coded key to plant errors in, and E/M needs its own audit design.
+          coded key to introduce errors in, and E/M needs its own audit design.
         </div>
       )}
       {!data.has_answer_key && (
         <div style={s.warnBox}>
-          This chart has no answer key, so there is no truth to plant errors in.
+          This chart has no answer key, so there is no truth to introduce errors in.
         </div>
       )}
 
@@ -240,7 +240,7 @@ function ChartKeyEditor({ chartId, trainer, onBack }: {
         <div style={s.panel}>
           <div style={s.panelHead}>
             <span style={{ fontWeight: 700, fontSize: 13 }}>
-              {editing.id ? 'Edit planting set' : 'New planting set'}
+              {editing.id ? 'Edit error set' : 'New error set'}
             </span>
             <button style={{ ...s.iconBtn, marginLeft: 'auto' }} onClick={() => setEditing(null)}>
               <X size={15} />
@@ -262,7 +262,7 @@ function ChartKeyEditor({ chartId, trainer, onBack }: {
               </div>
             </div>
 
-            <div style={s.label}>Plantings</div>
+            <div style={s.label}>Errors</div>
             {mutations.map((m, i) => (
               <MutationRow key={i} m={m} sections={sections}
                 onChange={next => setMutations(p => p.map((x, j) => j === i ? next : x))}
@@ -270,7 +270,7 @@ function ChartKeyEditor({ chartId, trainer, onBack }: {
             ))}
             <button style={{ ...s.ghostBtn, marginTop: 8 }}
               onClick={() => setMutations(p => [...p, { section: 'SDx', action: 'Add', correct_value: '' }])}>
-              <Plus size={13} /> Add a planting
+              <Plus size={13} /> Add an error
             </button>
 
             {data.supports_query && (
@@ -298,7 +298,7 @@ function ChartKeyEditor({ chartId, trainer, onBack }: {
 
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 16, fontSize: 12.5, cursor: 'pointer' }}>
               <input type="checkbox" checked={alwaysPlant} onChange={e => setAlwaysPlant(e.target.checked)} />
-              Always plant this set — exempt from the clean draw
+              Always use this set — exempt from the clean draw
             </label>
             <div style={s.note}>
               Use sparingly. A curated chart that never comes up clean becomes a tell.
@@ -311,6 +311,10 @@ function ChartKeyEditor({ chartId, trainer, onBack }: {
               <button style={{ ...s.primaryBtn, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={save}>
                 <Save size={14} /> {busy ? 'Saving…' : 'Save set'}
               </button>
+              <button style={{ ...s.ghostBtn, opacity: busy ? 0.5 : 1 }} disabled={busy}
+                onClick={() => setEditing(null)}>
+                Cancel
+              </button>
             </div>
 
             {preview && <ClaimPreview preview={preview} />}
@@ -319,21 +323,21 @@ function ChartKeyEditor({ chartId, trainer, onBack }: {
       ) : (
         <div style={s.panel}>
           <div style={s.panelHead}>
-            <span style={{ fontWeight: 700, fontSize: 13 }}>Planting sets ({data.sets.length})</span>
+            <span style={{ fontWeight: 700, fontSize: 13 }}>Error sets ({data.sets.length})</span>
           </div>
           <div style={{ padding: '12px 16px' }}>
             {data.sets.length === 0 ? (
               <div style={s.empty}>
-                None yet — this chart is planted by the system when it is allocated.
+                None yet — this chart gets its errors from the system when it is allocated.
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {data.sets.map((k: any) => (
-                  <div key={k.id} style={s.plantRow}>
+                  <div key={k.id} style={s.errorRow}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                       <span style={{ fontWeight: 700, fontSize: 13 }}>{k.name}</span>
-                      <span style={s.chip}>{k.planting_count} planting(s)</span>
-                      {k.always_plant && <span style={{ ...s.chip, background: '#fef2f2', color: '#dc2626' }}>always planted</span>}
+                      <span style={s.chip}>{k.planting_count} error(s)</span>
+                      {k.always_plant && <span style={{ ...s.chip, background: '#fef2f2', color: '#dc2626' }}>always used</span>}
                       <button style={{ ...s.linkBtn, marginLeft: 'auto' }} onClick={() => startEdit(k)}>Edit</button>
                       <button style={s.iconBtn} onClick={() => remove(k)}><Trash2 size={14} /></button>
                     </div>

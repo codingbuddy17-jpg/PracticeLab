@@ -1,5 +1,5 @@
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { BarChart3, ChevronLeft, ClipboardCheck, KeyRound, Layers, SlidersHorizontal } from 'lucide-react'
+import { ChevronLeft, Settings } from 'lucide-react'
 import { AuditBatches } from './auditor/AuditBatches'
 import { AuditKeys } from './auditor/AuditKeys'
 import { AuditConfig } from './auditor/AuditConfig'
@@ -12,19 +12,22 @@ import { trainerName } from './practicelab/shared'
  * separate analytics, so audit work can never leak into coder reporting.
  */
 
+// Score Config is not day-to-day work — set once, revisited rarely — so it sits
+// behind the settings control rather than taking a quarter of the tab row.
 const TABS = [
-  { key: 'batches', label: 'Audit Batches', icon: Layers },
-  { key: 'keys', label: 'Planting Library', icon: KeyRound },
-  { key: 'analytics', label: 'Analytics', icon: BarChart3 },
-  { key: 'config', label: 'Scoring', icon: SlidersHorizontal },
+  { key: 'batches', label: 'Audit Batches' },
+  { key: 'keys', label: 'Audit Keys' },
+  { key: 'analytics', label: 'Analytics' },
 ] as const
 
-type TabKey = typeof TABS[number]['key']
+type TabKey = typeof TABS[number]['key'] | 'config'
+
+const KNOWN: string[] = [...TABS.map(t => t.key), 'config']
 
 export function TrainerAuditor() {
   const { tab } = useParams<{ tab?: string }>()
   const navigate = useNavigate()
-  const active = (TABS.some(t => t.key === tab) ? tab : 'batches') as TabKey
+  const active = (tab && KNOWN.includes(tab) ? tab : 'batches') as TabKey
 
   // Same source the PracticeLab screens read. A separate key here would mean a
   // trainer who set their name once still shows up as "Trainer" on audit work.
@@ -34,26 +37,26 @@ export function TrainerAuditor() {
     <div style={st.page}>
       <header style={st.header}>
         <Link to="/trainer" style={st.back}><ChevronLeft size={15} /> Trainer</Link>
-        <div style={st.brandWrap}>
-          <ClipboardCheck size={20} color="#be185d" />
-          <div style={st.brand}>PracticeLab — Auditor</div>
-        </div>
+        <div style={st.brand}>PracticeLab — Auditor</div>
       </header>
 
       <nav style={st.tabs}>
-        {TABS.map(t => {
-          const Icon = t.icon
-          const on = t.key === active
-          return (
-            <button
-              key={t.key}
-              onClick={() => navigate(`/trainer/auditor/${t.key}`)}
-              style={{ ...st.tab, ...(on ? st.tabOn : {}) }}
-            >
-              <Icon size={14} /> {t.label}
-            </button>
-          )
-        })}
+        {TABS.map(t => (
+          <button
+            key={t.key}
+            onClick={() => navigate(`/trainer/auditor/${t.key}`)}
+            style={{ ...st.tab, ...(t.key === active ? st.tabOn : {}) }}
+          >
+            {t.label}
+          </button>
+        ))}
+        <button
+          onClick={() => navigate('/trainer/auditor/config')}
+          title="Score Config"
+          style={{ ...st.settingsBtn, ...(active === 'config' ? st.settingsBtnOn : {}) }}
+        >
+          <Settings size={15} /> Score Config
+        </button>
       </nav>
 
       <main style={st.main}>
@@ -73,14 +76,22 @@ const st: Record<string, React.CSSProperties> = {
     background: '#fff', borderBottom: '1px solid #e5e7eb', flexWrap: 'wrap',
   },
   back: { display: 'flex', alignItems: 'center', gap: 3, color: '#6b7280', fontSize: 13, textDecoration: 'none' },
-  brandWrap: { display: 'flex', alignItems: 'center', gap: 10 },
   brand: { fontSize: 16, fontWeight: 800, color: '#111' },
-  tabs: { display: 'flex', gap: 6, padding: '12px 26px 0', background: '#fff', borderBottom: '1px solid #e5e7eb', flexWrap: 'wrap' },
+  tabs: {
+    display: 'flex', gap: 6, padding: '12px 26px 0', background: '#fff',
+    borderBottom: '1px solid #e5e7eb', flexWrap: 'wrap', alignItems: 'center',
+  },
   tab: {
-    display: 'flex', alignItems: 'center', gap: 6, padding: '9px 15px',
-    border: 'none', borderBottom: '2px solid transparent', background: 'none',
-    cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#6b7280',
+    padding: '9px 15px', border: 'none', borderBottom: '2px solid transparent',
+    background: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#6b7280',
   },
   tabOn: { color: '#be185d', borderBottomColor: '#be185d' },
+  settingsBtn: {
+    marginLeft: 'auto', marginBottom: 8, display: 'flex', alignItems: 'center',
+    gap: 6, padding: '7px 13px', border: '1px solid #e5e7eb', borderRadius: 8,
+    background: '#fff', cursor: 'pointer', fontSize: 12.5, fontWeight: 600,
+    color: '#6b7280',
+  },
+  settingsBtnOn: { borderColor: '#be185d', color: '#be185d', background: '#fdf2f8' },
   main: { padding: '26px', maxWidth: 1180, margin: '0 auto' },
 }

@@ -59,7 +59,7 @@ class TestOverview:
         _run(client, batch_id)
         body = client.get("/auditor/analytics/overview").json()
         assert body["audit_accuracy_basis"] == "average of chart scores"
-        assert body["component_basis"] == "pooled findings over plantings"
+        assert body["component_basis"] == "pooled findings over errors introduced"
 
     def test_a_component_never_planted_reads_NA_not_zero(self, client, db, library):
         batch_id = make_batch(client, charts_per=6)

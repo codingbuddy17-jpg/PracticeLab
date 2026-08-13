@@ -96,7 +96,7 @@ def _roll(rows: list[AuditResult], cfg) -> dict:
         "add": components["add"],
         "revise": components["revise"],
         "delete": components["delete"],
-        "component_basis": "pooled findings over plantings",
+        "component_basis": "pooled findings over errors introduced",
         # Its own number, never blended into the headline as a weight.
         "drg_planted": drg_planted,
         "drg_found": drg_found,

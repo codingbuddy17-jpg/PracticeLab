@@ -57,7 +57,7 @@ export function AuditConfig({ trainer }: { trainer: string }) {
   async function save() {
     if (!passphrase.trim()) return toast.error('Passphrase required')
     if (componentTotal !== 100) return toast.error(`Add + Revise + Delete must total 100 (currently ${componentTotal})`)
-    if (mixTotal !== 100) return toast.error(`Planting weights must total 100 (currently ${mixTotal})`)
+    if (mixTotal !== 100) return toast.error(`Error weights must total 100 (currently ${mixTotal})`)
     setBusy(true)
     try {
       setCfg(await updateAuditConfig({ ...cfg, updated_by: trainer, passphrase }))
@@ -78,7 +78,7 @@ export function AuditConfig({ trainer }: { trainer: string }) {
       </div>
 
       <Block title="What the score is made of"
-        note="Renormalised over the components a chart actually planted — a chart with no
+        note="Renormalised over the components a chart actually carries — a chart with no
               spurious codes splits Delete's share between Add and Revise rather than
               penalising an opportunity that never existed.">
         <div style={{ display: 'flex', gap: 14, alignItems: 'flex-end', flexWrap: 'wrap' }}>
@@ -89,9 +89,9 @@ export function AuditConfig({ trainer }: { trainer: string }) {
         </div>
       </Block>
 
-      <Block title="Cost of raising a finding that was not planted"
+      <Block title="Cost of raising a finding on something that was correct"
         note="One deduction per chart, sized by the worst category touched — not one per
-              finding. The same on clean and planted charts.">
+              finding. The same on clean charts and charts carrying errors.">
         <div style={{ display: 'flex', gap: 14, alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <Num label="Revenue-impacting %" value={cfg.over_call_revenue_pct}
             onChange={v => set('over_call_revenue_pct', v)} />
@@ -121,7 +121,7 @@ export function AuditConfig({ trainer }: { trainer: string }) {
       </Block>
 
       <Block title="Passing"
-        note="Judged on the session, not per chart: chart scores are quantised by planting
+        note="Judged on the session, not per chart: chart scores are quantised by error
               count, so a per-chart bar at 90% would mean 'perfect only'.">
         <div style={{ display: 'flex', gap: 14, alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <Num label="Pass threshold %" value={cfg.pass_threshold}
@@ -131,10 +131,10 @@ export function AuditConfig({ trainer }: { trainer: string }) {
         </div>
       </Block>
 
-      <Block title="How the system plants errors"
+      <Block title="How the system introduces errors"
         note="Weighted from observed audit practice: omissions dominate, and secondary
               diagnoses are what coders rush. Must total 100; renormalised per chart over
-              the plantings that chart can actually support.">
+              the errors that chart can actually support.">
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 10 }}>
           {Object.keys(MIX_LABELS).map(f => (
             <div key={f} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -149,10 +149,10 @@ export function AuditConfig({ trainer }: { trainer: string }) {
       </Block>
 
       <Block title="Density and sources"
-        note="No ceiling applies to plantings you author yourself — a set you wrote has a
+        note="No ceiling applies to errors you author yourself — a set you wrote has a
               reason behind it. These govern generation only.">
         <div style={{ display: 'flex', gap: 14, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-          <Num label="Max generated per chart" value={cfg.max_auto_plantings}
+          <Num label="Max errors per chart" value={cfg.max_auto_plantings}
             onChange={v => set('max_auto_plantings', v)} width={110} />
           <Num label="Max share of a section %" value={cfg.max_section_share}
             onChange={v => set('max_section_share', v)} width={110} />

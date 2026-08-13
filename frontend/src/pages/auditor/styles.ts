@@ -80,7 +80,7 @@ const s: Record<string, CSSProperties> = {
 
   codeRow: { display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', border: '1px solid #f3f4f6', borderRadius: 8 },
   codeChip: { fontFamily: 'ui-monospace, monospace', fontSize: 13, fontWeight: 700, background: '#f9fafb', padding: '4px 9px', borderRadius: 6 },
-  plantRow: { padding: '10px 12px', border: '1px solid #f3f4f6', borderRadius: 9, background: '#fcfcfd' },
+  errorRow: { padding: '10px 12px', border: '1px solid #f3f4f6', borderRadius: 9, background: '#fcfcfd' },
   observedTag: {
     marginLeft: 8, fontSize: 10, fontWeight: 700, color: '#059669',
     background: '#d1fae5', padding: '1px 7px', borderRadius: 5,

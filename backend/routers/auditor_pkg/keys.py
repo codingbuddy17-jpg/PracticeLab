@@ -52,7 +52,7 @@ class KeySetPayload(BaseModel):
 
 def _validate(chart: Chart, mutations: list[Mutation]) -> None:
     for i, m in enumerate(mutations, start=1):
-        where = f"planting {i}"
+        where = f"error {i}"
         if m.section not in VALID_SECTIONS:
             raise HTTPException(400, f"{where}: unknown section {m.section!r}")
         if m.action not in VALID_ACTIONS:
@@ -65,7 +65,7 @@ def _validate(chart: Chart, mutations: list[Mutation]) -> None:
         if m.action == "Add" and not (m.correct_value or "").strip():
             raise HTTPException(400, f"{where}: an Add needs the code the auditor must add")
         if m.action == "Delete" and not (m.claim_value or "").strip():
-            raise HTTPException(400, f"{where}: a Delete needs the spurious code to plant")
+            raise HTTPException(400, f"{where}: a Delete needs the spurious code to introduce")
         if m.action == "Revise" and not (m.claim_value or "").strip():
             raise HTTPException(
                 400, f"{where}: a Revise needs the wrong value to put on the claim")
@@ -142,7 +142,7 @@ def create_set(chart_id: int, payload: KeySetPayload, db: Session = Depends(get_
         raise HTTPException(400, f"{chart.specialty.value} cannot be audited")
     if not db.query(AnswerKey).filter(AnswerKey.chart_id == chart_id).first():
         raise HTTPException(
-            400, "This chart has no answer key — there is no truth to plant errors in")
+            400, "This chart has no answer key — there is no truth to introduce errors into")
     if not (payload.name or "").strip():
         raise HTTPException(400, "Name the set, so it can be told apart from others on this chart")
     if payload.query_expected is not None and chart.specialty not in QUERY_SPECIALTIES:
@@ -241,6 +241,6 @@ def preview_set(chart_id: int, payload: PreviewPayload, db: Session = Depends(ge
         # A planting naming a code that is not on the key is dropped rather
         # than guessed at — the auditor could never score it.
         "skipped": skipped,
-        "warning": (f"{skipped} planting(s) reference codes that are not on this "
+        "warning": (f"{skipped} error(s) reference codes that are not on this "
                     f"chart's answer key and were dropped") if skipped else None,
     }

@@ -74,7 +74,7 @@ export type AuditSessionData = {
 }
 
 /**
- * Note what is absent: no chart type, no source, no planting count. Charts
+ * Note what is absent: no chart type, no source, no error count. Charts
  * recycle through cycles, so telling an auditor a chart was clean hands them
  * the answer the next time they meet it.
  */
@@ -111,7 +111,7 @@ export type AuditSummary = {
   component_basis: string
   drg_accuracy: number | null
   drg_impacting_found: number
-  drg_impacting_planted: number
+  drg_impacting_introduced: number
   query_accuracy: number | null
   query_charts: number
   query_correct: number

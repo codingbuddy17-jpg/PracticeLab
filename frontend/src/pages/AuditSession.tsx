@@ -12,10 +12,10 @@ import {
 /**
  * The auditor's working screen.
  *
- * Nothing here knows whether a chart carries planted errors. Structure comes
+ * Nothing here knows whether a chart carries introduced errors. Structure comes
  * from the specialty — served by the API rather than hardcoded — and content is
- * whatever claim the chart was assigned. A clean chart renders identically to a
- * planted one, which is the whole basis of measuring restraint: an empty state
+ * whatever claim the chart was assigned. A clean chart renders identically to one
+ * carrying errors, which is the whole basis of measuring restraint: an empty state
  * drawn differently, or a section collapsed because nothing was mutated, would
  * tell the auditor the answer before they looked.
  */

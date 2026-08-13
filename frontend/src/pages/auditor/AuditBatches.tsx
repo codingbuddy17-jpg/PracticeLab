@@ -15,9 +15,9 @@ import s from './styles'
 const AUDITABLE = ['IP-DRG', 'SDS', 'ED Facility', 'Surgery', 'ED Single Path', 'Ancillary']
 
 const MODES = [
-  { key: 'auto', name: 'Automatic', blurb: 'The system decides the mix, the charts and the plantings.' },
+  { key: 'auto', name: 'Automatic', blurb: 'The system decides the mix, the charts and the errors.' },
   { key: 'guided', name: 'Guided', blurb: 'You set how many of each type; the system picks which charts.' },
-  { key: 'manual', name: 'Hand-picked', blurb: 'You choose the charts. The system still builds the plantings.' },
+  { key: 'manual', name: 'Hand-picked', blurb: 'You choose the charts. The system still builds the errors.' },
 ]
 
 type View = 'list' | 'create' | 'detail'
@@ -147,7 +147,7 @@ function CreateAuditBatch({ trainer, onDone, onCancel }: {
   }
 
   const guidedTotal = quotaClean + quotaManual + quotaAuto
-  // A chart with no answer key has no truth to plant errors in, so it is
+  // A chart with no answer key has no truth to introduce errors in, so it is
   // excluded from the pool rather than assigned clean.
   const gradable = pool?.with_answer_key ?? 0
   const needed = auditors.length * chartsPer
@@ -197,7 +197,7 @@ function CreateAuditBatch({ trainer, onDone, onCancel }: {
           <input style={{ ...s.input, width: 90 }} type="number" min={1} value={chartsPer}
             onChange={e => setChartsPer(parseInt(e.target.value) || 1)} />
         </Field>
-        <Field label="Difficulty of plantings">
+        <Field label="Difficulty of errors">
           <select style={s.input} value={tier} onChange={e => setTier(e.target.value)}>
             <option value="">Balanced</option>
             <option value="foundational">Foundational</option>
@@ -210,7 +210,7 @@ function CreateAuditBatch({ trainer, onDone, onCancel }: {
         <div style={s.warnBox}>
           <AlertTriangle size={14} color="#d97706" style={{ flexShrink: 0, marginTop: 1 }} />
           <span>Sessions this short report a score but withhold a pass/fail verdict — chart
-            scores are quantised by planting count, so a verdict on a handful of
+            scores are quantised by error count, so a verdict on a handful of
             opportunities would be noise.</span>
         </div>
       )}
@@ -244,11 +244,11 @@ function CreateAuditBatch({ trainer, onDone, onCancel }: {
         <Field label="How many of each, per auditor">
           <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
             <Num label="Clean" value={quotaClean} onChange={setQuotaClean} />
-            <Num label="Your plantings" value={quotaManual} onChange={setQuotaManual} />
-            <Num label="System plantings" value={quotaAuto} onChange={setQuotaAuto} />
+            <Num label="Yours" value={quotaManual} onChange={setQuotaManual} />
+            <Num label="System" value={quotaAuto} onChange={setQuotaAuto} />
             <span style={{ fontSize: 12, color: guidedTotal === chartsPer ? '#059669' : '#d97706' }}>
               {guidedTotal} of {chartsPer}
-              {guidedTotal < chartsPer && ` — the remaining ${chartsPer - guidedTotal} will be system-planted`}
+              {guidedTotal < chartsPer && ` — the remaining ${chartsPer - guidedTotal} will be system-generated`}
             </span>
           </div>
         </Field>
@@ -281,7 +281,7 @@ function CreateAuditBatch({ trainer, onDone, onCancel }: {
           </div>
           {gradable === 0 ? (
             <div style={{ color: '#dc2626', marginTop: 6, fontWeight: 600 }}>
-              ⚠ No chart here has an answer key, so there is nothing to plant errors in.
+              ⚠ No chart here has an answer key, so there is nothing to introduce errors in.
               Upload keys before running allocation.
             </div>
           ) : auditors.length === 0 ? (
@@ -375,9 +375,17 @@ function CreateAuditBatch({ trainer, onDone, onCancel }: {
         )}
       </div>
 
-      <button style={{ ...s.primaryBtn, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={create}>
-        {busy ? 'Creating…' : 'Create Audit Batch'}
-      </button>
+      {/* Cancel sits beside the primary action as well as at the top, matching
+          the coder batch screen — someone who has scrolled to the bottom of a
+          long form should not have to scroll back up to abandon it. */}
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+        <button style={{ ...s.primaryBtn, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={create}>
+          {busy ? 'Creating…' : 'Create Audit Batch'}
+        </button>
+        <button style={{ ...s.ghostBtn, opacity: busy ? 0.5 : 1 }} disabled={busy} onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
     </div>
   )
 }
@@ -388,14 +396,14 @@ function AuditBatchDetail({ batchId, trainer, onBack }: {
   batchId: number; trainer: string; onBack: () => void
 }) {
   const [batch, setBatch] = useState<any>(null)
-  const [plantings, setPlantings] = useState<any[]>([])
+  const [errors, setPlantings] = useState<any[]>([])
   const [showPlantings, setShowPlantings] = useState(false)
   const [busy, setBusy] = useState(false)
 
   const load = useCallback(async () => {
     try {
       setBatch(await getAuditBatch(batchId))
-      setPlantings((await getAuditPlantings(batchId)).plantings)
+      setPlantings((await getAuditPlantings(batchId)).errors)
     } catch { toast.error('Could not load the batch') }
   }, [batchId])
 
@@ -418,7 +426,7 @@ function AuditBatchDetail({ batchId, trainer, onBack }: {
   async function reroll(assignmentId: number) {
     try {
       await regenerateAssignment(assignmentId, trainer)
-      toast.success('Plantings rerolled')
+      toast.success('Errors rerolled')
       load()
     } catch (e) {
       const err = e as { response?: { data?: { detail?: string } } }
@@ -466,9 +474,9 @@ function AuditBatchDetail({ batchId, trainer, onBack }: {
         </Panel>
       )}
 
-      {plantings.length > 0 && (
+      {errors.length > 0 && (
         <Panel
-          title={`What was planted (${plantings.length} chart${plantings.length !== 1 ? 's' : ''})`}
+          title={`Errors introduced (${errors.length} chart${errors.length !== 1 ? 's' : ''})`}
           right={
             <button style={s.linkBtn} onClick={() => setShowPlantings(v => !v)}>
               <Eye size={13} /> {showPlantings ? 'Hide' : 'Show'}
@@ -481,16 +489,16 @@ function AuditBatchDetail({ batchId, trainer, onBack }: {
           </div>
           {showPlantings && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
-              {plantings.map(p => (
-                <div key={p.assignment_id} style={s.plantRow}>
+              {errors.map(p => (
+                <div key={p.assignment_id} style={s.errorRow}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                     <span style={{ fontWeight: 700, fontSize: 13 }}>{p.chart_number}</span>
                     <span style={{ fontSize: 12, color: '#6b7280' }}>{p.auditor_name}</span>
                     <span style={{ ...s.chip, background: SOURCE_BG[p.source], color: SOURCE_FG[p.source] }}>
-                      {p.source === 'Clean' ? 'Clean — nothing planted' : p.source}
+                      {p.source === 'Clean' ? 'Clean — no errors' : p.source}
                     </span>
                     <span style={{ fontSize: 12, color: '#6b7280' }}>
-                      {p.ground_truth.length} planting(s)
+                      {p.ground_truth.length} error(s)
                     </span>
                     {p.locked
                       ? <span style={{ ...s.chip, background: '#f3f4f6', color: '#6b7280' }}>Opened — locked</span>
