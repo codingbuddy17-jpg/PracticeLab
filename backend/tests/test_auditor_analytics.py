@@ -204,3 +204,80 @@ class TestDetectionPatterns:
         body = client.get("/auditor/analytics/detection").json()
         assert body["total_plantings"] == 0
         assert body["by_kind"] == [] and body["weakest"] == []
+
+
+class TestScale:
+    """
+    None of these endpoints may load the whole table to render one screen.
+    The coder analytics learned this the expensive way; the same rules apply.
+    """
+
+    def test_the_batch_list_is_paged_and_reports_its_total(self, client, db, library):
+        from tests.test_auditor_api import make_batch
+        for i in range(6):
+            make_batch(client, charts_per=2)
+        r = client.get("/auditor/batches", params={"limit": 3}).json()
+        assert len(r["batches"]) == 3
+        assert r["total"] >= 6
+        assert r["limit"] == 3
+
+    def test_the_batch_list_searches_on_the_server(self, client, db, library):
+        from tests.test_auditor_api import make_batch
+        make_batch(client, charts_per=2, name="Sepsis wave")
+        make_batch(client, charts_per=2, name="Cardiac wave")
+        r = client.get("/auditor/batches", params={"search": "sepsis"}).json()
+        assert r["total"] == 1
+        assert "Sepsis" in r["batches"][0]["name"]
+
+    def test_the_error_review_is_paged_and_omits_the_claim_by_default(
+            self, client, db, library):
+        """
+        The claim is the heaviest field on the row and the list does not render
+        it — shipping 500 of them to draw summaries is pure weight.
+        """
+        from tests.test_auditor_api import allocate, make_batch
+        batch_id = make_batch(client, charts_per=6)
+        allocate(client, batch_id)
+
+        r = client.get(f"/auditor/batches/{batch_id}/plantings",
+                       params={"limit": 2}).json()
+        assert len(r["plantings"]) == 2
+        assert r["total"] == 6
+        assert "claim" not in r["plantings"][0]
+
+        full = client.get(f"/auditor/batches/{batch_id}/plantings",
+                          params={"include_claim": True}).json()
+        assert "claim" in full["plantings"][0]
+
+    def test_detection_patterns_says_when_it_did_not_read_everything(
+            self, client, db, library):
+        from tests.test_auditor_api import (
+            allocate, make_batch, perfect_work, truth_map)
+        batch_id = make_batch(client, charts_per=6)
+        token = allocate(client, batch_id)["access_codes"][0]["token"]
+        payload = client.get(f"/auditor/sessions/by-token/{token}").json()
+        client.post(f"/auditor/sessions/{payload['session_id']}/submit",
+                    json=perfect_work(payload, truth_map(client, batch_id)))
+
+        full = client.get("/auditor/analytics/detection").json()
+        assert full["truncated"] is False
+        assert full["charts_scanned"] == full["charts_available"]
+
+        capped = client.get("/auditor/analytics/detection",
+                            params={"scan_limit": 2}).json()
+        assert capped["truncated"] is True
+        assert capped["charts_scanned"] == 2
+
+    def test_the_curation_todo_list_is_paged(self, client, db, library):
+        r = client.get("/auditor/keys/uncurated",
+                       params={"specialty": "IP-DRG", "limit": 3}).json()
+        assert len(r["charts"]) == 3
+        assert r["total"] == len(library)
+
+    def test_auditors_are_capped_weakest_first(self, client, db, library):
+        """
+        The cap keeps the people who need attention, not an arbitrary slice —
+        which is why the ordering is decided in SQL rather than after the fact.
+        """
+        r = client.get("/auditor/analytics/by-auditor", params={"limit": 1}).json()
+        assert len(r["auditors"]) <= 1

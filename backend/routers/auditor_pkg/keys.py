@@ -157,13 +157,17 @@ def uncurated_charts(specialty: str = Query(...),
     Charts that could carry authored errors but do not yet — the curation
     to-do list. They still get audited; the system generates their errors.
     """
-    curated = {k.chart_id for k in db.query(AuditKeySet.chart_id).all()}
-    rows = (db.query(Chart)
-            .join(AnswerKey, AnswerKey.chart_id == Chart.id)
-            .filter(Chart.specialty == specialty, Chart.status == "Active")
-            .order_by(Chart.chart_number).limit(limit + len(curated)).all())
-    out = [c for c in rows if c.id not in curated][:limit]
-    return {"charts": [{
+    # Excluded in SQL. Loading every curated chart id to filter in Python meant
+    # a full scan of the key library to render one page of a to-do list.
+    curated = db.query(AuditKeySet.chart_id).distinct().subquery()
+    q = (db.query(Chart)
+         .join(AnswerKey, AnswerKey.chart_id == Chart.id)
+         .outerjoin(curated, curated.c.chart_id == Chart.id)
+         .filter(Chart.specialty == specialty, Chart.status == "Active",
+                 curated.c.chart_id.is_(None)))
+    total = q.count()
+    out = q.order_by(Chart.chart_number).limit(limit).all()
+    return {"total": total, "charts": [{
         "chart_id": c.id, "chart_number": c.chart_number,
         "category": c.category,
         "difficulty": c.difficulty.value if c.difficulty else None,

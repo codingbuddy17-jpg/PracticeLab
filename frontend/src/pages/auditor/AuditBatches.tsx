@@ -56,13 +56,23 @@ export function AuditBatches({ trainer }: { trainer: string }) {
   // wall of rows.
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [search, setSearch] = useState('')
+  const [total, setTotal] = useState(0)
+  const [limit, setLimit] = useState(50)
 
+  // Search runs on the server, so a few letters reach batches that were never
+  // loaded. Debounced, because it fires on every keystroke.
   const load = useCallback(async () => {
-    try { setBatches((await listAuditBatches()).batches) }
-    catch { toast.error('Could not load audit batches') }
-  }, [])
+    try {
+      const r = await listAuditBatches({ search: search.trim() || undefined, limit })
+      setBatches(r.batches)
+      setTotal(r.total)
+    } catch { toast.error('Could not load audit batches') }
+  }, [search, limit])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    const t = setTimeout(load, search ? 250 : 0)
+    return () => clearTimeout(t)
+  }, [load, search])
 
   if (view === 'create') {
     return <CreateAuditBatch trainer={trainer}
@@ -180,6 +190,16 @@ export function AuditBatches({ trainer }: { trainer: string }) {
               </div>
             )
           })}
+          {batches.length < total && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 10 }}>
+              <button style={s.outlineBtn} onClick={() => setLimit(l => l + 50)}>
+                Show more
+              </button>
+              <span style={{ fontSize: 12, color: '#9ca3af' }}>
+                Showing {batches.length} of {total}
+              </span>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -537,7 +557,7 @@ function AuditBatchDetail({ batchId, trainer, onBack }: {
   const load = useCallback(async () => {
     try {
       setBatch(await getAuditBatch(batchId))
-      setPlantings((await getAuditPlantings(batchId)).plantings)
+      setPlantings((await getAuditPlantings(batchId, { limit: 200 })).plantings)
     } catch { toast.error('Could not load the batch') }
   }, [batchId])
 

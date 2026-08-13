@@ -170,9 +170,14 @@ export async function updateAuditConfig(payload: Record<string, unknown>) {
   return data
 }
 
-export async function listAuditBatches(status?: string) {
-  const { data } = await api.get('/auditor/batches', { params: status ? { status } : {} })
-  return data as { batches: Record<string, unknown>[] }
+export async function listAuditBatches(
+  opts: { status?: string; search?: string; limit?: number; offset?: number } = {},
+) {
+  const { data } = await api.get('/auditor/batches', { params: opts })
+  return data as {
+    batches: Record<string, unknown>[]
+    total: number; limit: number; offset: number
+  }
 }
 
 export async function getAuditBatch(batchId: number) {
@@ -190,10 +195,13 @@ export async function runAuditAllocation(batchId: number, payload: Record<string
   return data
 }
 
-export async function getAuditPlantings(batchId: number, auditor?: string) {
-  const { data } = await api.get(`/auditor/batches/${batchId}/plantings`,
-    { params: auditor ? { auditor } : {} })
-  return data
+export async function getAuditPlantings(
+  batchId: number, opts: { auditor?: string; limit?: number; offset?: number } = {},
+) {
+  const { data } = await api.get(`/auditor/batches/${batchId}/plantings`, { params: opts })
+  return data as {
+    plantings: Record<string, any>[]; total: number; limit: number; offset: number
+  }
 }
 
 export async function regenerateAssignment(assignmentId: number, runBy: string) {

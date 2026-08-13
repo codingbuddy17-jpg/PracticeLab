@@ -21,6 +21,7 @@ no Delete accuracy, and reporting 0% would say something false about them.
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
+from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -51,28 +52,58 @@ def _base_query(db: Session, batch_id: Optional[int], specialty: Optional[str],
     return q
 
 
-def _roll(rows: list[AuditResult], cfg) -> dict:
-    """The figures every level of this report shares."""
-    if not rows:
+R = AuditResult
+
+# Everything the roll-up needs, as one aggregate row rather than a table load.
+_AGGREGATES = [
+    func.count(R.id),
+    func.avg(R.audit_accuracy),
+    func.sum(func.coalesce(R.add_planted, 0)), func.sum(func.coalesce(R.add_found, 0)),
+    func.sum(func.coalesce(R.revise_planted, 0)), func.sum(func.coalesce(R.revise_found, 0)),
+    func.sum(func.coalesce(R.delete_planted, 0)), func.sum(func.coalesce(R.delete_found, 0)),
+    func.sum(func.coalesce(R.drg_impacting_planted, 0)),
+    func.sum(func.coalesce(R.drg_impacting_found, 0)),
+    func.sum(func.coalesce(R.over_calls, 0)),
+    func.sum(func.coalesce(R.detected_not_corrected, 0)),
+]
+
+
+def _roll_sql(db: Session, base, cfg) -> dict:
+    """
+    The figures every level of this report shares, computed in the database.
+
+    This used to load every AuditResult row and sum them in Python — a full
+    table scan on each of four endpoints, every time the Analytics tab was
+    opened. The numbers are identical; the work moves to where the rows are.
+    """
+    agg = base.with_entities(*_AGGREGATES).one()
+    (charts, avg_acc, add_p, add_f, rev_p, rev_f, del_p, del_f,
+     drg_p, drg_f, over_calls, dnc) = agg
+    if not charts:
         return {"charts": 0, "audit_accuracy": None}
 
-    clean = [r for r in rows if r.is_clean]
-    opp = [r for r in rows if not r.is_clean]
+    clean_n, clean_avg = base.filter(R.is_clean == True).with_entities(   # noqa: E712
+        func.count(R.id), func.avg(R.audit_accuracy)).one()
+    opp_n, opp_avg = base.filter(R.is_clean == False).with_entities(      # noqa: E712
+        func.count(R.id), func.avg(R.audit_accuracy)).one()
+    q_total, q_right = base.filter(R.query_correct.isnot(None)).with_entities(
+        func.count(R.id),
+        func.sum(case((R.query_correct == True, 1), else_=0))).one()  # noqa: E712
+    charts_with_over = base.filter(R.over_calls > 0).with_entities(
+        func.count(R.id)).scalar() or 0
 
-    components = {}
-    for name in ("add", "revise", "delete"):
-        planted = sum(getattr(r, f"{name}_planted") for r in rows)
-        found = sum(getattr(r, f"{name}_found") for r in rows)
-        components[name] = {"planted": planted, "found": found,
-                            "accuracy": _rate(found, planted)}
-
-    drg_planted = sum(r.drg_impacting_planted for r in rows)
-    drg_found = sum(r.drg_impacting_found for r in rows)
-    scored_q = [r for r in rows if r.query_correct is not None]
-    opportunities = sum(r.add_planted + r.revise_planted + r.delete_planted
-                        for r in rows)
-
-    audit_accuracy = _avg([r.audit_accuracy for r in rows])
+    components = {
+        "add": {"planted": int(add_p or 0), "found": int(add_f or 0),
+                "accuracy": _rate(int(add_f or 0), int(add_p or 0))},
+        "revise": {"planted": int(rev_p or 0), "found": int(rev_f or 0),
+                   "accuracy": _rate(int(rev_f or 0), int(rev_p or 0))},
+        "delete": {"planted": int(del_p or 0), "found": int(del_f or 0),
+                   "accuracy": _rate(int(del_f or 0), int(del_p or 0))},
+    }
+    drg_planted, drg_found = int(drg_p or 0), int(drg_f or 0)
+    opportunities = components["add"]["planted"] + components["revise"]["planted"] \
+        + components["delete"]["planted"]
+    audit_accuracy = round(float(avg_acc), 2) if avg_acc is not None else None
     verdict = None
     withheld = None
     if opportunities >= cfg.min_opportunities_for_verdict:
@@ -83,16 +114,16 @@ def _roll(rows: list[AuditResult], cfg) -> dict:
                     "restraint measure only — no opportunities yet")
 
     return {
-        "charts": len(rows),
+        "charts": int(charts),
         "audit_accuracy": audit_accuracy,
         "audit_accuracy_basis": "average of chart scores",
         # Split because the headline otherwise blends two different skills and
         # hides which one is weak: finding errors, and leaving correct claims
         # alone. A passive auditor scores 100 on one and 0 on the other.
-        "clean_charts": len(clean),
-        "opportunity_charts": len(opp),
-        "clean_accuracy": _avg([r.audit_accuracy for r in clean]),
-        "opportunity_accuracy": _avg([r.audit_accuracy for r in opp]),
+        "clean_charts": int(clean_n or 0),
+        "opportunity_charts": int(opp_n or 0),
+        "clean_accuracy": round(float(clean_avg), 2) if clean_avg is not None else None,
+        "opportunity_accuracy": round(float(opp_avg), 2) if opp_avg is not None else None,
         "add": components["add"],
         "revise": components["revise"],
         "delete": components["delete"],
@@ -101,14 +132,14 @@ def _roll(rows: list[AuditResult], cfg) -> dict:
         "drg_planted": drg_planted,
         "drg_found": drg_found,
         "drg_accuracy": _rate(drg_found, drg_planted),
-        "query_charts": len(scored_q),
-        "query_correct": sum(1 for r in scored_q if r.query_correct),
-        "query_accuracy": _rate(sum(1 for r in scored_q if r.query_correct), len(scored_q)),
-        "over_calls": sum(r.over_calls for r in rows),
-        "charts_with_over_calls": sum(1 for r in rows if r.over_calls),
+        "query_charts": int(q_total or 0),
+        "query_correct": int(q_right or 0),
+        "query_accuracy": _rate(int(q_right or 0), int(q_total or 0)),
+        "over_calls": int(over_calls or 0),
+        "charts_with_over_calls": int(charts_with_over),
         # Reported, never scored. "Found 4 of 4, corrected 2" and "found 2 of 4"
         # both come out at 50% and are different coaching conversations.
-        "detected_not_corrected": sum(r.detected_not_corrected for r in rows),
+        "detected_not_corrected": int(dnc or 0),
         "opportunities": opportunities,
         "pass_fail": verdict,
         "verdict_withheld_reason": withheld,
@@ -119,41 +150,50 @@ def _roll(rows: list[AuditResult], cfg) -> dict:
 def overview(batch_id: Optional[int] = None, specialty: Optional[str] = None,
              db: Session = Depends(get_db)):
     cfg = scoring_config(db)
-    rows = _base_query(db, batch_id, specialty, None).all()
-    body = _roll(rows, cfg)
-    body["auditors"] = len({r.auditor_name for r in rows})
-    body["batches"] = len({r.batch_id for r in rows})
+    base = _base_query(db, batch_id, specialty, None)
+    body = _roll_sql(db, base, cfg)
+    body["auditors"] = base.with_entities(
+        func.count(func.distinct(AuditResult.auditor_name))).scalar() or 0
+    body["batches"] = base.with_entities(
+        func.count(func.distinct(AuditResult.batch_id))).scalar() or 0
     body["pass_threshold"] = cfg.pass_threshold
     return body
 
 
 @router.get("/analytics/by-batch")
-def by_batch(specialty: Optional[str] = None, db: Session = Depends(get_db)):
+def by_batch(specialty: Optional[str] = None,
+             limit: int = Query(100, le=300),
+             db: Session = Depends(get_db)):
     cfg = scoring_config(db)
-    rows = _base_query(db, None, specialty, None).all()
-    batches = {b.id: b for b in db.query(AuditBatch).all()}
-
-    grouped: dict[int, list] = {}
-    for r in rows:
-        grouped.setdefault(r.batch_id, []).append(r)
+    base = _base_query(db, None, specialty, None)
+    # One grouped query for the batch ids that actually have results, rather
+    # than loading every result and bucketing them in Python.
+    ids = [bid for bid, in base.with_entities(AuditResult.batch_id)
+           .group_by(AuditResult.batch_id)
+           .order_by(AuditResult.batch_id.desc()).limit(limit).all()]
+    if not ids:
+        return {"batches": []}
+    batches = {b.id: b for b in db.query(AuditBatch).filter(AuditBatch.id.in_(ids)).all()}
 
     out = []
-    for batch_id, group in grouped.items():
+    for batch_id in ids:
         batch = batches.get(batch_id)
+        scoped = _base_query(db, batch_id, specialty, None)
         out.append({
             "batch_id": batch_id,
             "name": batch.name if batch else f"Batch {batch_id}",
             "specialty": batch.specialty.value if batch else None,
             "status": batch.status.value if batch else None,
-            "auditors": len({r.auditor_name for r in group}),
-            **_roll(group, cfg),
+            "auditors": scoped.with_entities(
+                func.count(func.distinct(AuditResult.auditor_name))).scalar() or 0,
+            **_roll_sql(db, scoped, cfg),
         })
-    out.sort(key=lambda x: -(x["batch_id"]))
     return {"batches": out}
 
 
 @router.get("/analytics/by-auditor")
 def by_auditor(batch_id: Optional[int] = None, specialty: Optional[str] = None,
+               limit: int = Query(200, le=500),
                db: Session = Depends(get_db)):
     """
     One row per auditor, cumulative across everything in scope.
@@ -163,22 +203,25 @@ def by_auditor(batch_id: Optional[int] = None, specialty: Optional[str] = None,
     their opportunities rather than on the mean of two percentages.
     """
     cfg = scoring_config(db)
-    rows = _base_query(db, batch_id, specialty, None).all()
-
-    grouped: dict[str, list] = {}
-    for r in rows:
-        grouped.setdefault(r.auditor_name, []).append(r)
-
+    base = _base_query(db, batch_id, specialty, None)
+    # Weakest first, decided in SQL so the cap keeps the auditors who most
+    # need attention rather than an arbitrary slice.
+    names = [n for n, in base.with_entities(AuditResult.auditor_name)
+             .group_by(AuditResult.auditor_name)
+             .order_by(func.avg(AuditResult.audit_accuracy).asc())
+             .limit(limit).all()]
     out = []
-    for name, group in grouped.items():
-        emp = next((r.emp_id for r in group if r.emp_id), None)
+    for name in names:
+        scoped = _base_query(db, batch_id, specialty, name)
+        emp = scoped.with_entities(AuditResult.emp_id).filter(
+            AuditResult.emp_id.isnot(None)).limit(1).scalar()
         out.append({
             "auditor_name": name,
             "emp_id": emp,
-            "batches": len({r.batch_id for r in group}),
-            **_roll(group, cfg),
+            "batches": scoped.with_entities(
+                func.count(func.distinct(AuditResult.batch_id))).scalar() or 0,
+            **_roll_sql(db, scoped, cfg),
         })
-    out.sort(key=lambda x: (x["audit_accuracy"] is None, x["audit_accuracy"] or 0))
     return {"auditors": out, "pass_threshold": cfg.pass_threshold}
 
 
@@ -201,6 +244,7 @@ KIND_LABELS = {
 def detection_patterns(batch_id: Optional[int] = None,
                        specialty: Optional[str] = None,
                        auditor: Optional[str] = None,
+                       scan_limit: int = Query(5000, le=20000),
                        db: Session = Depends(get_db)):
     """
     Which KINDS of planted error get caught, and which slip past.
@@ -214,7 +258,13 @@ def detection_patterns(batch_id: Optional[int] = None,
     auditors tend to do better on generated errors than on the ones their own
     coders actually make, and only the second number describes the job.
     """
-    rows = _base_query(db, batch_id, specialty, auditor).all()
+    # This is the one report that cannot be done in SQL — the outcome of each
+    # error lives inside a JSON column. So it is capped, and the payload says
+    # how much it looked at rather than implying it read everything.
+    base = _base_query(db, batch_id, specialty, auditor)
+    total_results = base.with_entities(func.count(AuditResult.id)).scalar() or 0
+    rows = (base.order_by(AuditResult.id.desc())
+            .limit(scan_limit).all())
 
     by_kind: dict[str, dict] = {}
     by_section: dict[str, dict] = {}
@@ -271,6 +321,9 @@ def detection_patterns(batch_id: Optional[int] = None,
         "weakest": weak,
         "total_plantings": sum(c["planted"] for c in by_kind.values()),
         "min_for_pattern": 5,
+        "charts_scanned": len(rows),
+        "charts_available": int(total_results),
+        "truncated": len(rows) < int(total_results),
     }
 
 
@@ -283,11 +336,15 @@ def export_analytics_workbook(specialty: Optional[str] = None,
     from services.audit_export import export_analytics
     from services.download_headers import content_disposition
 
+    # Keyword arguments on purpose. These handlers carry paging and scan-limit
+    # parameters whose defaults are FastAPI Query objects, so a positional call
+    # silently lands the session on the wrong argument.
     data = export_analytics(
-        overview(None, specialty, db),
-        by_batch(specialty, db)["batches"],
-        by_auditor(None, specialty, db)["auditors"],
-        detection_patterns(None, specialty, None, db),
+        overview(batch_id=None, specialty=specialty, db=db),
+        by_batch(specialty=specialty, limit=300, db=db)["batches"],
+        by_auditor(batch_id=None, specialty=specialty, limit=500, db=db)["auditors"],
+        detection_patterns(batch_id=None, specialty=specialty, auditor=None,
+                           scan_limit=20000, db=db),
     )
     return StreamingResponse(
         io.BytesIO(data),

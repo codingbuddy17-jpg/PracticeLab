@@ -154,8 +154,14 @@ function Overview({ o }: { o: any }) {
 
 // ── batch / auditor tables ───────────────────────────────────────────────────
 
+const ROW_CAP = 60
+
 function Rows({ rows, nameKey, subKey }: { rows: any[]; nameKey: string; subKey: string }) {
+  const [showAll, setShowAll] = useState(false)
   if (!rows.length) return <div style={s.empty}>Nothing scored yet.</div>
+  // Weakest first from the server, so a capped table keeps the rows that
+  // matter rather than an arbitrary slice.
+  const shown = showAll ? rows : rows.slice(0, ROW_CAP)
   return (
     <div style={s.panel}>
       <div style={{ overflowX: 'auto' }}>
@@ -167,7 +173,7 @@ function Rows({ rows, nameKey, subKey }: { rows: any[]; nameKey: string; subKey:
             </tr>
           </thead>
           <tbody>
-            {rows.map((r, i) => (
+            {shown.map((r, i) => (
               <tr key={i}>
                 <td style={td}>
                   <div style={{ fontWeight: 700 }}>{r[nameKey]}</div>
@@ -230,6 +236,13 @@ function Detection({ d }: { d: any }) {
               curriculum should not be built on a single miss.
             </div>
           </div>
+        </div>
+      )}
+
+      {d.truncated && (
+        <div style={{ ...s.warnBox, marginTop: 16 }}>
+          Read from the {d.charts_scanned} most recent of {d.charts_available} scored
+          charts. Filter by batch or auditor for a figure covering everything in scope.
         </div>
       )}
 

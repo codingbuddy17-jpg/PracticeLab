@@ -13,6 +13,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -120,24 +121,37 @@ def create_batch(payload: BatchCreate, db: Session = Depends(get_db)):
 
 
 @router.get("/batches")
-def list_batches(status: Optional[str] = None, db: Session = Depends(get_db)):
+def list_batches(status: Optional[str] = None,
+                 search: Optional[str] = None,
+                 limit: int = Query(50, le=200),
+                 offset: int = Query(0, ge=0),
+                 db: Session = Depends(get_db)):
+    """
+    Paged, and counted in SQL.
+
+    This used to load every auditor, assignment and result row in the database
+    and tally them in Python — three full table scans to render a list of
+    names. It is fine at a dozen batches and quietly fatal at a thousand.
+    """
     q = db.query(AuditBatch)
     if status:
         q = q.filter(AuditBatch.status == status)
-    batches = q.order_by(AuditBatch.id.desc()).all()
+    if search:
+        q = q.filter(AuditBatch.name.ilike(f"%{search.strip()}%"))
+    total = q.count()
+    batches = q.order_by(AuditBatch.id.desc()).limit(limit).offset(offset).all()
     ids = [b.id for b in batches]
 
-    auditor_counts, assigned_counts, scored_counts = {}, {}, {}
-    if ids:
-        for bid, in db.query(AuditBatchAuditor.batch_id).filter(
-                AuditBatchAuditor.batch_id.in_(ids)).all():
-            auditor_counts[bid] = auditor_counts.get(bid, 0) + 1
-        for bid, in db.query(AuditAssignment.batch_id).filter(
-                AuditAssignment.batch_id.in_(ids)).all():
-            assigned_counts[bid] = assigned_counts.get(bid, 0) + 1
-        for bid, in db.query(AuditResult.batch_id).filter(
-                AuditResult.batch_id.in_(ids)).all():
-            scored_counts[bid] = scored_counts.get(bid, 0) + 1
+    def _counts(model, column):
+        if not ids:
+            return {}
+        rows = (db.query(column, func.count())
+                .filter(column.in_(ids)).group_by(column).all())
+        return {bid: n for bid, n in rows}
+
+    auditor_counts = _counts(AuditBatchAuditor, AuditBatchAuditor.batch_id)
+    assigned_counts = _counts(AuditAssignment, AuditAssignment.batch_id)
+    scored_counts = _counts(AuditResult, AuditResult.batch_id)
 
     now = datetime.utcnow()
 
@@ -162,7 +176,7 @@ def list_batches(status: Optional[str] = None, db: Session = Depends(get_db)):
         "auditors": auditor_counts.get(b.id, 0),
         "assigned": assigned_counts.get(b.id, 0),
         "scored": scored_counts.get(b.id, 0),
-    } for b in batches]}
+    } for b in batches], "total": total, "limit": limit, "offset": offset}
 
 
 @router.get("/batches/{batch_id}")
@@ -365,6 +379,9 @@ def run_allocation(batch_id: int, payload: AllocationRun, db: Session = Depends(
 
 @router.get("/batches/{batch_id}/plantings")
 def review_plantings(batch_id: int, auditor: Optional[str] = None,
+                     limit: int = Query(100, le=500),
+                     offset: int = Query(0, ge=0),
+                     include_claim: bool = False,
                      db: Session = Depends(get_db)):
     """
     What was planted, for the trainer, after allocation has run.
@@ -379,8 +396,14 @@ def review_plantings(batch_id: int, auditor: Optional[str] = None,
          .filter(AuditAssignment.batch_id == batch_id))
     if auditor:
         q = q.filter(AuditAssignment.auditor_name == auditor)
-    rows = q.order_by(AuditAssignment.auditor_name, Chart.chart_number).all()
-    return {"plantings": [{
+    total = q.count()
+    rows = (q.order_by(AuditAssignment.auditor_name, Chart.chart_number)
+            .limit(limit).offset(offset).all())
+    # The claim is the heaviest thing on the row and the screen does not render
+    # it — a batch of 500 assignments was shipping 500 full claims to draw a
+    # list of summaries.
+    return {"total": total, "limit": limit, "offset": offset,
+            "plantings": [{
         "assignment_id": a.id, "auditor_name": a.auditor_name,
         "chart_id": a.chart_id, "chart_number": c.chart_number,
         "source": a.source.value, "set_id": a.set_id, "seed": a.seed,
@@ -388,7 +411,7 @@ def review_plantings(batch_id: int, auditor: Optional[str] = None,
         "opened": a.opened_at is not None,
         "locked": a.opened_at is not None,
         "ground_truth": a.ground_truth or [],
-        "claim": a.claim or {},
+        **({"claim": a.claim or {}} if include_claim else {}),
     } for a, c in rows]}
 
 
