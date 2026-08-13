@@ -587,3 +587,82 @@ class TestBatchListing:
                           params={"status": "Open"}).json()["batches"]
         assert client.get("/auditor/batches",
                           params={"status": "Closed"}).json()["batches"] == []
+
+
+class TestExports:
+    """
+    Every export carries its denominator. A rate on two opportunities and one on
+    twenty look identical in a spreadsheet cell, and once pasted into a deck
+    nobody can tell which they are reading.
+    """
+
+    def _scored_batch(self, client, db, library):
+        batch_id = make_batch(client, charts_per=5)
+        token = allocate(client, batch_id)["access_codes"][0]["token"]
+        payload = client.get(f"/auditor/sessions/by-token/{token}").json()
+        client.post(f"/auditor/sessions/{payload['session_id']}/submit",
+                    json=perfect_work(payload, truth_map(client, batch_id)))
+        return batch_id
+
+    def _sheets(self, content):
+        import io
+        from openpyxl import load_workbook
+        return load_workbook(io.BytesIO(content))
+
+    def test_batch_results_export_has_the_three_sheets(self, client, db, library):
+        batch_id = self._scored_batch(client, db, library)
+        r = client.get(f"/auditor/batches/{batch_id}/export")
+        assert r.status_code == 200, r.text
+        assert "spreadsheetml" in r.headers["content-type"]
+        assert "attachment" in r.headers["content-disposition"]
+        wb = self._sheets(r.content)
+        assert set(wb.sheetnames) == {"Summary", "Chart_Results", "Findings_Detail"}
+
+    def test_the_export_names_chart_types_because_it_is_for_the_trainer(
+            self, client, db, library):
+        batch_id = self._scored_batch(client, db, library)
+        wb = self._sheets(client.get(f"/auditor/batches/{batch_id}/export").content)
+        col = [c.value for c in wb["Chart_Results"]["D"]]
+        assert "Clean" in col or "Opportunity" in col
+
+    def test_an_absent_component_exports_as_NA_not_zero(self, client, db, library):
+        """Zero would say the auditor missed something that was never there."""
+        batch_id = self._scored_batch(client, db, library)
+        wb = self._sheets(client.get(f"/auditor/batches/{batch_id}/export").content)
+        values = [c.value for row in wb["Chart_Results"].iter_rows() for c in row]
+        assert "NA" in values
+
+    def test_findings_detail_records_what_happened_to_each_error(
+            self, client, db, library):
+        batch_id = self._scored_batch(client, db, library)
+        wb = self._sheets(client.get(f"/auditor/batches/{batch_id}/export").content)
+        ws = wb["Findings_Detail"]
+        assert ws.max_row > 3
+        outcomes = {c.value for c in ws["I"]}
+        assert "correct" in outcomes
+
+    def test_analytics_export_covers_every_tab(self, client, db, library):
+        self._scored_batch(client, db, library)
+        r = client.get("/auditor/analytics/export")
+        assert r.status_code == 200, r.text
+        wb = self._sheets(r.content)
+        assert set(wb.sheetnames) == {
+            "Overview", "By_Batch", "By_Auditor", "Detection_Patterns",
+            "Real_vs_Generated"}
+
+    def test_the_key_library_exports_one_row_per_error(self, client, db, library):
+        client.post(f"/auditor/keys/chart/{library[0].id}", json={
+            "name": "Curated", "authored_by": "T", "passphrase": PASS,
+            "mutations": [
+                {"section": "SDx", "action": "Add", "correct_value": "E11.2"},
+                {"section": "SDx", "action": "Delete", "line": 0, "claim_value": "I10"}]})
+        r = client.get("/auditor/keys/export")
+        assert r.status_code == 200, r.text
+        ws = self._sheets(r.content)["Audit_Keys"]
+        assert ws.max_row >= 5           # note + blank + header + two errors
+        assert "Add" in {c.value for c in ws["D"]}
+
+    def test_exports_work_on_an_empty_installation(self, client, db):
+        """A trainer clicking Export before any work exists gets a file, not a 500."""
+        assert client.get("/auditor/analytics/export").status_code == 200
+        assert client.get("/auditor/keys/export").status_code == 200

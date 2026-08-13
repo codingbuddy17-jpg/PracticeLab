@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
-import { ChevronLeft, Eye, Plus, Save, Search, Trash2, X } from 'lucide-react'
+import { ChevronLeft, Download, Eye, Plus, Save, Search, Trash2, X } from 'lucide-react'
 import {
-  createAuditKeySet, deleteAuditKeySet, getAuditKeysForChart, listAuditKeySets,
-  previewAuditKeySet, updateAuditKeySet, Finding,
+  createAuditKeySet, deleteAuditKeySet, downloadAuditKeys, getAuditKeysForChart,
+  listAuditKeySets, previewAuditKeySet, updateAuditKeySet, Finding,
 } from '../../api/auditorApi'
 import { searchCharts } from '../../api'
 import s from './styles'
@@ -50,7 +50,13 @@ export function AuditKeys({ trainer }: { trainer: string }) {
 
   return (
     <div>
-      <div style={s.h1}>Audit Keys</div>
+      <div style={s.rowBetween}>
+        <div style={s.h1}>Audit Keys</div>
+        <button style={s.outlineBtn} title="Every authored set, one row per error"
+          onClick={() => downloadAuditKeys()}>
+          <Download size={15} /> Export (.xlsx)
+        </button>
+      </div>
       <div style={s.sub}>
         Author what an auditor should find on a chart. Stored sets are permanent and
         reusable; charts without one get their errors from the system instead.

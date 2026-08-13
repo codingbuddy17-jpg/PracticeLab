@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
-import { Target } from 'lucide-react'
+import { Download, Target } from 'lucide-react'
 import {
-  getAuditByAuditor, getAuditByBatch, getAuditDetection, getAuditOverview,
+  downloadAuditAnalytics, getAuditByAuditor, getAuditByBatch, getAuditDetection,
+  getAuditOverview,
 } from '../../api/auditorApi'
 import s from './styles'
 
@@ -51,9 +52,19 @@ export function AuditAnalytics() {
 
   return (
     <div>
-      <div style={s.h1}>Audit Analytics</div>
-      <div style={s.sub}>
-        {overview.charts} chart(s) · {overview.auditors} auditor(s) · {overview.batches} batch(es)
+      <div style={s.rowBetween}>
+        <div>
+          <div style={s.h1}>Audit Analytics</div>
+          <div style={s.sub}>
+            {overview.charts} chart(s) · {overview.auditors} auditor(s) ·{' '}
+            {overview.batches} batch(es)
+          </div>
+        </div>
+        <button style={s.outlineBtn}
+          title="All four views in one workbook, with every denominator"
+          onClick={() => downloadAuditAnalytics()}>
+          <Download size={15} /> Export (.xlsx)
+        </button>
       </div>
 
       <div style={{ display: 'flex', gap: 6, marginTop: 16, flexWrap: 'wrap' }}>

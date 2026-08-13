@@ -244,3 +244,22 @@ def preview_set(chart_id: int, payload: PreviewPayload, db: Session = Depends(ge
         "warning": (f"{skipped} error(s) reference codes that are not on this "
                     f"chart's answer key and were dropped") if skipped else None,
     }
+
+
+@router.get("/keys/export")
+def export_keys(specialty: Optional[str] = None, db: Session = Depends(get_db)):
+    """The whole authored library, one row per error."""
+    import io
+    from fastapi.responses import StreamingResponse
+    from services.audit_export import export_key_sets
+    from services.download_headers import content_disposition
+
+    q = db.query(AuditKeySet, Chart).join(Chart, Chart.id == AuditKeySet.chart_id)
+    if specialty:
+        q = q.filter(Chart.specialty == specialty)
+    rows = q.order_by(Chart.chart_number, AuditKeySet.id).all()
+    data = export_key_sets([_serialise(s, c) for s, c in rows])
+    return StreamingResponse(
+        io.BytesIO(data),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=content_disposition("Audit_Keys.xlsx", "Audit_Keys.xlsx"))

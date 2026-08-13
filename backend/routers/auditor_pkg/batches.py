@@ -437,6 +437,53 @@ def regenerate_assignment(assignment_id: int, payload: RegeneratePayload,
             "planting_count": len(truth), "seed": a.seed}
 
 
+@router.get("/batches/{batch_id}/export")
+def export_batch(batch_id: int, db: Session = Depends(get_db)):
+    """Per-chart scores and the findings behind them, as Excel."""
+    import io
+    from fastapi.responses import StreamingResponse
+    from services.audit_export import export_batch_results
+    from services.audit_scoring import score_session
+    from services.download_headers import content_disposition
+    from routers.auditor_pkg.sessions import _score_from_row, _session_summary
+    from .shared import scoring_config
+
+    batch = get_batch_or_404(db, batch_id)
+    rows = (db.query(AuditResult, Chart)
+            .join(Chart, Chart.id == AuditResult.chart_id)
+            .filter(AuditResult.batch_id == batch_id)
+            .order_by(AuditResult.auditor_name, Chart.chart_number).all())
+
+    charts = [{
+        "auditor_name": r.auditor_name, "emp_id": r.emp_id,
+        "chart_number": c.chart_number, "is_clean": r.is_clean,
+        "audit_accuracy": r.audit_accuracy,
+        "add_found": r.add_found, "add_planted": r.add_planted,
+        "add_accuracy": r.add_accuracy,
+        "revise_found": r.revise_found, "revise_planted": r.revise_planted,
+        "revise_accuracy": r.revise_accuracy,
+        "delete_found": r.delete_found, "delete_planted": r.delete_planted,
+        "delete_accuracy": r.delete_accuracy,
+        "drg_impacting_found": r.drg_impacting_found,
+        "drg_impacting_planted": r.drg_impacting_planted,
+        "over_calls": r.over_calls, "over_call_tier": r.over_call_tier,
+        "over_call_deduction": r.over_call_deduction,
+        "query_expected": r.query_expected, "query_flagged": r.query_flagged,
+        "query_correct": r.query_correct,
+        "detected_not_corrected": r.detected_not_corrected,
+        "outcomes": r.feedback or [],
+    } for r, c in rows]
+
+    summary = _session_summary(score_session(
+        [_score_from_row(r) for r, _c in rows], scoring_config(db)))
+    data = export_batch_results(batch.name, charts, summary)
+    return StreamingResponse(
+        io.BytesIO(data),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=content_disposition(f"{batch.name}_Audit_Results.xlsx",
+                                    "Audit_Results.xlsx"))
+
+
 class BatchClose(BaseModel):
     closed_by: str
 

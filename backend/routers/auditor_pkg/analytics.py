@@ -272,3 +272,24 @@ def detection_patterns(batch_id: Optional[int] = None,
         "total_plantings": sum(c["planted"] for c in by_kind.values()),
         "min_for_pattern": 5,
     }
+
+
+@router.get("/analytics/export")
+def export_analytics_workbook(specialty: Optional[str] = None,
+                              db: Session = Depends(get_db)):
+    """All four analytics views in one workbook, current filters applied."""
+    import io
+    from fastapi.responses import StreamingResponse
+    from services.audit_export import export_analytics
+    from services.download_headers import content_disposition
+
+    data = export_analytics(
+        overview(None, specialty, db),
+        by_batch(specialty, db)["batches"],
+        by_auditor(None, specialty, db)["auditors"],
+        detection_patterns(None, specialty, None, db),
+    )
+    return StreamingResponse(
+        io.BytesIO(data),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=content_disposition("Audit_Analytics.xlsx", "Audit_Analytics.xlsx"))

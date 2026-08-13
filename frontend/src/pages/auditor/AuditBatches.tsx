@@ -6,7 +6,8 @@ import {
 } from 'lucide-react'
 import {
   closeAuditBatch, createAuditBatch, getAuditBatch, getAuditPlantings,
-  listAuditBatches, regenerateAssignment, reopenAuditBatch, runAuditAllocation,
+  downloadAuditBatchResults, listAuditBatches, regenerateAssignment,
+  reopenAuditBatch, runAuditAllocation,
 } from '../../api/auditorApi'
 import { downloadCoderListTemplate, getPoolPreview, parseCoderList } from '../../api'
 import { CoderPicker } from '../../components/CoderPicker'
@@ -614,6 +615,13 @@ function AuditBatchDetail({ batchId, trainer, onBack }: {
             <button style={{ ...s.primaryBtn, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={allocate}>
               <Shuffle size={15} /> {busy ? 'Allocating…' : 'Run Allocation'}
             </button>
+            {(batch.assignments && Object.keys(batch.assignments).length > 0) && (
+              <button style={s.outlineBtn}
+                title="Per-chart scores and every finding, as Excel (.xlsx)"
+                onClick={() => downloadAuditBatchResults(batchId)}>
+                <Download size={15} /> Export Results (.xlsx)
+              </button>
+            )}
             {!confirmingClose ? (
               <button style={s.destructiveOutlineBtn}
                 disabled={batch.pending_scoring > 0}
@@ -641,6 +649,11 @@ function AuditBatchDetail({ batchId, trainer, onBack }: {
         )}
         {batch.status !== 'Open' && (
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button style={s.outlineBtn}
+              title="Per-chart scores and every finding, as Excel (.xlsx)"
+              onClick={() => downloadAuditBatchResults(batchId)}>
+              <Download size={15} /> Export Results (.xlsx)
+            </button>
             <input style={{ ...s.input, width: 170 }} type="password" placeholder="Passphrase"
               value={reopenPass} onChange={e => setReopenPass(e.target.value)} />
             <button style={s.outlineBtn} onClick={reopen}>Reopen Batch</button>

@@ -269,3 +269,25 @@ export async function getAuditDetection(params: Record<string, unknown> = {}) {
   const { data } = await api.get('/auditor/analytics/detection', { params })
   return data
 }
+
+// ── exports ──────────────────────────────────────────────────────────────────
+// Opened rather than fetched, so the browser handles the download and the
+// Content-Disposition filename survives — same as the coder exports.
+
+export function downloadAuditBatchResults(batchId: number) {
+  window.open(`${import.meta.env.VITE_API_URL || '/api'}/auditor/batches/${batchId}/export`, '_blank')
+}
+
+// The query string is appended AFTER the template literal rather than
+// interpolated into it, so the path stays a readable literal — the contract
+// checker scans these statically and cannot see through an interpolated one.
+
+export function downloadAuditAnalytics(specialty?: string) {
+  const url = `${import.meta.env.VITE_API_URL || '/api'}/auditor/analytics/export`
+  window.open(specialty ? url + '?specialty=' + encodeURIComponent(specialty) : url, '_blank')
+}
+
+export function downloadAuditKeys(specialty?: string) {
+  const url = `${import.meta.env.VITE_API_URL || '/api'}/auditor/keys/export`
+  window.open(specialty ? url + '?specialty=' + encodeURIComponent(specialty) : url, '_blank')
+}
