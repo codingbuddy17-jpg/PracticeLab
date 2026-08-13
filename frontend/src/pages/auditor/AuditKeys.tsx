@@ -68,7 +68,7 @@ export function AuditKeys({ trainer }: { trainer: string }) {
           {hits.map(c => (
             <button key={c.id as number} style={s.listRow} onClick={() => setChartId(c.id as number)}>
               <span style={{ fontWeight: 700, fontSize: 13 }}>{c.chart_number as string}</span>
-              <span style={s.chip}>{c.specialty as string}</span>
+              <span style={s.tag}>{c.specialty as string}</span>
               <span style={{ fontSize: 12, color: '#6b7280' }}>{c.category as string}</span>
               <span style={{ marginLeft: 'auto', ...s.linkBtn }}>Author errors →</span>
             </button>
@@ -92,14 +92,14 @@ export function AuditKeys({ trainer }: { trainer: string }) {
                   onClick={() => setChartId(k.chart_id as number)}>
                   <span style={{ fontWeight: 700, fontSize: 13 }}>{k.chart_number as string}</span>
                   <span style={{ fontSize: 13 }}>{k.name as string}</span>
-                  <span style={s.chip}>{k.planting_count as number} error(s)</span>
+                  <span style={s.tag}>{k.planting_count as number} error(s)</span>
                   {k.query_expected !== null && (
-                    <span style={{ ...s.chip, background: '#fffbeb', color: '#b45309' }}>
+                    <span style={{ ...s.tag, background: '#fffbeb', color: '#b45309' }}>
                       query {k.query_expected ? 'expected' : 'not needed'}
                     </span>
                   )}
                   {(k.always_plant as boolean) && (
-                    <span style={{ ...s.chip, background: '#fef2f2', color: '#dc2626' }}>always used</span>
+                    <span style={{ ...s.tag, background: '#fef2f2', color: '#dc2626' }}>always used</span>
                   )}
                   <span style={{ marginLeft: 'auto', fontSize: 11, color: '#9ca3af' }}>
                     {k.authored_by as string}
@@ -336,8 +336,8 @@ function ChartKeyEditor({ chartId, trainer, onBack }: {
                   <div key={k.id} style={s.errorRow}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                       <span style={{ fontWeight: 700, fontSize: 13 }}>{k.name}</span>
-                      <span style={s.chip}>{k.planting_count} error(s)</span>
-                      {k.always_plant && <span style={{ ...s.chip, background: '#fef2f2', color: '#dc2626' }}>always used</span>}
+                      <span style={s.tag}>{k.planting_count} error(s)</span>
+                      {k.always_plant && <span style={{ ...s.tag, background: '#fef2f2', color: '#dc2626' }}>always used</span>}
                       <button style={{ ...s.linkBtn, marginLeft: 'auto' }} onClick={() => startEdit(k)}>Edit</button>
                       <button style={s.iconBtn} onClick={() => remove(k)}><Trash2 size={14} /></button>
                     </div>

@@ -5,11 +5,12 @@ import {
   Loader, Plus, RefreshCw, Shuffle, Upload,
 } from 'lucide-react'
 import {
-  createAuditBatch, getAuditBatch, getAuditPlantings, listAuditBatches,
-  regenerateAssignment, runAuditAllocation,
+  closeAuditBatch, createAuditBatch, getAuditBatch, getAuditPlantings,
+  listAuditBatches, regenerateAssignment, reopenAuditBatch, runAuditAllocation,
 } from '../../api/auditorApi'
-import { downloadCoderListTemplate, getCategories, getPoolPreview, parseCoderList } from '../../api'
+import { downloadCoderListTemplate, getPoolPreview, parseCoderList } from '../../api'
 import { CoderPicker } from '../../components/CoderPicker'
+import { DIFFICULTIES } from '../practicelab/shared'
 import s from './styles'
 
 const AUDITABLE = ['IP-DRG', 'SDS', 'ED Facility', 'Surgery', 'ED Single Path', 'Ancillary']
@@ -153,9 +154,9 @@ export function AuditBatches({ trainer }: { trainer: string }) {
                       <button key={b.id as number} style={s.listRow}
                         onClick={() => { setSelected(b.id as number); setView('detail') }}>
                         <span style={{ fontWeight: 700, fontSize: 14 }}>{b.name as string}</span>
-                        <span style={s.chip}>{b.specialty as string}</span>
+                        <span style={s.tag}>{b.specialty as string}</span>
                         <span style={{
-                          ...s.chip,
+                          ...s.tag,
                           background: b.status === 'Open' ? '#eff6ff' : '#f3f4f6',
                           color: b.status === 'Open' ? '#1d4ed8' : '#6b7280',
                         }}>{b.status as string}</span>
@@ -191,8 +192,8 @@ function CreateAuditBatch({ trainer, onDone, onCancel }: {
 }) {
   const [name, setName] = useState('')
   const [specialty, setSpecialty] = useState('IP-DRG')
-  const [categories, setCategories] = useState<string[]>([])
-  const [available, setAvailable] = useState<string[]>([])
+  const [categories, setCategories] = useState('')
+  const [difficulties, setDifficulties] = useState<string[]>([])
   const [chartsPer, setChartsPer] = useState(5)
   const [mode, setMode] = useState('guided')
   const [cleanShare, setCleanShare] = useState(50)
@@ -214,14 +215,10 @@ function CreateAuditBatch({ trainer, onDone, onCancel }: {
   const [pool, setPool] = useState<{ total_matching: number; with_answer_key: number } | null>(null)
 
   useEffect(() => {
-    getCategories(specialty).then(c => setAvailable(c || []))
-      .catch(() => setAvailable([]))
-  }, [specialty])
-
-  useEffect(() => {
-    getPoolPreview(specialty, categories.join(',') || undefined)
+    getPoolPreview(specialty, categories.trim() || undefined,
+                   difficulties.join(',') || undefined)
       .then(setPool).catch(() => setPool(null))
-  }, [specialty, categories])
+  }, [specialty, categories, difficulties])
 
   function addQuick() {
     const name = quickRow.name.trim()
@@ -266,7 +263,9 @@ function CreateAuditBatch({ trainer, onDone, onCancel }: {
     setBusy(true)
     try {
       const res = await createAuditBatch({
-        name: name.trim(), specialty, categories, difficulties: [],
+        name: name.trim(), specialty,
+        categories: categories.split(',').map(c => c.trim()).filter(Boolean),
+        difficulties,
         charts_per_auditor: chartsPer, auditors, created_by: trainer,
         allocation_mode: mode, clean_share: cleanShare,
         quota_clean: mode === 'guided' ? quotaClean : null,
@@ -289,30 +288,64 @@ function CreateAuditBatch({ trainer, onDone, onCancel }: {
       <button style={s.backBtn} onClick={onCancel}><ChevronLeft size={14} /> Back</button>
       <div style={s.h1}>New Audit Batch</div>
 
-      <Field label="Batch name">
-        <input style={s.input} value={name} onChange={e => setName(e.target.value)}
-          placeholder="e.g. IP-DRG audit — August wave 1" />
-      </Field>
-
-      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
-        <Field label="Specialty">
-          <select style={s.input} value={specialty} onChange={e => { setSpecialty(e.target.value); setCategories([]) }}>
+      {/* Same grid, same controls, same wording as the coder batch form.
+          Categories are free text per chart, so they are typed comma-separated
+          rather than picked from a list; difficulties are a fixed set of three,
+          so they are chips. Getting that round the wrong way was the tell that
+          this screen had been written without reading the other one. */}
+      <div style={s.formGrid}>
+        <div style={s.formGroup}>
+          <label style={s.label}>Batch Name *</label>
+          <input style={s.input} value={name} onChange={e => setName(e.target.value)}
+            placeholder="e.g. IP-DRG Audit — August Wave 1" />
+        </div>
+        <div style={s.formGroup}>
+          <label style={s.label}>Specialty *</label>
+          <select style={s.select} value={specialty}
+            onChange={e => setSpecialty(e.target.value)}>
             {AUDITABLE.map(x => <option key={x}>{x}</option>)}
           </select>
-        </Field>
-        <Field label="Charts per auditor">
-          <input style={{ ...s.input, width: 90 }} type="number" min={1} value={chartsPer}
+        </div>
+        <div style={s.formGroup}>
+          <label style={s.label}>
+            Chart Pool — Category Filter <span style={s.hint}>(comma-separated)</span>
+          </label>
+          <input style={s.input} value={categories} placeholder="e.g. Sepsis, Cardiac, Trauma"
+            onChange={e => setCategories(e.target.value)} />
+        </div>
+        <div style={s.formGroup}>
+          <label style={s.label}>Chart Pool — Difficulty Filter</label>
+          <div style={s.chipRow}>
+            {DIFFICULTIES.map(d => (
+              <button key={d} style={difficulties.includes(d) ? s.chipActive : s.chip}
+                onClick={() => setDifficulties(p => p.includes(d) ? p.filter(x => x !== d) : [...p, d])}>
+                {d}
+              </button>
+            ))}
+            <span style={s.hint}>None = all</span>
+          </div>
+        </div>
+        <div style={s.formGroup}>
+          <label style={s.label}>
+            Charts per Auditor <span style={s.hint}>(overridable per cycle)</span>
+          </label>
+          <input type="number" min={1} max={20} style={{ ...s.input, width: 80 }}
+            value={chartsPer}
             onChange={e => setChartsPer(parseInt(e.target.value) || 1)} />
-        </Field>
-        <Field label="Difficulty of errors">
-          <select style={s.input} value={tier} onChange={e => setTier(e.target.value)}>
+        </div>
+        <div style={s.formGroup}>
+          <label style={s.label}>
+            Error Difficulty <span style={s.hint}>(how hard the errors are to spot)</span>
+          </label>
+          <select style={s.select} value={tier} onChange={e => setTier(e.target.value)}>
             <option value="">Balanced</option>
             <option value="foundational">Foundational</option>
             <option value="intermediate">Intermediate</option>
             <option value="advanced">Advanced</option>
           </select>
-        </Field>
+        </div>
       </div>
+
       {chartsPer < 5 && (
         <div style={s.warnBox}>
           <AlertTriangle size={14} color="#d97706" style={{ flexShrink: 0, marginTop: 1 }} />
@@ -322,18 +355,6 @@ function CreateAuditBatch({ trainer, onDone, onCancel }: {
         </div>
       )}
 
-      {available.length > 0 && (
-        <Field label="Categories (blank means all)">
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {available.map(c => (
-              <button key={c} style={{ ...s.toggleChip, ...(categories.includes(c) ? s.toggleChipOn : {}) }}
-                onClick={() => setCategories(p => p.includes(c) ? p.filter(x => x !== c) : [...p, c])}>
-                {c}
-              </button>
-            ))}
-          </div>
-        </Field>
-      )}
 
       <Field label="How charts are chosen">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -506,11 +527,16 @@ function AuditBatchDetail({ batchId, trainer, onBack }: {
   const [errors, setPlantings] = useState<any[]>([])
   const [showPlantings, setShowPlantings] = useState(false)
   const [busy, setBusy] = useState(false)
+  // Two-step, like the coder screen: closing is the point at which results
+  // become the record, so it is never one stray click away.
+  const [confirmingClose, setConfirmingClose] = useState(false)
+  const [closing, setClosing] = useState(false)
+  const [reopenPass, setReopenPass] = useState('')
 
   const load = useCallback(async () => {
     try {
       setBatch(await getAuditBatch(batchId))
-      setPlantings((await getAuditPlantings(batchId)).errors)
+      setPlantings((await getAuditPlantings(batchId)).plantings)
     } catch { toast.error('Could not load the batch') }
   }, [batchId])
 
@@ -541,6 +567,33 @@ function AuditBatchDetail({ batchId, trainer, onBack }: {
     }
   }
 
+  async function close() {
+    setClosing(true)
+    try {
+      await closeAuditBatch(batchId, trainer)
+      toast.success('Batch closed')
+      setConfirmingClose(false)
+      load()
+    } catch (e) {
+      const err = e as { response?: { data?: { detail?: string } } }
+      toast.error(err?.response?.data?.detail || 'Could not close the batch')
+    }
+    setClosing(false)
+  }
+
+  async function reopen() {
+    if (!reopenPass.trim()) return toast.error('Passphrase required to reopen')
+    try {
+      await reopenAuditBatch(batchId, trainer, reopenPass)
+      toast.success('Batch reopened')
+      setReopenPass('')
+      load()
+    } catch (e) {
+      const err = e as { response?: { data?: { detail?: string } } }
+      toast.error(err?.response?.data?.detail || 'Could not reopen the batch')
+    }
+  }
+
   if (!batch) return <div style={s.empty}>Loading…</div>
 
   const codes = Object.values(batch.tokens_by_cycle || {}).flat() as any[]
@@ -557,9 +610,41 @@ function AuditBatchDetail({ batchId, trainer, onBack }: {
           </div>
         </div>
         {batch.status === 'Open' && (
-          <button style={{ ...s.primaryBtn, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={allocate}>
-            <Shuffle size={15} /> {busy ? 'Allocating…' : 'Run allocation'}
-          </button>
+          <div style={s.actionRow}>
+            <button style={{ ...s.primaryBtn, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={allocate}>
+              <Shuffle size={15} /> {busy ? 'Allocating…' : 'Run Allocation'}
+            </button>
+            {!confirmingClose ? (
+              <button style={s.destructiveOutlineBtn}
+                disabled={batch.pending_scoring > 0}
+                title={batch.pending_scoring > 0
+                  ? `${batch.pending_scoring} assigned chart(s) have not been submitted yet`
+                  : 'Close this batch'}
+                onClick={() => setConfirmingClose(true)}>
+                ✕ Close Batch
+              </button>
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#fff7ed',
+                            border: '1px solid #fed7aa', borderRadius: 8, padding: '6px 12px' }}>
+                <span style={{ fontSize: 12, color: '#92400e', fontWeight: 600 }}>
+                  Close this batch? Scores become the record and cannot change.
+                </span>
+                <button style={{ ...s.destructiveBtn, padding: '5px 12px', fontSize: 12 }}
+                  disabled={closing} onClick={close}>
+                  {closing ? 'Closing…' : 'Yes, Close'}
+                </button>
+                <button style={{ ...s.outlineBtn, padding: '5px 12px', fontSize: 12 }}
+                  onClick={() => setConfirmingClose(false)}>Cancel</button>
+              </div>
+            )}
+          </div>
+        )}
+        {batch.status !== 'Open' && (
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <input style={{ ...s.input, width: 170 }} type="password" placeholder="Passphrase"
+              value={reopenPass} onChange={e => setReopenPass(e.target.value)} />
+            <button style={s.outlineBtn} onClick={reopen}>Reopen Batch</button>
+          </div>
         )}
       </div>
 
@@ -601,14 +686,14 @@ function AuditBatchDetail({ batchId, trainer, onBack }: {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                     <span style={{ fontWeight: 700, fontSize: 13 }}>{p.chart_number}</span>
                     <span style={{ fontSize: 12, color: '#6b7280' }}>{p.auditor_name}</span>
-                    <span style={{ ...s.chip, background: SOURCE_BG[p.source], color: SOURCE_FG[p.source] }}>
+                    <span style={{ ...s.tag, background: SOURCE_BG[p.source], color: SOURCE_FG[p.source] }}>
                       {p.source === 'Clean' ? 'Clean — no errors' : p.source}
                     </span>
                     <span style={{ fontSize: 12, color: '#6b7280' }}>
                       {p.ground_truth.length} error(s)
                     </span>
                     {p.locked
-                      ? <span style={{ ...s.chip, background: '#f3f4f6', color: '#6b7280' }}>Opened — locked</span>
+                      ? <span style={{ ...s.tag, background: '#f3f4f6', color: '#6b7280' }}>Opened — locked</span>
                       : p.source !== 'Clean' && (
                         <button style={{ ...s.linkBtn, marginLeft: 'auto' }}
                           onClick={() => reroll(p.assignment_id)}>
@@ -653,7 +738,7 @@ function AuditBatchDetail({ batchId, trainer, onBack }: {
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               {(rows as any[]).map(r => (
                 <span key={r.assignment_id} style={{
-                  ...s.chip,
+                  ...s.tag,
                   background: r.scored ? '#d1fae5' : r.opened ? '#fef3c7' : '#f3f4f6',
                   color: r.scored ? '#059669' : r.opened ? '#b45309' : '#6b7280',
                 }}>

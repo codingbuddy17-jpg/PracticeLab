@@ -202,6 +202,17 @@ export async function regenerateAssignment(assignmentId: number, runBy: string) 
   return data
 }
 
+export async function closeAuditBatch(batchId: number, closedBy: string) {
+  const { data } = await api.post(`/auditor/batches/${batchId}/close`, { closed_by: closedBy })
+  return data
+}
+
+export async function reopenAuditBatch(batchId: number, reopenedBy: string, passphrase: string) {
+  const { data } = await api.post(`/auditor/batches/${batchId}/reopen`,
+    { reopened_by: reopenedBy, passphrase })
+  return data
+}
+
 export async function getAuditReview(sessionId: number) {
   const { data } = await api.get(`/auditor/sessions/${sessionId}/review`)
   return data
