@@ -743,3 +743,82 @@ class TestKeyCoverage:
                           params={"specialty": "IP-DRG"}).json()["sets"]
         assert client.get("/auditor/keys",
                           params={"specialty": "Surgery"}).json()["sets"] == []
+
+
+class TestVersionMemory:
+    """
+    A chart can carry several versions of its errors. Two rules make that
+    usable rather than confusing: an auditor never sees one chart twice in a
+    cycle, and across cycles they get a version they have not had.
+    """
+
+    def _versions(self, client, chart, names):
+        for n in names:
+            r = client.post(f"/auditor/keys/chart/{chart.id}", json={
+                "name": n, "authored_by": "T", "passphrase": PASS,
+                "always_plant": True,
+                "mutations": [{"section": "SDx", "action": "Add",
+                               "correct_value": f"E11.{names.index(n)}"}]})
+            assert r.status_code == 200, r.text
+
+    def test_one_chart_is_never_assigned_twice_in_a_cycle(self, client, db, library):
+        """
+        The worry versions raise: two versions of one chart landing on the same
+        auditor in one sitting. The draw takes each chart from the pool once, so
+        a chart yields at most one assignment and therefore one version.
+        """
+        self._versions(client, library[0], ["V1", "V2", "V3"])
+        batch_id = make_batch(client, charts_per=8)
+        allocate(client, batch_id)
+
+        rows = client.get(f"/auditor/batches/{batch_id}/plantings",
+                          params={"limit": 500}).json()["plantings"]
+        for auditor in {r["auditor_name"] for r in rows}:
+            charts = [r["chart_number"] for r in rows if r["auditor_name"] == auditor]
+            assert len(charts) == len(set(charts)), f"{auditor} got a chart twice: {charts}"
+
+    def test_two_auditors_may_share_a_chart_and_get_the_same_version(
+            self, client, db, library):
+        """
+        Deliberate — it is the only way their answers on that chart can be
+        compared. Versions vary across CYCLES, not across people.
+        """
+        self._versions(client, library[0], ["V1", "V2"])
+        batch_id = make_batch(client, auditors=("Asha R", "Bo T"), charts_per=8)
+        allocate(client, batch_id)
+
+        rows = [r for r in client.get(f"/auditor/batches/{batch_id}/plantings",
+                                      params={"limit": 500}).json()["plantings"]
+                if r["chart_number"] == library[0].chart_number]
+        assert len(rows) == 2
+        assert rows[0]["set_id"] == rows[1]["set_id"]
+
+    def test_a_later_cycle_gives_a_version_they_have_not_seen(
+            self, client, db, library):
+        self._versions(client, library[0], ["V1", "V2"])
+        batch_id = make_batch(client, charts_per=8)
+
+        seen = []
+        for _ in range(2):
+            allocate(client, batch_id)
+            rows = client.get(f"/auditor/batches/{batch_id}/plantings",
+                              params={"limit": 500}).json()["plantings"]
+            hits = [r for r in rows if r["chart_number"] == library[0].chart_number]
+            seen.append(hits[-1]["set_id"])
+        assert seen[0] != seen[1], "the second cycle repeated the first version"
+
+    def test_once_every_version_is_used_it_reuses_rather_than_skipping_the_chart(
+            self, client, db, library):
+        """
+        Running dry is not a reason to drop a chart from the rotation — the
+        same rule the chart draw itself follows.
+        """
+        self._versions(client, library[0], ["Only"])
+        batch_id = make_batch(client, charts_per=8)
+        for _ in range(3):
+            allocate(client, batch_id)
+        rows = client.get(f"/auditor/batches/{batch_id}/plantings",
+                          params={"limit": 500}).json()["plantings"]
+        hits = [r for r in rows if r["chart_number"] == library[0].chart_number]
+        assert len(hits) == 3
+        assert all(h["set_id"] == hits[0]["set_id"] for h in hits)
