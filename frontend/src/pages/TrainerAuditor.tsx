@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ChevronLeft, ClipboardCheck, KeyRound, Layers, SlidersHorizontal } from 'lucide-react'
+import { BarChart3, ChevronLeft, ClipboardCheck, KeyRound, Layers, SlidersHorizontal } from 'lucide-react'
 import { AuditBatches } from './auditor/AuditBatches'
 import { AuditKeys } from './auditor/AuditKeys'
 import { AuditConfig } from './auditor/AuditConfig'
+import { AuditAnalytics } from './auditor/AuditAnalytics'
 
 /**
  * PracticeLab — Auditor. A sibling of the coder module that shares charts and
@@ -14,6 +15,7 @@ import { AuditConfig } from './auditor/AuditConfig'
 const TABS = [
   { key: 'batches', label: 'Audit Batches', icon: Layers },
   { key: 'keys', label: 'Planting Library', icon: KeyRound },
+  { key: 'analytics', label: 'Analytics', icon: BarChart3 },
   { key: 'config', label: 'Scoring', icon: SlidersHorizontal },
 ] as const
 
@@ -68,6 +70,7 @@ export function TrainerAuditor() {
       <main style={st.main}>
         {active === 'batches' && <AuditBatches trainer={trainer} />}
         {active === 'keys' && <AuditKeys trainer={trainer} />}
+        {active === 'analytics' && <AuditAnalytics />}
         {active === 'config' && <AuditConfig trainer={trainer} />}
       </main>
     </div>

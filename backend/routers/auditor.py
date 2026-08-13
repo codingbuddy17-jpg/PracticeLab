@@ -8,7 +8,7 @@ coder analytics through a query someone forgot to filter.
 """
 from fastapi import APIRouter
 
-from routers.auditor_pkg import batches, config, keys, sessions
+from routers.auditor_pkg import analytics, batches, config, keys, sessions
 
 router = APIRouter(prefix="/auditor", tags=["auditor"])
 
@@ -16,3 +16,4 @@ router.include_router(config.router)
 router.include_router(keys.router)
 router.include_router(batches.router)
 router.include_router(sessions.router)
+router.include_router(analytics.router)

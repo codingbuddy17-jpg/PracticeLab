@@ -236,3 +236,25 @@ export async function deleteAuditKeySet(setId: number, passphrase: string) {
   const { data } = await api.post(`/auditor/keys/${setId}/delete`, { passphrase })
   return data
 }
+
+// ── analytics ────────────────────────────────────────────────────────────────
+
+export async function getAuditOverview(params: Record<string, unknown> = {}) {
+  const { data } = await api.get('/auditor/analytics/overview', { params })
+  return data
+}
+
+export async function getAuditByBatch(params: Record<string, unknown> = {}) {
+  const { data } = await api.get('/auditor/analytics/by-batch', { params })
+  return data as { batches: Record<string, any>[] }
+}
+
+export async function getAuditByAuditor(params: Record<string, unknown> = {}) {
+  const { data } = await api.get('/auditor/analytics/by-auditor', { params })
+  return data as { auditors: Record<string, any>[]; pass_threshold: number }
+}
+
+export async function getAuditDetection(params: Record<string, unknown> = {}) {
+  const { data } = await api.get('/auditor/analytics/detection', { params })
+  return data
+}
