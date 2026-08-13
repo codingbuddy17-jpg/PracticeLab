@@ -120,6 +120,56 @@ def list_sets_for_chart(chart_id: int, db: Session = Depends(get_db)):
     }
 
 
+@router.get("/keys/status")
+def key_status(specialty: str = Query(...), db: Session = Depends(get_db)):
+    """
+    Curation coverage for one specialty.
+
+    Charts with no ANSWER key are counted separately rather than lumped in with
+    the uncurated ones: those are not a curation gap a trainer can close here,
+    they are a chart-library gap, and mixing them makes the to-do list look
+    bigger than the work actually available.
+    """
+    charts = (db.query(Chart)
+              .filter(Chart.specialty == specialty, Chart.status == "Active").all())
+    chart_ids = [c.id for c in charts]
+    keyed = {k.chart_id for k in db.query(AnswerKey.chart_id).filter(
+        AnswerKey.chart_id.in_(chart_ids)).all()} if chart_ids else set()
+    curated = {k.chart_id for k in db.query(AuditKeySet.chart_id).filter(
+        AuditKeySet.chart_id.in_(chart_ids)).all()} if chart_ids else set()
+
+    auditable = keyed
+    return {
+        "specialty": specialty,
+        "total_charts": len(charts),
+        "auditable": len(auditable),
+        "curated": len(auditable & curated),
+        "uncurated": len(auditable - curated),
+        "no_answer_key": len(set(chart_ids) - keyed),
+    }
+
+
+@router.get("/keys/uncurated")
+def uncurated_charts(specialty: str = Query(...),
+                     limit: int = Query(200, le=500),
+                     db: Session = Depends(get_db)):
+    """
+    Charts that could carry authored errors but do not yet — the curation
+    to-do list. They still get audited; the system generates their errors.
+    """
+    curated = {k.chart_id for k in db.query(AuditKeySet.chart_id).all()}
+    rows = (db.query(Chart)
+            .join(AnswerKey, AnswerKey.chart_id == Chart.id)
+            .filter(Chart.specialty == specialty, Chart.status == "Active")
+            .order_by(Chart.chart_number).limit(limit + len(curated)).all())
+    out = [c for c in rows if c.id not in curated][:limit]
+    return {"charts": [{
+        "chart_id": c.id, "chart_number": c.chart_number,
+        "category": c.category,
+        "difficulty": c.difficulty.value if c.difficulty else None,
+    } for c in out]}
+
+
 @router.get("/keys")
 def list_sets(specialty: Optional[str] = None,
               limit: int = Query(200, le=500),

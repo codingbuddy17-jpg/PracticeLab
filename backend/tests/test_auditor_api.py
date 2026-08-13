@@ -666,3 +666,75 @@ class TestExports:
         """A trainer clicking Export before any work exists gets a file, not a 500."""
         assert client.get("/auditor/analytics/export").status_code == 200
         assert client.get("/auditor/keys/export").status_code == 200
+
+
+class TestKeyCoverage:
+    """
+    The Audit Keys screen is a coverage report, like the coder Answer Keys
+    screen it mirrors: how much of the library has been curated, and what is
+    still running on generated errors.
+    """
+
+    def test_coverage_counts_curated_against_auditable(self, client, db, library):
+        before = client.get("/auditor/keys/status",
+                            params={"specialty": "IP-DRG"}).json()
+        assert before["auditable"] == len(library)
+        assert before["curated"] == 0
+        assert before["uncurated"] == len(library)
+
+        client.post(f"/auditor/keys/chart/{library[0].id}", json={
+            "name": "Curated", "authored_by": "T", "passphrase": PASS,
+            "mutations": [{"section": "SDx", "action": "Add", "correct_value": "E11.2"}]})
+
+        after = client.get("/auditor/keys/status",
+                           params={"specialty": "IP-DRG"}).json()
+        assert after["curated"] == 1
+        assert after["uncurated"] == len(library) - 1
+
+    def test_charts_without_an_answer_key_are_counted_separately(self, client, db):
+        """
+        They are not a curation gap a trainer can close on this screen — they
+        are a chart-library gap, and lumping them in makes the to-do list look
+        bigger than the work actually available.
+        """
+        c = Chart(chart_number="NOKEY9", specialty=Specialty.IP_DRG, category="x",
+                  difficulty=Difficulty.BEGINNER, status=ChartStatus.ACTIVE,
+                  uploaded_by="t")
+        db.add(c)
+        db.commit()
+        st = client.get("/auditor/keys/status", params={"specialty": "IP-DRG"}).json()
+        assert st["no_answer_key"] == 1
+        assert st["auditable"] == 0
+        assert st["uncurated"] == 0
+
+    def test_the_todo_list_drops_a_chart_once_it_is_curated(self, client, db, library):
+        target = library[0]
+        before = client.get("/auditor/keys/uncurated",
+                            params={"specialty": "IP-DRG"}).json()["charts"]
+        assert target.chart_number in {c["chart_number"] for c in before}
+
+        client.post(f"/auditor/keys/chart/{target.id}", json={
+            "name": "Curated", "authored_by": "T", "passphrase": PASS,
+            "mutations": [{"section": "SDx", "action": "Add", "correct_value": "E11.2"}]})
+
+        after = client.get("/auditor/keys/uncurated",
+                           params={"specialty": "IP-DRG"}).json()["charts"]
+        assert target.chart_number not in {c["chart_number"] for c in after}
+
+    def test_the_todo_list_never_offers_a_chart_with_no_answer_key(self, client, db, library):
+        db.add(Chart(chart_number="NOKEY8", specialty=Specialty.IP_DRG, category="x",
+                     difficulty=Difficulty.BEGINNER, status=ChartStatus.ACTIVE,
+                     uploaded_by="t"))
+        db.commit()
+        charts = client.get("/auditor/keys/uncurated",
+                            params={"specialty": "IP-DRG"}).json()["charts"]
+        assert "NOKEY8" not in {c["chart_number"] for c in charts}
+
+    def test_the_key_list_can_be_scoped_to_a_specialty(self, client, db, library):
+        client.post(f"/auditor/keys/chart/{library[0].id}", json={
+            "name": "Curated", "authored_by": "T", "passphrase": PASS,
+            "mutations": []})
+        assert client.get("/auditor/keys",
+                          params={"specialty": "IP-DRG"}).json()["sets"]
+        assert client.get("/auditor/keys",
+                          params={"specialty": "Surgery"}).json()["sets"] == []

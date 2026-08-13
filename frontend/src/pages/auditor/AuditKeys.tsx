@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
-import { ChevronLeft, Download, Eye, Plus, Save, Search, Trash2, X } from 'lucide-react'
 import {
-  createAuditKeySet, deleteAuditKeySet, downloadAuditKeys, getAuditKeysForChart,
-  listAuditKeySets, previewAuditKeySet, updateAuditKeySet, Finding,
+  ChevronDown, ChevronLeft, ChevronRight, Download, Eye, Plus, Save, Trash2, X,
+} from 'lucide-react'
+import {
+  createAuditKeySet, deleteAuditKeySet, downloadAuditKeys, getAuditKeyStatus,
+  getAuditKeysForChart, getUncuratedCharts, listAuditKeySets, previewAuditKeySet,
+  updateAuditKeySet, Finding,
 } from '../../api/auditorApi'
-import { searchCharts } from '../../api'
 import s from './styles'
 
 /**
@@ -23,98 +25,176 @@ const SECTION_LABEL: Record<string, string> = {
   PDx: 'Principal Dx', SDx: 'Secondary Dx', PCS: 'PCS', CPT: 'CPT',
 }
 
+const AUDITABLE = ['IP-DRG', 'SDS', 'ED Facility', 'Surgery', 'ED Single Path', 'Ancillary']
+
+/**
+ * Laid out like the coder Answer Keys screen: pick a specialty, see coverage,
+ * work the table. The gap list below it is the point of the page — it says
+ * which charts are still running on generated errors and could carry authored
+ * ones instead.
+ */
 export function AuditKeys({ trainer }: { trainer: string }) {
+  const [specialty, setSpecialty] = useState('IP-DRG')
   const [chartId, setChartId] = useState<number | null>(null)
   const [sets, setSets] = useState<Record<string, any>[]>([])
-  const [query, setQuery] = useState('')
-  const [hits, setHits] = useState<Record<string, any>[]>([])
+  const [status, setStatus] = useState<any>(null)
+  const [uncurated, setUncurated] = useState<Record<string, any>[]>([])
+  const [showUncurated, setShowUncurated] = useState(false)
+  const [loading, setLoading] = useState(false)
 
   const load = useCallback(async () => {
-    try { setSets((await listAuditKeySets()).sets) }
-    catch { toast.error('Could not load the audit keys') }
-  }, [])
+    setLoading(true)
+    try {
+      const [k, st] = await Promise.all([
+        listAuditKeySets(specialty), getAuditKeyStatus(specialty),
+      ])
+      setSets(k.sets)
+      setStatus(st)
+    } catch { toast.error('Could not load audit keys') }
+    finally { setLoading(false) }
+  }, [specialty])
   useEffect(() => { load() }, [load])
 
-  async function search() {
-    if (!query.trim()) return
-    try {
-      const res = await searchCharts({ q: query.trim(), limit: 20 } as never)
-      setHits((res as { charts?: Record<string, any>[] }).charts || [])
-    } catch { toast.error('Search failed') }
-  }
+  useEffect(() => {
+    if (!showUncurated) return
+    getUncuratedCharts(specialty).then(r => setUncurated(r.charts)).catch(() => setUncurated([]))
+  }, [showUncurated, specialty, sets.length])
 
   if (chartId !== null) {
     return <ChartKeyEditor chartId={chartId} trainer={trainer}
       onBack={() => { setChartId(null); load() }} />
   }
 
+  const COLS = '130px 1fr 90px 1fr 150px'
+
   return (
     <div>
-      <div style={s.rowBetween}>
-        <div style={s.h1}>Audit Keys</div>
-        <button style={s.outlineBtn} title="Every authored set, one row per error"
-          onClick={() => downloadAuditKeys()}>
-          <Download size={15} /> Export (.xlsx)
+      <div style={s.h1}>Audit Keys</div>
+      <p style={s.helpText}>
+        Errors you author here are permanent and reusable. A chart without a set still
+        gets audited — the system generates its errors instead — so this is where you
+        curate the charts worth teaching from, not a prerequisite for running a batch.
+      </p>
+
+      <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap', marginTop: 16, marginBottom: 16 }}>
+        <div>
+          <label style={s.label}>Specialty type</label>
+          <select style={s.select} value={specialty} onChange={e => setSpecialty(e.target.value)}>
+            {AUDITABLE.map(x => <option key={x}>{x}</option>)}
+          </select>
+        </div>
+        <button style={s.outlineBtn} onClick={() => downloadAuditKeys(specialty)}>
+          <Download size={15} /> Export Keys (.xlsx)
         </button>
       </div>
-      <div style={s.sub}>
-        Author what an auditor should find on a chart. Stored sets are permanent and
-        reusable; charts without one get their errors from the system instead.
-      </div>
 
-      <div style={{ display: 'flex', gap: 8, marginTop: 18, maxWidth: 480 }}>
-        <input style={s.input} placeholder="Find a chart by number…" value={query}
-          onChange={e => setQuery(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && search()} />
-        <button style={s.ghostBtn} onClick={search}><Search size={14} /> Search</button>
-      </div>
+      {status && (
+        <div style={{ ...s.statsRow, marginBottom: 20 }}>
+          <div style={s.statCard}>
+            <div style={s.statValue}>{status.auditable}</div>
+            <div style={s.statLabel}>Auditable Charts</div>
+          </div>
+          <div style={s.statCard}>
+            <div style={{ ...s.statValue, color: '#16a34a' }}>{status.curated}</div>
+            <div style={s.statLabel}>With Authored Errors</div>
+          </div>
+          <div style={s.statCard}>
+            <div style={{ ...s.statValue, color: '#d97706' }}>{status.uncurated}</div>
+            <div style={s.statLabel}>System-Generated Only</div>
+          </div>
+          <div style={s.statCard}>
+            <div style={{ ...s.statValue, color: status.no_answer_key ? '#dc2626' : '#9ca3af' }}>
+              {status.no_answer_key}
+            </div>
+            <div style={s.statLabel}>Not Auditable</div>
+          </div>
+        </div>
+      )}
 
-      {hits.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 12 }}>
-          {hits.map(c => (
-            <button key={c.id as number} style={s.listRow} onClick={() => setChartId(c.id as number)}>
-              <span style={{ fontWeight: 700, fontSize: 13 }}>{c.chart_number as string}</span>
-              <span style={s.tag}>{c.specialty as string}</span>
-              <span style={{ fontSize: 12, color: '#6b7280' }}>{c.category as string}</span>
-              <span style={{ marginLeft: 'auto', ...s.linkBtn }}>Author errors →</span>
-            </button>
+      {status?.no_answer_key > 0 && (
+        <div style={{ ...s.warnBox, marginBottom: 16 }}>
+          <strong>{status.no_answer_key} chart(s) in {specialty} have no answer key</strong>, so
+          they can be neither curated here nor allocated for audit — there is no truth to
+          introduce errors into. Upload their answer keys first.
+        </div>
+      )}
+
+      {loading ? (
+        <div style={s.empty}>Loading…</div>
+      ) : sets.length === 0 ? (
+        <div style={s.emptyState}>
+          No authored errors for {specialty} yet. Every chart in this specialty is
+          audited with system-generated errors.
+        </div>
+      ) : (
+        <div style={s.table}>
+          <div style={{ ...s.tableHeader, gridTemplateColumns: COLS }}>
+            <span>Chart</span><span>Set</span><span>Errors</span>
+            <span>Authored By</span><span />
+          </div>
+          {sets.map((k, i) => (
+            <div key={k.id as number} className={i % 2 === 1 ? 'pl-tr-alt' : 'pl-tr'}
+              style={{ ...s.tableRow, gridTemplateColumns: COLS }}>
+              <span style={{ fontWeight: 700, fontSize: 13 }}>{k.chart_number as string}</span>
+              <span style={{ fontSize: 12.5 }}>
+                {k.name as string}
+                {k.always_plant ? <span style={{ ...s.tag, marginLeft: 6, background: '#fef2f2', color: '#dc2626' }}>always used</span> : null}
+                {k.query_expected !== null && k.query_expected !== undefined
+                  ? <span style={{ ...s.tag, marginLeft: 6, background: '#fffbeb', color: '#b45309' }}>
+                      query {k.query_expected ? 'expected' : 'not needed'}
+                    </span>
+                  : null}
+              </span>
+              <span style={{ fontSize: 12 }}>{k.planting_count as number}</span>
+              <span style={{ fontSize: 12, color: '#6b7280' }}>{k.authored_by as string}</span>
+              <span style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
+                <button style={{ ...s.outlineBtn, padding: '4px 10px', fontSize: 12 }}
+                  title={`Edit the errors on ${k.chart_number}`}
+                  onClick={() => setChartId(k.chart_id as number)}>
+                  Edit
+                </button>
+              </span>
+            </div>
           ))}
         </div>
       )}
 
-      <div style={s.panel}>
-        <div style={s.panelHead}>
-          <span style={{ fontWeight: 700, fontSize: 13 }}>Curated charts ({sets.length})</span>
-        </div>
-        <div style={{ padding: '12px 16px' }}>
-          {sets.length === 0 ? (
-            <div style={s.empty}>
-              Nothing authored yet. Every chart gets its errors from the system until you curate it.
-            </div>
+      {/* The curation to-do list — the equivalent of "charts without keys" on
+          the coder screen, and the reason to come back to this page. */}
+      <div style={{ marginTop: 24 }}>
+        <button style={s.groupHead} onClick={() => setShowUncurated(v => !v)}>
+          {showUncurated ? <ChevronDown size={14} color="#9ca3af" />
+            : <ChevronRight size={14} color="#9ca3af" />}
+          <span style={{ fontSize: 13, fontWeight: 700, color: '#374151' }}>
+            Charts running on generated errors
+          </span>
+          {status && <span style={s.groupCount}>{status.uncurated}</span>}
+          <span style={{ flex: 1, height: 1, background: '#f3f4f6' }} />
+        </button>
+        {showUncurated && (
+          uncurated.length === 0 ? (
+            <div style={s.emptyState}>Every auditable chart in {specialty} has authored errors.</div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {sets.map(k => (
-                <button key={k.id as number} style={s.listRow}
-                  onClick={() => setChartId(k.chart_id as number)}>
-                  <span style={{ fontWeight: 700, fontSize: 13 }}>{k.chart_number as string}</span>
-                  <span style={{ fontSize: 13 }}>{k.name as string}</span>
-                  <span style={s.tag}>{k.planting_count as number} error(s)</span>
-                  {k.query_expected !== null && (
-                    <span style={{ ...s.tag, background: '#fffbeb', color: '#b45309' }}>
-                      query {k.query_expected ? 'expected' : 'not needed'}
-                    </span>
-                  )}
-                  {(k.always_plant as boolean) && (
-                    <span style={{ ...s.tag, background: '#fef2f2', color: '#dc2626' }}>always used</span>
-                  )}
-                  <span style={{ marginLeft: 'auto', fontSize: 11, color: '#9ca3af' }}>
-                    {k.authored_by as string}
+            <div style={s.table}>
+              <div style={{ ...s.tableHeader, gridTemplateColumns: '130px 1fr 1fr 150px' }}>
+                <span>Chart</span><span>Category</span><span>Difficulty</span><span /></div>
+              {uncurated.map((c, i) => (
+                <div key={c.chart_id as number} className={i % 2 === 1 ? 'pl-tr-alt' : 'pl-tr'}
+                  style={{ ...s.tableRow, gridTemplateColumns: '130px 1fr 1fr 150px' }}>
+                  <span style={{ fontWeight: 700, fontSize: 13 }}>{c.chart_number as string}</span>
+                  <span style={{ fontSize: 12, color: '#6b7280' }}>{(c.category as string) || '—'}</span>
+                  <span style={{ fontSize: 12, color: '#6b7280' }}>{(c.difficulty as string) || '—'}</span>
+                  <span style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    <button style={{ ...s.outlineBtn, padding: '4px 10px', fontSize: 12 }}
+                      onClick={() => setChartId(c.chart_id as number)}>
+                      <Plus size={13} /> Author errors
+                    </button>
                   </span>
-                </button>
+                </div>
               ))}
             </div>
-          )}
-        </div>
+          )
+        )}
       </div>
     </div>
   )
