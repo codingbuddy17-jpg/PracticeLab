@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
 import {
-  AlertTriangle, ChevronLeft, Copy, Download, Eye, Loader, Plus, RefreshCw,
-  Shuffle, Upload,
+  AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, Copy, Download, Eye,
+  Loader, Plus, RefreshCw, Shuffle, Upload,
 } from 'lucide-react'
 import {
   createAuditBatch, getAuditBatch, getAuditPlantings, listAuditBatches,
@@ -22,10 +22,38 @@ const MODES = [
 
 type View = 'list' | 'create' | 'detail'
 
+type StatusFilter = 'open' | 'closed' | 'all'
+
+/**
+ * Ageing groups, matching the coder batch home. A flat newest-first list looks
+ * fine at a dozen batches and becomes unreadable at a hundred; grouping by
+ * when something was created is how a trainer actually thinks about their
+ * work in progress.
+ */
+const GROUP_ORDER = ['This Week', 'Last Week', 'This Month', 'Older']
+
+function ageGroup(created?: string) {
+  if (!created) return 'Older'
+  const d = new Date(created)
+  const now = new Date()
+  const diff = Math.floor((now.getTime() - d.getTime()) / 86400000)
+  const daysToMonday = (now.getDay() + 6) % 7
+  if (diff <= daysToMonday) return 'This Week'
+  if (diff <= daysToMonday + 7) return 'Last Week'
+  if (diff <= now.getDate() - 1) return 'This Month'
+  return 'Older'
+}
+
 export function AuditBatches({ trainer }: { trainer: string }) {
   const [view, setView] = useState<View>('list')
   const [batches, setBatches] = useState<Record<string, any>[]>([])
   const [selected, setSelected] = useState<number | null>(null)
+  // Open by default — closed batches are the record, not the work.
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('open')
+  // Groups start collapsed, so the page opens as a short index rather than a
+  // wall of rows.
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  const [search, setSearch] = useState('')
 
   const load = useCallback(async () => {
     try { setBatches((await listAuditBatches()).batches) }
@@ -44,6 +72,32 @@ export function AuditBatches({ trainer }: { trainer: string }) {
       onBack={() => { load(); setView('list') }} />
   }
 
+  const openCount = batches.filter(b => b.status === 'Open').length
+  const closedCount = batches.length - openCount
+
+  const sorted = [...batches].sort((a, b) =>
+    String(b.created_at || '').localeCompare(String(a.created_at || ''))
+    || (Number(b.id) - Number(a.id)))
+
+  const term = search.trim().toLowerCase()
+  const filtered = sorted.filter(b => {
+    if (statusFilter === 'open' && b.status !== 'Open') return false
+    if (statusFilter === 'closed' && b.status === 'Open') return false
+    if (term && !String(b.name).toLowerCase().includes(term)
+      && !String(b.specialty).toLowerCase().includes(term)) return false
+    return true
+  })
+
+  const groups = GROUP_ORDER
+    .map(label => ({ label, items: filtered.filter(b => ageGroup(b.created_at as string) === label) }))
+    .filter(g => g.items.length)
+
+  const TABS: { key: StatusFilter; label: string; count: number; color: string; bg: string }[] = [
+    { key: 'open', label: 'Open', count: openCount, color: '#1d4ed8', bg: '#eff6ff' },
+    { key: 'closed', label: 'Closed', count: closedCount, color: '#15803d', bg: '#f0fdf4' },
+    { key: 'all', label: 'All', count: batches.length, color: '#374151', bg: '#f8fafc' },
+  ]
+
   return (
     <div>
       <div style={s.rowBetween}>
@@ -53,24 +107,77 @@ export function AuditBatches({ trainer }: { trainer: string }) {
         </button>
       </div>
 
-      {batches.length === 0 ? (
-        <div style={s.empty}>No audit batches yet.</div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 18 }}>
-          {batches.map(b => (
-            <button key={b.id as number} style={s.listRow}
-              onClick={() => { setSelected(b.id as number); setView('detail') }}>
-              <span style={{ fontWeight: 700, fontSize: 14 }}>{b.name as string}</span>
-              <span style={s.chip}>{b.specialty as string}</span>
-              <span style={{ ...s.chip, background: b.status === 'Open' ? '#d1fae5' : '#f3f4f6',
-                             color: b.status === 'Open' ? '#059669' : '#6b7280' }}>
-                {b.status as string}
-              </span>
-              <span style={{ marginLeft: 'auto', fontSize: 12, color: '#6b7280' }}>
-                {b.auditors as number} auditor(s) · {b.assigned as number} assigned · {b.scored as number} scored
-              </span>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 16, flexWrap: 'wrap' }}>
+        {TABS.map(t => {
+          const on = statusFilter === t.key
+          return (
+            <button key={t.key} onClick={() => setStatusFilter(t.key)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 7, padding: '6px 13px',
+                borderRadius: 8, cursor: 'pointer', fontSize: 12.5, fontWeight: 600,
+                border: `1px solid ${on ? t.color : '#e5e7eb'}`,
+                background: on ? t.bg : '#fff', color: on ? t.color : '#6b7280',
+              }}>
+              {t.label}
+              <span style={{ fontSize: 11, fontWeight: 700, opacity: 0.8 }}>{t.count}</span>
             </button>
-          ))}
+          )
+        })}
+        <input style={{ ...s.input, width: 220, marginLeft: 'auto' }}
+          placeholder="Search by name or specialty…"
+          value={search} onChange={e => setSearch(e.target.value)} />
+      </div>
+
+      {filtered.length === 0 ? (
+        <div style={s.empty}>
+          {batches.length === 0 ? 'No audit batches yet.'
+            : `No ${statusFilter === 'all' ? '' : statusFilter} batches match.`}
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 16 }}>
+          {groups.map(({ label, items }) => {
+            const isCollapsed = collapsed[label] !== false
+            return (
+              <div key={label}>
+                <button style={s.groupHead}
+                  onClick={() => setCollapsed(p => ({ ...p, [label]: p[label] === false }))}>
+                  {isCollapsed ? <ChevronRight size={14} color="#9ca3af" />
+                    : <ChevronDown size={14} color="#9ca3af" />}
+                  <span style={{ fontSize: 12, fontWeight: 700, color: '#6b7280' }}>{label}</span>
+                  <span style={s.groupCount}>{items.length}</span>
+                  <span style={{ flex: 1, height: 1, background: '#f3f4f6' }} />
+                </button>
+                {!isCollapsed && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 4 }}>
+                    {items.map(b => (
+                      <button key={b.id as number} style={s.listRow}
+                        onClick={() => { setSelected(b.id as number); setView('detail') }}>
+                        <span style={{ fontWeight: 700, fontSize: 14 }}>{b.name as string}</span>
+                        <span style={s.chip}>{b.specialty as string}</span>
+                        <span style={{
+                          ...s.chip,
+                          background: b.status === 'Open' ? '#eff6ff' : '#f3f4f6',
+                          color: b.status === 'Open' ? '#1d4ed8' : '#6b7280',
+                        }}>{b.status as string}</span>
+                        {b.days_open != null && (
+                          <span style={{
+                            fontSize: 11, fontWeight: 600,
+                            color: Number(b.days_open) > 14 ? '#d97706' : '#9ca3af',
+                          }}>
+                            {b.days_open as number}d open
+                          </span>
+                        )}
+                        <span style={{ marginLeft: 'auto', fontSize: 12, color: '#6b7280' }}>
+                          {b.auditors as number} auditor(s) · {b.assigned as number} assigned ·{' '}
+                          {b.scored as number} scored
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </div>
       )}
     </div>

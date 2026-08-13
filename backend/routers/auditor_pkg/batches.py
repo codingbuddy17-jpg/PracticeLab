@@ -139,10 +139,24 @@ def list_batches(status: Optional[str] = None, db: Session = Depends(get_db)):
                 AuditResult.batch_id.in_(ids)).all():
             scored_counts[bid] = scored_counts.get(bid, 0) + 1
 
+    now = datetime.utcnow()
+
+    def _days_open(b: AuditBatch):
+        """
+        How long an open batch has been sitting. The list groups by age and
+        flags anything stale, so a batch nobody finished does not simply
+        scroll away.
+        """
+        if not b.created_at or b.status != BatchStatus.OPEN:
+            return None
+        return (now - b.created_at.replace(tzinfo=None)).days
+
     return {"batches": [{
         "id": b.id, "name": b.name, "specialty": b.specialty.value,
         "status": b.status.value, "created_by": b.created_by,
         "created_at": b.created_at.isoformat() if b.created_at else None,
+        "closed_at": b.closed_at.isoformat() if b.closed_at else None,
+        "days_open": _days_open(b),
         "charts_per_auditor": b.charts_per_auditor,
         "allocation_mode": b.allocation_mode,
         "auditors": auditor_counts.get(b.id, 0),

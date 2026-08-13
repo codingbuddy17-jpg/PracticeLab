@@ -544,3 +544,46 @@ class TestObservedPlantings:
         assert planting["ground_truth"], "expected this chart to be planted"
         assert all(g.get("correct_value") != "E11.7"
                    for g in planting["ground_truth"])
+
+
+class TestBatchListing:
+    """
+    The list is what a trainer lands on, so it has to stay legible as batches
+    accumulate: open work first, aged so nothing quietly scrolls away.
+    """
+
+    def test_the_list_reports_how_long_an_open_batch_has_been_sitting(
+            self, client, db, library):
+        from sqlalchemy import text
+        batch_id = make_batch(client)
+        db.execute(text("UPDATE audit_batches SET created_at=:d WHERE id=:b"),
+                   {"d": "2026-07-01 09:00:00", "b": batch_id})
+        db.commit()
+        row = next(b for b in client.get("/auditor/batches").json()["batches"]
+                   if b["id"] == batch_id)
+        assert row["days_open"] is not None and row["days_open"] > 14
+
+    def test_a_closed_batch_has_no_ageing_figure(self, client, db, library):
+        """
+        Days-open on a closed batch would be a number that keeps growing after
+        the work stopped, which says nothing true about it.
+        """
+        batch_id = make_batch(client)
+        token = allocate(client, batch_id)["access_codes"][0]["token"]
+        payload = client.get(f"/auditor/sessions/by-token/{token}").json()
+        client.post(f"/auditor/sessions/{payload['session_id']}/submit",
+                    json=perfect_work(payload, truth_map(client, batch_id)))
+        client.post(f"/auditor/batches/{batch_id}/close", json={"closed_by": "T"})
+
+        row = next(b for b in client.get("/auditor/batches").json()["batches"]
+                   if b["id"] == batch_id)
+        assert row["status"] == "Closed"
+        assert row["days_open"] is None
+        assert row["closed_at"]
+
+    def test_batches_can_be_filtered_by_status(self, client, db, library):
+        make_batch(client)
+        assert client.get("/auditor/batches",
+                          params={"status": "Open"}).json()["batches"]
+        assert client.get("/auditor/batches",
+                          params={"status": "Closed"}).json()["batches"] == []

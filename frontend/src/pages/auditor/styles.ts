@@ -80,6 +80,15 @@ const s: Record<string, CSSProperties> = {
 
   codeRow: { display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', border: '1px solid #f3f4f6', borderRadius: 8 },
   codeChip: { fontFamily: 'ui-monospace, monospace', fontSize: 13, fontWeight: 700, background: '#f9fafb', padding: '4px 9px', borderRadius: 6 },
+  groupHead: {
+    display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '7px 2px',
+    border: 'none', background: 'none', cursor: 'pointer', textAlign: 'left',
+  },
+  groupCount: {
+    fontSize: 10.5, fontWeight: 700, color: '#9ca3af', background: '#f3f4f6',
+    borderRadius: 5, padding: '1px 7px',
+  },
+
   errorRow: { padding: '10px 12px', border: '1px solid #f3f4f6', borderRadius: 9, background: '#fcfcfd' },
   observedTag: {
     marginLeft: 8, fontSize: 10, fontWeight: 700, color: '#059669',
