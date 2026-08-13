@@ -22,6 +22,7 @@ from models import (
     Chart,
 )
 from services.allocation import draw_for_person
+from services.audit_observations import load_observations, summarise
 from services.audit_allocation import (
     build_assignment, build_corpus, new_token, resolve_quotas, resolve_source,
 )
@@ -288,6 +289,13 @@ def run_allocation(batch_id: int, payload: AllocationRun, db: Session = Depends(
     mcfg = mutation_config(db)
     all_sets = sets_by_chart(db, [c.id for c in pool])
 
+    # What real coders actually got wrong on these charts, diffed against the
+    # CURRENT answer key so a key that has since been corrected cannot
+    # resurrect a stale "error". Harvested once per cycle rather than per
+    # auditor — the observations are a property of the chart.
+    observed = {c.id: load_observations(db, c.id, keys.get(c.id))
+                for c in pool if keys.get(c.id)}
+
     total, notes, issued = 0, [], []
     for auditor in auditors:
         counts = seen_counts.get(auditor.auditor_name, {})
@@ -315,7 +323,8 @@ def run_allocation(batch_id: int, payload: AllocationRun, db: Session = Depends(
             built = build_assignment(
                 chart, keys.get(chart.id), source, key_set,
                 cycle_number=cycle_number, cfg=mcfg, corpus=corpus,
-                tier=batch.difficulty_tier)
+                tier=batch.difficulty_tier,
+                observations=observed.get(chart.id))
             if key_set is not None:
                 seen_sets.add(key_set.id)
             db.add(AuditAssignment(

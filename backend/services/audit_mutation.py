@@ -91,6 +91,10 @@ class MutationConfig:
     mix_poa: int = 2
     mix_spurious: int = 10
     max_auto_plantings: int = 10
+    # How much of a chart's budget prefers real coder mistakes over
+    # synthetic ones, where any have been observed. 100 means take as
+    # many as the chart offers; synthetic still fills whatever is left.
+    observed_share_pct: int = 100
     max_section_share: int = 30
     ccmcc_preference: int = 3
 
@@ -328,13 +332,23 @@ def generate(key, specialty: Specialty, seed: int,
              cfg: Optional[MutationConfig] = None,
              corpus: Optional[Corpus] = None,
              tier: Optional[str] = None,
-             budget: Optional[int] = None) -> tuple[dict, list[dict]]:
+             budget: Optional[int] = None,
+             observations: Optional[list] = None) -> tuple[dict, list[dict]]:
     """
     Build a flawed claim and the ground truth for it.
 
     Returns (claim, ground_truth). Ground truth is a list of what the auditor
     must do, in the same {section, action, ...} shape their own findings take,
     so scoring is a comparison rather than a translation.
+
+    `observations` are mistakes real coders made on this chart. Where they
+    exist they are planted FIRST, because a demonstrated error beats a guessed
+    one — and the auditor is then learning to catch what their own colleagues
+    actually get wrong. Synthetic mutation fills whatever budget is left, so a
+    chart with two observations and a budget of four still varies.
+
+    Which observations get picked is seeded, so a chart with more candidates
+    than budget plants a different subset each cycle rather than repeating.
 
     An empty ground truth is a legal, ordinary outcome — a chart the budget
     could not safely break. Callers that need a guaranteed-clean chart should
@@ -354,6 +368,10 @@ def generate(key, specialty: Specialty, seed: int,
     # ambiguous and the scoring arbitrary.
     used: set = set()
 
+    if observations and cfg.observed_share_pct > 0:
+        room = max(1, round(want * cfg.observed_share_pct / 100))
+        _plant_observed(observations, claim, room, rng, used, ground_truth)
+
     attempts = 0
     while len(ground_truth) < want and attempts < want * 8:
         attempts += 1
@@ -367,6 +385,113 @@ def generate(key, specialty: Specialty, seed: int,
             ground_truth.append(entry)
 
     return claim, ground_truth
+
+
+def _plant_observed(observations, claim: dict, room: int, rng: random.Random,
+                    used: set, emitted: list[dict]) -> None:
+    """
+    Plant real coder mistakes, weighted so a trend outranks a one-off.
+
+    A single coder missing one code is a data point, not a pattern — it might
+    just be someone having a bad afternoon. It stays a legitimate candidate,
+    but two or more coders making the same mistake is what earns extra weight.
+
+    Drawn without replacement and seeded, so a chart carrying ten observations
+    plants a different subset each cycle instead of the same ten every time.
+    """
+    pool = list(observations)
+    while pool and len(emitted) < room:
+        weights = [getattr(o, "weight", 1.0) for o in pool]
+        pick = rng.choices(range(len(pool)), weights=weights, k=1)[0]
+        obs = pool.pop(pick)
+        record = _apply_instruction(obs.as_instruction(), claim, used, emitted)
+        if record:
+            emitted.append(record)
+
+
+def _apply_instruction(instr: dict, claim: dict, used: set,
+                       emitted: list[dict]) -> Optional[dict]:
+    """
+    Apply one concrete planting instruction and return its ground-truth record.
+
+    The instruction says what the AUDITOR must do, so it is played backwards
+    into the claim: an Add means the code is removed from what they will see, a
+    Delete means one is inserted. Returns None where the chart cannot carry it
+    — a code already gone, a line already touched, a section that would empty.
+    """
+    section = instr.get("section")
+    action = instr.get("action")
+    rows = {"SDx": claim.setdefault("sdx", []),
+            "PCS": claim.setdefault("pcs", []),
+            "CPT": claim.setdefault("cpt", [])}.get(section)
+
+    if section == "PDx":
+        if action != "Revise" or ("PDx", 0) in used:
+            return None
+        fld = instr.get("field") or "code"
+        column = "pdx_poa" if fld == "poa" else "pdx_code"
+        correct = instr.get("correct_value") or claim.get(column)
+        claim[column] = instr.get("claim_value")
+        used.add(("PDx", 0))
+        return {**instr, "kind": "observed", "line": 0, "field": fld,
+                "correct_value": correct, "drg_impacting": True}
+
+    if rows is None:
+        return None
+
+    if action == "Add":
+        # Never empty a section: a claim with no secondaries at all is not a
+        # flawed claim, it is a broken one.
+        if len(rows) < 2:
+            return None
+        want = _bare(instr.get("correct_value") or instr.get("code"))
+        idx = next((i for i, r in enumerate(rows) if _bare(r.get("code")) == want), None)
+        if idx is None or (section, idx) in used:
+            return None
+        removed = rows.pop(idx)
+        _shift_used(used, section, idx, emitted)
+        return {**instr, "kind": "observed", "action": "Add",
+                "correct_value": removed.get("code"), "entry": removed,
+                "drg_impacting": _is_drg_impacting(section, removed)}
+
+    if action == "Delete":
+        code = instr.get("claim_value") or instr.get("code")
+        if not code:
+            return None
+        at = rng_free_index(rows, used, section)
+        if at is None:
+            return None
+        rows.insert(at, {"code": code, "poa": instr.get("poa", ""),
+                         "ccmcc": instr.get("ccmcc", "-")})
+        _unshift_used(used, section, at, emitted)
+        used.add((section, at))
+        return {**instr, "kind": "observed", "action": "Delete", "line": at,
+                "claim_value": code, "drg_impacting": False}
+
+    if action == "Revise":
+        fld = instr.get("field") or "code"
+        want = _bare(instr.get("code"))
+        idx = next((i for i, r in enumerate(rows) if _bare(r.get("code")) == want), None)
+        if idx is None or (section, idx) in used:
+            return None
+        correct = instr.get("correct_value")
+        if correct in (None, ""):
+            correct = rows[idx].get(fld)
+        rows[idx] = dict(rows[idx], **{fld: instr.get("claim_value")})
+        used.add((section, idx))
+        return {**instr, "kind": "observed", "line": idx, "field": fld,
+                "claim_value": instr.get("claim_value"), "correct_value": correct,
+                "drg_impacting": _is_drg_impacting(section, rows[idx])}
+
+    return None
+
+
+def rng_free_index(rows: list, used: set, section: str) -> Optional[int]:
+    """First insertion point that does not land on an already-touched line."""
+    for at in range(len(rows) + 1):
+        if (section, at) not in used:
+            return at
+    return None
 
 
 def _apply(kind: str, claim: dict, specialty: Specialty, corpus: Corpus,

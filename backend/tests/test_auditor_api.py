@@ -435,3 +435,112 @@ class TestConfig:
         r = client.put("/auditor/config", json={
             "pass_threshold": 50, "updated_by": "T", "passphrase": "nope"})
         assert r.status_code == 403
+
+
+# ── planting what coders really got wrong ────────────────────────────────────
+
+class TestObservedPlantings:
+    """
+    The loop that makes this module compound: coders practise, their mistakes
+    become audit content, and auditors train on the errors their own
+    organisation actually makes.
+    """
+
+    def _record_coder_work(self, db, chart, submitted_sdx, coders=3):
+        """Write practice results as if coders had sat this chart."""
+        import json
+        from sqlalchemy import text
+        for i in range(coders):
+            db.execute(text("""
+                INSERT INTO practice_sessions
+                  (batch_id, coder_name, specialty, token, chart_ids, status)
+                VALUES (NULL, :n, 'IP-DRG', :t, :ci, 'submitted')"""),
+                {"n": f"Coder{i}", "t": f"OBS{chart.id}{i}",
+                 "ci": json.dumps([chart.id])})
+            sid = db.execute(text(
+                "SELECT id FROM practice_sessions WHERE token=:t"),
+                {"t": f"OBS{chart.id}{i}"}).fetchone()[0]
+            db.execute(text("""
+                INSERT INTO practice_results
+                  (session_id, chart_id, specialty, total_score, pass_fail,
+                   pdx_submitted, sdx_submitted, pcs_submitted, cpt_submitted, feedback)
+                VALUES (:s, :c, 'IP-DRG', 70, 'FAIL', 'J18.9', :sdx,
+                        :pcs, '[]', '[]')"""),
+                {"s": sid, "c": chart.id,
+                 "sdx": json.dumps([{"code": c, "poa": "Y"} for c in submitted_sdx]),
+                 "pcs": json.dumps([{"code": f"0DTJ{j}ZZ"} for j in range(3)])})
+        db.commit()
+
+    def test_a_code_coders_kept_missing_is_planted_for_the_auditor(
+            self, client, db, library):
+        chart = library[0]
+        # Every coder missed E11.4 and E11.6.
+        self._record_coder_work(
+            db, chart, [f"E11.{j}" for j in range(8) if j not in (4, 6)])
+
+        # clean_share=0 so every chart is planted. Otherwise whether THIS chart
+        # comes up clean depends on batch_id, which shifts with test ordering.
+        batch_id = make_batch(client, charts_per=8, clean_share=0)
+        allocate(client, batch_id)
+        planting = next(p for p in client.get(
+            f"/auditor/batches/{batch_id}/plantings").json()["plantings"]
+            if p["chart_id"] == chart.id)
+
+        observed = [g for g in planting["ground_truth"] if g.get("origin") == "observed"]
+        assert observed, planting["ground_truth"]
+        assert {g["correct_value"] for g in observed} <= {"E11.4", "E11.6"}
+        assert all(g["observed_coders"] == 3 for g in observed)
+        assert all(g["observed_trend"] is True for g in observed)
+
+    def test_a_chart_no_coder_has_sat_falls_back_to_synthetic(
+            self, client, db, library):
+        """Coverage grows with time; thin coverage must degrade, not break."""
+        batch_id = make_batch(client, charts_per=8, clean_share=0)
+        allocate(client, batch_id)
+        plantings = client.get(
+            f"/auditor/batches/{batch_id}/plantings").json()["plantings"]
+        planted = [p for p in plantings if p["ground_truth"]]
+        assert planted
+        assert all(g.get("origin") != "observed"
+                   for p in planted for g in p["ground_truth"])
+
+    def test_an_auditor_can_still_score_100_on_an_observed_planting(
+            self, client, db, library):
+        """
+        The shape has to survive the new source — an observed planting is
+        matched and corrected exactly like a synthetic one.
+        """
+        self._record_coder_work(
+            db, library[0], [f"E11.{j}" for j in range(8) if j != 5])
+        batch_id = make_batch(client, charts_per=4)
+        token = allocate(client, batch_id)["access_codes"][0]["token"]
+        payload = client.get(f"/auditor/sessions/by-token/{token}").json()
+        r = client.post(f"/auditor/sessions/{payload['session_id']}/submit",
+                        json=perfect_work(payload, truth_map(client, batch_id)))
+        assert r.status_code == 200, r.text
+        assert r.json()["summary"]["audit_accuracy"] == 100.0
+
+    def test_a_corrected_answer_key_retires_the_stale_observation(
+            self, client, db, library):
+        """
+        Coders were marked wrong for omitting E11.7. If the key is later
+        corrected to drop E11.7, they were right all along — and the auditor
+        must not be asked to add a code the chart no longer supports.
+        """
+        from models import AnswerKey
+        chart = library[0]
+        self._record_coder_work(
+            db, chart, [f"E11.{j}" for j in range(8) if j != 7])
+
+        key = db.query(AnswerKey).filter(AnswerKey.chart_id == chart.id).first()
+        key.sdx = [s for s in key.sdx if s["code"] != "E11.7"]
+        db.commit()
+
+        batch_id = make_batch(client, charts_per=8, clean_share=0)
+        allocate(client, batch_id)
+        planting = next(p for p in client.get(
+            f"/auditor/batches/{batch_id}/plantings").json()["plantings"]
+            if p["chart_id"] == chart.id)
+        assert planting["ground_truth"], "expected this chart to be planted"
+        assert all(g.get("correct_value") != "E11.7"
+                   for g in planting["ground_truth"])

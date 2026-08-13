@@ -171,7 +171,8 @@ def resolve_source(chart_id: int, is_clean: bool, sets_by_chart: dict,
 def build_assignment(chart, key, source: AuditSource, key_set,
                      cycle_number: int, cfg: Optional[MutationConfig] = None,
                      corpus: Optional[Corpus] = None,
-                     tier: Optional[str] = None) -> dict:
+                     tier: Optional[str] = None,
+                     observations: Optional[list] = None) -> dict:
     """
     Materialise one assignment: the claim as the auditor will see it, and the
     ground truth for it.
@@ -204,8 +205,12 @@ def build_assignment(chart, key, source: AuditSource, key_set,
         return {**base, "claim": claim, "ground_truth": truth,
                 "query_expected": key_set.query_expected}
 
+    # Real coder mistakes on this chart get planted first where any exist; the
+    # generator fills the rest of the budget. A chart nobody has coded yet is
+    # entirely synthetic, and the same chart in a later cycle plants from
+    # whatever has accumulated since.
     claim, truth = generate(key, chart.specialty, seed=seed, cfg=cfg,
-                            corpus=corpus, tier=tier)
+                            corpus=corpus, tier=tier, observations=observations)
     return {**base, "seed": seed, "claim": claim, "ground_truth": truth}
 
 

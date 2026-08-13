@@ -396,6 +396,10 @@ class AuditScoringConfig(Base):
     # No ceiling applies to manual plantings — a trainer authoring a set has
     # read the chart and has a reason. This caps generation only.
     max_auto_plantings = Column(Integer, nullable=False, default=10)
+    # Where real coder mistakes have been observed on a chart, how much of
+    # its budget prefers them over synthetic mutation. A demonstrated error
+    # beats a guessed one; synthetic fills whatever budget is left over.
+    observed_share_pct = Column(Integer, nullable=False, default=100)
     max_section_share = Column(Integer, nullable=False, default=30)
     ccmcc_preference = Column(Integer, nullable=False, default=3)
 
