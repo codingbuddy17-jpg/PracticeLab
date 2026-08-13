@@ -198,7 +198,7 @@ def create_set(chart_id: int, payload: KeySetPayload, db: Session = Depends(get_
         raise HTTPException(
             400, "This chart has no answer key — there is no truth to introduce errors into")
     if not (payload.name or "").strip():
-        raise HTTPException(400, "Name the set, so it can be told apart from others on this chart")
+        raise HTTPException(400, "Name this version, so it can be told apart from others on this chart")
     if payload.query_expected is not None and chart.specialty not in QUERY_SPECIALTIES:
         raise HTTPException(
             400, f"A physician query determination only applies to "

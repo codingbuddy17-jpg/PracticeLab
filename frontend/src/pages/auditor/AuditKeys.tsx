@@ -129,7 +129,7 @@ export function AuditKeys({ trainer }: { trainer: string }) {
       ) : (
         <div style={s.table}>
           <div style={{ ...s.tableHeader, gridTemplateColumns: COLS }}>
-            <span>Chart</span><span>Set</span><span>Errors</span>
+            <span>Chart</span><span>Version</span><span>Errors</span>
             <span>Authored By</span><span />
           </div>
           {sets.map((k, i) => (
@@ -247,7 +247,7 @@ function ChartKeyEditor({ chartId, trainer, onBack }: {
   }
 
   async function save() {
-    if (!name.trim()) return toast.error('Name the set — a chart can hold several')
+    if (!name.trim()) return toast.error('Give this version a name — one chart can carry several')
     if (!passphrase.trim()) return toast.error('Passphrase required')
     setBusy(true)
     const payload = {
@@ -293,7 +293,7 @@ function ChartKeyEditor({ chartId, trainer, onBack }: {
           <div style={s.sub}>{data.specialty}</div>
         </div>
         {!editing && data.has_answer_key && data.auditable && (
-          <button style={s.primaryBtn} onClick={startNew}><Plus size={15} /> New error set</button>
+          <button style={s.primaryBtn} onClick={startNew}><Plus size={15} /> New version</button>
         )}
       </div>
 
@@ -326,7 +326,7 @@ function ChartKeyEditor({ chartId, trainer, onBack }: {
         <div style={s.panel}>
           <div style={s.panelHead}>
             <span style={{ fontWeight: 700, fontSize: 13 }}>
-              {editing.id ? 'Edit error set' : 'New error set'}
+              {editing.id ? 'Edit version' : 'New version'}
             </span>
             <button style={{ ...s.iconBtn, marginLeft: 'auto' }} onClick={() => setEditing(null)}>
               <X size={15} />
@@ -334,17 +334,19 @@ function ChartKeyEditor({ chartId, trainer, onBack }: {
           </div>
           <div style={{ padding: '14px 16px' }}>
             <div style={s.infoBox}>
-              Describe what the auditor must <strong>find</strong>. An “Add” means the code is
-              missing from what they see; a “Delete” means a spurious code is on their claim.
+              Mark what should be <strong>wrong</strong> on the claim this auditor receives.
+              Everything you mark here is something they have to find.
             </div>
 
             <div style={{ marginTop: 14, marginBottom: 12 }}>
-              <div style={s.label}>Set name</div>
+              <div style={s.label}>Name this version</div>
               <input style={{ ...s.input, maxWidth: 360 }} value={name}
                 onChange={e => setName(e.target.value)}
-                placeholder="e.g. Foundational · DRG impact" />
+                placeholder="e.g. Missed CC/MCC · Wrong root operation · Foundational" />
               <div style={s.note}>
-                A chart can hold several sets, and an auditor is given one they have not seen.
+                One chart can carry several versions — the same chart broken in different
+                ways. An auditor who meets it again is given a version they have not seen,
+                so the chart can be reused without testing their memory.
               </div>
             </div>
 
@@ -401,10 +403,11 @@ function ChartKeyEditor({ chartId, trainer, onBack }: {
 
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 16, fontSize: 12.5, cursor: 'pointer' }}>
               <input type="checkbox" checked={alwaysPlant} onChange={e => setAlwaysPlant(e.target.checked)} />
-              Always use this set — exempt from the clean draw
+              Always use this version — never hand this chart over clean
             </label>
             <div style={s.note}>
-              Use sparingly. A curated chart that never comes up clean becomes a tell.
+              Use sparingly. Normally any chart can come up clean, which is what stops
+              auditors learning which chart numbers are worth skimming.
             </div>
 
             <div style={{ display: 'flex', gap: 10, marginTop: 20, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -412,7 +415,7 @@ function ChartKeyEditor({ chartId, trainer, onBack }: {
               <input style={{ ...s.input, width: 200 }} type="password" placeholder="Passphrase"
                 value={passphrase} onChange={e => setPassphrase(e.target.value)} />
               <button style={{ ...s.primaryBtn, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={save}>
-                <Save size={14} /> {busy ? 'Saving…' : 'Save set'}
+                <Save size={14} /> {busy ? 'Saving…' : 'Save version'}
               </button>
               <button style={{ ...s.ghostBtn, opacity: busy ? 0.5 : 1 }} disabled={busy}
                 onClick={() => setEditing(null)}>
@@ -426,12 +429,15 @@ function ChartKeyEditor({ chartId, trainer, onBack }: {
       ) : (
         <div style={s.panel}>
           <div style={s.panelHead}>
-            <span style={{ fontWeight: 700, fontSize: 13 }}>Error sets ({data.sets.length})</span>
+            <span style={{ fontWeight: 700, fontSize: 13 }}>
+              Versions on this chart ({data.sets.length})
+            </span>
           </div>
           <div style={{ padding: '12px 16px' }}>
             {data.sets.length === 0 ? (
               <div style={s.empty}>
                 None yet — this chart gets its errors from the system when it is allocated.
+                Author a version to control exactly what an auditor has to find.
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
