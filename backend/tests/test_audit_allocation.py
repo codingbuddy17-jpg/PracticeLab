@@ -111,46 +111,61 @@ class TestModes:
 
 class TestSourceResolution:
 
-    def test_a_chart_with_no_set_and_no_clean_roll_generates(self):
-        src, chosen = resolve_source(1, False, {}, set(), random.Random(0))
+    def test_a_chart_with_no_version_and_no_clean_roll_generates(self):
+        src, chosen = resolve_source(1, False, {}, cycle_number=1)
         assert src == AuditSource.AUTO and chosen is None
 
-    def test_a_chart_with_a_set_uses_it(self):
+    def test_a_chart_with_a_version_uses_it(self):
         s = FakeSet()
-        src, chosen = resolve_source(1, False, {1: [s]}, set(), random.Random(0))
+        src, chosen = resolve_source(1, False, {1: [s]}, cycle_number=1)
         assert src == AuditSource.MANUAL and chosen is s
 
     def test_a_curated_chart_can_still_come_up_clean(self):
         """
         Clean is a property of the assignment, not the chart. A chart with a
-        beautiful hand-authored set must sometimes be handed over untouched, or
-        the curated charts become a tell.
+        beautiful hand-authored version must sometimes be handed over
+        untouched, or the curated charts become a tell.
         """
         s = FakeSet()
-        src, chosen = resolve_source(1, True, {1: [s]}, set(), random.Random(0))
+        src, chosen = resolve_source(1, True, {1: [s]}, cycle_number=1)
         assert src == AuditSource.CLEAN and chosen is None
 
     def test_always_plant_overrides_the_clean_roll(self):
         s = FakeSet(always_plant=True)
-        src, chosen = resolve_source(1, True, {1: [s]}, set(), random.Random(0))
+        src, chosen = resolve_source(1, True, {1: [s]}, cycle_number=1)
         assert src == AuditSource.MANUAL and chosen is s
 
-    def test_an_unseen_set_is_preferred_over_a_seen_one(self):
+    def test_the_version_depends_on_the_cycle_and_nothing_else(self):
         """
-        Least-seen-first, one level below the chart draw — which is the whole
-        reason a chart should hold several named sets.
+        The bug this replaced: the choice was per-auditor, so four auditors on
+        one chart in one cycle got three different versions and their answers
+        could not be compared. Same cycle must mean same version, always.
         """
-        seen, fresh = FakeSet(), FakeSet()
-        for _ in range(20):
-            _src, chosen = resolve_source(1, False, {1: [seen, fresh]},
-                                          {seen.id}, random.Random(_))
-            assert chosen is fresh
+        sets = [FakeSet(), FakeSet(), FakeSet()]
+        for cycle in range(1, 8):
+            picks = {resolve_source(1, False, {1: sets}, cycle_number=cycle)[1]
+                     for _ in range(20)}
+            assert len(picks) == 1
 
-    def test_once_every_set_is_seen_it_reuses_rather_than_failing(self):
-        a, b = FakeSet(), FakeSet()
-        src, chosen = resolve_source(1, False, {1: [a, b]}, {a.id, b.id},
-                                     random.Random(1))
-        assert src == AuditSource.MANUAL and chosen in (a, b)
+    def test_each_cycle_rotates_to_the_next_version(self):
+        sets = [FakeSet(), FakeSet(), FakeSet()]
+        picked = [resolve_source(1, False, {1: sets}, cycle_number=c)[1]
+                  for c in range(1, 4)]
+        assert picked == sets
+
+    def test_the_rotation_wraps_once_every_version_is_used(self):
+        """Running dry is not a reason to drop the chart from the rotation."""
+        sets = [FakeSet(), FakeSet()]
+        assert resolve_source(1, False, {1: sets}, cycle_number=3)[1] is sets[0]
+        assert resolve_source(1, False, {1: sets}, cycle_number=4)[1] is sets[1]
+
+    def test_the_rotation_is_stable_as_the_library_grows(self):
+        """
+        Ordered by id, so authoring a fourth version does not reshuffle which
+        version cycle 2 hands out.
+        """
+        a, b, c = FakeSet(), FakeSet(), FakeSet()
+        assert resolve_source(1, False, {1: [c, a, b]}, cycle_number=2)[1] is b
 
 
 # ── the seed ─────────────────────────────────────────────────────────────────

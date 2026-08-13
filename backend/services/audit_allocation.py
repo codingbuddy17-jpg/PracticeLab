@@ -144,30 +144,39 @@ def assignment_seed(chart_id: int, cycle_number: int) -> int:
 
 
 def resolve_source(chart_id: int, is_clean: bool, sets_by_chart: dict,
-                   seen_set_ids: set, rng: random.Random):
+                   cycle_number: int):
     """
-    Pick where this assignment's claim comes from.
+    Pick where this assignment's claim comes from, and which version.
+
+    The version is chosen by CYCLE, not by auditor. That is the whole point:
+    two auditors given the same chart in one cycle must see the same errors, or
+    their answers on it cannot be compared — which is the same reason the
+    generator seeds from (chart, cycle) rather than from the person.
+
+    An earlier version of this preferred a version the auditor had not seen,
+    which is per-auditor by definition and therefore handed four auditors on
+    one chart three different versions in the same sitting.
+
+    Rotating by cycle number keeps both properties: everyone in a cycle lands
+    on the same version, and a chart met again in a later cycle carries a
+    different one. Versions are ordered by id so the rotation is stable as the
+    library grows.
 
     A set flagged always_plant overrides the clean roll — that is what the flag
-    is for, and the design note attached to it warns against using it widely,
-    since curated charts that never come up clean become a tell.
-
-    Among a chart's stored sets, prefer one this auditor has not seen. That is
-    the least-seen-first rule the chart allocator already applies, one level
-    down: it is why a chart should hold several named sets.
+    is for, and its note warns against using it widely, since curated charts
+    that never come up clean become a tell.
     """
-    sets = sets_by_chart.get(chart_id) or []
+    sets = sorted(sets_by_chart.get(chart_id) or [], key=lambda s: s.id)
     forced = [s for s in sets if getattr(s, "always_plant", False)]
     if is_clean and not forced:
         return AuditSource.CLEAN, None
 
     pool = forced or sets
     if not pool:
-        # No authored set, and the clean roll did not pick this chart.
+        # No authored version, and the clean roll did not pick this chart.
         return AuditSource.AUTO, None
 
-    unseen = [s for s in pool if s.id not in seen_set_ids]
-    return AuditSource.MANUAL, rng.choice(unseen or pool)
+    return AuditSource.MANUAL, pool[(max(1, cycle_number) - 1) % len(pool)]
 
 
 def build_assignment(chart, key, source: AuditSource, key_set,

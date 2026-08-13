@@ -288,14 +288,11 @@ def run_allocation(batch_id: int, payload: AllocationRun, db: Session = Depends(
                 .filter(AuditAssignment.batch_id == batch_id).all())
     seen_counts: dict[str, dict] = {}
     prior_sets: dict[str, list] = {}
-    seen_set_ids: dict[str, set] = {}
     by_cycle: dict[tuple, set] = {}
     for a in existing:
         seen_counts.setdefault(a.auditor_name, {})
         seen_counts[a.auditor_name][a.chart_id] = \
             seen_counts[a.auditor_name].get(a.chart_id, 0) + 1
-        if a.set_id:
-            seen_set_ids.setdefault(a.auditor_name, set()).add(a.set_id)
         by_cycle.setdefault((a.auditor_name, a.cycle_id), set()).add(a.chart_id)
     for (name, _cycle), ids in by_cycle.items():
         prior_sets.setdefault(name, []).append(ids)
@@ -344,17 +341,15 @@ def run_allocation(batch_id: int, payload: AllocationRun, db: Session = Depends(
         rng.shuffle(positions)
         clean_positions = set(positions[:min(quotas.clean, len(drawn))])
 
-        seen_sets = seen_set_ids.get(auditor.auditor_name, set())
         for idx, chart in enumerate(drawn):
+            # Version by cycle, not by auditor — see resolve_source.
             source, key_set = resolve_source(
-                chart.id, idx in clean_positions, all_sets, seen_sets, rng)
+                chart.id, idx in clean_positions, all_sets, cycle_number)
             built = build_assignment(
                 chart, keys.get(chart.id), source, key_set,
                 cycle_number=cycle_number, cfg=mcfg, corpus=corpus,
                 tier=batch.difficulty_tier,
                 observations=observed.get(chart.id))
-            if key_set is not None:
-                seen_sets.add(key_set.id)
             db.add(AuditAssignment(
                 batch_id=batch_id, cycle_id=cycle.id,
                 auditor_name=auditor.auditor_name, specialty=chart.specialty,
