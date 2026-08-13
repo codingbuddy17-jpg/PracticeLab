@@ -86,6 +86,14 @@ const s: Record<string, CSSProperties> = {
     background: '#d1fae5', padding: '1px 7px', borderRadius: 5,
   },
 
+  modeToggle: { display: 'flex', border: '1px solid #e5e7eb', borderRadius: 7, overflow: 'hidden' },
+  modeTab: { padding: '5px 14px', border: 'none', background: '#fff', fontSize: 12, fontWeight: 600, color: '#6b7280', cursor: 'pointer' },
+  modeTabActive: { padding: '5px 14px', border: 'none', background: '#9333ea', fontSize: 12, fontWeight: 600, color: '#fff', cursor: 'pointer' },
+  rosterTable: { border: '1px solid #e9d5ff', borderRadius: 8, overflow: 'hidden', marginTop: 8 },
+  rosterHeader: { display: 'grid', gridTemplateColumns: '1fr 140px 32px', padding: '8px 14px', background: '#faf5ff', fontSize: 11, fontWeight: 700, color: '#6b21a8', textTransform: 'uppercase' as const, letterSpacing: 0.5, borderBottom: '1px solid #e9d5ff' },
+  rosterRow: { display: 'grid', gridTemplateColumns: '1fr 140px 32px', padding: '8px 14px', borderBottom: '1px solid #faf5ff', fontSize: 13, alignItems: 'center' },
+  removeRow: { border: 'none', background: 'none', cursor: 'pointer', color: '#9ca3af', fontSize: 14, padding: 0, lineHeight: 1 },
+
   mutRow: { display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderBottom: '1px solid #f9fafb', flexWrap: 'wrap' },
   select: { fontSize: 12.5, padding: '7px 9px', border: '1px solid #e5e7eb', borderRadius: 7, background: '#fff' },
 }

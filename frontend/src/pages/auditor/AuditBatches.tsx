@@ -1,13 +1,15 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
 import {
-  AlertTriangle, ChevronLeft, Copy, Eye, Plus, RefreshCw, Shuffle,
+  AlertTriangle, ChevronLeft, Copy, Download, Eye, Loader, Plus, RefreshCw,
+  Shuffle, Upload,
 } from 'lucide-react'
 import {
   createAuditBatch, getAuditBatch, getAuditPlantings, listAuditBatches,
   regenerateAssignment, runAuditAllocation,
 } from '../../api/auditorApi'
-import { getCategories } from '../../api'
+import { downloadCoderListTemplate, getCategories, getPoolPreview, parseCoderList } from '../../api'
+import { CoderPicker } from '../../components/CoderPicker'
 import s from './styles'
 
 const AUDITABLE = ['IP-DRG', 'SDS', 'ED Facility', 'Surgery', 'ED Single Path', 'Ancillary']
@@ -45,10 +47,7 @@ export function AuditBatches({ trainer }: { trainer: string }) {
   return (
     <div>
       <div style={s.rowBetween}>
-        <div>
-          <div style={s.h1}>Audit Batches</div>
-          <div style={s.sub}>Charts arrive pre-coded. Auditors find and fix what is wrong.</div>
-        </div>
+        <div style={s.h1}>Audit Batches</div>
         <button style={s.primaryBtn} onClick={() => setView('create')}>
           <Plus size={15} /> New Audit Batch
         </button>
@@ -94,20 +93,65 @@ function CreateAuditBatch({ trainer, onDone, onCancel }: {
   const [quotaManual, setQuotaManual] = useState(1)
   const [quotaAuto, setQuotaAuto] = useState(2)
   const [tier, setTier] = useState('')
-  const [roster, setRoster] = useState('')
   const [busy, setBusy] = useState(false)
+
+  // Roster entry mirrors the coder batch screen exactly — same picker, same
+  // Quick Add / Upload List toggle, same Excel template. Auditors and coders
+  // are the same people in the same directory, so a second way of entering
+  // them would only invite two spellings of one person.
+  const [auditors, setAuditors] = useState<{ name: string; emp_id: string }[]>([])
+  const [rosterMode, setRosterMode] = useState<'quick' | 'upload'>('quick')
+  const [quickRow, setQuickRow] = useState({ name: '', emp_id: '' })
+  const [parsing, setParsing] = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [pool, setPool] = useState<{ total_matching: number; with_answer_key: number } | null>(null)
 
   useEffect(() => {
     getCategories(specialty).then(c => setAvailable(c || []))
       .catch(() => setAvailable([]))
   }, [specialty])
 
-  const auditors = roster.split('\n').map(l => l.trim()).filter(Boolean).map(line => {
-    const [n, e] = line.split(',').map(x => (x || '').trim())
-    return { name: n, emp_id: e || '' }
-  })
+  useEffect(() => {
+    getPoolPreview(specialty, categories.join(',') || undefined)
+      .then(setPool).catch(() => setPool(null))
+  }, [specialty, categories])
+
+  function addQuick() {
+    const name = quickRow.name.trim()
+    const emp_id = quickRow.emp_id.trim()
+    if (!name || !emp_id) return toast.error('Enter both name and Emp ID')
+    if (auditors.some(a => a.emp_id === emp_id)) return toast.error('Emp ID already added')
+    setAuditors(prev => [...prev, { name, emp_id }])
+    setQuickRow({ name: '', emp_id: '' })
+  }
+
+  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setParsing(true)
+    try {
+      const parsed = await parseCoderList(file)
+      setAuditors(parsed)
+      if (!parsed.length) {
+        toast.error('No usable rows found — check that Name and Emp ID are both filled in below the header row')
+      } else {
+        toast.success(`${parsed.length} auditor(s) loaded`)
+      }
+    } catch (err) {
+      const e2 = err as { response?: { data?: { detail?: string } } }
+      toast.error(e2?.response?.data?.detail || 'Failed to parse the list')
+    } finally {
+      setParsing(false)
+      if (fileRef.current) fileRef.current.value = ''
+    }
+  }
 
   const guidedTotal = quotaClean + quotaManual + quotaAuto
+  // A chart with no answer key has no truth to plant errors in, so it is
+  // excluded from the pool rather than assigned clean.
+  const gradable = pool?.with_answer_key ?? 0
+  const needed = auditors.length * chartsPer
+  const shortfall = Math.max(0, needed - gradable)
 
   async function create() {
     if (!name.trim()) return toast.error('Name the batch')
@@ -226,12 +270,110 @@ function CreateAuditBatch({ trainer, onDone, onCancel }: {
         </Field>
       )}
 
-      <Field label="Auditors — one per line, optionally “Name, EmpID”">
-        <textarea style={{ ...s.input, height: 110, fontFamily: 'system-ui' }}
-          value={roster} onChange={e => setRoster(e.target.value)}
-          placeholder={'Asha R, E1024\nBo T, E1188'} />
-        <div style={s.note}>{auditors.length} auditor(s)</div>
-      </Field>
+      {pool && (
+        <div style={{
+          ...s.infoBox, marginBottom: 16,
+          ...(shortfall > 0 ? { background: '#fffbeb', borderColor: '#fde68a', color: '#92400e' } : {}),
+        }}>
+          <div>
+            <strong>Pool preview:</strong> {pool.total_matching} matching chart(s)
+            {' · '}{pool.with_answer_key} with answer keys
+          </div>
+          {gradable === 0 ? (
+            <div style={{ color: '#dc2626', marginTop: 6, fontWeight: 600 }}>
+              ⚠ No chart here has an answer key, so there is nothing to plant errors in.
+              Upload keys before running allocation.
+            </div>
+          ) : auditors.length === 0 ? (
+            <div style={{ marginTop: 6, color: '#6b7280' }}>
+              Add auditors below to see whether the pool covers them.
+            </div>
+          ) : shortfall > 0 ? (
+            <div style={{ marginTop: 6, fontWeight: 600 }}>
+              ⚠ Short by {shortfall}. {auditors.length} auditor{auditors.length === 1 ? '' : 's'} ×{' '}
+              {chartsPer} chart{chartsPer === 1 ? '' : 's'} = <strong>{needed} needed</strong>,{' '}
+              {gradable} available. Widen the filters or add keys — allocation will otherwise
+              give everyone what it can and stop short.
+            </div>
+          ) : (
+            <div style={{ marginTop: 6, color: '#15803d', fontWeight: 600 }}>
+              ✓ {auditors.length} auditor{auditors.length === 1 ? '' : 's'} × {chartsPer}{' '}
+              chart{chartsPer === 1 ? '' : 's'} = {needed} needed. Pool is sufficient.
+            </div>
+          )}
+        </div>
+      )}
+
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+          <div style={s.label}>Auditors *</div>
+          <div style={s.modeToggle}>
+            <button style={rosterMode === 'quick' ? s.modeTabActive : s.modeTab}
+              onClick={() => setRosterMode('quick')}>Quick Add</button>
+            <button style={rosterMode === 'upload' ? s.modeTabActive : s.modeTab}
+              onClick={() => setRosterMode('upload')}>Upload List</button>
+          </div>
+        </div>
+
+        {rosterMode === 'quick' && (
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+            {/* Picking someone already in the directory carries their Emp ID
+                across, so a new spelling does not fork the history they have. */}
+            <div style={{ flex: 1 }}>
+              <CoderPicker
+                value={quickRow.name}
+                width="100%"
+                allowFreeText
+                placeholder="Auditor name — search or type a new one"
+                onSelect={(name, empId) =>
+                  setQuickRow(r => ({ ...r, name, emp_id: empId || r.emp_id }))}
+              />
+            </div>
+            <input style={{ ...s.input, width: 130 }} placeholder="Emp ID"
+              value={quickRow.emp_id}
+              onChange={e => setQuickRow(r => ({ ...r, emp_id: e.target.value }))}
+              onKeyDown={e => e.key === 'Enter' && addQuick()} />
+            <button style={s.ghostBtn} onClick={addQuick}>+ Add</button>
+          </div>
+        )}
+
+        {rosterMode === 'upload' && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+            <button style={s.ghostBtn} onClick={downloadCoderListTemplate}>
+              <Download size={15} /> Download Template
+            </button>
+            <label style={{ ...s.primaryBtn, opacity: parsing ? 0.6 : 1 }}>
+              {parsing ? <><Loader size={14} /> Parsing…</> : <><Upload size={15} /> Upload Filled List</>}
+              <input ref={fileRef} type="file" accept=".xlsx" style={{ display: 'none' }}
+                onChange={handleUpload} disabled={parsing} />
+            </label>
+          </div>
+        )}
+
+        {auditors.length > 0 && (
+          <>
+            <div style={s.rosterTable}>
+              <div style={s.rosterHeader}><span>Auditor Name</span><span>Emp ID</span><span /></div>
+              {auditors.map((a, i) => (
+                <div key={i} style={s.rosterRow}>
+                  <span>{a.name}</span>
+                  <span style={{ fontWeight: 700, color: '#9333ea' }}>{a.emp_id}</span>
+                  <button style={s.removeRow}
+                    onClick={() => setAuditors(prev => prev.filter((_, j) => j !== i))}>✕</button>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 8 }}>
+              <span style={{ fontSize: 11, color: '#9ca3af' }}>
+                {auditors.length} auditor{auditors.length !== 1 ? 's' : ''} ready
+              </span>
+              <button
+                style={{ ...s.ghostBtn, fontSize: 12, padding: '4px 10px', color: '#dc2626', borderColor: '#fca5a5' }}
+                onClick={() => setAuditors([])}>Clear all</button>
+            </div>
+          </>
+        )}
+      </div>
 
       <button style={{ ...s.primaryBtn, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={create}>
         {busy ? 'Creating…' : 'Create Audit Batch'}
