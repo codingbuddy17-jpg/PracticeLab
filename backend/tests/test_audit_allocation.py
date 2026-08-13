@@ -112,12 +112,12 @@ class TestModes:
 class TestSourceResolution:
 
     def test_a_chart_with_no_version_and_no_clean_roll_generates(self):
-        src, chosen = resolve_source(1, False, {}, cycle_number=1)
+        src, chosen = resolve_source(1, False, {}, use_index=0)
         assert src == AuditSource.AUTO and chosen is None
 
     def test_a_chart_with_a_version_uses_it(self):
         s = FakeSet()
-        src, chosen = resolve_source(1, False, {1: [s]}, cycle_number=1)
+        src, chosen = resolve_source(1, False, {1: [s]}, use_index=0)
         assert src == AuditSource.MANUAL and chosen is s
 
     def test_a_curated_chart_can_still_come_up_clean(self):
@@ -127,45 +127,57 @@ class TestSourceResolution:
         untouched, or the curated charts become a tell.
         """
         s = FakeSet()
-        src, chosen = resolve_source(1, True, {1: [s]}, cycle_number=1)
+        src, chosen = resolve_source(1, True, {1: [s]}, use_index=0)
         assert src == AuditSource.CLEAN and chosen is None
 
     def test_always_plant_overrides_the_clean_roll(self):
         s = FakeSet(always_plant=True)
-        src, chosen = resolve_source(1, True, {1: [s]}, cycle_number=1)
+        src, chosen = resolve_source(1, True, {1: [s]}, use_index=0)
         assert src == AuditSource.MANUAL and chosen is s
 
-    def test_the_version_depends_on_the_cycle_and_nothing_else(self):
+    def test_the_version_depends_only_on_how_often_the_chart_was_used(self):
         """
-        The bug this replaced: the choice was per-auditor, so four auditors on
-        one chart in one cycle got three different versions and their answers
-        could not be compared. Same cycle must mean same version, always.
+        The first bug this replaced: the choice was per-auditor, so four
+        auditors on one chart in one cycle got three different versions and
+        their answers could not be compared. Nothing about the person may
+        enter the decision.
         """
         sets = [FakeSet(), FakeSet(), FakeSet()]
-        for cycle in range(1, 8):
-            picks = {resolve_source(1, False, {1: sets}, cycle_number=cycle)[1]
+        for uses in range(8):
+            picks = {resolve_source(1, False, {1: sets}, use_index=uses)[1]
                      for _ in range(20)}
             assert len(picks) == 1
 
-    def test_each_cycle_rotates_to_the_next_version(self):
+    def test_each_encounter_moves_to_the_next_version(self):
         sets = [FakeSet(), FakeSet(), FakeSet()]
-        picked = [resolve_source(1, False, {1: sets}, cycle_number=c)[1]
-                  for c in range(1, 4)]
-        assert picked == sets
+        assert [resolve_source(1, False, {1: sets}, use_index=i)[1]
+                for i in range(3)] == sets
+
+    def test_it_counts_encounters_not_cycles(self):
+        """
+        The second bug. Keying on the cycle number looks right until a chart
+        does not appear every cycle: six charts at two per cycle recycle every
+        third cycle, and against three versions that pinned the chart to one
+        version forever. Counting the chart's own uses is immune to the gap.
+        """
+        sets = [FakeSet(), FakeSet(), FakeSet()]
+        # Cycles 1, 4, 7 — three cycles apart, which is what broke before.
+        assert [resolve_source(1, False, {1: sets}, use_index=i)[1]
+                for i in range(3)] == sets
 
     def test_the_rotation_wraps_once_every_version_is_used(self):
         """Running dry is not a reason to drop the chart from the rotation."""
         sets = [FakeSet(), FakeSet()]
-        assert resolve_source(1, False, {1: sets}, cycle_number=3)[1] is sets[0]
-        assert resolve_source(1, False, {1: sets}, cycle_number=4)[1] is sets[1]
+        assert resolve_source(1, False, {1: sets}, use_index=2)[1] is sets[0]
+        assert resolve_source(1, False, {1: sets}, use_index=3)[1] is sets[1]
 
     def test_the_rotation_is_stable_as_the_library_grows(self):
         """
         Ordered by id, so authoring a fourth version does not reshuffle which
-        version cycle 2 hands out.
+        version the next encounter produces.
         """
         a, b, c = FakeSet(), FakeSet(), FakeSet()
-        assert resolve_source(1, False, {1: [c, a, b]}, cycle_number=2)[1] is b
+        assert resolve_source(1, False, {1: [c, a, b]}, use_index=1)[1] is b
 
 
 # ── the seed ─────────────────────────────────────────────────────────────────

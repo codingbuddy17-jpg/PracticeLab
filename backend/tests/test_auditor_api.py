@@ -793,6 +793,54 @@ class TestVersionMemory:
         assert len(rows) == 2
         assert rows[0]["set_id"] == rows[1]["set_id"]
 
+    def test_one_auditor_works_through_every_version_before_repeating(
+            self, client, db):
+        """
+        The scenario that found the bug: one auditor, two charts a cycle, and a
+        pool that recycles every third cycle against three versions. Keying the
+        rotation on the CYCLE number pinned the chart to the same version each
+        time it came round — the auditor saw version 2 twice before ever
+        reaching version 3.
+
+        Counting the chart's own encounters is immune to the gap between them.
+        """
+        from models import AnswerKey, Chart, ChartStatus, Difficulty, Specialty
+        charts = []
+        for i in range(6):
+            c = Chart(chart_number=f"ROT{i}", specialty=Specialty.IP_DRG,
+                      category="Cardiology", difficulty=Difficulty.INTERMEDIATE,
+                      status=ChartStatus.ACTIVE, uploaded_by="t")
+            db.add(c)
+            db.flush()
+            db.add(AnswerKey(
+                chart_id=c.id, specialty=Specialty.IP_DRG, pdx_code="J18.9",
+                pdx_poa="Y",
+                sdx=[{"code": f"E11.{j}", "poa": "Y", "ccmcc": "-"} for j in range(6)],
+                pcs=[{"code": "0DTJ0ZZ"}], cpt=[], entered_by="t"))
+            charts.append(c)
+        db.commit()
+
+        target = charts[0]
+        for n in ("V1", "V2", "V3"):
+            client.post(f"/auditor/keys/chart/{target.id}", json={
+                "name": n, "authored_by": "T", "passphrase": PASS,
+                "always_plant": True,
+                "mutations": [{"section": "SDx", "action": "Add",
+                               "correct_value": "E11.1"}]})
+
+        batch_id = make_batch(client, auditors=("Solo",), charts_per=2,
+                              clean_share=0)
+        for _ in range(9):
+            allocate(client, batch_id)
+
+        rows = client.get(f"/auditor/batches/{batch_id}/plantings",
+                          params={"limit": 500}).json()["plantings"]
+        seen = [r["set_id"] for r in rows
+                if r["chart_number"] == target.chart_number]
+        assert len(seen) >= 3, f"chart came round only {len(seen)} time(s)"
+        # Every version reached before any repeats.
+        assert len(set(seen[:3])) == 3, f"repeated before exhausting versions: {seen}"
+
     def test_a_later_cycle_gives_a_version_they_have_not_seen(
             self, client, db, library):
         self._versions(client, library[0], ["V1", "V2"])

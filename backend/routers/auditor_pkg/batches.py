@@ -289,7 +289,11 @@ def run_allocation(batch_id: int, payload: AllocationRun, db: Session = Depends(
     seen_counts: dict[str, dict] = {}
     prior_sets: dict[str, list] = {}
     by_cycle: dict[tuple, set] = {}
+    # How many cycles each chart has already been handed out in. Drives which
+    # authored version the next encounter produces — see resolve_source.
+    chart_uses: dict[int, set] = {}
     for a in existing:
+        chart_uses.setdefault(a.chart_id, set()).add(a.cycle_id)
         seen_counts.setdefault(a.auditor_name, {})
         seen_counts[a.auditor_name][a.chart_id] = \
             seen_counts[a.auditor_name].get(a.chart_id, 0) + 1
@@ -342,9 +346,11 @@ def run_allocation(batch_id: int, payload: AllocationRun, db: Session = Depends(
         clean_positions = set(positions[:min(quotas.clean, len(drawn))])
 
         for idx, chart in enumerate(drawn):
-            # Version by cycle, not by auditor — see resolve_source.
+            # Version follows the chart's own use count, so it is the same for
+            # every auditor in this cycle and different from last encounter.
             source, key_set = resolve_source(
-                chart.id, idx in clean_positions, all_sets, cycle_number)
+                chart.id, idx in clean_positions, all_sets,
+                len(chart_uses.get(chart.id, ())))
             built = build_assignment(
                 chart, keys.get(chart.id), source, key_set,
                 cycle_number=cycle_number, cfg=mcfg, corpus=corpus,

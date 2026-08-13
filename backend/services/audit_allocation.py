@@ -144,27 +144,27 @@ def assignment_seed(chart_id: int, cycle_number: int) -> int:
 
 
 def resolve_source(chart_id: int, is_clean: bool, sets_by_chart: dict,
-                   cycle_number: int):
+                   use_index: int):
     """
     Pick where this assignment's claim comes from, and which version.
 
-    The version is chosen by CYCLE, not by auditor. That is the whole point:
-    two auditors given the same chart in one cycle must see the same errors, or
-    their answers on it cannot be compared — which is the same reason the
-    generator seeds from (chart, cycle) rather than from the person.
+    `use_index` is how many times THIS CHART has already been allocated in
+    this batch — not the cycle number, and not anything about the auditor.
 
-    An earlier version of this preferred a version the auditor had not seen,
-    which is per-auditor by definition and therefore handed four auditors on
-    one chart three different versions in the same sitting.
+    Both of those alternatives fail. Keying on the auditor cannot agree across
+    a cohort, so four auditors on one chart got three different versions in the
+    same sitting. Keying on the cycle number looks right until a chart does not
+    appear every cycle: with six charts at two per cycle a chart recycles every
+    third cycle, and against three versions that pins it to the same one
+    forever — an auditor saw version 2 twice before ever reaching version 3.
 
-    Rotating by cycle number keeps both properties: everyone in a cycle lands
-    on the same version, and a chart met again in a later cycle carries a
-    different one. Versions are ordered by id so the rotation is stable as the
-    library grows.
+    Counting the chart's own uses fixes both. It is chart-scoped, so everyone
+    allocated that chart in one cycle lands on the same version; and it
+    advances only when the chart is actually handed out, so consecutive
+    encounters always differ however many cycles pass between them.
 
-    A set flagged always_plant overrides the clean roll — that is what the flag
-    is for, and its note warns against using it widely, since curated charts
-    that never come up clean become a tell.
+    Versions are ordered by id, so authoring a fourth does not reshuffle which
+    version the next encounter produces.
     """
     sets = sorted(sets_by_chart.get(chart_id) or [], key=lambda s: s.id)
     forced = [s for s in sets if getattr(s, "always_plant", False)]
@@ -176,7 +176,7 @@ def resolve_source(chart_id: int, is_clean: bool, sets_by_chart: dict,
         # No authored version, and the clean roll did not pick this chart.
         return AuditSource.AUTO, None
 
-    return AuditSource.MANUAL, pool[(max(1, cycle_number) - 1) % len(pool)]
+    return AuditSource.MANUAL, pool[max(0, use_index) % len(pool)]
 
 
 def build_assignment(chart, key, source: AuditSource, key_set,
