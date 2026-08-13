@@ -16,6 +16,7 @@ from models import (
 )
 from sqlalchemy import text as _text
 from services.randomisation_stats import compute_randomisation_stats, parse_stats
+from services.allocation import draw_for_person
 from .shared import MASTER_PASSPHRASE, _is_ip, _is_ed, _uses_dpo
 
 router = APIRouter()
@@ -169,82 +170,9 @@ def add_coders_to_batch(batch_id: int, payload: AddCoders, db: Session = Depends
     return {"added": added, "skipped_duplicates": skipped}
 
 
-def _draw_for_coder(pool, seen_counts: dict, prior_sets: list, want: int):
-    """
-    Pick this coder's charts for one cycle.
-
-    Exhaustion is per COder. Alice having seen everything says nothing about
-    Bob, so each coder is drawn against their own history and one running dry
-    never holds up anyone else.
-
-    Charts are grouped by how many times THIS coder has already had them and
-    taken from the least-seen group first, shuffled within each group. That
-    gives the guarantee that matters — nothing repeats while anything unseen
-    remains — and then, once the pool really is exhausted, keeps going instead
-    of stopping: a second round is drawn from the once-seen charts, a third
-    from the twice-seen, and so on, so repetition stays as even and as far
-    apart as the pool allows.
-
-    A recycled round also avoids reproducing a set the coder has already sat,
-    where the pool leaves any alternative — the same charts in the same company
-    is the case where a coder is most likely to be recalling rather than coding.
-
-    Returns (charts, note) where note describes the state of their pool.
-    """
-    if not pool:
-        return [], {"state": "empty", "message": "no charts match the pool filters",
-                    "unseen_left": 0, "round": 0}
-
-    tiers: dict[int, list] = {}
-    for chart in pool:
-        tiers.setdefault(seen_counts.get(chart.id, 0), []).append(chart)
-    for group in tiers.values():
-        random.shuffle(group)
-
-    unseen = len(tiers.get(0, []))
-
-    def _take():
-        out = []
-        for level in sorted(tiers):
-            if len(out) >= want:
-                break
-            out.extend(tiers[level][: want - len(out)])
-        return out
-
-    assigned = _take()
-
-    # Only a fully recycled draw can repeat a previous set; reshuffle a few
-    # times before accepting one. Bounded, because a pool of exactly `want`
-    # charts has no alternative to offer and must not spin.
-    if assigned and unseen == 0 and prior_sets:
-        for _ in range(8):
-            if {c.id for c in assigned} not in prior_sets:
-                break
-            for group in tiers.values():
-                random.shuffle(group)
-            assigned = _take()
-
-    round_no = min(seen_counts.get(c.id, 0) for c in assigned) + 1 if assigned else 0
-
-    if unseen == 0:
-        message = (f"every chart in the pool has been sat — recycling for round {round_no}"
-                   if len(pool) > want else
-                   f"pool is only {len(pool)} chart(s); the same set repeats each cycle")
-        state = "recycling"
-    elif unseen < want:
-        message = (f"only {unseen} unseen chart(s) left — this cycle repeats "
-                   f"{want - unseen} of them")
-        state = "nearly_exhausted"
-    elif unseen <= want * 2:
-        message = f"{unseen} unseen chart(s) left — enough for about "\
-                  f"{unseen // want} more cycle(s)"
-        state = "running_low"
-    else:
-        message = ""
-        state = "healthy"
-
-    return assigned, {"state": state, "message": message,
-                      "unseen_left": unseen, "round": round_no}
+# The draw itself lives in services/allocation.py so the Auditor module can
+# use the identical algorithm without sharing any of this module's storage.
+_draw_for_coder = draw_for_person
 
 
 @router.post("/batches/{batch_id}/run-allocation")
