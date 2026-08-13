@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { FileText, BookOpen, GraduationCap, ChevronRight, ClipboardList, ClipboardCheck } from 'lucide-react'
-import { getPLAnalyticsOverview, getChartStats, getAssessmentStats, getAssessmentOverview, listAuditBatches, listAuditKeySets } from '../api'
+import { getPLAnalyticsOverview, getChartStats, getAssessmentStats, getAssessmentOverview, listAuditBatches, listAuditKeySets, getAuditOverview } from '../api'
 
 export function TrainerHome() {
   const [plStats, setPlStats] = useState<any>(null)
   const [chartStats, setChartStats] = useState<any>(null)
   const [assessmentStats, setAssessmentStats] = useState<{ totalActive: number; totalSpecialties: number } | null>(null)
-  const [auditStats, setAuditStats] = useState<{ batches: number; open: number; scored: number; curated: number } | null>(null)
+  const [auditStats, setAuditStats] = useState<{ batches: number; open: number; scored: number; curated: number; accuracy: number | null; charts: number } | null>(null)
   const [assessOverview, setAssessOverview] = useState<any>(null)
 
   function load() {
@@ -20,15 +20,18 @@ export function TrainerHome() {
     getAssessmentOverview().then(setAssessOverview).catch(() => {})
     // Auditor tiles fail quietly — a trainer home page must render even if one
     // module's stats endpoint is unavailable.
-    Promise.all([listAuditBatches(), listAuditKeySets()]).then(([b, k]) => {
-      const batches = b.batches || []
-      setAuditStats({
-        batches: batches.length,
-        open: batches.filter((x: Record<string, unknown>) => x.status === 'Open').length,
-        scored: batches.reduce((n: number, x: Record<string, unknown>) => n + Number(x.scored || 0), 0),
-        curated: new Set((k.sets || []).map((x: Record<string, unknown>) => x.chart_id)).size,
-      })
-    }).catch(() => {})
+    Promise.all([listAuditBatches(), listAuditKeySets(), getAuditOverview()])
+      .then(([b, k, o]) => {
+        const batches = b.batches || []
+        setAuditStats({
+          batches: batches.length,
+          open: batches.filter((x: Record<string, unknown>) => x.status === 'Open').length,
+          scored: batches.reduce((n: number, x: Record<string, unknown>) => n + Number(x.scored || 0), 0),
+          curated: new Set((k.sets || []).map((x: Record<string, unknown>) => x.chart_id)).size,
+          accuracy: o?.audit_accuracy ?? null,
+          charts: o?.charts ?? 0,
+        })
+      }).catch(() => {})
     getAssessmentStats()
       .then(rows => {
         const totalActive = rows.reduce((s, r) => s + r.active, 0)
@@ -220,11 +223,24 @@ export function TrainerHome() {
             <div style={styles.bentoStatSub}>charts with plantings you authored</div>
           </Link>
 
-          <Link to="/trainer/auditor/config" style={{ ...styles.bentoCell, ...styles.bentoCellStat, background: 'rgba(255,255,255,0.6)' }}>
-            <div style={styles.bentoStatLabel}>Add · Revise · Delete</div>
-            <div style={{ fontSize: 13, color: '#6b7280', marginTop: 4, lineHeight: 1.5 }}>
-              Findings are scored on what an auditor actually does to a chart, weighted
-              and renormalised over what each chart carries.
+          {/* Spans columns 2-3 on the second row, like the wide chip in every
+              other bento. Using bentoCellStat here left the row ragged. */}
+          <Link to="/trainer/auditor/analytics" style={{ ...styles.bentoCell, ...styles.bentoCellPassRate, background: 'rgba(253,242,248,0.45)' }}>
+            <div style={styles.bentoPassRateRow}>
+              <div>
+                <div style={{ ...styles.bentoPassRateNum, color: '#be185d' }}>
+                  {auditStats?.accuracy != null ? `${auditStats.accuracy}%` : '—'}
+                </div>
+                <div style={styles.bentoStatLabel}>Audit Accuracy</div>
+                <div style={styles.bentoStatSub}>
+                  {auditStats?.charts ? `${auditStats.charts} chart(s) scored` : 'nothing scored yet'}
+                </div>
+              </div>
+              {auditStats?.accuracy != null && (
+                <div style={{ ...styles.bentoBarWrap, background: '#fce7f3' }}>
+                  <div style={{ ...styles.bentoBar, background: '#be185d', width: `${auditStats.accuracy}%` }} />
+                </div>
+              )}
             </div>
           </Link>
         </div>
