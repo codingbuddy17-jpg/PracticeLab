@@ -16,6 +16,7 @@ const TakeAssessmentEntry   = lazy(() => import('./pages/TakeAssessmentEntry').t
 const TakeAssessmentSession = lazy(() => import('./pages/TakeAssessmentSession').then(m => ({ default: m.TakeAssessmentSession })))
 const PracticeEntry         = lazy(() => import('./pages/PracticeEntry').then(m => ({ default: m.PracticeEntry })))
 const PracticeSession       = lazy(() => import('./pages/PracticeSession').then(m => ({ default: m.PracticeSession })))
+const AuditSession          = lazy(() => import('./pages/AuditSession').then(m => ({ default: m.AuditSession })))
 
 function PageLoader() {
   return (
@@ -47,6 +48,7 @@ export default function App() {
           <Route path="/take-assessment/:token" element={<TakeAssessmentSession />} />
           <Route path="/practice" element={<PracticeEntry />} />
           <Route path="/practice/:token" element={<PracticeSession />} />
+          <Route path="/audit/:token" element={<AuditSession />} />
         </Routes>
       </Suspense>
     </BrowserRouter>

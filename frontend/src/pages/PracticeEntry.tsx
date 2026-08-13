@@ -15,6 +15,14 @@ export function PracticeEntry() {
     setLoading(true)
     setError('')
     try {
+      // One front door for both modules. The code prefix decides where it
+      // leads, so someone who both codes and audits has one URL to remember
+      // and the code stays their only credential.
+      if (t.startsWith('AUD-')) {
+        await api.get(`/auditor/sessions/by-token/${t}`)
+        navigate(`/audit/${t}`)
+        return
+      }
       await api.get(`/practicelab/practice-sessions/by-token/${t}`)
       navigate(`/practice/${t}`)
     } catch (e: unknown) {
@@ -35,12 +43,12 @@ export function PracticeEntry() {
         <div style={s.iconWrap}>
           <BookOpen size={32} color="#059669" />
         </div>
-        <div style={s.title}>PracticeLab — Coding Interface</div>
-        <div style={s.sub}>Enter your practice access code to begin coding charts.</div>
+        <div style={s.title}>PracticeLab</div>
+        <div style={s.sub}>Enter your access code to begin. Coding and audit codes both work here.</div>
 
         <input
           style={s.input}
-          placeholder="e.g. PRC-ABCD1234"
+          placeholder="e.g. PRC-ABCD1234 or AUD-ABCD1234"
           value={token}
           onChange={e => { setToken(e.target.value.toUpperCase()); setError('') }}
           onKeyDown={e => e.key === 'Enter' && handleLookup()}
