@@ -281,6 +281,12 @@ function ChartKeyEditor({ chartId, trainer, onBack }: {
 
   if (!data) return <div style={s.empty}>Loading…</div>
 
+  const atCap = data.sets.length >= (data.max_versions || 3)
+  // Everything except the one being edited — comparing a version to itself
+  // tells a trainer nothing.
+  const others = editing
+    ? data.sets.filter((x: any) => x.id !== editing.id)
+    : data.sets
   const key = data.answer_key
   const sections: string[] = (data.form?.sections || []).map((x: any) => x.key)
 
@@ -293,7 +299,15 @@ function ChartKeyEditor({ chartId, trainer, onBack }: {
           <div style={s.sub}>{data.specialty}</div>
         </div>
         {!editing && data.has_answer_key && data.auditable && (
-          <button style={s.primaryBtn} onClick={startNew}><Plus size={15} /> New version</button>
+          atCap ? (
+            <span style={{ fontSize: 12, color: '#92400e', maxWidth: 280, textAlign: 'right' }}>
+              At the limit of {data.max_versions} versions — edit or delete one to add another.
+            </span>
+          ) : (
+            <button style={s.primaryBtn} onClick={startNew}>
+              <Plus size={15} /> New version ({data.sets.length} of {data.max_versions})
+            </button>
+          )
         )}
       </div>
 
@@ -337,6 +351,32 @@ function ChartKeyEditor({ chartId, trainer, onBack }: {
               Mark what should be <strong>wrong</strong> on the claim this auditor receives.
               Everything you mark here is something they have to find.
             </div>
+
+            {/* What is already on this chart, while you name the new one. A
+                trainer naming a version blind is how two of them end up
+                describing the same errors. */}
+            {others.length > 0 && (
+              <div style={{ ...s.infoBox, marginTop: 14 }}>
+                <div style={{ fontWeight: 700, marginBottom: 4 }}>
+                  Already on {data.chart_number}:
+                </div>
+                {others.map((o: any) => (
+                  <div key={o.id} style={{ fontSize: 12 }}>
+                    • <strong>{o.name}</strong> — {o.planting_count} error(s)
+                    {(o.mutations || []).length > 0 && (
+                      <span style={{ color: '#6b7280' }}>
+                        {' '}({(o.mutations || []).map((m: any) =>
+                          `${m.action} ${m.section}`).join(', ')})
+                      </span>
+                    )}
+                  </div>
+                ))}
+                <div style={{ fontSize: 11.5, marginTop: 4 }}>
+                  Make this one different — an auditor who meets the chart again should
+                  face something they have not already worked through.
+                </div>
+              </div>
+            )}
 
             <div style={{ marginTop: 14, marginBottom: 12 }}>
               <div style={s.label}>Name this version</div>
@@ -430,7 +470,7 @@ function ChartKeyEditor({ chartId, trainer, onBack }: {
         <div style={s.panel}>
           <div style={s.panelHead}>
             <span style={{ fontWeight: 700, fontSize: 13 }}>
-              Versions on this chart ({data.sets.length})
+              Versions on this chart ({data.sets.length} of {data.max_versions})
             </span>
           </div>
           <div style={{ padding: '12px 16px' }}>

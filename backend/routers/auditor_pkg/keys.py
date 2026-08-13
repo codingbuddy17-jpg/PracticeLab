@@ -23,6 +23,12 @@ from .shared import (
 
 router = APIRouter()
 
+# Versions extend a chart ACROSS cycles, not within one — the draw takes each
+# chart from the pool once however many versions it carries. Past three, a
+# trainer is curating variants nobody will reach before the chart recycles, and
+# the allocation review becomes harder to read for no gain.
+MAX_VERSIONS_PER_CHART = 3
+
 VALID_ACTIONS = {"Add", "Revise", "Delete"}
 VALID_SECTIONS = {"PDx", "SDx", "PCS", "CPT"}
 
@@ -116,6 +122,7 @@ def list_sets_for_chart(chart_id: int, db: Session = Depends(get_db)):
             "sdx": key.sdx or [], "pcs": key.pcs or [], "cpt": key.cpt or [],
         },
         "form": form_spec(chart.specialty),
+        "max_versions": MAX_VERSIONS_PER_CHART,
         "sets": [_serialise(r, chart) for r in rows],
     }
 
@@ -199,6 +206,21 @@ def create_set(chart_id: int, payload: KeySetPayload, db: Session = Depends(get_
             400, "This chart has no answer key — there is no truth to introduce errors into")
     if not (payload.name or "").strip():
         raise HTTPException(400, "Name this version, so it can be told apart from others on this chart")
+
+    existing = (db.query(AuditKeySet)
+                .filter(AuditKeySet.chart_id == chart_id).all())
+    if len(existing) >= MAX_VERSIONS_PER_CHART:
+        raise HTTPException(
+            400,
+            f"{chart.chart_number} already has {MAX_VERSIONS_PER_CHART} versions "
+            f"({', '.join(e.name for e in existing)}). A chart is drawn once per "
+            f"cycle however many versions it carries, so more than "
+            f"{MAX_VERSIONS_PER_CHART} is curation nobody reaches — edit or "
+            f"delete one instead.")
+    if any(e.name.strip().lower() == payload.name.strip().lower() for e in existing):
+        raise HTTPException(
+            400, f"{chart.chart_number} already has a version called "
+                 f"\u201c{payload.name.strip()}\u201d")
     if payload.query_expected is not None and chart.specialty not in QUERY_SPECIALTIES:
         raise HTTPException(
             400, f"A physician query determination only applies to "

@@ -822,3 +822,40 @@ class TestVersionMemory:
         hits = [r for r in rows if r["chart_number"] == library[0].chart_number]
         assert len(hits) == 3
         assert all(h["set_id"] == hits[0]["set_id"] for h in hits)
+
+
+class TestVersionCap:
+
+    def _add(self, client, chart, name):
+        return client.post(f"/auditor/keys/chart/{chart.id}", json={
+            "name": name, "authored_by": "T", "passphrase": PASS,
+            "mutations": [{"section": "SDx", "action": "Add", "correct_value": "E11.1"}]})
+
+    def test_a_chart_takes_at_most_three_versions(self, client, db, library):
+        """
+        Versions extend a chart across CYCLES, not within one — the draw takes
+        each chart from the pool once however many it carries. Past three they
+        are variants nobody reaches before the chart recycles.
+        """
+        for n in ("A", "B", "C"):
+            assert self._add(client, library[0], n).status_code == 200
+        r = self._add(client, library[0], "D")
+        assert r.status_code == 400
+        assert "already has 3 versions" in r.json()["detail"]
+        assert "A, B, C" in r.json()["detail"]
+
+    def test_two_versions_cannot_share_a_name(self, client, db, library):
+        """They exist to be told apart; two called the same thing cannot be."""
+        assert self._add(client, library[0], "Missed CC").status_code == 200
+        r = self._add(client, library[0], "  missed cc  ")
+        assert r.status_code == 400
+        assert "already has a version called" in r.json()["detail"]
+
+    def test_the_cap_is_per_chart_not_global(self, client, db, library):
+        for n in ("A", "B", "C"):
+            self._add(client, library[0], n)
+        assert self._add(client, library[1], "A").status_code == 200
+
+    def test_the_chart_payload_reports_the_cap(self, client, db, library):
+        body = client.get(f"/auditor/keys/chart/{library[0].id}").json()
+        assert body["max_versions"] == 3
