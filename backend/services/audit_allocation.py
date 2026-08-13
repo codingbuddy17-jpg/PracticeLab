@@ -21,7 +21,7 @@ claim.
 from __future__ import annotations
 
 import random
-import secrets
+import string
 from dataclasses import dataclass
 from typing import Optional
 
@@ -29,16 +29,18 @@ from models.auditor import AuditSource
 from services.audit_mutation import Corpus, MutationConfig, claim_from_key, generate
 
 
-TOKEN_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"   # no I/O/0/1
-
-
 def new_token(prefix: str = "AUD") -> str:
     """
-    An auditor's only credential, and the thing that routes them to the audit
-    session rather than the coding one. Ambiguous characters are excluded
-    because these get read aloud and typed from a screenshot.
+    An auditor's only credential, and what routes them to the audit session
+    rather than the coding one.
+
+    Built exactly like the coder's practice token (`_gen_token` in
+    practice_sessions) — four letters, four digits, same length and shape — so
+    the two look like one system and an ops team has one format to recognise.
     """
-    return f"{prefix}-" + "".join(secrets.choice(TOKEN_ALPHABET) for _ in range(8))
+    part1 = "".join(random.choices(string.ascii_uppercase, k=4))
+    part2 = "".join(random.choices(string.digits, k=4))
+    return f"{prefix}-{part1}{part2}"
 
 
 def clean_quota(total: int, share_pct: int) -> int:

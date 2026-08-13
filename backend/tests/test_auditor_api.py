@@ -149,9 +149,14 @@ class TestEndToEnd:
         The seed comes from (chart, cycle) and not the auditor, which is the
         only way their answers on a shared chart can be compared.
         """
-        batch_id = make_batch(client, auditors=("Asha R", "Bo T"), charts_per=8)
+        # clean_share=0 so every chart is generated for both auditors. Which
+        # charts come up CLEAN varies per auditor by design, so without this the
+        # two may share no generated chart at all and the test proves nothing.
+        batch_id = make_batch(client, auditors=("Asha R", "Bo T"), charts_per=8,
+                              clean_share=0)
         allocate(client, batch_id)
-        plantings = client.get(f"/auditor/batches/{batch_id}/plantings").json()["plantings"]
+        plantings = client.get(f"/auditor/batches/{batch_id}/plantings",
+                               params={"limit": 500}).json()["plantings"]
 
         by_chart = {}
         for p in plantings:

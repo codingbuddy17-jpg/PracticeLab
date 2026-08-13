@@ -360,10 +360,15 @@ class TestTokens:
     def test_the_prefix_routes_the_auditor_to_the_right_session(self):
         assert new_token().startswith("AUD-")
 
-    def test_ambiguous_characters_are_excluded(self):
-        """These get read aloud and typed from a screenshot."""
-        body = "".join(new_token().split("-")[1] for _ in range(200))
-        assert not (set(body) & set("IO01"))
+    def test_it_has_the_same_shape_as_a_coder_practice_token(self):
+        """
+        Four letters then four digits, exactly like _gen_token on the coder
+        side. An earlier version used its own alphabet, which meant two access
+        code formats in one product for no reason anybody could explain.
+        """
+        import re
+        for _ in range(200):
+            assert re.fullmatch(r"AUD-[A-Z]{4}\d{4}", new_token())
 
     def test_tokens_do_not_collide(self):
         assert len({new_token() for _ in range(2000)}) == 2000

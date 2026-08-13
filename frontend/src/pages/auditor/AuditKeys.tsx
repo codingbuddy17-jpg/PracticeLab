@@ -8,6 +8,7 @@ import {
   getAuditKeysForChart, getUncuratedCharts, listAuditKeySets, previewAuditKeySet,
   updateAuditKeySet, Finding,
 } from '../../api/auditorApi'
+import { ISSUE_COLORS } from '../practicelab/shared'
 import s from './styles'
 
 /**
@@ -20,7 +21,6 @@ import s from './styles'
  * answer rather than the sabotage.
  */
 
-const ACTIONS = ['Add', 'Revise', 'Delete'] as const
 const SECTION_LABEL: Record<string, string> = {
   PDx: 'Principal Dx', SDx: 'Secondary Dx', PCS: 'PCS', CPT: 'CPT',
 }
@@ -348,16 +348,33 @@ function ChartKeyEditor({ chartId, trainer, onBack }: {
               </div>
             </div>
 
-            <div style={s.label}>Errors</div>
-            {mutations.map((m, i) => (
-              <MutationRow key={i} m={m} sections={sections}
-                onChange={next => setMutations(p => p.map((x, j) => j === i ? next : x))}
-                onRemove={() => setMutations(p => p.filter((_, j) => j !== i))} />
-            ))}
-            <button style={{ ...s.ghostBtn, marginTop: 8 }}
-              onClick={() => setMutations(p => [...p, { section: 'SDx', action: 'Add', correct_value: '' }])}>
-              <Plus size={13} /> Add an error
-            </button>
+            {/* Direct manipulation of the answer key rather than abstract
+                form rows. You act on the code you can see, so there is no line
+                number to get wrong and no way to name a code the chart does not
+                have. Colours are the app's existing ISSUE_COLORS, so an error
+                marked here reads the same as the equivalent coder mistake in
+                the results and analytics screens. */}
+            <div style={s.label}>Mark the errors on this chart</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginTop: 8 }}>
+              {(data.form?.sections || []).map((spec: any) => (
+                <KeySection key={spec.key} spec={spec} answerKey={key}
+                  mutations={mutations} setMutations={setMutations} />
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginTop: 12 }}>
+              {ACTION_LEGEND.map(a => (
+                <span key={a.action} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: '#6b7280' }}>
+                  <span style={{ width: 9, height: 9, borderRadius: 2, background: a.color, display: 'inline-block' }} />
+                  <strong style={{ color: a.color }}>{a.action}</strong> — {a.blurb}
+                </span>
+              ))}
+            </div>
+            <div style={s.note}>
+              {mutations.length === 0
+                ? 'No errors yet. A set with none is a correct claim that still needs a query.'
+                : `${mutations.length} error(s) — the auditor must find every one.`}
+            </div>
 
             {data.supports_query && (
               <div style={{ marginTop: 18 }}>
@@ -451,44 +468,187 @@ function ChartKeyEditor({ chartId, trainer, onBack }: {
   )
 }
 
-function MutationRow({ m, sections, onChange, onRemove }: {
-  m: Finding; sections: string[]
-  onChange: (m: Finding) => void; onRemove: () => void
+const ACTION_COLORS: Record<string, string> = {
+  // The app's existing issue palette, from practicelab/shared. An omission is
+  // the same red a coder's Missed shows in; a wrong code the same violet; a
+  // spurious code the same amber as Over_coded.
+  Add: ISSUE_COLORS.Missed,
+  Revise: ISSUE_COLORS.Wrong_Code,
+  Delete: ISSUE_COLORS.Over_coded,
+}
+const ACTION_BG: Record<string, string> = {
+  Add: '#fef2f2', Revise: '#f5f3ff', Delete: '#fffbeb',
+}
+const ACTION_LEGEND = [
+  { action: 'Add', color: ACTION_COLORS.Add, blurb: 'code removed; auditor must add it back' },
+  { action: 'Revise', color: ACTION_COLORS.Revise, blurb: 'value altered; auditor must correct it' },
+  { action: 'Delete', color: ACTION_COLORS.Delete, blurb: 'spurious code; auditor must remove it' },
+]
+
+const SECTION_ROWS: Record<string, string> = { SDx: 'sdx', PCS: 'pcs', CPT: 'cpt' }
+
+/** One coding section of the answer key, with an action beside every line. */
+function KeySection({ spec, answerKey, mutations, setMutations }: {
+  spec: any; answerKey: any
+  mutations: Finding[]; setMutations: (f: (m: Finding[]) => Finding[]) => void
 }) {
-  // PDx is single-valued: it can be wrong, but it cannot be absent or removed.
-  const actions = m.section === 'PDx' ? ['Revise'] : ACTIONS
+  const key = spec.key
+  const isPdx = key === 'PDx'
+  const rows: any[] = isPdx
+    ? (answerKey?.pdx_code ? [{ code: answerKey.pdx_code, poa: answerKey.pdx_poa }] : [])
+    : (answerKey?.[SECTION_ROWS[key]] || [])
+
+  const mine = mutations.filter(m => m.section === key)
+  const spurious = mine.filter(m => m.action === 'Delete')
+
+  function find(action: string, line: number, field?: string) {
+    return mine.find(m => m.action === action && m.line === line
+      && (field === undefined || (m.field || 'code') === field))
+  }
+
+  function toggleOmit(line: number, code: string) {
+    setMutations(prev => {
+      const hit = prev.find(m => m.section === key && m.action === 'Add' && m.line === line)
+      if (hit) return prev.filter(m => m !== hit)
+      // Removing a code and revising it at once would be two errors on one
+      // line, which makes the correct finding ambiguous.
+      const rest = prev.filter(m => !(m.section === key && m.line === line))
+      return [...rest, { section: key, action: 'Add', line, correct_value: code }]
+    })
+  }
+
+  function setRevision(line: number, field: string, value: string, correct: string) {
+    setMutations(prev => {
+      const rest = prev.filter(m => !(m.section === key && m.action === 'Revise'
+        && m.line === line && (m.field || 'code') === field))
+      const omit = prev.find(m => m.section === key && m.action === 'Add' && m.line === line)
+      const cleaned = omit ? rest.filter(m => m !== omit) : rest
+      if (!value.trim()) return cleaned
+      return [...cleaned, {
+        section: key, action: 'Revise', field, line,
+        claim_value: value.trim(), correct_value: correct,
+      }]
+    })
+  }
+
+  function addSpurious() {
+    setMutations(prev => [...prev, { section: key, action: 'Delete', claim_value: '' }])
+  }
+  function setSpurious(index: number, value: string) {
+    setMutations(prev => {
+      const targets = prev.filter(m => m.section === key && m.action === 'Delete')
+      const target = targets[index]
+      return prev.map(m => m === target ? { ...m, claim_value: value.toUpperCase() } : m)
+    })
+  }
+  function removeSpurious(index: number) {
+    setMutations(prev => {
+      const targets = prev.filter(m => m.section === key && m.action === 'Delete')
+      return prev.filter(m => m !== targets[index])
+    })
+  }
+
   return (
-    <div style={s.mutRow}>
-      <select style={s.select} value={m.section}
-        onChange={e => onChange({ ...m, section: e.target.value, action: e.target.value === 'PDx' ? 'Revise' : m.action })}>
-        {sections.map(x => <option key={x} value={x}>{SECTION_LABEL[x] || x}</option>)}
-      </select>
-      <select style={s.select} value={m.action}
-        onChange={e => onChange({ ...m, action: e.target.value as Finding['action'] })}>
-        {actions.map(a => <option key={a} value={a}>{a}</option>)}
-      </select>
-      {m.action === 'Revise' && (
-        <>
-          <select style={s.select} value={m.field || 'code'}
-            onChange={e => onChange({ ...m, field: e.target.value })}>
-            {['code', 'poa', 'ccmcc', 'modifier', 'units'].map(f => <option key={f}>{f}</option>)}
-          </select>
-          <input style={{ ...s.input, width: 74 }} type="number" min={0}
-            placeholder="line" value={m.line ?? ''}
-            onChange={e => onChange({ ...m, line: e.target.value === '' ? undefined : parseInt(e.target.value) })} />
-        </>
-      )}
-      {m.action === 'Add' ? (
-        <input style={{ ...s.input, width: 150 }} placeholder="code to find"
-          value={m.correct_value || ''}
-          onChange={e => onChange({ ...m, correct_value: e.target.value.toUpperCase() })} />
-      ) : (
-        <input style={{ ...s.input, width: 150 }}
-          placeholder={m.action === 'Delete' ? 'spurious code' : 'wrong value shown'}
-          value={m.claim_value || ''}
-          onChange={e => onChange({ ...m, claim_value: e.target.value.toUpperCase() })} />
-      )}
-      <button style={s.iconBtn} onClick={onRemove}><X size={14} /></button>
+    <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden' }}>
+      <div style={{ ...s.panelHead, marginTop: 0 }}>
+        <span style={{ fontWeight: 700, fontSize: 12.5 }}>{SECTION_LABEL[key] || key}</span>
+        <span style={{ fontSize: 11, color: '#9ca3af' }}>{rows.length} code(s) on the key</span>
+        {spec.actions.includes('Delete') && (
+          <button style={{ ...s.linkBtn, marginLeft: 'auto', color: ACTION_COLORS.Delete }}
+            onClick={addSpurious}>
+            <Plus size={12} /> Add a spurious code
+          </button>
+        )}
+      </div>
+      <div style={{ padding: '8px 12px' }}>
+        {rows.length === 0 && (
+          <div style={{ fontSize: 12, color: '#9ca3af', padding: '6px 0' }}>
+            Nothing on the answer key for this section.
+          </div>
+        )}
+        {rows.map((row: any, i: number) => {
+          const omitted = !!find('Add', i)
+          const revisions = spec.fields.map((f: string) => find('Revise', i, f)).filter(Boolean)
+          const touched = omitted || revisions.length > 0
+          const colour = omitted ? ACTION_COLORS.Add
+            : revisions.length ? ACTION_COLORS.Revise : undefined
+          return (
+            <div key={i} style={{
+              display: 'flex', alignItems: 'center', gap: 10, padding: '7px 8px',
+              borderRadius: 7, flexWrap: 'wrap',
+              background: touched ? (omitted ? ACTION_BG.Add : ACTION_BG.Revise) : 'transparent',
+              borderLeft: `3px solid ${colour || 'transparent'}`,
+            }}>
+              <span style={{ fontSize: 11, color: '#9ca3af', width: 16 }}>{i + 1}</span>
+              <code style={{
+                fontFamily: 'ui-monospace, monospace', fontSize: 13, fontWeight: 700,
+                textDecoration: omitted ? 'line-through' : 'none',
+                color: omitted ? ACTION_COLORS.Add : '#111',
+              }}>{row.code}</code>
+              {row.ccmcc && row.ccmcc !== '-' && (
+                <span style={{ ...s.tag, background: '#fee2e2', color: '#b91c1c' }}>{row.ccmcc}</span>
+              )}
+              {row.poa && <span style={{ ...s.tag, background: '#f0fdf4', color: '#15803d' }}>POA {row.poa}</span>}
+              {row.modifier && <span style={s.tag}>{row.modifier}</span>}
+
+              <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                {revisions.map((r: any) => (
+                  <span key={r.field} style={{ fontSize: 11, color: ACTION_COLORS.Revise, fontWeight: 600 }}>
+                    {r.field}: {r.correct_value || '—'} → <strong>{r.claim_value}</strong>
+                  </span>
+                ))}
+                {spec.fields.map((f: string) => (
+                  <input key={f} style={{
+                    ...s.input, width: f === 'code' ? 110 : 68, padding: '4px 8px',
+                    fontSize: 12, textTransform: 'uppercase',
+                    borderColor: find('Revise', i, f) ? ACTION_COLORS.Revise : '#d1d5db',
+                  }}
+                    placeholder={f === 'code' ? 'wrong code' : `wrong ${f}`}
+                    title={`Show a wrong ${f} on the claim instead of ${row[f] || '—'}`}
+                    disabled={omitted}
+                    value={find('Revise', i, f)?.claim_value || ''}
+                    onChange={e => setRevision(i, f, e.target.value, String(row[f] ?? ''))} />
+                ))}
+                {spec.actions.includes('Add') && (
+                  <button
+                    title={omitted ? 'Keep this code on the claim' : 'Remove it — the auditor must add it back'}
+                    onClick={() => toggleOmit(i, row.code)}
+                    style={{
+                      padding: '4px 10px', borderRadius: 6, fontSize: 11.5, fontWeight: 700,
+                      cursor: 'pointer',
+                      border: `1px solid ${omitted ? ACTION_COLORS.Add : '#d1d5db'}`,
+                      background: omitted ? ACTION_COLORS.Add : '#fff',
+                      color: omitted ? '#fff' : '#6b7280',
+                    }}>
+                    {omitted ? 'Omitted' : 'Omit'}
+                  </button>
+                )}
+              </div>
+            </div>
+          )
+        })}
+
+        {spurious.map((m, i) => (
+          <div key={`sp${i}`} style={{
+            display: 'flex', alignItems: 'center', gap: 10, padding: '7px 8px',
+            borderRadius: 7, background: ACTION_BG.Delete,
+            borderLeft: `3px solid ${ACTION_COLORS.Delete}`, marginTop: 4,
+          }}>
+            <span style={{ ...s.tag, background: '#fef3c7', color: ACTION_COLORS.Delete }}>
+              Spurious
+            </span>
+            <input style={{ ...s.input, width: 130, padding: '4px 8px', fontSize: 12, textTransform: 'uppercase' }}
+              placeholder="code to insert" value={m.claim_value || ''}
+              onChange={e => setSpurious(i, e.target.value)} autoFocus={!m.claim_value} />
+            <span style={{ fontSize: 11, color: '#92400e' }}>
+              appears on the claim; the auditor must delete it
+            </span>
+            <button style={{ ...s.iconBtn, marginLeft: 'auto' }} onClick={() => removeSpurious(i)}>
+              <X size={13} />
+            </button>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
