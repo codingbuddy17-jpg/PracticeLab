@@ -253,7 +253,7 @@ const doc = new Document({
         [
           ['Front end', 'React static site', 'In the browser only', 'No'],
           ['Backend API', 'FastAPI, Python 3.11', 'Yes — all application logic', 'No'],
-          ['Relational database', 'PostgreSQL', 'No', 'Yes — 32 tables'],
+          ['Relational database', 'PostgreSQL', 'No', 'Yes — 41 tables'],
           ['Object storage', 'S3-compatible bucket', 'No', 'Yes — chart page images'],
         ],
         [2300, 2900, 2280, 1880],
@@ -374,8 +374,8 @@ const doc = new Document({
 
       h2('2.3 Schema map'),
       ...figure('fig3_schema.png', 1241, 801,
-        'Figure 3 — The 32 tables, grouped by functional domain'),
-      p('The schema divides into five domains. The Chart Library is referenced by the PracticeLab domains; the Assessment domain is independent of charts entirely, as assessments are multiple-choice papers rather than coding work.'),
+        'Figure 3 — The tables, grouped by functional domain'),
+      p('The schema divides into six domains. The Chart Library is referenced by the PracticeLab and Auditor domains; the Assessment domain is independent of charts entirely, as assessments are multiple-choice papers rather than coding work.'),
       callout('Six tables are absent from the ORM models', [
         [{ t: 'em_answer_keys, em_grading_results, em_scoring_configs, practice_sessions, practice_chart_drafts, practice_results', code: true }, { t: ' are created by raw migration DDL only.' }],
         [{ t: 'A schema generated from the SQLAlchemy models alone will appear correct and will be missing the entire E/M grading and practice-session subsystems.', b: true }],
@@ -555,6 +555,29 @@ const doc = new Document({
         '  practicelab_YYYYMMDD.dump',
       ]),
       p('The restore is expected to complete without errors. Any error should be resolved before proceeding: a partially restored database will still start the application, because the startup migrations will create any missing table as empty.'),
+
+      h3('Restoring a directory-format backup'),
+      p('Backups supplied through the project repository under docs/ are directory-format dumps that have been compressed with tar. They are not plain SQL, and psql will not read them. Extract first, then restore against the extracted directory.'),
+      code(['tar -xzf 2026-08-14T14_26Z.dir.tar.gz']),
+      p('This produces a timestamped directory containing a chartviewer directory of .dat files and a toc.dat. pg_restore is pointed at that inner directory, not at the archive and not at a single file.'),
+      code([
+        'createdb practicelab',
+        '',
+        'pg_restore \\',
+        '  --no-owner \\',
+        '  --no-privileges \\',
+        '  --clean --if-exists \\',
+        '  --dbname="postgresql://USER:PASSWORD@HOST:PORT/practicelab" \\',
+        '  "2026-08-14T14:26Z/chartviewer"',
+      ]),
+      rbullet([{ t: 'The directory name contains colons and must be quoted. An unquoted path fails as though the file were missing.' }]),
+      rbullet([{ t: '--clean --if-exists', code: true }, { t: ' drops existing objects first, making the restore repeatable. Both may be omitted when restoring into a database that has just been created.' }]),
+      rbullet([{ t: '--jobs=4', code: true }, { t: ' restores tables in parallel. This is the principal reason to use directory format and is not available for plain-SQL dumps.' }]),
+      rbullet([{ t: 'A dump may be inspected without restoring it: ' }, { t: 'pg_restore --list "DIR/chartviewer"', code: true }]),
+      callout('The dump does not contain credentials', [
+        [{ t: 'The administrative passphrase and the object storage keys are held in environment variables and are never written to the database.' }],
+        [{ t: 'A restored database alone will not run the application. The environment variables in section 2 must be set as well, or the API starts and fails every file request.', b: true }],
+      ]),
 
       h2('4.5 Storage transfer'),
       p('Two approaches are available.'),

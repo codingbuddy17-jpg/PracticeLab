@@ -101,7 +101,9 @@
    }
   ],
   "uniq": [
-   "sqlite_autoindex_answer_keys_1"
+   [
+    "chart_id"
+   ]
   ]
  },
  "assessment_audit_log": {
@@ -344,9 +346,7 @@
    }
   ],
   "fks": [],
-  "uniq": [
-   "ix_assessment_questions_question_id"
-  ]
+  "uniq": []
  },
  "assessment_responses": {
   "cols": [
@@ -497,7 +497,9 @@
    }
   ],
   "uniq": [
-   "sqlite_autoindex_assessment_results_1"
+   [
+    "session_id"
+   ]
   ]
  },
  "assessment_sessions": {
@@ -610,19 +612,579 @@
   ],
   "fks": [
    {
-    "col": "student_slot_id",
-    "ref_table": "generated_assessment_students",
-    "ref_col": "id"
-   },
-   {
     "col": "assessment_id",
     "ref_table": "generated_assessments",
     "ref_col": "id"
+   },
+   {
+    "col": "student_slot_id",
+    "ref_table": "generated_assessment_students",
+    "ref_col": "id"
    }
   ],
-  "uniq": [
-   "ix_assessment_sessions_session_token"
-  ]
+  "uniq": []
+ },
+ "audit_allocation_cycles": {
+  "cols": [
+   {
+    "name": "id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": true
+   },
+   {
+    "name": "batch_id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "cycle_number",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "run_at",
+    "type": "DATETIME",
+    "notnull": false,
+    "default": "CURRENT_TIMESTAMP",
+    "pk": false
+   },
+   {
+    "name": "run_by",
+    "type": "VARCHAR(100)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "charts_allocated",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "pool_notes",
+    "type": "JSON",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   }
+  ],
+  "fks": [
+   {
+    "col": "batch_id",
+    "ref_table": "audit_batches",
+    "ref_col": "id"
+   }
+  ],
+  "uniq": []
+ },
+ "audit_assignments": {
+  "cols": [
+   {
+    "name": "id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": true
+   },
+   {
+    "name": "batch_id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "cycle_id",
+    "type": "INTEGER",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "auditor_name",
+    "type": "VARCHAR(100)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "chart_id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "specialty",
+    "type": "VARCHAR(14)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "source",
+    "type": "VARCHAR(6)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "set_id",
+    "type": "INTEGER",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "seed",
+    "type": "INTEGER",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "claim",
+    "type": "JSON",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "ground_truth",
+    "type": "JSON",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "query_expected",
+    "type": "BOOLEAN",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "opened_at",
+    "type": "DATETIME",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "created_at",
+    "type": "DATETIME",
+    "notnull": false,
+    "default": "CURRENT_TIMESTAMP",
+    "pk": false
+   }
+  ],
+  "fks": [
+   {
+    "col": "batch_id",
+    "ref_table": "audit_batches",
+    "ref_col": "id"
+   },
+   {
+    "col": "cycle_id",
+    "ref_table": "audit_allocation_cycles",
+    "ref_col": "id"
+   },
+   {
+    "col": "chart_id",
+    "ref_table": "charts",
+    "ref_col": "id"
+   },
+   {
+    "col": "set_id",
+    "ref_table": "audit_key_sets",
+    "ref_col": "id"
+   }
+  ],
+  "uniq": []
+ },
+ "audit_batch_auditors": {
+  "cols": [
+   {
+    "name": "id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": true
+   },
+   {
+    "name": "batch_id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "auditor_name",
+    "type": "VARCHAR(100)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "emp_id",
+    "type": "VARCHAR(50)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "created_at",
+    "type": "DATETIME",
+    "notnull": false,
+    "default": "CURRENT_TIMESTAMP",
+    "pk": false
+   }
+  ],
+  "fks": [
+   {
+    "col": "batch_id",
+    "ref_table": "audit_batches",
+    "ref_col": "id"
+   }
+  ],
+  "uniq": []
+ },
+ "audit_batches": {
+  "cols": [
+   {
+    "name": "id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": true
+   },
+   {
+    "name": "name",
+    "type": "VARCHAR(200)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "specialty",
+    "type": "VARCHAR(14)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "categories",
+    "type": "JSON",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "difficulties",
+    "type": "JSON",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "charts_per_auditor",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "status",
+    "type": "VARCHAR(6)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "allocation_mode",
+    "type": "VARCHAR(20)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "quota_clean",
+    "type": "INTEGER",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "quota_manual",
+    "type": "INTEGER",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "quota_auto",
+    "type": "INTEGER",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "clean_share",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "difficulty_tier",
+    "type": "VARCHAR(20)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "show_results_to_auditor",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "created_by",
+    "type": "VARCHAR(100)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "created_at",
+    "type": "DATETIME",
+    "notnull": false,
+    "default": "CURRENT_TIMESTAMP",
+    "pk": false
+   },
+   {
+    "name": "closed_at",
+    "type": "DATETIME",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "closed_by",
+    "type": "VARCHAR(100)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "force_closed",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "force_close_reason",
+    "type": "TEXT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "notes",
+    "type": "JSON",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "tags",
+    "type": "JSON",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   }
+  ],
+  "fks": [],
+  "uniq": []
+ },
+ "audit_chart_drafts": {
+  "cols": [
+   {
+    "name": "id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": true
+   },
+   {
+    "name": "session_id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "chart_id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "section_verdicts",
+    "type": "JSON",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "findings",
+    "type": "JSON",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "query_flag",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "query_text",
+    "type": "TEXT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "auditor_notes",
+    "type": "TEXT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "updated_at",
+    "type": "DATETIME",
+    "notnull": false,
+    "default": "CURRENT_TIMESTAMP",
+    "pk": false
+   }
+  ],
+  "fks": [
+   {
+    "col": "session_id",
+    "ref_table": "audit_sessions",
+    "ref_col": "id"
+   },
+   {
+    "col": "chart_id",
+    "ref_table": "charts",
+    "ref_col": "id"
+   }
+  ],
+  "uniq": []
+ },
+ "audit_key_sets": {
+  "cols": [
+   {
+    "name": "id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": true
+   },
+   {
+    "name": "chart_id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "name",
+    "type": "VARCHAR(120)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "mutations",
+    "type": "JSON",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "query_expected",
+    "type": "BOOLEAN",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "query_rationale",
+    "type": "TEXT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "always_plant",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "notes",
+    "type": "TEXT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "authored_by",
+    "type": "VARCHAR(100)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "created_at",
+    "type": "DATETIME",
+    "notnull": false,
+    "default": "CURRENT_TIMESTAMP",
+    "pk": false
+   },
+   {
+    "name": "updated_at",
+    "type": "DATETIME",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   }
+  ],
+  "fks": [
+   {
+    "col": "chart_id",
+    "ref_table": "charts",
+    "ref_col": "id"
+   }
+  ],
+  "uniq": []
  },
  "audit_logs": {
   "cols": [
@@ -673,6 +1235,567 @@
    {
     "col": "chart_id",
     "ref_table": "charts",
+    "ref_col": "id"
+   }
+  ],
+  "uniq": []
+ },
+ "audit_results": {
+  "cols": [
+   {
+    "name": "id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": true
+   },
+   {
+    "name": "session_id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "assignment_id",
+    "type": "INTEGER",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "chart_id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "batch_id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "auditor_name",
+    "type": "VARCHAR(100)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "emp_id",
+    "type": "VARCHAR(50)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "specialty",
+    "type": "VARCHAR(14)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "is_clean",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "add_planted",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "add_found",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "add_accuracy",
+    "type": "FLOAT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "revise_planted",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "revise_found",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "revise_accuracy",
+    "type": "FLOAT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "delete_planted",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "delete_found",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "delete_accuracy",
+    "type": "FLOAT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "over_calls",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "over_call_tier",
+    "type": "VARCHAR(20)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "over_call_deduction",
+    "type": "FLOAT",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "query_expected",
+    "type": "BOOLEAN",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "query_flagged",
+    "type": "BOOLEAN",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "query_correct",
+    "type": "BOOLEAN",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "query_deduction",
+    "type": "FLOAT",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "detected_not_corrected",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "drg_impacting_planted",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "drg_impacting_found",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "audit_accuracy",
+    "type": "FLOAT",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "pass_fail",
+    "type": "VARCHAR(4)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "findings",
+    "type": "JSON",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "feedback",
+    "type": "JSON",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "scored_at",
+    "type": "DATETIME",
+    "notnull": false,
+    "default": "CURRENT_TIMESTAMP",
+    "pk": false
+   }
+  ],
+  "fks": [
+   {
+    "col": "session_id",
+    "ref_table": "audit_sessions",
+    "ref_col": "id"
+   },
+   {
+    "col": "assignment_id",
+    "ref_table": "audit_assignments",
+    "ref_col": "id"
+   },
+   {
+    "col": "chart_id",
+    "ref_table": "charts",
+    "ref_col": "id"
+   },
+   {
+    "col": "batch_id",
+    "ref_table": "audit_batches",
+    "ref_col": "id"
+   }
+  ],
+  "uniq": []
+ },
+ "audit_scoring_configs": {
+  "cols": [
+   {
+    "name": "id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": true
+   },
+   {
+    "name": "add_weight",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "revise_weight",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "delete_weight",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "over_call_revenue_pct",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "over_call_non_revenue_pct",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "revenue_elements",
+    "type": "JSON",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "query_missed_pct",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "query_unnecessary_pct",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "pass_threshold",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "min_opportunities_for_verdict",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "mix_omit_sdx",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "mix_omit_proc",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "mix_modifier_missing",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "mix_modifier_wrong",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "mix_substitute",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "mix_substitute_pcs",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "mix_swap_pdx",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "mix_units",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "mix_poa",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "mix_spurious",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "max_auto_plantings",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "observed_share_pct",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "max_section_share",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "ccmcc_preference",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "updated_by",
+    "type": "VARCHAR(100)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "updated_at",
+    "type": "DATETIME",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   }
+  ],
+  "fks": [],
+  "uniq": []
+ },
+ "audit_sessions": {
+  "cols": [
+   {
+    "name": "id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": true
+   },
+   {
+    "name": "batch_id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "cycle_id",
+    "type": "INTEGER",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "auditor_name",
+    "type": "VARCHAR(100)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "emp_id",
+    "type": "VARCHAR(50)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "specialty",
+    "type": "VARCHAR(14)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "token",
+    "type": "VARCHAR(40)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "chart_ids",
+    "type": "JSON",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "status",
+    "type": "VARCHAR(20)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "show_results_to_auditor",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "started_at",
+    "type": "DATETIME",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "submitted_at",
+    "type": "DATETIME",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "created_at",
+    "type": "DATETIME",
+    "notnull": false,
+    "default": "CURRENT_TIMESTAMP",
+    "pk": false
+   }
+  ],
+  "fks": [
+   {
+    "col": "batch_id",
+    "ref_table": "audit_batches",
+    "ref_col": "id"
+   },
+   {
+    "col": "cycle_id",
+    "ref_table": "audit_allocation_cycles",
     "ref_col": "id"
    }
   ],
@@ -807,8 +1930,8 @@
   ],
   "fks": [
    {
-    "col": "chart_id",
-    "ref_table": "charts",
+    "col": "batch_id",
+    "ref_table": "batches",
     "ref_col": "id"
    },
    {
@@ -817,8 +1940,8 @@
     "ref_col": "id"
    },
    {
-    "col": "batch_id",
-    "ref_table": "batches",
+    "col": "chart_id",
+    "ref_table": "charts",
     "ref_col": "id"
    }
   ],
@@ -1171,9 +2294,7 @@
    }
   ],
   "fks": [],
-  "uniq": [
-   "sqlite_autoindex_chart_sequences_1"
-  ]
+  "uniq": []
  },
  "charts": {
   "cols": [
@@ -1263,9 +2384,7 @@
    }
   ],
   "fks": [],
-  "uniq": [
-   "ix_charts_chart_number"
-  ]
+  "uniq": []
  },
  "coding_resources": {
   "cols": [
@@ -1410,7 +2529,9 @@
    }
   ],
   "uniq": [
-   "sqlite_autoindex_ed_rubric_details_1"
+   [
+    "result_id"
+   ]
   ]
  },
  "em_answer_keys": {
@@ -1752,9 +2873,7 @@
     "ref_col": "id"
    }
   ],
-  "uniq": [
-   "sqlite_autoindex_em_answer_keys_1"
-  ]
+  "uniq": []
  },
  "em_grading_results": {
   "cols": [
@@ -2088,9 +3207,7 @@
     "ref_col": "id"
    }
   ],
-  "uniq": [
-   "sqlite_autoindex_em_grading_results_1"
-  ]
+  "uniq": []
  },
  "em_scoring_configs": {
   "cols": [
@@ -2587,8 +3704,8 @@
   ],
   "fks": [
    {
-    "col": "chart_id",
-    "ref_table": "charts",
+    "col": "batch_id",
+    "ref_table": "batches",
     "ref_col": "id"
    },
    {
@@ -2597,8 +3714,8 @@
     "ref_col": "id"
    },
    {
-    "col": "batch_id",
-    "ref_table": "batches",
+    "col": "chart_id",
+    "ref_table": "charts",
     "ref_col": "id"
    }
   ],
@@ -2716,6 +3833,13 @@
     "type": "TEXT",
     "notnull": false,
     "default": null,
+    "pk": false
+   },
+   {
+    "name": "query_flag",
+    "type": "BOOLEAN",
+    "notnull": false,
+    "default": "FALSE",
     "pk": false
    },
    {
@@ -2995,6 +4119,48 @@
     "pk": false
    },
    {
+    "name": "query_flag",
+    "type": "BOOLEAN",
+    "notnull": false,
+    "default": "FALSE",
+    "pk": false
+   },
+   {
+    "name": "query_reviewed",
+    "type": "BOOLEAN",
+    "notnull": false,
+    "default": "FALSE",
+    "pk": false
+   },
+   {
+    "name": "query_verdict",
+    "type": "VARCHAR(20)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "query_trainer_note",
+    "type": "TEXT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "query_reviewed_by",
+    "type": "VARCHAR(100)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "query_reviewed_at",
+    "type": "TIMESTAMP",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
     "name": "facility_level_submitted",
     "type": "TEXT",
     "notnull": false,
@@ -3129,9 +4295,7 @@
     "ref_col": "id"
    }
   ],
-  "uniq": [
-   "sqlite_autoindex_practice_sessions_1"
-  ]
+  "uniq": []
  },
  "scoring_configs": {
   "cols": [
@@ -3257,7 +4421,9 @@
   ],
   "fks": [],
   "uniq": [
-   "sqlite_autoindex_scoring_configs_1"
+   [
+    "specialty_type"
+   ]
   ]
  },
  "self_practice_results": {
@@ -3356,13 +4522,13 @@
   ],
   "fks": [
    {
-    "col": "chart_id",
-    "ref_table": "charts",
+    "col": "submission_id",
+    "ref_table": "self_practice_submissions",
     "ref_col": "id"
    },
    {
-    "col": "submission_id",
-    "ref_table": "self_practice_submissions",
+    "col": "chart_id",
+    "ref_table": "charts",
     "ref_col": "id"
    }
   ],
@@ -3519,13 +4685,13 @@
   ],
   "fks": [
    {
-    "col": "chart_id",
-    "ref_table": "charts",
+    "col": "batch_id",
+    "ref_table": "batches",
     "ref_col": "id"
    },
    {
-    "col": "batch_id",
-    "ref_table": "batches",
+    "col": "chart_id",
+    "ref_table": "charts",
     "ref_col": "id"
    }
   ],

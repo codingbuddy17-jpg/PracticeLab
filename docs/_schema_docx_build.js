@@ -28,6 +28,10 @@ const DOMAINS = [
     ['assessment_questions', 'assessment_configs', 'generated_assessments',
      'generated_assessment_students', 'assessment_sessions', 'assessment_responses',
      'assessment_results', 'assessment_audit_log'] },
+  { key: 'Auditor', colour: '9333EA', fill: 'F5F0FD', tables:
+    ['audit_batches', 'audit_batch_auditors', 'audit_allocation_cycles',
+     'audit_assignments', 'audit_sessions', 'audit_chart_drafts', 'audit_results',
+     'audit_key_sets', 'audit_scoring_configs'] },
 ];
 
 const p = (t, o = {}) => new Paragraph({
@@ -193,7 +197,7 @@ const doc = new Document({
       new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 60 },
         border: { top: { style: BorderStyle.SINGLE, size: 6, color: 'BFBFBF' } }, children: [new TextRun({ text: '' })] }),
       new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 220, after: 90 },
-        children: [new TextRun({ text: '32 tables · 448 columns · 32 foreign keys', size: 21, color: GREY, italics: true })] }),
+        children: [new TextRun({ text: '41 tables · 596 columns · 47 foreign keys', size: 21, color: GREY, italics: true })] }),
       new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 90 },
         children: [new TextRun({ text: 'Entity relationships, data dictionary and workflows', size: 20, color: GREY })] }),
       new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 560 },
@@ -220,13 +224,14 @@ const doc = new Document({
 
       // 1
       h1('1. Overview'),
-      p('The schema divides into five domains. Domain membership is a documentation convenience — the database enforces no such grouping — but it reflects how the tables are actually used and which move together.'),
+      p('The schema divides into six domains. Domain membership is a documentation convenience — the database enforces no such grouping — but it reflects how the tables are actually used and which move together.'),
       table(['Domain', 'Tables', 'Purpose'], [
         [[{ t: 'Chart Library', b: true }], '6', 'The clinical charts coders practise on, their page images and the audit trail'],
         [[{ t: 'PracticeLab', b: true }], '12', 'Assigning charts to coders, answer keys, and the graded results'],
         [[{ t: 'PracticeLab — E/M', b: true }], '3', 'Evaluation & Management grading, which uses a different scheme from other specialties'],
         [[{ t: 'Practice sessions', b: true }], '3', 'Where coders actually work: access codes, drafts and submitted results'],
         [[{ t: 'Assessment', b: true }], '8', 'Multiple-choice question papers, independent of charts'],
+        [[{ t: 'Auditor', b: true }], '9', 'Pre-coded charts with errors introduced, and the findings auditors record against them'],
       ], [2500, 900, 5960]),
 
       h2('1.1 Conventions'),

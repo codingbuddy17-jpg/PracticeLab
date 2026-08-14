@@ -276,6 +276,12 @@ and expected to stay that way.
 - Uploaded question-bank spreadsheets
 - Generated coder workbooks (the offline Excel workflow was removed; coders
   work in the browser)
+- Anything belonging to the Auditor module. It was added after this document
+  was first written and introduces **no new storage surface**: the pre-coded
+  claim each auditor sees, the errors introduced into it, and every finding
+  they record are JSON columns on `audit_assignments`, `audit_chart_drafts` and
+  `audit_results`. Auditors read the same chart images through the same
+  presigned URLs as coders. Nothing about the two-store split above changes.
 
 ### Order matters
 

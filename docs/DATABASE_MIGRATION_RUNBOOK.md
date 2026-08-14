@@ -13,7 +13,9 @@ no Alembic. It creates its own schema on first boot:
 ```python
 def init_db():
     Base.metadata.create_all(bind=engine)   # tables defined as ORM models
-    _run_migrations()                        # 21 raw CREATE TABLE + ~100 ALTERs
+    _run_migrations()                        # 21 raw CREATE TABLE + 92 ALTERs
+    report_schema_drift()                    # logs any column the models expect
+                                             # and the database does not have
 ```
 
 So the schema *is* the application. Point the API at an empty PostgreSQL
@@ -105,6 +107,11 @@ pg_dump \
 A plain-SQL dump (`--format=plain --file=practicelab.sql`) is also fine and is
 easier to read and review, but restores more slowly.
 
+**Directory format** (`--format=directory --jobs=4 --file=DIRNAME`) is the third
+option and is what the backups committed to `docs/` in this repository use. It
+writes a directory of per-table files rather than one file, which is why those
+backups arrive as a `.tar.gz` — see §4.3.
+
 ### 4.3 Restore
 
 Into a genuinely empty database:
@@ -120,6 +127,47 @@ pg_restore \
 ```
 
 For a plain-SQL dump: `psql -d "postgresql://..." -f practicelab.sql`
+
+#### Restoring the `.tar.gz` backups from `docs/`
+
+The backups placed in this repository's `docs/` folder are **directory-format**
+dumps that have been tarred. They are not plain SQL: `psql -f` will not read
+them, and that is the most common first mistake. Extract, then `pg_restore`
+against the extracted **directory**:
+
+```bash
+tar -xzf 2026-08-14T14_26Z.dir.tar.gz
+```
+
+That produces a timestamped directory containing a `chartviewer/` directory of
+`.dat` files and a `toc.dat`. Point `pg_restore` at that inner directory:
+
+```bash
+createdb practicelab
+
+pg_restore \
+  --no-owner \
+  --no-privileges \
+  --clean --if-exists \
+  --dbname="postgresql://USER:PASSWORD@HOST:PORT/practicelab" \
+  "2026-08-14T14:26Z/chartviewer"
+```
+
+Notes on that command:
+
+- The directory name contains **colons**, so it must be quoted. An unquoted
+  path fails in a way that looks like a missing file.
+- `--clean --if-exists` drops existing objects first, so the restore is
+  repeatable. Omit both when restoring into a database you have just created —
+  they are only needed when overwriting.
+- Add `--jobs=4` to restore tables in parallel. This is the main reason to use
+  directory format; it is not available for plain-SQL dumps.
+- To inspect a dump without restoring it: `pg_restore --list "DIR/chartviewer"`.
+
+**What the dump does not contain.** The admin passphrase and the storage
+credentials live in environment variables, never in the database (§2). A
+restored database on its own will not start the application — set the
+environment variables too, or the API boots and fails every file request.
 
 Expect zero errors. Investigate any that appear rather than proceeding — a
 partially restored database will still start the app, because the app's
@@ -291,6 +339,10 @@ UNION ALL SELECT 'practice_results', COUNT(*) FROM practice_results
 UNION ALL SELECT 'assessment_questions', COUNT(*) FROM assessment_questions
 UNION ALL SELECT 'assessment_sessions', COUNT(*) FROM assessment_sessions
 UNION ALL SELECT 'assessment_results', COUNT(*) FROM assessment_results
+UNION ALL SELECT 'audit_batches', COUNT(*) FROM audit_batches
+UNION ALL SELECT 'audit_assignments', COUNT(*) FROM audit_assignments
+UNION ALL SELECT 'audit_results', COUNT(*) FROM audit_results
+UNION ALL SELECT 'audit_key_sets', COUNT(*) FROM audit_key_sets
 ORDER BY 1;
 ```
 
@@ -354,7 +406,7 @@ curl -s "https://YOUR-INTERNAL-API/charts/search?page_size=1"
 
 ## 8. Table inventory
 
-32 tables. Grouped by subsystem:
+**41 tables, 596 columns.** Grouped by subsystem:
 
 **Chart Library** — `charts`, `chart_files`, `chart_sequences`, `chart_feedback`,
 `audit_logs`, `coding_resources`
@@ -372,6 +424,17 @@ curl -s "https://YOUR-INTERNAL-API/charts/search?page_size=1"
 **Assessment** — `assessment_questions`, `assessment_configs`,
 `generated_assessments`, `generated_assessment_students`, `assessment_sessions`,
 `assessment_responses`, `assessment_results`, `assessment_audit_log`
+
+**Auditor** — `audit_batches`, `audit_batch_auditors`, `audit_allocation_cycles`,
+`audit_assignments`, `audit_sessions`, `audit_chart_drafts`, `audit_results`,
+`audit_key_sets`, `audit_scoring_configs`
+
+> The Auditor subsystem was added after the first version of this document.
+> Its nine tables are ORM-backed, so `create_all()` builds them — but the
+> columns added to them afterwards are not, which is the trap described in
+> §5.1. Note that `audit_logs` (singular subsystem, listed under Chart Library)
+> is unrelated to the Auditor module despite the name; it is the chart audit
+> trail and predates it.
 
 ---
 
