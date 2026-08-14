@@ -33,6 +33,51 @@ def get_db():
 def init_db():
     Base.metadata.create_all(bind=engine)
     _run_migrations()
+    report_schema_drift()
+
+
+def report_schema_drift(bind=None) -> dict[str, list[str]]:
+    """
+    Name every column the models expect that the database does not have.
+
+    create_all() creates missing TABLES and never alters an existing one, so a
+    column added to a model without a matching migration below exists
+    everywhere except production — the test database is rebuilt from the models
+    on every run, so it always looks correct.
+
+    The failure that produces is a 500 on the first request that SELECTs the
+    table, with nothing at startup to suggest why. This turns that into one
+    loud line in the boot log naming the exact columns, which is the
+    difference between a five-minute fix and an afternoon.
+
+    Deliberately non-fatal: refusing to start would take a working application
+    down over a column that may not be on any hot path, and the rest of this
+    file already treats DDL trouble as something to report rather than crash
+    on. Returns the drift so a test can assert on it.
+    """
+    drift: dict[str, list[str]] = {}
+    target = bind if bind is not None else engine
+    try:
+        insp = sa_inspect(target)
+        live = set(insp.get_table_names())
+        for name, table in Base.metadata.tables.items():
+            if name not in live:
+                continue
+            have = {c["name"] for c in insp.get_columns(name)}
+            missing = [c.name for c in table.columns if c.name not in have]
+            if missing:
+                drift[name] = missing
+    except Exception as exc:            # never let a diagnostic break startup
+        logger.warning("Schema drift check failed (non-fatal): %s", exc)
+        return {}
+
+    if drift:
+        detail = "; ".join(f"{t}: {', '.join(c)}" for t, c in sorted(drift.items()))
+        logger.error(
+            "SCHEMA DRIFT — the database is missing columns the models expect. "
+            "Requests touching these tables will fail until a migration is added "
+            "to _run_migrations(). Missing: %s", detail)
+    return drift
 
 
 def _run_migrations():
@@ -551,6 +596,22 @@ def _run_migrations():
     _add_col("practice_results", "query_trainer_note", "TEXT", "TEXT")
     _add_col("practice_results", "query_reviewed_by", "VARCHAR(100)", "VARCHAR(100)")
     _add_col("practice_results", "query_reviewed_at", "TIMESTAMP", "TIMESTAMP")
+
+    # ── Auditor module ─────────────────────────────────────────────────────────
+    # create_all() creates missing TABLES; it never alters an existing one. So
+    # every column added to an auditor table after its first deploy needs a
+    # migration here, exactly like the coder tables above.
+    #
+    # This was missed when the module was built, and the result was a 500 on
+    # /auditor/batches in production while every test passed: the test database
+    # is rebuilt from the models on each run, so it always had the new columns
+    # and the deployed one never did.
+    _add_col("audit_batches", "show_results_to_auditor",
+             "BOOLEAN DEFAULT TRUE", "BOOLEAN DEFAULT TRUE")
+    _add_col("audit_scoring_configs", "observed_share_pct",
+             "INTEGER DEFAULT 100", "INTEGER DEFAULT 100")
+    _add_col("audit_scoring_configs", "mix_substitute_pcs",
+             "INTEGER DEFAULT 5", "INTEGER DEFAULT 5")
 
     # ── Fix practice tables: attach sequences so PG auto-increments id ──────────
     # Tables were created with INTEGER PRIMARY KEY (no sequence on PG). Each step
