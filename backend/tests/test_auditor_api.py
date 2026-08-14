@@ -1111,3 +1111,63 @@ class TestDeepReviewFixes:
                            "line": 99, "claim_value": "ZZZ"}]})
         assert r.status_code == 400
         assert "does not exist" in r.json()["detail"]
+
+
+class TestHandPickedMode:
+    """
+    The trainer chooses WHICH charts; the quotas still decide the mix within
+    them. Before the picker existed the backend accepted chart ids that no
+    screen ever sent, so the mode behaved as filtered-automatic.
+    """
+
+    def test_only_the_picked_charts_are_allocated(self, client, db, library):
+        wanted = [library[0].id, library[1].id]
+        batch_id = make_batch(client, charts_per=2, allocation_mode="manual")
+        r = client.post(f"/auditor/batches/{batch_id}/run-allocation",
+                        json={"run_by": "T", "manual_chart_ids": wanted})
+        assert r.status_code == 200, r.text
+        rows = client.get(f"/auditor/batches/{batch_id}/plantings",
+                          params={"limit": 500}).json()["plantings"]
+        assert {p["chart_id"] for p in rows} == set(wanted)
+
+    def test_the_quotas_apply_within_the_selection(self, client, db, library):
+        """
+        Hand-picked used to fall back to the clean-share default, so the quota
+        boxes were silently ignored the moment someone switched modes.
+        """
+        for c in library[:3]:
+            client.post(f"/auditor/keys/chart/{c.id}", json={
+                "name": "Curated", "authored_by": "T", "passphrase": PASS,
+                "mutations": [{"section": "SDx", "action": "Add",
+                               "correct_value": "E11.1"}]})
+        batch_id = make_batch(client, charts_per=4, allocation_mode="manual",
+                              quota_clean=1, quota_manual=2, quota_auto=1)
+        client.post(f"/auditor/batches/{batch_id}/run-allocation",
+                    json={"run_by": "T",
+                          "manual_chart_ids": [c.id for c in library[:4]]})
+        rows = client.get(f"/auditor/batches/{batch_id}/plantings",
+                          params={"limit": 500}).json()["plantings"]
+        counts = {}
+        for r in rows:
+            counts[r["source"]] = counts.get(r["source"], 0) + 1
+        assert counts.get("Clean", 0) == 1
+        assert counts.get("Manual", 0) == 2
+        assert counts.get("Auto", 0) == 1
+
+    def test_picking_an_unusable_chart_says_why(self, client, db, library):
+        """
+        Allocating a shorter list than the trainer asked for, without comment,
+        is how a batch quietly ends up smaller than intended.
+        """
+        c = Chart(chart_number="NOKEY7", specialty=Specialty.IP_DRG, category="x",
+                  difficulty=Difficulty.BEGINNER, status=ChartStatus.ACTIVE,
+                  uploaded_by="t")
+        db.add(c)
+        db.commit()
+        batch_id = make_batch(client, charts_per=2, allocation_mode="manual")
+        r = client.post(f"/auditor/batches/{batch_id}/run-allocation",
+                        json={"run_by": "T",
+                              "manual_chart_ids": [library[0].id, c.id]})
+        assert r.status_code == 400
+        assert "NOKEY7" in r.json()["detail"]
+        assert "answer key" in r.json()["detail"]

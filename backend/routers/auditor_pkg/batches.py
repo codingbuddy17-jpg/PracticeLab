@@ -294,7 +294,21 @@ def run_allocation(batch_id: int, payload: AllocationRun, db: Session = Depends(
     pool = chart_pool(db, batch)
     if payload.manual_chart_ids:
         allowed = set(payload.manual_chart_ids)
-        pool = [c for c in pool if c.id in allowed]
+        picked = [c for c in pool if c.id in allowed]
+        # A chart the trainer picked that is not in the pool was excluded for a
+        # reason — retired, wrong specialty, or no answer key. Saying so beats
+        # allocating a shorter list than they asked for without comment.
+        missing = allowed - {c.id for c in picked}
+        if missing:
+            names = {c.id: c.chart_number for c in db.query(Chart).filter(
+                Chart.id.in_(missing)).all()}
+            notes_prefix = ", ".join(names.get(i, str(i)) for i in sorted(missing))
+            raise HTTPException(
+                400,
+                f"These charts cannot be audited in this batch: {notes_prefix}. "
+                f"A chart must be active, in this specialty, and have an answer "
+                f"key before errors can be introduced into it.")
+        pool = picked
     if not pool:
         raise HTTPException(
             400, "No charts match this batch's filters that also have an answer key")

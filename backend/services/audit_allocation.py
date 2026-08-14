@@ -83,7 +83,12 @@ def resolve_quotas(mode: str, want: int, clean_share: int,
     each has an intent but no appetite for choosing forty charts.
     """
     mode = (mode or "guided").lower()
-    if mode == "guided" and any(q is not None for q in (quota_clean, quota_manual, quota_auto)):
+    # Hand-picked honours the numbers too. The trainer has chosen WHICH charts;
+    # the mix within them is a separate question, and leaving it on the
+    # clean-share default meant the quota boxes were silently ignored the
+    # moment someone switched modes.
+    if mode in ("guided", "manual") \
+            and any(q is not None for q in (quota_clean, quota_manual, quota_auto)):
         q = Quotas(clean=max(0, quota_clean or 0),
                    manual=max(0, quota_manual or 0),
                    auto=max(0, quota_auto or 0))

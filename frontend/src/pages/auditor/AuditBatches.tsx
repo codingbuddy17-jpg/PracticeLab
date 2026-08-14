@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
 import {
-  AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, Copy, Download, Eye,
-  Loader, Plus, RefreshCw, Shuffle, Upload,
+  AlertTriangle, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, Copy,
+  Download, Eye, Loader, Plus, RefreshCw, Search, Shuffle, Square, Upload,
 } from 'lucide-react'
 import {
   closeAuditBatch, createAuditBatch, getAuditBatch, getAuditPlantings,
   downloadAuditBatchResults, listAuditBatches, regenerateAssignment,
   reopenAuditBatch, runAuditAllocation,
 } from '../../api/auditorApi'
-import { downloadCoderListTemplate, getPoolPreview, parseCoderList } from '../../api'
+import {
+  downloadCoderListTemplate, getPoolPreview, parseCoderList, searchCharts,
+} from '../../api'
 import { CoderPicker } from '../../components/CoderPicker'
 import { DIFFICULTIES } from '../practicelab/shared'
 import s from './styles'
@@ -567,6 +569,14 @@ function AuditBatchDetail({ batchId, trainer, onBack }: {
   const [busy, setBusy] = useState(false)
   // Two-step, like the coder screen: closing is the point at which results
   // become the record, so it is never one stray click away.
+  // Hand-picked mode: the trainer chooses WHICH charts; the quotas still
+  // decide the mix within them. Same picker as the coder allocation panel.
+  const [picked, setPicked] = useState<Set<number>>(new Set())
+  const [hits, setHits] = useState<Record<string, any>[]>([])
+  const [chartSearch, setChartSearch] = useState('')
+  const [chartCat, setChartCat] = useState('')
+  const [chartDiff, setChartDiff] = useState('')
+  const [searching, setSearching] = useState(false)
   const [confirmingClose, setConfirmingClose] = useState(false)
   const [closing, setClosing] = useState(false)
   const [reopenPass, setReopenPass] = useState('')
@@ -580,10 +590,32 @@ function AuditBatchDetail({ batchId, trainer, onBack }: {
 
   useEffect(() => { load() }, [load])
 
+  async function findCharts() {
+    setSearching(true)
+    try {
+      const res = await searchCharts({
+        q: chartSearch.trim() || undefined,
+        specialty: batch.specialty,
+        category: chartCat.trim() || undefined,
+        difficulty: chartDiff || undefined,
+        limit: 40,
+      } as never)
+      setHits((res as { charts?: Record<string, any>[] }).charts || [])
+    } catch { toast.error('Chart search failed') }
+    setSearching(false)
+  }
+
   async function allocate() {
+    const handPicked = batch.allocation_mode === 'manual'
+    if (handPicked && picked.size === 0) {
+      return toast.error('Pick at least one chart, or switch the batch to Guided')
+    }
     setBusy(true)
     try {
-      const res = await runAuditAllocation(batchId, { run_by: trainer })
+      const res = await runAuditAllocation(batchId, {
+        run_by: trainer,
+        manual_chart_ids: handPicked ? Array.from(picked) : [],
+      })
       toast.success(`Allocated ${res.charts_allocated} chart(s)`)
       ;(res.pool_notes || []).forEach((n: string) => toast(n, { icon: 'ℹ️', duration: 6000 }))
       load()
@@ -697,6 +729,78 @@ function AuditBatchDetail({ batchId, trainer, onBack }: {
           </div>
         )}
       </div>
+
+      {batch.status === 'Open' && batch.allocation_mode === 'manual' && (
+        <Panel title="Choose the charts for the next allocation">
+          <div style={s.chartSearchRow}>
+            <input style={{ ...s.input, flex: 1 }} placeholder="Chart number"
+              value={chartSearch} onChange={e => setChartSearch(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && findCharts()} />
+            <input style={{ ...s.input, flex: 1 }} placeholder="Category"
+              value={chartCat} onChange={e => setChartCat(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && findCharts()} />
+            <select style={s.select} value={chartDiff}
+              onChange={e => setChartDiff(e.target.value)}>
+              <option value="">All difficulties</option>
+              {DIFFICULTIES.map(d => <option key={d}>{d}</option>)}
+            </select>
+            <button style={s.outlineBtn} onClick={findCharts} disabled={searching}>
+              {searching ? <Loader size={13} /> : <Search size={13} />} Search
+            </button>
+          </div>
+
+          {picked.size > 0 && (
+            <div style={{ fontSize: 12, color: '#4f46e5', fontWeight: 700, margin: '8px 0' }}>
+              {picked.size} chart{picked.size !== 1 ? 's' : ''} selected — each auditor
+              draws {batch.charts_per_auditor} of them, least-seen first, and the
+              clean / yours / system quotas still apply within your selection.
+              <button style={{ ...s.linkBtn, marginLeft: 10 }}
+                onClick={() => setPicked(new Set())}>Clear</button>
+            </div>
+          )}
+          {picked.size > 0 && picked.size < batch.charts_per_auditor && (
+            <div style={s.warnBox}>
+              <AlertTriangle size={14} color="#d97706" style={{ flexShrink: 0, marginTop: 1 }} />
+              <span>
+                {picked.size} selected but each auditor takes {batch.charts_per_auditor} —
+                the allocation will repeat charts to fill the gap.
+              </span>
+            </div>
+          )}
+
+          {hits.length > 0 ? (
+            <div style={s.chartPickerList}>
+              <div style={s.chartPickerListHeader}>
+                <span>Chart</span><span>Category</span><span>Difficulty</span><span /></div>
+              {hits.map(c => {
+                const on = picked.has(c.id as number)
+                return (
+                  <div key={c.id as number}
+                    style={{ ...s.chartPickerRow, background: on ? '#eef2ff' : '#fff' }}
+                    onClick={() => setPicked(p => {
+                      const next = new Set(p)
+                      next.has(c.id as number) ? next.delete(c.id as number)
+                        : next.add(c.id as number)
+                      return next
+                    })}>
+                    <span style={s.chartPickerNum}>{c.chart_number as string}</span>
+                    <span style={s.chartPickerCat}>{c.category as string}</span>
+                    <span style={s.chartPickerDiff}>{c.difficulty as string}</span>
+                    <span>{on ? <CheckSquare size={16} color="#4f46e5" />
+                      : <Square size={16} color="#d1d5db" />}</span>
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            <div style={s.note}>
+              Search to list charts. Only active charts in {batch.specialty} with an
+              answer key can be audited — there is no truth to introduce errors into
+              without one.
+            </div>
+          )}
+        </Panel>
+      )}
 
       {codes.length > 0 && (
         <Panel title="Access codes">
