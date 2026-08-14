@@ -28,6 +28,12 @@ R1_BLUE_DARK = colors.HexColor("#002B75")
 R1_BLUE_LIGHT = colors.HexColor("#E6ECF9")
 CREAM = colors.HexColor("#FBF7EE")
 CREAM_PANEL = colors.HexColor("#FFFFFF")
+AUDIT_PURPLE = colors.HexColor("#6D28D9")
+AUDIT_PURPLE_DARK = colors.HexColor("#4C1D95")
+AUDIT_PAGE_BG = colors.HexColor("#FBFAFF")
+AUDIT_PANEL = colors.HexColor("#FFFFFF")
+AUDIT_STRIPE = colors.HexColor("#F5F3FF")
+AUDIT_BORDER = colors.HexColor("#DDD6FE")
 
 GREEN = colors.HexColor("#1A7A4C")
 GREEN_BG = colors.HexColor("#EAF6EE")
@@ -53,6 +59,8 @@ TITLE = ParagraphStyle("Title", parent=styles["Title"], textColor=R1_BLUE_DARK, 
 SUBTITLE = ParagraphStyle("Subtitle", parent=styles["Normal"], textColor=GRAY, fontSize=10.5, spaceAfter=12)
 EYEBROW = ParagraphStyle("Eyebrow", parent=styles["Normal"], textColor=R1_BLUE, fontName="Helvetica-Bold", fontSize=9.5, leading=12, spaceAfter=4)
 H2 = ParagraphStyle("H2", parent=styles["Heading2"], textColor=R1_BLUE_DARK, fontName="Helvetica-Bold", fontSize=12.5, spaceBefore=16, spaceAfter=2, leading=15)
+AUDIT_TITLE = ParagraphStyle("AuditTitle", parent=TITLE, textColor=AUDIT_PURPLE_DARK)
+AUDIT_H2 = ParagraphStyle("AuditH2", parent=H2, textColor=AUDIT_PURPLE_DARK)
 NORMAL = ParagraphStyle("NormalSm", parent=styles["Normal"], fontSize=9.5, leading=13)
 SMALL_GRAY = ParagraphStyle("SmallGray", parent=styles["Normal"], fontSize=8, textColor=GRAY)
 VERDICT_TEXT = ParagraphStyle("Verdict", parent=styles["Normal"], fontSize=11, leading=15, fontName="Helvetica-Bold")
@@ -170,9 +178,9 @@ def _trend_line_chart(points: list[tuple], width=CONTENT_W, height=170) -> Drawi
     return d
 
 
-def _section_heading(elements, text):
-    elements.append(Paragraph(text, H2))
-    elements.append(HRFlowable(width="100%", thickness=1, color=R1_BLUE_LIGHT, spaceBefore=2, spaceAfter=8))
+def _section_heading(elements, text, heading_style=H2, rule_color=R1_BLUE_LIGHT):
+    elements.append(Paragraph(text, heading_style))
+    elements.append(HRFlowable(width="100%", thickness=1, color=rule_color, spaceBefore=2, spaceAfter=8))
 
 
 def _draw_background(c, _doc):
@@ -182,13 +190,28 @@ def _draw_background(c, _doc):
     c.restoreState()
 
 
+def _draw_auditor_background(c, _doc):
+    c.saveState()
+    c.setFillColor(AUDIT_PAGE_BG)
+    c.rect(0, 0, PAGE_W, PAGE_H, fill=1, stroke=0)
+    c.setFillColor(AUDIT_PURPLE)
+    c.rect(0, PAGE_H - 0.12 * inch, PAGE_W, 0.12 * inch, fill=1, stroke=0)
+    c.restoreState()
+
+
 # Above this many cards in one row, each card is too narrow for its label and
 # KeepInFrame starts shrinking the text — which is why the boxes ended up with
 # visibly different font sizes rather than overflowing outright.
 MAX_STATS_PER_ROW = 4
 
 
-def _stat_row(stats: list[tuple[str, str]], per_row: int = MAX_STATS_PER_ROW):
+def _stat_row(
+    stats: list[tuple[str, str]],
+    per_row: int = MAX_STATS_PER_ROW,
+    value_color=R1_BLUE_DARK,
+    card_bg=CREAM_PANEL,
+    card_border=BORDER,
+):
     """
     Boxed stat cards, evenly sized, spanning CONTENT_W.
 
@@ -210,9 +233,9 @@ def _stat_row(stats: list[tuple[str, str]], per_row: int = MAX_STATS_PER_ROW):
         for j, chunk in enumerate(chunks):
             if j:
                 stacked.append(Spacer(1, 6))
-            stacked.append(_stat_row(chunk, per_row))
+            stacked.append(_stat_row(chunk, per_row, value_color=value_color, card_bg=card_bg, card_border=card_border))
         return KeepTogether(stacked)
-    value_style = ParagraphStyle("statValue", parent=styles["Normal"], fontSize=18, leading=21, fontName="Helvetica-Bold", alignment=1, textColor=R1_BLUE_DARK)
+    value_style = ParagraphStyle("statValue", parent=styles["Normal"], fontSize=18, leading=21, fontName="Helvetica-Bold", alignment=1, textColor=value_color)
     label_style = ParagraphStyle("statLabel", parent=styles["Normal"], fontSize=7.4, leading=8.2, alignment=1, textColor=GRAY, fontName="Helvetica-Bold")
     n = len(stats)
     gap = 0.12 * inch
@@ -243,8 +266,8 @@ def _stat_row(stats: list[tuple[str, str]], per_row: int = MAX_STATS_PER_ROW):
     ]
     for col in range(0, len(col_widths), 2):
         style.extend([
-            ("BOX", (col, 0), (col, 0), 0.75, BORDER),
-            ("BACKGROUND", (col, 0), (col, 0), CREAM_PANEL),
+            ("BACKGROUND", (col, 0), (col, 0), card_bg),
+            ("BOX", (col, 0), (col, 0), 0.75, card_border),
         ])
     wrapper.setStyle(TableStyle(style))
     return wrapper
@@ -318,7 +341,16 @@ def _two_col(left: Table, right: Table) -> Table:
     return t
 
 
-def _data_table(header: list, rows: list, col_fracs: list, width=CONTENT_W) -> Table:
+def _data_table(
+    header: list,
+    rows: list,
+    col_fracs: list,
+    width=CONTENT_W,
+    header_bg=R1_BLUE,
+    border_color=BORDER,
+    body_bg=CREAM_PANEL,
+    stripe_bg=GRAY_LIGHT,
+) -> Table:
     """col_fracs: relative widths (e.g. [2, 1, 1]) summing proportionally to `width`.
     Pass width=HALF_W when this table will sit inside a _two_col() half — otherwise
     it sizes itself for the full page width and overflows/corrupts when squeezed."""
@@ -328,26 +360,26 @@ def _data_table(header: list, rows: list, col_fracs: list, width=CONTENT_W) -> T
     data = [[Paragraph(h, header_style) for h in header]] + rows
     t = Table(data, colWidths=col_widths, repeatRows=1)
     style = [
-        ("BACKGROUND", (0, 0), (-1, 0), R1_BLUE),
-        ("BOX", (0, 0), (-1, -1), 0.5, BORDER),
-        ("INNERGRID", (0, 0), (-1, -1), 0.5, BORDER),
+        ("BACKGROUND", (0, 0), (-1, 0), header_bg),
+        ("BOX", (0, 0), (-1, -1), 0.5, border_color),
+        ("INNERGRID", (0, 0), (-1, -1), 0.5, border_color),
         ("TOPPADDING", (0, 0), (-1, -1), 5.5),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 5.5),
         ("LEFTPADDING", (0, 0), (-1, -1), 7),
-        ("BACKGROUND", (0, 1), (-1, -1), CREAM_PANEL),
+        ("BACKGROUND", (0, 1), (-1, -1), body_bg),
     ]
     for i in range(1, len(data)):
         if i % 2 == 0:
-            style.append(("BACKGROUND", (0, i), (-1, i), GRAY_LIGHT))
+            style.append(("BACKGROUND", (0, i), (-1, i), stripe_bg))
     t.setStyle(TableStyle(style))
     return t
 
 
-def _header(elements, title, subtitle_lines):
-    elements.append(Paragraph(title, TITLE))
+def _header(elements, title, subtitle_lines, title_style=TITLE, subtitle_style=SUBTITLE, rule_color=R1_BLUE):
+    elements.append(Paragraph(title, title_style))
     for line in subtitle_lines:
-        elements.append(Paragraph(line, SUBTITLE))
-    elements.append(HRFlowable(width="100%", thickness=2, color=R1_BLUE, spaceAfter=12))
+        elements.append(Paragraph(line, subtitle_style))
+    elements.append(HRFlowable(width="100%", thickness=2, color=rule_color, spaceAfter=12))
 
 
 def _footer_note(elements):
@@ -682,6 +714,31 @@ def _pct(value) -> str:
     return "NA" if value is None else f"{value}%"
 
 
+def _audit_header(elements, title, subtitle_lines):
+    _header(elements, title, subtitle_lines, title_style=AUDIT_TITLE, rule_color=AUDIT_PURPLE)
+
+
+def _audit_section_heading(elements, text):
+    _section_heading(elements, text, heading_style=AUDIT_H2, rule_color=AUDIT_BORDER)
+
+
+def _audit_stat_row(stats: list[tuple[str, str]]):
+    return _stat_row(stats, value_color=AUDIT_PURPLE_DARK, card_bg=AUDIT_PANEL, card_border=AUDIT_BORDER)
+
+
+def _audit_data_table(header: list, rows: list, col_fracs: list, width=CONTENT_W) -> Table:
+    return _data_table(
+        header,
+        rows,
+        col_fracs,
+        width=width,
+        header_bg=AUDIT_PURPLE,
+        border_color=AUDIT_BORDER,
+        body_bg=AUDIT_PANEL,
+        stripe_bg=AUDIT_STRIPE,
+    )
+
+
 def _audit_verdict(summary: dict, pass_threshold: int = 80):
     score = summary.get("audit_accuracy")
     withheld = summary.get("verdict_withheld_reason")
@@ -725,12 +782,12 @@ def generate_audit_auditor_report_pdf(data: dict) -> bytes:
     subtitles = [f"Auditor: {name}" + (f"  |  Emp ID: {emp}" if emp else "")]
     if data.get("specialty"):
         subtitles.append(f"Specialty: {data['specialty']}")
-    _header(elements, "Auditor Performance Report", subtitles)
+    _audit_header(elements, "Auditor Performance Report", subtitles)
 
     headline, detail, color, bg, border = _audit_verdict(summary, pt)
     elements.append(_verdict_box(headline, detail, color, bg, border))
     elements.append(Spacer(1, 12))
-    elements.append(_stat_row([
+    elements.append(_audit_stat_row([
         (str(summary.get("charts", 0)), "Charts Audited"),
         (_pct(summary.get("audit_accuracy")), "Audit Accuracy"),
         (_pct(summary.get("clean_accuracy")), "Clean Accuracy"),
@@ -739,34 +796,34 @@ def generate_audit_auditor_report_pdf(data: dict) -> bytes:
         (str(summary.get("detected_not_corrected", 0)), "Found, Corrected Wrongly"),
     ]))
 
-    _section_heading(elements, "Component Accuracy")
-    elements.append(_data_table(["Component", "Accuracy", "Basis"],
-                                _audit_component_rows(summary, pt), [2, 1, 1.2]))
+    _audit_section_heading(elements, "Component Accuracy")
+    elements.append(_audit_data_table(["Component", "Accuracy", "Basis"],
+                                      _audit_component_rows(summary, pt), [2, 1, 1.2]))
 
     detection = data.get("detection") or {}
     weakest = detection.get("weakest") or []
     if weakest:
-        _section_heading(elements, "What To Coach Next")
+        _audit_section_heading(elements, "What To Coach Next")
         rows = [[Paragraph(w.get("label", "—"), NORMAL),
                  _score_cell(w.get("accuracy"), pass_threshold=pt),
                  Paragraph(f"{w.get('found', 0)}/{w.get('planted', 0)} caught", NORMAL)]
                 for w in weakest[:8]]
-        elements.append(_data_table(["Pattern", "Caught", "Basis"], rows, [3, 1, 1.3]))
+        elements.append(_audit_data_table(["Pattern", "Caught", "Basis"], rows, [3, 1, 1.3]))
 
     batches = data.get("batches") or []
     if batches:
-        _section_heading(elements, "Batch History")
+        _audit_section_heading(elements, "Batch History")
         rows = [[Paragraph(b.get("name", "—"), NORMAL),
                  Paragraph(b.get("specialty") or "—", NORMAL),
                  Paragraph(str(b.get("charts", 0)), NORMAL),
                  _score_cell(b.get("audit_accuracy"), pass_threshold=pt),
                  Paragraph(str(b.get("over_calls", 0)), NORMAL)]
                 for b in batches[:40]]
-        elements.append(_data_table(["Batch", "Specialty", "Charts", "Audit Accuracy", "Over-calls"],
-                                    rows, [2.4, 1.2, 0.8, 1, 0.8]))
+        elements.append(_audit_data_table(["Batch", "Specialty", "Charts", "Audit Accuracy", "Over-calls"],
+                                          rows, [2.4, 1.2, 0.8, 1, 0.8]))
 
     _footer_note(elements)
-    doc.build(elements, onFirstPage=_draw_background, onLaterPages=_draw_background)
+    doc.build(elements, onFirstPage=_draw_auditor_background, onLaterPages=_draw_auditor_background)
     return buf.getvalue()
 
 
@@ -781,12 +838,12 @@ def generate_audit_batch_report_pdf(data: dict) -> bytes:
     subtitles = [f"Batch: {batch.get('name', 'Audit Batch')}  |  Specialty: {batch.get('specialty', '—')}"]
     if batch.get("status"):
         subtitles.append(f"Status: {batch['status']}")
-    _header(elements, "Audit Batch Performance Report", subtitles)
+    _audit_header(elements, "Audit Batch Performance Report", subtitles)
 
     headline, detail, color, bg, border = _audit_verdict(summary, pt)
     elements.append(_verdict_box(headline, detail, color, bg, border))
     elements.append(Spacer(1, 12))
-    elements.append(_stat_row([
+    elements.append(_audit_stat_row([
         (str(summary.get("auditors", 0)), "Auditors"),
         (str(summary.get("charts", 0)), "Charts Audited"),
         (_pct(summary.get("audit_accuracy")), "Audit Accuracy"),
@@ -795,13 +852,13 @@ def generate_audit_batch_report_pdf(data: dict) -> bytes:
         (str(summary.get("opportunities", 0)), "Opportunities"),
     ]))
 
-    _section_heading(elements, "Component Accuracy")
-    elements.append(_data_table(["Component", "Accuracy", "Basis"],
-                                _audit_component_rows(summary, pt), [2, 1, 1.2]))
+    _audit_section_heading(elements, "Component Accuracy")
+    elements.append(_audit_data_table(["Component", "Accuracy", "Basis"],
+                                      _audit_component_rows(summary, pt), [2, 1, 1.2]))
 
     auditors = data.get("auditors") or []
     if auditors:
-        _section_heading(elements, "Auditor Results")
+        _audit_section_heading(elements, "Auditor Results")
         rows = [[Paragraph(a.get("auditor_name", "—"), NORMAL),
                  Paragraph(a.get("emp_id") or "—", NORMAL),
                  Paragraph(str(a.get("charts", 0)), NORMAL),
@@ -809,21 +866,21 @@ def generate_audit_batch_report_pdf(data: dict) -> bytes:
                  _score_cell(a.get("opportunity_accuracy"), pass_threshold=pt),
                  Paragraph(str(a.get("over_calls", 0)), NORMAL)]
                 for a in auditors[:60]]
-        elements.append(_data_table(["Auditor", "Emp ID", "Charts", "Audit", "Opportunity", "Over-calls"],
-                                    rows, [2, 1, 0.7, 0.9, 1, 0.8]))
+        elements.append(_audit_data_table(["Auditor", "Emp ID", "Charts", "Audit", "Opportunity", "Over-calls"],
+                                          rows, [2, 1, 0.7, 0.9, 1, 0.8]))
 
     detection = data.get("detection") or {}
     patterns = detection.get("by_kind") or []
     if patterns:
-        _section_heading(elements, "Detection Patterns")
+        _audit_section_heading(elements, "Detection Patterns")
         rows = [[Paragraph(p.get("label", "—"), NORMAL),
                  _score_cell(p.get("accuracy"), pass_threshold=pt),
                  Paragraph(f"{p.get('found', 0)}/{p.get('planted', 0)} caught", NORMAL)]
                 for p in patterns[:10]]
-        elements.append(_data_table(["Pattern", "Caught", "Basis"], rows, [3, 1, 1.3]))
+        elements.append(_audit_data_table(["Pattern", "Caught", "Basis"], rows, [3, 1, 1.3]))
 
     _footer_note(elements)
-    doc.build(elements, onFirstPage=_draw_background, onLaterPages=_draw_background)
+    doc.build(elements, onFirstPage=_draw_auditor_background, onLaterPages=_draw_auditor_background)
     return buf.getvalue()
 
 
