@@ -138,7 +138,7 @@ class AuditBatch(Base):
     # a chart may want it off, since the missed-findings list describes what
     # was in that chart. Versions blunt this: a chart met again carries
     # different errors.
-    show_results_to_auditor = Column(Boolean, nullable=False, default=True)
+    show_results_to_auditor = Column(Boolean, nullable=False, default=False)
 
     created_by = Column(String(100), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -243,7 +243,7 @@ class AuditSession(Base):
     token = Column(String(40), nullable=False, unique=True, index=True)
     chart_ids = Column(JSON, nullable=False, default=list)
     status = Column(String(20), nullable=False, default="in_progress")
-    show_results_to_auditor = Column(Boolean, nullable=False, default=True)
+    show_results_to_auditor = Column(Boolean, nullable=False, default=False)
     started_at = Column(DateTime(timezone=True), nullable=True)
     submitted_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

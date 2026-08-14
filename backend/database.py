@@ -606,8 +606,10 @@ def _run_migrations():
     # /auditor/batches in production while every test passed: the test database
     # is rebuilt from the models on each run, so it always had the new columns
     # and the deployed one never did.
+    # Off by default, matching the coder batches: showing an auditor their
+    # results names the errors that were in the charts they just saw.
     _add_col("audit_batches", "show_results_to_auditor",
-             "BOOLEAN DEFAULT TRUE", "BOOLEAN DEFAULT TRUE")
+             "BOOLEAN DEFAULT FALSE", "BOOLEAN DEFAULT FALSE")
     _add_col("audit_scoring_configs", "observed_share_pct",
              "INTEGER DEFAULT 100", "INTEGER DEFAULT 100")
     _add_col("audit_scoring_configs", "mix_substitute_pcs",

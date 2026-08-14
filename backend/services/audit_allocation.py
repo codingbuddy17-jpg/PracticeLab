@@ -59,13 +59,23 @@ def clean_quota(total: int, share_pct: int) -> int:
 
 @dataclass
 class Quotas:
+    """
+    `manual=None` means "no opinion — a chart with an authored version uses
+    it". That is NOT the same as manual=0, which means the trainer explicitly
+    asked for none and authored versions should be passed over.
+
+    Conflating the two silently discarded authored error sets: Automatic mode
+    resolved to manual=0, so a chart the trainer had authored errors for was
+    handed to the generator instead. The only reason it was ever visible is
+    that always-use versions are forced ahead of any quota.
+    """
     clean: int = 0
-    manual: int = 0
+    manual: Optional[int] = 0
     auto: int = 0
 
     @property
     def total(self) -> int:
-        return self.clean + self.manual + self.auto
+        return self.clean + (self.manual or 0) + self.auto
 
 
 def resolve_quotas(mode: str, want: int, clean_share: int,
@@ -83,11 +93,19 @@ def resolve_quotas(mode: str, want: int, clean_share: int,
     each has an intent but no appetite for choosing forty charts.
     """
     mode = (mode or "guided").lower()
-    # Hand-picked honours the numbers too. The trainer has chosen WHICH charts;
-    # the mix within them is a separate question, and leaving it on the
-    # clean-share default meant the quota boxes were silently ignored the
-    # moment someone switched modes.
-    if mode in ("guided", "manual") \
+
+    # Hand-picked takes ONE number: how many come up clean. The trainer has
+    # already chosen which charts, so the authored/generated split is a
+    # property of that selection rather than something to ask for — a quota of
+    # three authored cannot be met if only one picked chart has a version.
+    # Guided is the mode where the numbers steer the draw, so it keeps all
+    # three.
+    if mode == "manual":
+        clean = clean_quota(want, clean_share) if quota_clean is None \
+            else max(0, quota_clean)
+        return Quotas(clean=clean, manual=None, auto=want - clean)
+
+    if mode == "guided" \
             and any(q is not None for q in (quota_clean, quota_manual, quota_auto)):
         q = Quotas(clean=max(0, quota_clean or 0),
                    manual=max(0, quota_manual or 0),
@@ -101,9 +119,8 @@ def resolve_quotas(mode: str, want: int, clean_share: int,
 
     clean = clean_quota(want, clean_share)
     # Everything not clean resolves per chart: a stored set makes it manual,
-    # otherwise it generates. So the split between manual and auto is decided
-    # by the pool, not by a number here.
-    return Quotas(clean=clean, manual=0, auto=want - clean)
+    # otherwise it generates. `None` is what makes that true — see Quotas.
+    return Quotas(clean=clean, manual=None, auto=want - clean)
 
 
 def build_corpus(answer_keys) -> Corpus:
@@ -193,6 +210,15 @@ def assign_intents(drawn, quotas, sets_by_chart: dict, rng) -> tuple[list, list]
 
     remaining = free[clean_n:]
     curated = [i for i in remaining if _versions(i)]
+
+    # No stated quota: every chart that has an authored version uses it. This
+    # is the path Automatic and Hand-picked take, and it is the difference
+    # between honouring the trainer's authoring and throwing it away.
+    if quotas.manual is None:
+        for i in curated:
+            intents[i] = "manual"
+        return intents, notes
+
     # Charts forced above already count toward what the trainer asked for.
     want_manual = max(0, min(quotas.manual, len(free)) - len(forced))
 

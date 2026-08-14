@@ -58,7 +58,7 @@ class BatchCreate(BaseModel):
     quota_auto: Optional[int] = None
     clean_share: int = 50
     difficulty_tier: Optional[str] = None
-    show_results_to_auditor: bool = True
+    show_results_to_auditor: bool = False
 
 
 class AllocationRun(BaseModel):

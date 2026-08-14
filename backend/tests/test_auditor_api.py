@@ -988,13 +988,15 @@ class TestSubmissionIntegrity:
 
 class TestResultVisibility:
 
-    def test_a_batch_can_withhold_results_from_its_auditors(self, client, db, library):
+    def test_results_are_withheld_by_default(self, client, db, library):
         """
-        The missed-findings list describes what was in the chart, so a trainer
-        recycling charts may want it off. On by default — seeing what you
-        missed is most of the learning.
+        Off unless the trainer turns it on, matching the coder batches.
+
+        The missed-findings list names the errors that were in the charts the
+        auditor has just seen, and those charts get recycled. A trainer can
+        switch it on deliberately; it is not something to get by accident.
         """
-        batch_id = make_batch(client, charts_per=4, show_results_to_auditor=False)
+        batch_id = make_batch(client, charts_per=4)
         token = allocate(client, batch_id)["access_codes"][0]["token"]
         p = client.get(f"/auditor/sessions/by-token/{token}").json()
         assert p["show_results"] is False
@@ -1004,11 +1006,16 @@ class TestResultVisibility:
         assert r.status_code == 200, r.text
         assert r.json()["results"] == []
 
-    def test_results_are_shown_by_default(self, client, db, library):
-        batch_id = make_batch(client, charts_per=4)
+    def test_a_batch_can_show_results_when_the_trainer_asks(self, client, db, library):
+        batch_id = make_batch(client, charts_per=4, show_results_to_auditor=True)
         token = allocate(client, batch_id)["access_codes"][0]["token"]
         p = client.get(f"/auditor/sessions/by-token/{token}").json()
         assert p["show_results"] is True
+
+        r = client.post(f"/auditor/sessions/{p['session_id']}/submit",
+                        json=perfect_work(p, truth_map(client, batch_id)))
+        assert r.status_code == 200, r.text
+        assert r.json()["results"] != []
 
 
 class TestBatchCounts:
@@ -1220,6 +1227,54 @@ class TestQuotaSanity:
         q = resolve_quotas("guided", 5, 50, 99, 0, 0)
         intents, _ = assign_intents(drawn, q, {}, random.Random(1))
         assert intents.count("clean") < len(drawn)
+
+    def test_an_authored_version_is_used_when_no_quota_asks_otherwise(
+            self, client, db, library):
+        """
+        Automatic mode threw authored error sets away.
+
+        It resolved to manual=0, which assign_intents read as "the trainer
+        asked for none", so a chart with a version the trainer had written was
+        handed to the generator instead. Only always-use versions survived,
+        because those are forced ahead of any quota — which is why the bug was
+        invisible to anyone who ticked that box.
+        """
+        import random
+        from services.audit_allocation import assign_intents, resolve_quotas
+
+        class _C:
+            def __init__(self, i): self.id = i
+
+        class _V:
+            def __init__(self, i): self.id = i; self.always_plant = False
+
+        drawn = [_C(i) for i in range(4)]
+        authored = {0: [_V(10)], 1: [_V(11)]}
+
+        for mode in ("auto", "guided", "manual"):
+            q = resolve_quotas(mode, 4, 25)
+            intents, notes = assign_intents(drawn, q, authored, random.Random(0))
+            used = {i for i in (0, 1) if intents[i] == "manual"}
+            assert used == {0, 1}, f"{mode} discarded an authored version: {intents}"
+            assert not notes, f"{mode} reported a shortfall that was not asked for"
+
+    def test_an_explicit_zero_still_passes_authored_versions_over(
+            self, client, db, library):
+        """The other half: asking for none must remain a real instruction."""
+        import random
+        from services.audit_allocation import assign_intents, resolve_quotas
+
+        class _C:
+            def __init__(self, i): self.id = i
+
+        class _V:
+            def __init__(self, i): self.id = i; self.always_plant = False
+
+        drawn = [_C(i) for i in range(4)]
+        q = resolve_quotas("guided", 4, 25, quota_clean=1,
+                           quota_manual=0, quota_auto=3)
+        intents, _ = assign_intents(drawn, q, {0: [_V(10)]}, random.Random(0))
+        assert "manual" not in intents
 
 
 class TestAuditableChartPicker:

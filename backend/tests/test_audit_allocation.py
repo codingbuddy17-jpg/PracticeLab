@@ -106,6 +106,39 @@ class TestModes:
         q = resolve_quotas("guided", want=6, clean_share=50)
         assert (q.clean, q.auto) == (3, 3)
 
+    def test_no_stated_authored_quota_is_none_not_zero(self):
+        """
+        The distinction that kept authored errors alive.
+
+        `manual=0` means the trainer asked for no authored charts, so versions
+        get passed over. `manual=None` means they said nothing, so a chart that
+        HAS a version uses it. Automatic resolved to 0 and therefore threw
+        away every authored set that was not flagged always-use.
+        """
+        assert resolve_quotas("auto", want=5, clean_share=50).manual is None
+        assert resolve_quotas("guided", want=6, clean_share=50).manual is None
+        assert resolve_quotas("manual", want=4, clean_share=25).manual is None
+        # explicit zero survives as a real instruction
+        assert resolve_quotas("guided", want=5, clean_share=50, quota_clean=2,
+                              quota_manual=0, quota_auto=3).manual == 0
+
+    def test_hand_picked_takes_only_the_clean_count(self):
+        """
+        The trainer has chosen WHICH charts, so the authored/generated split
+        came with that choice. Asking for three authored cannot be honoured if
+        only one picked chart has a version, so the number is not asked for --
+        and any that were sent are ignored rather than half-applied.
+        """
+        q = resolve_quotas("manual", want=6, clean_share=50,
+                           quota_clean=2, quota_manual=3, quota_auto=1)
+        assert q.clean == 2
+        assert q.manual is None
+        assert q.total == 6
+
+    def test_hand_picked_without_a_clean_count_uses_the_share(self):
+        q = resolve_quotas("manual", want=6, clean_share=50)
+        assert q.clean == 3
+
 
 # ── source resolution ────────────────────────────────────────────────────────
 

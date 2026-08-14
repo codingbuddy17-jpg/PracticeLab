@@ -237,7 +237,7 @@ function CreateAuditBatch({ trainer, onDone, onCancel }: {
   const [quotaAuto, setQuotaAuto] = useState(2)
   const [tier, setTier] = useState('')
   const [busy, setBusy] = useState(false)
-  const [showResults, setShowResults] = useState(true)
+  const [showResults, setShowResults] = useState(false)
 
   // Roster entry mirrors the coder batch screen exactly — same picker, same
   // Quick Add / Upload List toggle, same Excel template. Auditors and coders
@@ -316,13 +316,15 @@ function CreateAuditBatch({ trainer, onDone, onCancel }: {
         difficulties,
         charts_per_auditor: chartsPer, auditors, created_by: trainer,
         allocation_mode: mode, clean_share: cleanShare,
-        // Hand-picked honours them as well: choosing WHICH charts and choosing
-        // the mix within them are separate decisions, and both are the
-        // trainer's. Sending them only for guided made the backend's support
-        // for it unreachable.
+        // Guided is the only mode that sets the authored/generated split: it
+        // is the mode where the system picks the charts, so it can pick to
+        // meet a number. Hand-picked sends the clean count alone — the split
+        // there is decided by which charts the trainer selects, and asking for
+        // three authored when only one picked chart has a version is a request
+        // nothing can satisfy.
         quota_clean: mode === 'auto' ? null : quotaClean,
-        quota_manual: mode === 'auto' ? null : quotaManual,
-        quota_auto: mode === 'auto' ? null : quotaAuto,
+        quota_manual: mode === 'guided' ? quotaManual : null,
+        quota_auto: mode === 'guided' ? quotaAuto : null,
         difficulty_tier: tier || null,
         show_results_to_auditor: showResults,
       })
@@ -421,10 +423,8 @@ function CreateAuditBatch({ trainer, onDone, onCancel }: {
         </div>
       </Field>
 
-      {mode !== 'auto' ? (
-        <Field label={mode === 'manual'
-          ? 'How many of each, per auditor — within the charts you pick'
-          : 'How many of each, per auditor'}>
+      {mode === 'guided' ? (
+        <Field label="How many of each, per auditor">
           <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
             <Num label="Clean" value={quotaClean} onChange={setQuotaClean} />
             <Num label="Yours" value={quotaManual} onChange={setQuotaManual} />
@@ -437,6 +437,29 @@ function CreateAuditBatch({ trainer, onDone, onCancel }: {
                 && ' — too many; clean is filled first and the rest would be dropped'}
               {guidedTotal < chartsPer && ` — the remaining ${chartsPer - guidedTotal} will be system-generated`}
             </span>
+          </div>
+          <div style={s.note}>
+            "Yours" means a chart whose errors you authored in Audit Keys. The system
+            picks charts to meet these numbers, and tells you if the pool cannot.
+          </div>
+        </Field>
+      ) : mode === 'manual' ? (
+        <Field label="How many come up clean, per auditor">
+          <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+            <Num label="Clean" value={quotaClean} onChange={setQuotaClean} />
+            <span style={{ fontSize: 12,
+                           color: quotaClean >= chartsPer ? '#dc2626' : '#6b7280' }}>
+              of {chartsPer}
+              {quotaClean >= chartsPer
+                && ' — every chart cannot be clean; leave at least one with something to find'}
+            </span>
+          </div>
+          <div style={s.note}>
+            This is the only number to set here. You choose the charts themselves after
+            the batch is created, and that choice decides the rest: a picked chart with
+            errors you authored uses them, and one without gets system-generated errors.
+            Asking for a count of each would be a request the charts you pick may not be
+            able to meet.
           </div>
         </Field>
       ) : (
