@@ -58,16 +58,26 @@ export function AuditBatches({ trainer }: { trainer: string }) {
   const [search, setSearch] = useState('')
   const [total, setTotal] = useState(0)
   const [limit, setLimit] = useState(50)
+  // Counts describe every batch, not the loaded page. Counting loaded rows
+  // told a trainer there were no closed batches whenever they fell past the
+  // first page.
+  const [counts, setCounts] = useState({ open: 0, closed: 0, all: 0 })
 
   // Search runs on the server, so a few letters reach batches that were never
   // loaded. Debounced, because it fires on every keystroke.
   const load = useCallback(async () => {
     try {
-      const r = await listAuditBatches({ search: search.trim() || undefined, limit })
+      const r = await listAuditBatches({
+        search: search.trim() || undefined,
+        status: statusFilter === 'all' ? undefined
+          : statusFilter === 'open' ? 'Open' : 'Closed',
+        limit,
+      })
       setBatches(r.batches)
       setTotal(r.total)
+      setCounts(r.counts)
     } catch { toast.error('Could not load audit batches') }
-  }, [search, limit])
+  }, [search, limit, statusFilter])
 
   useEffect(() => {
     const t = setTimeout(load, search ? 250 : 0)
@@ -84,30 +94,22 @@ export function AuditBatches({ trainer }: { trainer: string }) {
       onBack={() => { load(); setView('list') }} />
   }
 
-  const openCount = batches.filter(b => b.status === 'Open').length
-  const closedCount = batches.length - openCount
-
   const sorted = [...batches].sort((a, b) =>
     String(b.created_at || '').localeCompare(String(a.created_at || ''))
     || (Number(b.id) - Number(a.id)))
 
-  const term = search.trim().toLowerCase()
-  const filtered = sorted.filter(b => {
-    if (statusFilter === 'open' && b.status !== 'Open') return false
-    if (statusFilter === 'closed' && b.status === 'Open') return false
-    if (term && !String(b.name).toLowerCase().includes(term)
-      && !String(b.specialty).toLowerCase().includes(term)) return false
-    return true
-  })
+  // Status and search are applied by the server, so the page is already the
+  // right set — only the ageing grouping happens here.
+  const filtered = sorted
 
   const groups = GROUP_ORDER
     .map(label => ({ label, items: filtered.filter(b => ageGroup(b.created_at as string) === label) }))
     .filter(g => g.items.length)
 
   const TABS: { key: StatusFilter; label: string; count: number; color: string; bg: string }[] = [
-    { key: 'open', label: 'Open', count: openCount, color: '#1d4ed8', bg: '#eff6ff' },
-    { key: 'closed', label: 'Closed', count: closedCount, color: '#15803d', bg: '#f0fdf4' },
-    { key: 'all', label: 'All', count: batches.length, color: '#374151', bg: '#f8fafc' },
+    { key: 'open', label: 'Open', count: counts.open, color: '#1d4ed8', bg: '#eff6ff' },
+    { key: 'closed', label: 'Closed', count: counts.closed, color: '#15803d', bg: '#f0fdf4' },
+    { key: 'all', label: 'All', count: counts.all, color: '#374151', bg: '#f8fafc' },
   ]
 
   return (
@@ -142,7 +144,7 @@ export function AuditBatches({ trainer }: { trainer: string }) {
 
       {filtered.length === 0 ? (
         <div style={s.empty}>
-          {batches.length === 0 ? 'No audit batches yet.'
+          {counts.all === 0 ? 'No audit batches yet.'
             : `No ${statusFilter === 'all' ? '' : statusFilter} batches match.`}
         </div>
       ) : (
@@ -223,6 +225,7 @@ function CreateAuditBatch({ trainer, onDone, onCancel }: {
   const [quotaAuto, setQuotaAuto] = useState(2)
   const [tier, setTier] = useState('')
   const [busy, setBusy] = useState(false)
+  const [showResults, setShowResults] = useState(true)
 
   // Roster entry mirrors the coder batch screen exactly — same picker, same
   // Quick Add / Upload List toggle, same Excel template. Auditors and coders
@@ -293,6 +296,7 @@ function CreateAuditBatch({ trainer, onDone, onCancel }: {
         quota_manual: mode === 'guided' ? quotaManual : null,
         quota_auto: mode === 'guided' ? quotaAuto : null,
         difficulty_tier: tier || null,
+        show_results_to_auditor: showResults,
       })
       if (res.warning) toast(res.warning, { icon: '⚠️', duration: 6000 })
       toast.success('Audit batch created')
@@ -452,6 +456,19 @@ function CreateAuditBatch({ trainer, onDone, onCancel }: {
           )}
         </div>
       )}
+
+      <div style={{ marginBottom: 16 }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, cursor: 'pointer' }}>
+          <input type="checkbox" checked={showResults}
+            onChange={e => setShowResults(e.target.checked)} />
+          Show auditors their own results after submitting
+        </label>
+        <div style={s.note}>
+          On by default — seeing what you missed is most of the learning. Turn it off
+          if you plan to reuse these charts soon: the missed-error list describes what
+          was in the chart, though a chart met again carries a different version.
+        </div>
+      </div>
 
       <div style={{ marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>

@@ -177,6 +177,7 @@ export async function listAuditBatches(
   return data as {
     batches: Record<string, unknown>[]
     total: number; limit: number; offset: number
+    counts: { open: number; closed: number; all: number }
   }
 }
 
@@ -308,7 +309,11 @@ export function downloadAuditAnalytics(specialty?: string) {
   window.open(specialty ? url + '?specialty=' + encodeURIComponent(specialty) : url, '_blank')
 }
 
-export function downloadAuditKeys(specialty?: string) {
-  const url = `${import.meta.env.VITE_API_URL || '/api'}/auditor/keys/export`
-  window.open(specialty ? url + '?specialty=' + encodeURIComponent(specialty) : url, '_blank')
+// Passphrase-gated: this file IS the answers, so it matches the coder
+// answer-key export rather than the ungated batch-results one.
+export function downloadAuditKeys(passphrase: string, specialty?: string) {
+  const base = `${import.meta.env.VITE_API_URL || '/api'}/auditor/keys/export`
+  const q = new URLSearchParams({ passphrase })
+  if (specialty) q.set('specialty', specialty)
+  window.open(base + '?' + q.toString(), '_blank')
 }

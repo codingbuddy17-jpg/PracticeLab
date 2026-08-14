@@ -57,6 +57,7 @@ class BatchCreate(BaseModel):
     quota_auto: Optional[int] = None
     clean_share: int = 50
     difficulty_tier: Optional[str] = None
+    show_results_to_auditor: bool = True
 
 
 class AllocationRun(BaseModel):
@@ -100,6 +101,7 @@ def create_batch(payload: BatchCreate, db: Session = Depends(get_db)):
         quota_clean=payload.quota_clean, quota_manual=payload.quota_manual,
         quota_auto=payload.quota_auto, clean_share=payload.clean_share,
         difficulty_tier=payload.difficulty_tier,
+        show_results_to_auditor=payload.show_results_to_auditor,
         created_by=payload.created_by, status=BatchStatus.OPEN,
         notes=[], tags=[],
     )
@@ -134,10 +136,15 @@ def list_batches(status: Optional[str] = None,
     names. It is fine at a dozen batches and quietly fatal at a thousand.
     """
     q = db.query(AuditBatch)
-    if status:
-        q = q.filter(AuditBatch.status == status)
     if search:
         q = q.filter(AuditBatch.name.ilike(f"%{search.strip()}%"))
+    # Counts come from the whole filtered set, not the page. Counting loaded
+    # rows told a trainer there were no closed batches whenever the closed ones
+    # happened to fall past the first page.
+    status_counts = dict(q.with_entities(AuditBatch.status, func.count())
+                         .group_by(AuditBatch.status).all())
+    if status:
+        q = q.filter(AuditBatch.status == status)
     total = q.count()
     batches = q.order_by(AuditBatch.id.desc()).limit(limit).offset(offset).all()
     ids = [b.id for b in batches]
@@ -176,7 +183,13 @@ def list_batches(status: Optional[str] = None,
         "auditors": auditor_counts.get(b.id, 0),
         "assigned": assigned_counts.get(b.id, 0),
         "scored": scored_counts.get(b.id, 0),
-    } for b in batches], "total": total, "limit": limit, "offset": offset}
+    } for b in batches],
+        "total": total, "limit": limit, "offset": offset,
+        "counts": {
+            "open": status_counts.get(BatchStatus.OPEN, 0),
+            "closed": status_counts.get(BatchStatus.CLOSED, 0),
+            "all": sum(status_counts.values()),
+        }}
 
 
 @router.get("/batches/{batch_id}")
@@ -225,6 +238,7 @@ def get_batch(batch_id: int, db: Session = Depends(get_db)):
         "quota_clean": batch.quota_clean, "quota_manual": batch.quota_manual,
         "quota_auto": batch.quota_auto,
         "difficulty_tier": batch.difficulty_tier,
+        "show_results_to_auditor": bool(batch.show_results_to_auditor),
         "categories": batch.categories or [], "difficulties": batch.difficulties or [],
         "auditors": [{"name": a.auditor_name, "emp_id": a.emp_id} for a in auditors],
         "assignments": by_auditor,
@@ -366,7 +380,8 @@ def run_allocation(batch_id: int, payload: AllocationRun, db: Session = Depends(
             batch_id=batch_id, cycle_id=cycle.id,
             auditor_name=auditor.auditor_name, emp_id=auditor.emp_id,
             specialty=batch.specialty, token=new_token(),
-            chart_ids=[c.id for c in drawn], status="in_progress")
+            chart_ids=[c.id for c in drawn], status="in_progress",
+            show_results_to_auditor=bool(batch.show_results_to_auditor))
         db.add(session)
         issued.append({"auditor_name": auditor.auditor_name, "token": session.token,
                        "charts": len(drawn)})

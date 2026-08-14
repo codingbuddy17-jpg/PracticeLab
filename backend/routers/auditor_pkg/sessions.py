@@ -141,6 +141,19 @@ def save_draft(session_id: int, payload: SaveDraft, db: Session = Depends(get_db
     if sess.status == "submitted":
         raise HTTPException(400, "This session has already been submitted")
 
+    # A draft may only be saved against a chart this session was actually
+    # allocated. Without this an access code could write draft rows for any
+    # chart in the library, and those rows would sit there unscored and
+    # unexplained.
+    allowed = {a.chart_id for a in db.query(AuditAssignment.chart_id).filter(
+        AuditAssignment.batch_id == sess.batch_id,
+        AuditAssignment.cycle_id == sess.cycle_id,
+        AuditAssignment.auditor_name == sess.auditor_name).all()}
+    stray = [w.chart_id for w in payload.charts if w.chart_id not in allowed]
+    if stray:
+        raise HTTPException(
+            400, f"Chart(s) {stray} are not part of this session")
+
     for work in payload.charts:
         _upsert_draft(db, session_id, work)
     db.commit()
@@ -199,6 +212,40 @@ def submit_session(session_id: int, payload: SubmitSession, db: Session = Depend
             "charts": incomplete,
         })
 
+    # "Needs changes" is a claim, and a claim with nothing behind it is not a
+    # finding — it scored as though the auditor had said nothing while reading
+    # as though they had found something.
+    empty_verdicts = []
+    for chart_id in assignments:
+        work = work_by_chart.get(chart_id)
+        verdicts = (work.section_verdicts if work else {}) or {}
+        sections = {f.section for f in (work.findings if work else [])}
+        bare = [s for s in required
+                if verdicts.get(s) == "needs_changes" and s not in sections]
+        if bare:
+            empty_verdicts.append({"chart_id": chart_id, "sections": bare})
+    if empty_verdicts:
+        raise HTTPException(400, {
+            "message": "A section marked as needing changes must say what is wrong",
+            "charts": empty_verdicts,
+        })
+
+    # A half-filled finding cannot be matched against anything, so it would
+    # score as an over-call — punishing the auditor for an unfinished row
+    # rather than for a wrong judgement.
+    unfinished = []
+    for chart_id in assignments:
+        work = work_by_chart.get(chart_id)
+        for f in (work.findings if work else []):
+            if _finding_gap(f):
+                unfinished.append({"chart_id": chart_id, "section": f.section,
+                                   "action": f.action, "problem": _finding_gap(f)})
+    if unfinished:
+        raise HTTPException(400, {
+            "message": "Some findings are incomplete",
+            "findings": unfinished,
+        })
+
     # A raised query with nothing written is not reviewable — the text IS the
     # query, exactly as on the coder form.
     if sess.specialty in QUERY_SPECIALTIES:
@@ -237,6 +284,24 @@ def submit_session(session_id: int, payload: SubmitSession, db: Session = Depend
         "summary": _session_summary(session_score),
         "results": _auditor_results(db, sess) if sess.show_results_to_auditor else [],
     }
+
+
+def _finding_gap(f: Finding) -> Optional[str]:
+    """What is missing from a half-written finding, or None if it is usable."""
+    if f.action == "Add":
+        if not (f.correct_value or "").strip():
+            return "no code given to add"
+    elif f.action == "Delete":
+        if f.line is None and not (f.claim_value or "").strip():
+            return "nothing identified to delete"
+    elif f.action == "Revise":
+        if f.line is None and f.section != "PDx":
+            return "no line identified to revise"
+        if not (f.correct_value or "").strip():
+            return "no corrected value given"
+    else:
+        return f"unknown action {f.action!r}"
+    return None
 
 
 def _emp_id(db: Session, sess: AuditSession) -> Optional[str]:

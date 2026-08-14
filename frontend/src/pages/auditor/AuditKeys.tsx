@@ -41,6 +41,7 @@ export function AuditKeys({ trainer }: { trainer: string }) {
   const [uncurated, setUncurated] = useState<Record<string, any>[]>([])
   const [showUncurated, setShowUncurated] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [exportPass, setExportPass] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -83,7 +84,13 @@ export function AuditKeys({ trainer }: { trainer: string }) {
             {AUDITABLE.map(x => <option key={x}>{x}</option>)}
           </select>
         </div>
-        <button style={s.outlineBtn} onClick={() => downloadAuditKeys(specialty)}>
+        <input style={{ ...s.input, width: 170 }} type="password" placeholder="Passphrase"
+          value={exportPass} onChange={e => setExportPass(e.target.value)} />
+        <button style={s.outlineBtn}
+          title="This file contains every authored error, so it needs the passphrase"
+          onClick={() => exportPass.trim()
+            ? downloadAuditKeys(exportPass, specialty)
+            : toast.error('Passphrase required — this export is the answers')}>
           <Download size={15} /> Export Keys (.xlsx)
         </button>
       </div>

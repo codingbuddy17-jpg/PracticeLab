@@ -47,10 +47,27 @@ function sectionSettled(state: ChartState, key: string) {
   return state.verdicts[key] === NO_CHANGES || state.verdicts[key] === NEEDS_CHANGES
 }
 
+/** A "needs changes" verdict with nothing behind it is not a finding — and a
+ *  half-written one cannot be matched, so it would score as an over-call. */
+function chartGaps(state: ChartState, sections: SectionSpec[], supportsQuery: boolean) {
+  const gaps: string[] = []
+  for (const spec of sections) {
+    if (!sectionSettled(state, spec.key)) { gaps.push(`${spec.key} needs a verdict`); continue }
+    if (state.verdicts[spec.key] !== NEEDS_CHANGES) continue
+    const mine = state.findings.filter(f => f.section === spec.key)
+    if (!mine.length) { gaps.push(`${spec.key} is marked as needing changes but says nothing`); continue }
+    if (mine.some(f => f.action === 'Add' && !(f.correct_value || '').trim()))
+      gaps.push(`${spec.key} has an empty code to add`)
+    if (mine.some(f => f.action === 'Revise' && !(f.correct_value || '').trim()))
+      gaps.push(`${spec.key} has a revision with no corrected value`)
+  }
+  if (supportsQuery && state.query_flag && !state.query_text.trim())
+    gaps.push('the query has not been written')
+  return gaps
+}
+
 function chartComplete(state: ChartState, sections: SectionSpec[], supportsQuery: boolean) {
-  const allSettled = sections.every(s => sectionSettled(state, s.key))
-  const queryOk = !supportsQuery || !state.query_flag || !!state.query_text.trim()
-  return allSettled && queryOk
+  return chartGaps(state, sections, supportsQuery).length === 0
 }
 
 function chartTouched(state: ChartState) {
@@ -70,7 +87,19 @@ export function AuditSession() {
   const [submitting, setSubmitting] = useState(false)
   const [outcome, setOutcome] = useState<{ summary: AuditSummary; results: AuditResultRow[]; show: boolean } | null>(null)
   const [toast, setToast] = useState('')
+  const [dirty, setDirty] = useState(false)
+  const [exiting, setExiting] = useState(false)
   const toastTimer = useRef<ReturnType<typeof setTimeout>>()
+
+  // Audit findings are granular and slow to re-enter, so losing them to a
+  // closed tab costs more than it does on the coder form. Same guard the coder
+  // session uses, plus a save whenever the auditor moves between charts.
+  useEffect(() => {
+    if (!dirty) return
+    const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = '' }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [dirty])
 
   const flash = useCallback((msg: string) => {
     setToast(msg)
@@ -113,9 +142,21 @@ export function AuditSession() {
   const supportsQuery = !!session?.supports_query
   const activeChart = session?.charts.find(c => c.chart_id === activeId) || null
   const activeState = activeId !== null ? (states[activeId] || EMPTY_STATE()) : null
+  const doneCount = (session?.charts || []).filter(
+    c => chartComplete(states[c.chart_id] || EMPTY_STATE(), sections, supportsQuery)).length
+  const findingCount = Object.values(states).reduce((n, st) => n + st.findings.length, 0)
 
   function patch(chartId: number, changes: Partial<ChartState>) {
     setStates(prev => ({ ...prev, [chartId]: { ...(prev[chartId] || EMPTY_STATE()), ...changes } }))
+    setDirty(true)
+  }
+
+  /** Moving between charts saves first, so a lost connection costs one chart
+   *  at most rather than the whole sitting. */
+  async function goToChart(id: number) {
+    if (id === activeId) return
+    if (dirty) await save()
+    setActiveId(id)
   }
 
   function toWork(): ChartWork[] {
@@ -140,6 +181,7 @@ export function AuditSession() {
     try {
       await saveAuditDraft(session.session_id, toWork())
       setSavedAt(new Date().toLocaleTimeString())
+      setDirty(false)
     } catch { flash('Could not save — check your connection') }
     setSaving(false)
   }
@@ -151,13 +193,15 @@ export function AuditSession() {
     if (blocked.length) {
       setActiveId(blocked[0].chart_id)
       setView('working')
-      flash(`${blocked[0].chart_number} still needs a verdict on every section`)
+      const why = chartGaps(states[blocked[0].chart_id] || EMPTY_STATE(), sections, supportsQuery)[0]
+      flash(`${blocked[0].chart_number}: ${why}`)
       return
     }
     setSubmitting(true)
     try {
       const res = await submitAuditSession(session.session_id, toWork())
       setOutcome({ summary: res.summary, results: res.results || [], show: res.show_results })
+      setDirty(false)
       setView('submitted')
     } catch (e) {
       const err = e as { response?: { data?: { detail?: unknown } } }
@@ -179,6 +223,28 @@ export function AuditSession() {
   if (!session) return null
 
   if (view === 'submitted') return <SubmittedView outcome={outcome} name={session.auditor_name} />
+
+  if (exiting) return (
+    <div style={s.center}>
+      <div style={{ ...s.card, maxWidth: 480, textAlign: 'center', gap: 14 }}>
+        <CheckCircle size={34} color="#059669" />
+        <div style={{ fontWeight: 700, fontSize: 17 }}>Your work is saved</div>
+        <div style={{ fontSize: 13, color: '#6b7280', lineHeight: 1.6 }}>
+          Nothing has been submitted yet. Open the same link again to carry on from
+          where you stopped — every finding you recorded will still be there.
+        </div>
+        <div style={{ background: '#f8fafc', border: '1px solid #e5e7eb', borderRadius: 8, padding: '10px 14px' }}>
+          <div style={{ fontSize: 11, color: '#9ca3af', marginBottom: 3 }}>Your access code</div>
+          <div style={{ fontFamily: 'monospace', fontSize: 15, fontWeight: 700 }}>{token}</div>
+        </div>
+        <button onClick={() => setExiting(false)} style={{ padding: '9px 18px', borderRadius: 8,
+          border: '1px solid #e5e7eb', background: '#fff', color: '#9333ea',
+          fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+          Back to my charts
+        </button>
+      </div>
+    </div>
+  )
 
   if (view === 'review') {
     const incomplete = session.charts.filter(
@@ -203,7 +269,11 @@ export function AuditSession() {
                   {st.findings.length} finding{st.findings.length !== 1 ? 's' : ''}
                   {st.query_flag ? ' · query raised' : ''}
                 </span>
-                {!done && <span style={{ fontSize: 12, color: '#dc2626', fontWeight: 700 }}>Incomplete</span>}
+                {!done && (
+                  <span style={{ fontSize: 11.5, color: '#dc2626', fontWeight: 600, maxWidth: 260, textAlign: 'right' }}>
+                    {chartGaps(st, sections, supportsQuery)[0]}
+                  </span>
+                )}
                 <button onClick={() => { setActiveId(c.chart_id); setView('working') }} style={s.linkBtn}>Open</button>
               </div>
             )
@@ -249,7 +319,7 @@ export function AuditSession() {
             return (
               <button
                 key={c.chart_id}
-                onClick={() => setActiveId(c.chart_id)}
+                onClick={() => goToChart(c.chart_id)}
                 style={{ ...s.chartTab, background: on ? '#fff' : 'transparent', boxShadow: on ? '0 1px 4px rgba(0,0,0,0.08)' : 'none' }}
               >
                 {done ? <CheckCircle size={14} color="#059669" />
@@ -264,8 +334,25 @@ export function AuditSession() {
           })}
         </div>
         <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {/* Progress against the whole sitting, so an auditor can see how far
+              in they are without counting icons. */}
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#6b7280', marginBottom: 4 }}>
+              <span>{doneCount} of {session.charts.length} reviewed</span>
+              <span>{findingCount} finding{findingCount !== 1 ? 's' : ''}</span>
+            </div>
+            <div style={{ height: 5, background: '#e5e7eb', borderRadius: 3, overflow: 'hidden' }}>
+              <div style={{ height: '100%', borderRadius: 3, background: '#9333ea',
+                            width: `${Math.round(doneCount / Math.max(1, session.charts.length) * 100)}%`,
+                            transition: 'width 0.3s' }} />
+            </div>
+          </div>
           <button onClick={save} disabled={saving} style={s.saveBtn}>
-            <Save size={14} /> {saving ? 'Saving…' : 'Save progress'}
+            <Save size={14} /> {saving ? 'Saving…' : dirty ? 'Save progress •' : 'Save progress'}
+          </button>
+          <button onClick={async () => { if (dirty) await save(); setExiting(true) }}
+            style={s.saveBtn}>
+            Save &amp; exit
           </button>
           <button onClick={() => setView('review')} style={s.reviewBtn}>
             Review &amp; submit <ChevronRight size={14} />

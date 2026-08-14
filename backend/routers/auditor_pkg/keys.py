@@ -323,8 +323,17 @@ def preview_set(chart_id: int, payload: PreviewPayload, db: Session = Depends(ge
 
 
 @router.get("/keys/export")
-def export_keys(specialty: Optional[str] = None, db: Session = Depends(get_db)):
-    """The whole authored library, one row per error."""
+def export_keys(specialty: Optional[str] = None,
+                passphrase: str = Query(""),
+                db: Session = Depends(get_db)):
+    """
+    The whole authored library, one row per error.
+
+    Passphrase-gated, matching the coder answer-key export. This file IS the
+    answers — anyone holding it knows every error on every curated chart, which
+    makes it the one export in the module worth protecting.
+    """
+    require_passphrase(passphrase, "export audit keys")
     import io
     from fastapi.responses import StreamingResponse
     from services.audit_export import export_key_sets

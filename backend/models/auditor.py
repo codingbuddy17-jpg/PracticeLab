@@ -133,6 +133,12 @@ class AuditBatch(Base):
     # least one opportunity chart per session at any share below 100%.
     clean_share = Column(Integer, nullable=False, default=50)
     difficulty_tier = Column(String(20), nullable=True)
+    # Whether auditors see their own results after submitting. On by default —
+    # seeing what you missed is most of the learning — but a trainer recycling
+    # a chart may want it off, since the missed-findings list describes what
+    # was in that chart. Versions blunt this: a chart met again carries
+    # different errors.
+    show_results_to_auditor = Column(Boolean, nullable=False, default=True)
 
     created_by = Column(String(100), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

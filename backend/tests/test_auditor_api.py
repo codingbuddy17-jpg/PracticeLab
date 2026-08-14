@@ -661,7 +661,9 @@ class TestExports:
             "mutations": [
                 {"section": "SDx", "action": "Add", "correct_value": "E11.2"},
                 {"section": "SDx", "action": "Delete", "line": 0, "claim_value": "I10"}]})
-        r = client.get("/auditor/keys/export")
+        assert client.get("/auditor/keys/export").status_code == 403, \
+            "the key export IS the answers — it must be passphrase-gated"
+        r = client.get("/auditor/keys/export", params={"passphrase": PASS})
         assert r.status_code == 200, r.text
         ws = self._sheets(r.content)["Audit_Keys"]
         assert ws.max_row >= 5           # note + blank + header + two errors
@@ -670,7 +672,8 @@ class TestExports:
     def test_exports_work_on_an_empty_installation(self, client, db):
         """A trainer clicking Export before any work exists gets a file, not a 500."""
         assert client.get("/auditor/analytics/export").status_code == 200
-        assert client.get("/auditor/keys/export").status_code == 200
+        assert client.get("/auditor/keys/export",
+                          params={"passphrase": PASS}).status_code == 200
 
 
 class TestKeyCoverage:
@@ -907,3 +910,125 @@ class TestVersionCap:
     def test_the_chart_payload_reports_the_cap(self, client, db, library):
         body = client.get(f"/auditor/keys/chart/{library[0].id}").json()
         assert body["max_versions"] == 3
+
+
+class TestSubmissionIntegrity:
+    """
+    Three ways a submission could be malformed and still be accepted, each of
+    which produced a score that meant something other than what it said.
+    """
+
+    def _open(self, client, charts_per=3):
+        batch_id = make_batch(client, charts_per=charts_per)
+        token = allocate(client, batch_id)["access_codes"][0]["token"]
+        return batch_id, client.get(f"/auditor/sessions/by-token/{token}").json()
+
+    def test_a_needs_changes_verdict_must_say_what_is_wrong(self, client, db, library):
+        """
+        "Needs changes" is a claim. With nothing behind it, it scored as
+        though the auditor had said nothing while reading as though they had
+        found something.
+        """
+        _b, p = self._open(client)
+        secs = [s["key"] for s in p["form"]["sections"]]
+        r = client.post(f"/auditor/sessions/{p['session_id']}/submit", json={
+            "charts": [{"chart_id": c["chart_id"],
+                        "section_verdicts": {s: "needs_changes" for s in secs},
+                        "findings": []} for c in p["charts"]]})
+        assert r.status_code == 400
+        assert "must say what is wrong" in r.json()["detail"]["message"]
+
+    def test_a_half_written_finding_is_refused(self, client, db, library):
+        """
+        A finding with no code cannot match anything, so it scored as an
+        over-call — punishing the auditor for an unfinished row rather than
+        for a wrong judgement.
+        """
+        _b, p = self._open(client)
+        secs = [s["key"] for s in p["form"]["sections"]]
+        r = client.post(f"/auditor/sessions/{p['session_id']}/submit", json={
+            "charts": [{"chart_id": c["chart_id"],
+                        "section_verdicts": {**{s: "no_changes" for s in secs},
+                                             "SDx": "needs_changes"},
+                        "findings": [{"section": "SDx", "action": "Add",
+                                      "correct_value": "  "}]}
+                       for c in p["charts"]]})
+        assert r.status_code == 400
+        assert "incomplete" in r.json()["detail"]["message"]
+
+    def test_a_revise_without_a_corrected_value_is_refused(self, client, db, library):
+        _b, p = self._open(client)
+        secs = [s["key"] for s in p["form"]["sections"]]
+        r = client.post(f"/auditor/sessions/{p['session_id']}/submit", json={
+            "charts": [{"chart_id": c["chart_id"],
+                        "section_verdicts": {**{s: "no_changes" for s in secs},
+                                             "SDx": "needs_changes"},
+                        "findings": [{"section": "SDx", "action": "Revise",
+                                      "field": "code", "line": 0}]}
+                       for c in p["charts"]]})
+        assert r.status_code == 400
+
+    def test_a_draft_cannot_be_saved_against_a_foreign_chart(self, client, db, library):
+        """
+        An access code could otherwise write draft rows for any chart in the
+        library, and they would sit there unscored and unexplained.
+        """
+        _b, p = self._open(client)
+        r = client.post(f"/auditor/sessions/{p['session_id']}/save-draft", json={
+            "charts": [{"chart_id": 999999, "section_verdicts": {}, "findings": []}]})
+        assert r.status_code == 400
+        assert "not part of this session" in r.json()["detail"]
+
+    def test_a_complete_submission_still_goes_through(self, client, db, library):
+        batch_id, p = self._open(client)
+        r = client.post(f"/auditor/sessions/{p['session_id']}/submit",
+                        json=perfect_work(p, truth_map(client, batch_id)))
+        assert r.status_code == 200, r.text
+
+
+class TestResultVisibility:
+
+    def test_a_batch_can_withhold_results_from_its_auditors(self, client, db, library):
+        """
+        The missed-findings list describes what was in the chart, so a trainer
+        recycling charts may want it off. On by default — seeing what you
+        missed is most of the learning.
+        """
+        batch_id = make_batch(client, charts_per=4, show_results_to_auditor=False)
+        token = allocate(client, batch_id)["access_codes"][0]["token"]
+        p = client.get(f"/auditor/sessions/by-token/{token}").json()
+        assert p["show_results"] is False
+
+        r = client.post(f"/auditor/sessions/{p['session_id']}/submit",
+                        json=perfect_work(p, truth_map(client, batch_id)))
+        assert r.status_code == 200, r.text
+        assert r.json()["results"] == []
+
+    def test_results_are_shown_by_default(self, client, db, library):
+        batch_id = make_batch(client, charts_per=4)
+        token = allocate(client, batch_id)["access_codes"][0]["token"]
+        p = client.get(f"/auditor/sessions/by-token/{token}").json()
+        assert p["show_results"] is True
+
+
+class TestBatchCounts:
+
+    def test_status_counts_cover_every_batch_not_just_the_page(self, client, db, library):
+        """
+        Counting loaded rows told a trainer there were no closed batches
+        whenever the closed ones fell past the first page.
+        """
+        for i in range(4):
+            make_batch(client, charts_per=2, name=f"Wave {i}")
+        r = client.get("/auditor/batches", params={"limit": 1}).json()
+        assert len(r["batches"]) == 1
+        assert r["counts"]["open"] >= 4
+        assert r["counts"]["all"] >= 4
+
+    def test_filtering_by_status_happens_on_the_server(self, client, db, library):
+        make_batch(client, charts_per=2)
+        r = client.get("/auditor/batches", params={"status": "Closed"}).json()
+        assert r["batches"] == []
+        assert r["total"] == 0
+        # The counts still describe everything, so the tab can show "Open 1".
+        assert r["counts"]["open"] >= 1
