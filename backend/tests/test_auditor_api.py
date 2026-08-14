@@ -76,6 +76,10 @@ def perfect_work(session_payload, ground_truth_by_chart, verdicts_only=False):
                 f = {"section": p["section"], "action": p["action"]}
                 if p["action"] == "Add":
                     f["correct_value"] = p["correct_value"]
+                    if (p.get("entry") or {}).get("poa"):
+                        f["poa"] = p["entry"]["poa"]
+                    if (p.get("entry") or {}).get("ccmcc"):
+                        f["ccmcc"] = p["entry"]["ccmcc"]
                 elif p["action"] == "Delete":
                     f["line"] = p["line"]
                     f["claim_value"] = p["claim_value"]
@@ -652,8 +656,8 @@ class TestExports:
         assert r.status_code == 200, r.text
         wb = self._sheets(r.content)
         assert set(wb.sheetnames) == {
-            "Overview", "By_Batch", "By_Auditor", "Detection_Patterns",
-            "Real_vs_Generated"}
+            "Overview", "By_Specialty", "By_Batch", "By_Auditor",
+            "Detection_Patterns", "Real_vs_Generated", "Chart_Signals"}
 
     def test_the_key_library_exports_one_row_per_error(self, client, db, library):
         client.post(f"/auditor/keys/chart/{library[0].id}", json={
@@ -955,6 +959,19 @@ class TestSubmissionIntegrity:
                        for c in p["charts"]]})
         assert r.status_code == 400
         assert "incomplete" in r.json()["detail"]["message"]
+
+    def test_ip_missing_diagnosis_requires_poa(self, client, db, library):
+        _b, p = self._open(client)
+        secs = [s["key"] for s in p["form"]["sections"]]
+        r = client.post(f"/auditor/sessions/{p['session_id']}/submit", json={
+            "charts": [{"chart_id": c["chart_id"],
+                        "section_verdicts": {**{s: "no_changes" for s in secs},
+                                             "SDx": "needs_changes"},
+                        "findings": [{"section": "SDx", "action": "Add",
+                                      "correct_value": "E11.2"}]}
+                       for c in p["charts"]]})
+        assert r.status_code == 400
+        assert "POA" in r.json()["detail"]["findings"][0]["problem"]
 
     def test_a_revise_without_a_corrected_value_is_refused(self, client, db, library):
         _b, p = self._open(client)

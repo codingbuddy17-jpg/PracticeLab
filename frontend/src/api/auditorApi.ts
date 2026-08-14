@@ -32,6 +32,10 @@ export type Finding = {
   line?: number
   claim_value?: string
   correct_value?: string
+  poa?: string
+  modifier?: string
+  units?: string | number
+  ccmcc?: string
 }
 
 export type SectionSpec = {

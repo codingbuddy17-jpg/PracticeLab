@@ -59,6 +59,8 @@ function chartGaps(state: ChartState, sections: SectionSpec[], supportsQuery: bo
     if (!mine.length) { gaps.push(`${spec.key} is marked as needing changes but says nothing`); continue }
     if (mine.some(f => f.action === 'Add' && !(f.correct_value || '').trim()))
       gaps.push(`${spec.key} has an empty code to add`)
+    if (spec.fields.includes('poa') && mine.some(f => f.action === 'Add' && !(f.poa || '').trim()))
+      gaps.push(`${spec.key} has a missing diagnosis without POA`)
     if (mine.some(f => f.action === 'Revise' && !(f.correct_value || '').trim()))
       gaps.push(`${spec.key} has a revision with no corrected value`)
   }
@@ -533,10 +535,13 @@ function SectionBlock({ spec, chart, state, onVerdict, onUpsert }: {
       : { section: key, action: 'Delete', line, claim_value: code })
   }
 
-  function setAdd(index: number, value: string) {
+  function setAddField(index: number, field: string, value: string) {
     const existing = adds[index]
     const match = (f: Finding) => f === existing
-    onUpsert(match, { section: key, action: 'Add', correct_value: value })
+    const next = { ...(existing || { section: key, action: 'Add' }) } as Finding
+    if (field === 'code') next.correct_value = value
+    else (next as any)[field] = value
+    onUpsert(match, next)
   }
 
   function newAdd() {
@@ -546,6 +551,19 @@ function SectionBlock({ spec, chart, state, onVerdict, onUpsert }: {
   function removeAdd(index: number) {
     const existing = adds[index]
     onUpsert((f: Finding) => f === existing, null)
+  }
+
+  function confirmAddField(index: number, field: string) {
+    const pos = spec.fields.indexOf(field)
+    const next = spec.fields[pos + 1]
+    if (next) {
+      const el = document.querySelector<HTMLElement>(
+        `[data-add-field="${key}-${index}-${next}"]`
+      )
+      el?.focus()
+      return
+    }
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
   }
 
   const t = themeOf(key)
@@ -627,14 +645,18 @@ function SectionBlock({ spec, chart, state, onVerdict, onUpsert }: {
                                    background: ACTION_COLOR.Add + '18' }}>
                       <Plus size={11} /> Missing
                     </span>
-                    <input
-                      style={{ ...s.input, width: 150,
-                               borderColor: f.correct_value ? ACTION_COLOR.Add + '66' : '#e5e7eb' }}
-                      placeholder="Missing code"
-                      value={f.correct_value || ''}
-                      onChange={e => setAdd(i, e.target.value.toUpperCase())}
-                      autoFocus={!f.correct_value}
-                    />
+                    {spec.fields.map(field => (
+                      <AddField
+                        key={field}
+                        field={field}
+                        finding={f}
+                        onChange={v => setAddField(i, field, v)}
+                        onEnter={() => confirmAddField(i, field)}
+                        fieldId={`${key}-${i}-${field}`}
+                        autoFocus={field === 'code' && !f.correct_value}
+                        required={field === 'code' || field === 'poa'}
+                      />
+                    ))}
                     <button onClick={() => removeAdd(i)} style={s.iconBtn}><X size={13} /></button>
                   </div>
                 ))}
@@ -734,6 +756,50 @@ function LineRow({ index, row, fields, open, deleted, canDelete, revisionOf, set
         >
           {deleted ? <><X size={12} /> Undo</> : <><Trash2 size={12} /> Delete</>}
         </button>
+      )}
+    </div>
+  )
+}
+
+function AddField({ field, finding, onChange, onEnter, fieldId, autoFocus, required }: {
+  field: string
+  finding: Finding
+  onChange: (v: string) => void
+  onEnter: () => void
+  fieldId: string
+  autoFocus?: boolean
+  required?: boolean
+}) {
+  const value = field === 'code'
+    ? finding.correct_value || ''
+    : String((finding as any)[field] ?? '')
+  const missing = required && !value.trim()
+  const width = field === 'code' ? 150 : field === 'units' ? 72 : 88
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+      <span style={s.fieldLabel}>{FIELD_LABEL[field] || field}{required ? ' *' : ''}</span>
+      {field === 'poa' ? (
+        <select
+          style={{ ...s.input, width, borderColor: missing ? '#dc2626' : value ? ACTION_COLOR.Add + '66' : '#e5e7eb' }}
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); onEnter() } }}
+          data-add-field={fieldId}
+        >
+          <option value="">POA</option>
+          {POA_VALUES.map(v => <option key={v} value={v}>{v}</option>)}
+        </select>
+      ) : (
+        <input
+          style={{ ...s.input, width,
+                   borderColor: missing ? '#dc2626' : value ? ACTION_COLOR.Add + '66' : '#e5e7eb' }}
+          placeholder={FIELD_PLACEHOLDER[field] || FIELD_LABEL[field] || field}
+          value={value}
+          onChange={e => onChange(e.target.value.toUpperCase())}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); onEnter() } }}
+          data-add-field={fieldId}
+          autoFocus={autoFocus}
+        />
       )}
     </div>
   )
@@ -916,6 +982,14 @@ const ACTION_COLOR = {
 const FIELD_LABEL: Record<string, string> = {
   code: 'Code', poa: 'POA', ccmcc: 'CC/MCC', modifier: 'Modifier', units: 'Units',
 }
+
+const FIELD_PLACEHOLDER: Record<string, string> = {
+  code: 'Missing code',
+  modifier: 'Modifier',
+  units: 'Units',
+}
+
+const POA_VALUES = ['Y', 'N', 'U', 'W', '1']
 
 const s: Record<string, React.CSSProperties> = {
   shell: { fontFamily: 'system-ui, sans-serif', display: 'flex', minHeight: '100vh', background: '#f9fafb' },

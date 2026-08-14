@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import (
     AuditAssignment, AuditBatch, AuditBatchAuditor, AuditChartDraft,
-    AuditResult, AuditSession, Chart, PassFail,
+    AuditResult, AuditSession, Chart, PassFail, Specialty,
 )
 from services.audit_scoring import score_chart, score_session
 from .shared import (
@@ -40,6 +40,9 @@ class Finding(BaseModel):
     line: Optional[int] = None
     claim_value: Optional[str] = None
     correct_value: Optional[str] = None
+    poa: Optional[str] = None
+    modifier: Optional[str] = None
+    units: Optional[str] = None
     ccmcc: Optional[str] = None
 
 
@@ -237,9 +240,9 @@ def submit_session(session_id: int, payload: SubmitSession, db: Session = Depend
     for chart_id in assignments:
         work = work_by_chart.get(chart_id)
         for f in (work.findings if work else []):
-            if _finding_gap(f):
+            if _finding_gap(f, sess.specialty):
                 unfinished.append({"chart_id": chart_id, "section": f.section,
-                                   "action": f.action, "problem": _finding_gap(f)})
+                                   "action": f.action, "problem": _finding_gap(f, sess.specialty)})
     if unfinished:
         raise HTTPException(400, {
             "message": "Some findings are incomplete",
@@ -286,11 +289,14 @@ def submit_session(session_id: int, payload: SubmitSession, db: Session = Depend
     }
 
 
-def _finding_gap(f: Finding) -> Optional[str]:
+def _finding_gap(f: Finding, specialty: Optional[Specialty] = None) -> Optional[str]:
     """What is missing from a half-written finding, or None if it is usable."""
     if f.action == "Add":
         if not (f.correct_value or "").strip():
             return "no code given to add"
+        if specialty == Specialty.IP_DRG and f.section in {"PDx", "SDx"} \
+                and not (f.poa or "").strip():
+            return "no POA given for diagnosis to add"
     elif f.action == "Delete":
         if f.line is None and not (f.claim_value or "").strip():
             return "nothing identified to delete"
