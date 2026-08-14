@@ -181,7 +181,13 @@ def assign_intents(drawn, quotas, sets_by_chart: dict, rng) -> tuple[list, list]
     free = [i for i in range(n) if i not in forced]
     rng.shuffle(free)
 
+    # Never every chart. A session with nothing to find reports restraint and
+    # no detection at all, and the flooring in clean_quota exists precisely to
+    # prevent that — an explicit quota must not be a way around it. Creation
+    # rejects such a quota outright; this holds the line for any other caller.
     clean_n = min(max(0, quotas.clean), len(free))
+    if clean_n >= n and n > 0:
+        clean_n = n - 1
     for i in free[:clean_n]:
         intents[i] = "clean"
 

@@ -5,7 +5,8 @@ import {
   Download, Eye, Loader, Plus, RefreshCw, Search, Shuffle, Square, Upload,
 } from 'lucide-react'
 import {
-  closeAuditBatch, createAuditBatch, getAuditBatch, getAuditPlantings,
+  closeAuditBatch, createAuditBatch, getAuditableCharts, getAuditBatch,
+  getAuditPlantings,
   downloadAuditBatchResults, listAuditBatches, regenerateAssignment,
   reopenAuditBatch, runAuditAllocation,
 } from '../../api/auditorApi'
@@ -285,6 +286,18 @@ function CreateAuditBatch({ trainer, onDone, onCancel }: {
 
   async function create() {
     if (!name.trim()) return toast.error('Name the batch')
+    if (mode !== 'auto') {
+      if (guidedTotal > chartsPer) {
+        return toast.error(
+          `Those add up to ${guidedTotal} charts but each auditor gets ${chartsPer}. ` +
+          `Clean is filled first, so the rest would be dropped.`)
+      }
+      if (quotaClean >= chartsPer) {
+        return toast.error(
+          'Leave at least one chart carrying errors, or the session can only ' +
+          'measure whether they left it alone.')
+      }
+    }
     if (!auditors.length) return toast.error('Add at least one auditor')
     setBusy(true)
     try {
@@ -294,9 +307,13 @@ function CreateAuditBatch({ trainer, onDone, onCancel }: {
         difficulties,
         charts_per_auditor: chartsPer, auditors, created_by: trainer,
         allocation_mode: mode, clean_share: cleanShare,
-        quota_clean: mode === 'guided' ? quotaClean : null,
-        quota_manual: mode === 'guided' ? quotaManual : null,
-        quota_auto: mode === 'guided' ? quotaAuto : null,
+        // Hand-picked honours them as well: choosing WHICH charts and choosing
+        // the mix within them are separate decisions, and both are the
+        // trainer's. Sending them only for guided made the backend's support
+        // for it unreachable.
+        quota_clean: mode === 'auto' ? null : quotaClean,
+        quota_manual: mode === 'auto' ? null : quotaManual,
+        quota_auto: mode === 'auto' ? null : quotaAuto,
         difficulty_tier: tier || null,
         show_results_to_auditor: showResults,
       })
@@ -395,14 +412,20 @@ function CreateAuditBatch({ trainer, onDone, onCancel }: {
         </div>
       </Field>
 
-      {mode === 'guided' ? (
-        <Field label="How many of each, per auditor">
+      {mode !== 'auto' ? (
+        <Field label={mode === 'manual'
+          ? 'How many of each, per auditor — within the charts you pick'
+          : 'How many of each, per auditor'}>
           <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
             <Num label="Clean" value={quotaClean} onChange={setQuotaClean} />
             <Num label="Yours" value={quotaManual} onChange={setQuotaManual} />
             <Num label="System" value={quotaAuto} onChange={setQuotaAuto} />
-            <span style={{ fontSize: 12, color: guidedTotal === chartsPer ? '#059669' : '#d97706' }}>
+            <span style={{ fontSize: 12,
+                           color: guidedTotal > chartsPer ? '#dc2626'
+                             : guidedTotal === chartsPer ? '#059669' : '#d97706' }}>
               {guidedTotal} of {chartsPer}
+              {guidedTotal > chartsPer
+                && ' — too many; clean is filled first and the rest would be dropped'}
               {guidedTotal < chartsPer && ` — the remaining ${chartsPer - guidedTotal} will be system-generated`}
             </span>
           </div>
@@ -566,6 +589,10 @@ function AuditBatchDetail({ batchId, trainer, onBack }: {
   const [batch, setBatch] = useState<any>(null)
   const [errors, setPlantings] = useState<any[]>([])
   const [showPlantings, setShowPlantings] = useState(false)
+  // The QA list showed the first 200 silently. On a large batch that is a
+  // partial review that looks like a complete one.
+  const [errorLimit, setErrorLimit] = useState(100)
+  const [plantingTotal, setPlantingTotal] = useState(0)
   const [busy, setBusy] = useState(false)
   // Two-step, like the coder screen: closing is the point at which results
   // become the record, so it is never one stray click away.
@@ -584,23 +611,26 @@ function AuditBatchDetail({ batchId, trainer, onBack }: {
   const load = useCallback(async () => {
     try {
       setBatch(await getAuditBatch(batchId))
-      setPlantings((await getAuditPlantings(batchId, { limit: 200 })).plantings)
+      const p = await getAuditPlantings(batchId, { limit: errorLimit })
+      setPlantings(p.plantings)
+      setPlantingTotal(p.total)
     } catch { toast.error('Could not load the batch') }
-  }, [batchId])
+  }, [batchId, errorLimit])
 
   useEffect(() => { load() }, [load])
 
   async function findCharts() {
     setSearching(true)
     try {
-      const res = await searchCharts({
-        q: chartSearch.trim() || undefined,
+      // Only charts that can actually be audited — same join the allocation
+      // pool uses, so what you can pick is exactly what you can allocate.
+      const res = await getAuditableCharts({
         specialty: batch.specialty,
+        q: chartSearch.trim() || undefined,
         category: chartCat.trim() || undefined,
         difficulty: chartDiff || undefined,
-        limit: 40,
-      } as never)
-      setHits((res as { charts?: Record<string, any>[] }).charts || [])
+      })
+      setHits(res.charts)
     } catch { toast.error('Chart search failed') }
     setSearching(false)
   }
@@ -666,6 +696,11 @@ function AuditBatchDetail({ batchId, trainer, onBack }: {
 
   if (!batch) return <div style={s.empty}>Loading…</div>
 
+  // Export is offered once there is something in it. Before that the file is
+  // headers and nothing else, which reads as a broken export.
+  const scoredCount = Object.values(batch.assignments || {})
+    .flat().filter((a: any) => a.scored).length
+
   const codes = Object.values(batch.tokens_by_cycle || {}).flat() as any[]
 
   return (
@@ -684,7 +719,7 @@ function AuditBatchDetail({ batchId, trainer, onBack }: {
             <button style={{ ...s.primaryBtn, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={allocate}>
               <Shuffle size={15} /> {busy ? 'Allocating…' : 'Run Allocation'}
             </button>
-            {(batch.assignments && Object.keys(batch.assignments).length > 0) && (
+            {scoredCount > 0 && (
               <button style={s.outlineBtn}
                 title="Per-chart scores and every finding, as Excel (.xlsx)"
                 onClick={() => downloadAuditBatchResults(batchId)}>
@@ -785,7 +820,12 @@ function AuditBatchDetail({ batchId, trainer, onBack }: {
                     })}>
                     <span style={s.chartPickerNum}>{c.chart_number as string}</span>
                     <span style={s.chartPickerCat}>{c.category as string}</span>
-                    <span style={s.chartPickerDiff}>{c.difficulty as string}</span>
+                    <span style={s.chartPickerDiff}>
+                      {c.difficulty as string}
+                      {(c.has_audit_key as boolean) && (
+                        <span style={{ ...s.tag, marginLeft: 6 }}>your errors</span>
+                      )}
+                    </span>
                     <span>{on ? <CheckSquare size={16} color="#4f46e5" />
                       : <Square size={16} color="#d1d5db" />}</span>
                   </div>
@@ -794,9 +834,9 @@ function AuditBatchDetail({ batchId, trainer, onBack }: {
             </div>
           ) : (
             <div style={s.note}>
-              Search to list charts. Only active charts in {batch.specialty} with an
-              answer key can be audited — there is no truth to introduce errors into
-              without one.
+              Search to list charts. Only active {batch.specialty} charts with an
+              answer key are listed — without one there is no truth to introduce
+              errors into, so they cannot be audited at all.
             </div>
           )}
         </Panel>
@@ -822,7 +862,9 @@ function AuditBatchDetail({ batchId, trainer, onBack }: {
 
       {errors.length > 0 && (
         <Panel
-          title={`Errors introduced (${errors.length} chart${errors.length !== 1 ? 's' : ''})`}
+          title={`Errors introduced (${errors.length}${
+            plantingTotal > errors.length ? ` of ${plantingTotal}` : ''} chart${
+            plantingTotal !== 1 ? 's' : ''})`}
           right={
             <button style={s.linkBtn} onClick={() => setShowPlantings(v => !v)}>
               <Eye size={13} /> {showPlantings ? 'Hide' : 'Show'}
@@ -878,6 +920,16 @@ function AuditBatchDetail({ batchId, trainer, onBack }: {
                   )}
                 </div>
               ))}
+              {errors.length < plantingTotal && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 8 }}>
+                  <button style={s.outlineBtn} onClick={() => setErrorLimit(l => l + 200)}>
+                    Show more
+                  </button>
+                  <span style={{ fontSize: 12, color: '#9ca3af' }}>
+                    Showing {errors.length} of {plantingTotal} chart(s)
+                  </span>
+                </div>
+              )}
             </div>
           )}
         </Panel>

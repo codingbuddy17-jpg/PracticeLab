@@ -232,6 +232,13 @@ export async function listAuditKeySets(specialty?: string) {
   return data
 }
 
+export async function getAuditableCharts(params: {
+  specialty: string; q?: string; category?: string; difficulty?: string
+}) {
+  const { data } = await api.get('/auditor/charts', { params })
+  return data as { charts: Record<string, any>[] }
+}
+
 export async function getAuditKeyStatus(specialty: string) {
   const { data } = await api.get('/auditor/keys/status', { params: { specialty } })
   return data as {

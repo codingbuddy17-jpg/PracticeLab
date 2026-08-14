@@ -1171,3 +1171,86 @@ class TestHandPickedMode:
         assert r.status_code == 400
         assert "NOKEY7" in r.json()["detail"]
         assert "answer key" in r.json()["detail"]
+
+
+class TestQuotaSanity:
+    """
+    A quota bigger than the allocation does not shrink politely — clean is
+    filled first, so it eats everything after it.
+    """
+
+    def test_an_over_total_quota_is_refused(self, client, db, library):
+        r = client.post("/auditor/batches", json={
+            "name": "x", "specialty": "IP-DRG", "created_by": "T",
+            "charts_per_auditor": 5, "allocation_mode": "guided",
+            "quota_clean": 5, "quota_manual": 1, "quota_auto": 1,
+            "auditors": [{"name": "A", "emp_id": "E1"}]})
+        assert r.status_code == 400
+        assert "add up to 7" in r.json()["detail"]
+
+    def test_an_all_clean_quota_is_refused(self, client, db, library):
+        """
+        A session with nothing to find reports restraint and no detection at
+        all. clean_quota already floors to prevent it; an explicit quota must
+        not be a way around it.
+        """
+        r = client.post("/auditor/batches", json={
+            "name": "x", "specialty": "IP-DRG", "created_by": "T",
+            "charts_per_auditor": 4, "allocation_mode": "guided",
+            "quota_clean": 4, "quota_manual": 0, "quota_auto": 0,
+            "auditors": [{"name": "A", "emp_id": "E1"}]})
+        assert r.status_code == 400
+        assert "nothing to find" in r.json()["detail"]
+
+    def test_a_quota_that_fits_is_accepted(self, client, db, library):
+        assert client.post("/auditor/batches", json={
+            "name": "x", "specialty": "IP-DRG", "created_by": "T",
+            "charts_per_auditor": 5, "allocation_mode": "guided",
+            "quota_clean": 2, "quota_manual": 1, "quota_auto": 2,
+            "auditors": [{"name": "A", "emp_id": "E1"}]}).status_code == 200
+
+    def test_the_allocator_never_makes_every_chart_clean(self, client, db, library):
+        """Belt and braces — creation rejects it, this holds for any caller."""
+        import random
+        from services.audit_allocation import assign_intents, resolve_quotas
+
+        class _C:
+            def __init__(self, i): self.id = i
+        drawn = [_C(i) for i in range(5)]
+        q = resolve_quotas("guided", 5, 50, 99, 0, 0)
+        intents, _ = assign_intents(drawn, q, {}, random.Random(1))
+        assert intents.count("clean") < len(drawn)
+
+
+class TestAuditableChartPicker:
+
+    def test_only_charts_that_can_be_audited_are_offered(self, client, db, library):
+        """
+        The picker used the general chart search, so a trainer could select a
+        chart with no answer key and find out only when allocation refused the
+        entire run.
+        """
+        db.add(Chart(chart_number="NOKEY5", specialty=Specialty.IP_DRG,
+                     category="Cardiology", difficulty=Difficulty.INTERMEDIATE,
+                     status=ChartStatus.ACTIVE, uploaded_by="t"))
+        db.commit()
+        r = client.get("/auditor/charts", params={"specialty": "IP-DRG"})
+        assert r.status_code == 200, r.text
+        numbers = {c["chart_number"] for c in r.json()["charts"]}
+        assert "NOKEY5" not in numbers
+        assert library[0].chart_number in numbers
+
+    def test_it_marks_charts_that_carry_authored_errors(self, client, db, library):
+        client.post(f"/auditor/keys/chart/{library[0].id}", json={
+            "name": "Curated", "authored_by": "T", "passphrase": PASS,
+            "mutations": [{"section": "SDx", "action": "Add", "correct_value": "E11.1"}]})
+        charts = client.get("/auditor/charts",
+                            params={"specialty": "IP-DRG"}).json()["charts"]
+        by_num = {c["chart_number"]: c for c in charts}
+        assert by_num[library[0].chart_number]["has_audit_key"] is True
+        assert by_num[library[1].chart_number]["has_audit_key"] is False
+
+    def test_it_can_be_filtered(self, client, db, library):
+        r = client.get("/auditor/charts",
+                       params={"specialty": "IP-DRG", "q": library[0].chart_number})
+        assert [c["chart_number"] for c in r.json()["charts"]] == [library[0].chart_number]

@@ -79,6 +79,28 @@ def create_batch(payload: BatchCreate, db: Session = Depends(get_db)):
     if not 0 <= payload.clean_share <= 100:
         raise HTTPException(400, "clean_share must be between 0 and 100")
 
+    if mode in ("guided", "manual"):
+        quotas = [payload.quota_clean, payload.quota_manual, payload.quota_auto]
+        if any(q is not None for q in quotas):
+            clean, manual, auto = (max(0, q or 0) for q in quotas)
+            total = clean + manual + auto
+            if total > payload.charts_per_auditor:
+                raise HTTPException(
+                    400,
+                    f"Those add up to {total} charts but each auditor gets "
+                    f"{payload.charts_per_auditor}. The clean quota is filled "
+                    f"first, so the rest would be silently dropped.")
+            # A session of nothing but clean charts measures restraint and
+            # nothing else — it cannot report detection at all. The clean-share
+            # path already guarantees one opportunity chart by flooring; an
+            # explicit quota must not be a way around that.
+            if clean >= payload.charts_per_auditor:
+                raise HTTPException(
+                    400,
+                    f"{clean} clean of {payload.charts_per_auditor} leaves nothing "
+                    f"to find. Keep at least one chart carrying errors, or the "
+                    f"session can only measure whether they left it alone.")
+
     seen_names, seen_emp = set(), set()
     auditors, skipped = [], []
     for a in payload.auditors:

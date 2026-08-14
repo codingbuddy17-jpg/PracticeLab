@@ -205,6 +205,42 @@ def uncurated_charts(specialty: str = Query(...),
     } for c in out]}
 
 
+@router.get("/charts")
+def auditable_charts(specialty: str = Query(...),
+                     q: Optional[str] = None,
+                     category: Optional[str] = None,
+                     difficulty: Optional[str] = None,
+                     limit: int = Query(40, le=200),
+                     db: Session = Depends(get_db)):
+    """
+    Charts that can actually be audited, for the hand-picked chart picker.
+
+    The picker used the general chart search, so a trainer could select a chart
+    with no answer key and only discover it when allocation refused the whole
+    run. Filtering here means an unusable chart is never offered — the same
+    join the allocation pool uses, so what you can pick is exactly what you can
+    allocate.
+    """
+    curated = db.query(AuditKeySet.chart_id).distinct().subquery()
+    query = (db.query(Chart, curated.c.chart_id)
+             .join(AnswerKey, AnswerKey.chart_id == Chart.id)
+             .outerjoin(curated, curated.c.chart_id == Chart.id)
+             .filter(Chart.specialty == specialty, Chart.status == "Active"))
+    if q:
+        query = query.filter(Chart.chart_number.ilike(f"%{q.strip()}%"))
+    if category:
+        query = query.filter(Chart.category.ilike(f"%{category.strip()}%"))
+    if difficulty:
+        query = query.filter(Chart.difficulty == difficulty)
+    rows = query.order_by(Chart.chart_number).limit(limit).all()
+    return {"charts": [{
+        "id": c.id, "chart_number": c.chart_number, "category": c.category,
+        "difficulty": c.difficulty.value if c.difficulty else None,
+        # So the picker can show which charts carry errors you wrote.
+        "has_audit_key": curated_id is not None,
+    } for c, curated_id in rows]}
+
+
 @router.get("/keys")
 def list_sets(specialty: Optional[str] = None,
               limit: int = Query(200, le=500),
