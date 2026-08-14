@@ -632,6 +632,11 @@ function AuditBatchDetail({ batchId, trainer, onBack, onReview }: {
   // Hand-picked mode: the trainer chooses WHICH charts; the quotas still
   // decide the mix within them. Same picker as the coder allocation panel.
   const [picked, setPicked] = useState<Set<number>>(new Set())
+  // A cap, not a target. Left at 0 it follows the selection, so ticking six
+  // charts gives every auditor those six — the coder screen's behaviour. A
+  // trainer who wants a subset drawn from a wider selection types a number.
+  const [maxOverride, setMaxOverride] = useState(0)
+  const maxPerAuditor = maxOverride > 0 ? maxOverride : picked.size
   const [hits, setHits] = useState<Record<string, any>[]>([])
   const [chartSearch, setChartSearch] = useState('')
   const [chartCat, setChartCat] = useState('')
@@ -678,6 +683,12 @@ function AuditBatchDetail({ batchId, trainer, onBack, onReview }: {
       const res = await runAuditAllocation(batchId, {
         run_by: trainer,
         manual_chart_ids: handPicked ? Array.from(picked) : [],
+        // Hand-picked matches the coder's manual allocation: the charts you
+        // ticked go to every auditor, and the number here is a CAP rather than
+        // a target. Sending nothing meant the batch's fixed charts-per-auditor
+        // won, so picking ten charts for a batch created at four handed each
+        // auditor a random four of them.
+        ...(handPicked ? { charts_per_auditor: maxPerAuditor } : {}),
       })
       toast.success(`Allocated ${res.charts_allocated} chart(s)`)
       ;(res.pool_notes || []).forEach((n: string) => toast(n, { icon: 'ℹ️', duration: 6000 }))
@@ -818,22 +829,41 @@ function AuditBatchDetail({ batchId, trainer, onBack, onReview }: {
           </div>
 
           {picked.size > 0 && (
-            <div style={{ fontSize: 12, color: '#4f46e5', fontWeight: 700, margin: '8px 0' }}>
-              {picked.size} chart{picked.size !== 1 ? 's' : ''} selected — each auditor
-              draws {batch.charts_per_auditor} of them, least-seen first, and the
-              clean / yours / system quotas still apply within your selection.
-              <button style={{ ...s.linkBtn, marginLeft: 10 }}
-                onClick={() => setPicked(new Set())}>Clear</button>
-            </div>
-          )}
-          {picked.size > 0 && picked.size < batch.charts_per_auditor && (
-            <div style={s.warnBox}>
-              <AlertTriangle size={14} color="#d97706" style={{ flexShrink: 0, marginTop: 1 }} />
-              <span>
-                {picked.size} selected but each auditor takes {batch.charts_per_auditor} —
-                the allocation will repeat charts to fill the gap.
-              </span>
-            </div>
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10,
+                            margin: '8px 0', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 12, color: '#4f46e5', fontWeight: 700 }}>
+                  {picked.size} chart{picked.size !== 1 ? 's' : ''} selected — assigned to
+                  every auditor below, skipping any they have already sat.
+                </span>
+                <button style={s.linkBtn} onClick={() => {
+                  setPicked(new Set()); setMaxOverride(0)
+                }}>Clear</button>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10,
+                            marginBottom: 8, flexWrap: 'wrap' }}>
+                <label style={{ fontSize: 12, color: '#374151', fontWeight: 600 }}>
+                  Max charts per auditor
+                </label>
+                <input type="number" min={1} max={50}
+                  style={{ ...s.input, width: 80 }}
+                  value={maxPerAuditor}
+                  onChange={e => setMaxOverride(parseInt(e.target.value) || 0)} />
+                <span style={{ fontSize: 12, color: '#6b7280' }}>
+                  {maxPerAuditor >= picked.size
+                    ? `every auditor gets all ${picked.size}`
+                    : `each auditor draws ${maxPerAuditor} of the ${picked.size}, least-seen first`}
+                  {' · '}the batch default is {batch.charts_per_auditor}
+                </span>
+              </div>
+              {batch.quota_clean > 0 && (
+                <div style={s.note}>
+                  {batch.quota_clean} of each auditor's charts will come up clean. Of the
+                  rest, a chart whose errors you authored uses them and one without gets
+                  system-generated errors.
+                </div>
+              )}
+            </>
           )}
 
           {hits.length > 0 ? (

@@ -1277,6 +1277,50 @@ class TestQuotaSanity:
         assert "manual" not in intents
 
 
+class TestHandPickedAllocation:
+    """
+    Hand-picked mirrors the coder screen's manual allocation: the charts the
+    trainer ticks go to every auditor, and the per-auditor number is a CAP
+    rather than a target.
+
+    The allocation call never sent charts_per_auditor, so the batch's fixed
+    value always won — picking eight charts for a batch created at two handed
+    each auditor a random two of them and silently dropped the rest.
+    """
+
+    def test_every_auditor_gets_all_the_picked_charts(self, client, db, library):
+        picked = [c.id for c in library[:5]]
+        batch_id = make_batch(client, auditors=("Asha R", "Bo T"), charts_per=2,
+                              allocation_mode="manual")
+        allocate(client, batch_id, manual_chart_ids=picked,
+                 charts_per_auditor=len(picked))
+
+        got = client.get(f"/auditor/batches/{batch_id}").json()["assignments"]
+        assert set(got) == {"Asha R", "Bo T"}
+        for name, rows in got.items():
+            assert {r["chart_id"] for r in rows} == set(picked), name
+
+    def test_the_cap_still_narrows_a_wider_selection(self, client, db, library):
+        """A trainer who wants a subset drawn from a wider pick keeps that."""
+        picked = [c.id for c in library[:6]]
+        batch_id = make_batch(client, auditors=("Asha R",), charts_per=6,
+                              allocation_mode="manual")
+        allocate(client, batch_id, manual_chart_ids=picked, charts_per_auditor=3)
+
+        rows = client.get(f"/auditor/batches/{batch_id}").json()["assignments"]["Asha R"]
+        assert len(rows) == 3
+        assert {r["chart_id"] for r in rows} <= set(picked)
+
+    def test_without_an_override_the_batch_default_still_applies(
+            self, client, db, library):
+        picked = [c.id for c in library[:5]]
+        batch_id = make_batch(client, auditors=("Asha R",), charts_per=2,
+                              allocation_mode="manual")
+        allocate(client, batch_id, manual_chart_ids=picked)
+        rows = client.get(f"/auditor/batches/{batch_id}").json()["assignments"]["Asha R"]
+        assert len(rows) == 2
+
+
 class TestAuditableChartPicker:
 
     def test_only_charts_that_can_be_audited_are_offered(self, client, db, library):
