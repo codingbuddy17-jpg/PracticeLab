@@ -13,7 +13,7 @@ import {
 import s from './styles'
 import { AUDITABLE } from './constants'
 
-const TABS = ['Overview', 'Auditors', 'Batches', 'Specialties', 'Error Patterns', 'Chart Signals', 'Reports'] as const
+const TABS = ['Overview', 'Auditors', 'Batches', 'Specialties', 'Error Patterns', 'Chart Signals'] as const
 type Tab = typeof TABS[number]
 type Filters = { from_date?: string; to_date?: string; specialty?: string }
 
@@ -136,7 +136,6 @@ export function AuditAnalytics() {
           {tab === 'Specialties' && <SpecialtiesTab rows={specialties} />}
           {tab === 'Error Patterns' && <ErrorPatternsTab data={detection} />}
           {tab === 'Chart Signals' && <ChartSignalsTab rows={chartSignals} query={chartSearch} setQuery={setChartSearch} />}
-          {tab === 'Reports' && <ReportsTab filters={filters} selectedAuditor={selectedAuditor} batches={batches} />}
         </>
       )}
     </div>
@@ -338,10 +337,19 @@ function ErrorPatternsTab({ data }: { data: any }) {
   if (!data || !data.total_plantings) return <div style={s.empty}>No scored error patterns yet.</div>
   return (
     <div style={stackStyle}>
-      <Bucket title="What To Train Next" rows={data.weakest} />
-      <Bucket title="By Error Type" rows={data.by_kind} />
-      <Bucket title="Real vs Generated" rows={data.by_origin} />
-      <Bucket title="By Section and Action" rows={data.by_section} />
+      <SignalNote
+        title="Auditor Detection Patterns"
+        text="This tab reads the errors intentionally introduced into audit charts and shows what auditors caught, missed, or detected but corrected incorrectly."
+      />
+      <div style={metricGridStyle}>
+        <Metric label="Errors Introduced" value={data.total_plantings} tone="#7c3aed" />
+        <Metric label="Charts Scored" value={data.charts_available} tone="#2563eb" />
+        <Metric label="Training Signals" value={data.weakest?.length || 0} tone="#dc2626" />
+      </div>
+      <Bucket title="What To Train Next" rows={data.weakest} empty="No repeated weak pattern has crossed the training threshold." />
+      <Bucket title="Detection by Error Type" rows={data.by_kind} />
+      <Bucket title="Real vs Generated Detection" rows={data.by_origin} />
+      <Bucket title="Detection by Section and Action" rows={data.by_section} />
       {data.pcs_characters?.length > 0 && <Bucket title="PCS Character" rows={data.pcs_characters} />}
       {data.truncated && <div style={s.warnBox}>Showing the most recent {data.charts_scanned} of {data.charts_available} scored charts.</div>}
     </div>
@@ -355,47 +363,59 @@ function ChartSignalsTab({ rows, query, setQuery }: { rows: any[]; query: string
     || (r.category || '').toLowerCase().includes(q)
     || (r.specialty || '').toLowerCase().includes(q))
   const shown = filtered.slice(0, ROW_CAP)
+  const reviewNeeded = rows.filter(r => (r.missed || 0) > 0 || (r.over_calls || 0) > 0 || (r.detected_not_corrected || 0) > 0)
+  const stable = rows.length - reviewNeeded.length
+  const highestMiss = [...rows].sort((a, b) => (b.missed || 0) - (a.missed || 0))[0]
+  const highestOvercall = [...rows].sort((a, b) => (b.over_calls || 0) - (a.over_calls || 0))[0]
   return (
-    <Panel title="Chart Signals">
-      <SearchInput value={query} onChange={setQuery} placeholder="Search chart, category or specialty..." />
-      {!shown.length ? <div style={s.empty}>No chart-level audit signals yet.</div> : (
-        <div style={{ overflowX: 'auto', marginTop: 12 }}>
-          <table style={tableStyle}>
-            <thead><tr>{['Chart', 'Specialty', 'Attempts', 'Audit Score', 'Opportunities', 'Missed', 'Overcalls', 'Signal'].map(h => <th key={h} style={th}>{h}</th>)}</tr></thead>
-            <tbody>
-              {shown.map(r => (
-                <tr key={r.chart_id}>
-                  <td style={td}><strong>{r.chart_number}</strong><div style={muted}>{r.category}</div></td>
-                  <td style={td}>{r.specialty}</td>
-                  <td style={td}>{r.attempts}</td>
-                  <td style={{ ...td, fontWeight: 800, color: tone(r.audit_accuracy) }}>{pct(r.audit_accuracy)}</td>
-                  <td style={td}>{r.opportunities}</td>
-                  <td style={td}>{r.missed}</td>
-                  <td style={td}>{r.over_calls}</td>
-                  <td style={td}>{r.signal}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-      {filtered.length > shown.length && <div style={s.note}>Showing {shown.length} of {filtered.length} charts.</div>}
-    </Panel>
-  )
-}
-
-function ReportsTab({ filters, selectedAuditor, batches }: { filters: Filters; selectedAuditor: any; batches: any[] }) {
-  return (
-    <div style={reportGridStyle}>
-      <ReportCard title="Analytics Workbook" text="All analytics tabs with current date and specialty filters."
-        action={<button style={s.primaryBtn} onClick={() => downloadAuditAnalytics(filters)}><Download size={14} /> Download</button>} />
-      <ReportCard title="Selected Auditor PDF" text="Available after selecting an auditor in the Auditors tab."
-        action={<button style={s.outlineBtn} disabled={!selectedAuditor}
-          onClick={() => selectedAuditor && downloadAuditAuditorReportPdf(selectedAuditor.auditor_key || selectedAuditor.auditor_name, filters)}>
-          <FileText size={14} /> Download
-        </button>} />
-      <ReportCard title="Batch PDFs" text="Batch PDFs are generated from the Batches tab."
-        action={<span style={{ fontSize: 12, color: '#6b7280' }}>{batches.length} batch(es) in scope</span>} />
+    <div style={stackStyle}>
+      <SignalNote
+        title="Chart-Level Audit Signals"
+        text="This view highlights audit charts that repeatedly produce missed introduced errors, overcalls, or wrong corrections. It is a review queue, not a verdict that the chart is bad."
+      />
+      <div style={metricGridStyle}>
+        <Metric label="Charts With Signals" value={reviewNeeded.length} tone={reviewNeeded.length ? '#dc2626' : '#059669'} />
+        <Metric label="Stable Charts" value={stable} tone="#059669" />
+        <Metric label="Most Missed" value={highestMiss?.chart_number || 'NA'} tone="#dc2626"
+          sub={highestMiss ? `${highestMiss.missed || 0} missed` : undefined} />
+        <Metric label="Most Overcalled" value={highestOvercall?.chart_number || 'NA'} tone="#ea580c"
+          sub={highestOvercall ? `${highestOvercall.over_calls || 0} overcalls` : undefined} />
+      </div>
+      <Panel title="Signal Evidence">
+        <SearchInput value={query} onChange={setQuery} placeholder="Search chart, category or specialty..." />
+        {!shown.length ? <div style={s.empty}>No chart-level audit signals yet.</div> : (
+          <div style={{ overflowX: 'auto', marginTop: 12 }}>
+            <table style={tableStyle}>
+              <thead><tr>{['Chart', 'Specialty', 'Attempts', 'Audit Score', 'Opportunity Mix', 'Missed', 'Overcalls', 'Signal'].map(h => <th key={h} style={th}>{h}</th>)}</tr></thead>
+              <tbody>
+                {shown.map(r => (
+                  <tr key={r.chart_id}>
+                    <td style={td}>
+                      <strong>{r.chart_number}</strong>
+                      <div style={muted}>{r.category}</div>
+                    </td>
+                    <td style={td}>{r.specialty}</td>
+                    <td style={td}>{r.attempts}</td>
+                    <td style={{ ...td, fontWeight: 800, color: tone(r.audit_accuracy) }}>{pct(r.audit_accuracy)}</td>
+                    <td style={td}>
+                      <span style={{ color: '#2563eb', fontWeight: 700 }}>{r.clean_charts || 0}</span>
+                      <span style={muted}> clean · </span>
+                      <span style={{ color: '#7c3aed', fontWeight: 700 }}>{r.opportunity_charts || 0}</span>
+                      <span style={muted}> opportunity</span>
+                    </td>
+                    <td style={{ ...td, color: r.missed ? '#dc2626' : '#6b7280', fontWeight: r.missed ? 800 : 500 }}>{r.missed}</td>
+                    <td style={{ ...td, color: r.over_calls ? '#ea580c' : '#6b7280', fontWeight: r.over_calls ? 800 : 500 }}>{r.over_calls}</td>
+                    <td style={td}>
+                      <SignalChips text={r.signal} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {filtered.length > shown.length && <div style={s.note}>Showing {shown.length} of {filtered.length} charts.</div>}
+      </Panel>
     </div>
   )
 }
@@ -460,8 +480,8 @@ function CompactBatchTable({ rows, showPdf = false }: { rows: any[]; showPdf?: b
   )
 }
 
-function Bucket({ title, rows }: { title: string; rows: any[] }) {
-  if (!rows?.length) return null
+function Bucket({ title, rows, empty }: { title: string; rows: any[]; empty?: string }) {
+  if (!rows?.length) return empty ? <Panel title={title}><div style={s.empty}>{empty}</div></Panel> : null
   return (
     <Panel title={title}>
       {rows.slice(0, ROW_CAP).map(r => (
@@ -516,13 +536,31 @@ function RiskRow({ label, value, color }: { label: string; value: any; color: st
   )
 }
 
-function ReportCard({ title, text, action }: { title: string; text: string; action: React.ReactNode }) {
+function SignalNote({ title, text }: { title: string; text: string }) {
   return (
-    <div style={{ ...s.panel, marginTop: 0, padding: 16 }}>
-      <div style={{ fontWeight: 800, color: '#111827' }}>{title}</div>
-      <div style={{ ...muted, margin: '6px 0 14px' }}>{text}</div>
-      {action}
+    <div style={noteBoxStyle}>
+      <div style={{ fontSize: 12, fontWeight: 900, color: '#5b21b6' }}>{title}</div>
+      <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4, lineHeight: 1.45 }}>{text}</div>
     </div>
+  )
+}
+
+function SignalChips({ text }: { text: string }) {
+  return (
+    <span style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+      {(text || 'stable').split(' · ').map(part => {
+        const red = part.includes('miss')
+        const orange = part.includes('over')
+        const violet = part.includes('wrong')
+        return (
+          <span key={part} style={{
+            ...signalChipStyle,
+            background: red ? '#fee2e2' : orange ? '#ffedd5' : violet ? '#f5f3ff' : '#ecfdf5',
+            color: red ? '#991b1b' : orange ? '#9a3412' : violet ? '#6d28d9' : '#047857',
+          }}>{part}</span>
+        )
+      })}
+    </span>
   )
 }
 
@@ -570,8 +608,8 @@ const tooltipStyle: React.CSSProperties = { fontSize: 12, borderRadius: 8 }
 const stackStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 16, marginTop: 16 }
 const chartGridStyle: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16 }
 const metricGridStyle: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }
-const reportGridStyle: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 12, marginTop: 16 }
 const metricStyle: React.CSSProperties = { border: '1px solid #e5e7eb', borderRadius: 8, background: '#fff', padding: '14px 16px' }
+const noteBoxStyle: React.CSSProperties = { border: '1px solid #ddd6fe', borderRadius: 8, background: '#faf5ff', padding: '10px 12px' }
 const filterBarStyle: React.CSSProperties = { display: 'flex', gap: 8, alignItems: 'center', padding: '10px 14px', background: '#f8fafc', border: '1px solid #e5e7eb', borderRadius: 8, marginTop: 16, marginBottom: 10, flexWrap: 'wrap' }
 const tabBarStyle: React.CSSProperties = { display: 'flex', border: '1px solid #c4b5fd', borderRadius: 10, overflow: 'hidden', flexWrap: 'wrap', background: '#faf5ff', marginTop: 12 }
 const tabStyle: React.CSSProperties = { padding: '8px 14px', border: 'none', background: 'transparent', color: '#6b7280', fontSize: 13, fontWeight: 800, cursor: 'pointer' }
@@ -582,3 +620,4 @@ const tableStyle: React.CSSProperties = { width: '100%', borderCollapse: 'collap
 const th: React.CSSProperties = { textAlign: 'left', fontSize: 11, fontWeight: 800, color: '#6b7280', padding: '10px 12px', borderBottom: '1px solid #e5e7eb', whiteSpace: 'nowrap' }
 const td: React.CSSProperties = { padding: '10px 12px', borderBottom: '1px solid #f9fafb', whiteSpace: 'nowrap' }
 const miniBtn: React.CSSProperties = { fontSize: 11, fontWeight: 800, color: '#7c3aed', background: '#fff', border: '1px solid #ddd6fe', borderRadius: 6, padding: '4px 9px', cursor: 'pointer' }
+const signalChipStyle: React.CSSProperties = { fontSize: 10.5, fontWeight: 800, padding: '2px 7px', borderRadius: 6, whiteSpace: 'nowrap' }
