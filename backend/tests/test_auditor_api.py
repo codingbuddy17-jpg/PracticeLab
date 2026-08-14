@@ -1168,9 +1168,9 @@ class TestDeepReviewFixes:
 
 class TestHandPickedMode:
     """
-    The trainer chooses WHICH charts; the quotas still decide the mix within
-    them. Before the picker existed the backend accepted chart ids that no
-    screen ever sent, so the mode behaved as filtered-automatic.
+    The trainer chooses WHICH charts. Only the clean count is a quota here —
+    the authored/generated split follows the selection, because a request for
+    three authored charts cannot be met if only one picked chart has a version.
     """
 
     def test_only_the_picked_charts_are_allocated(self, client, db, library):
@@ -1183,29 +1183,60 @@ class TestHandPickedMode:
                           params={"limit": 500}).json()["plantings"]
         assert {p["chart_id"] for p in rows} == set(wanted)
 
-    def test_the_quotas_apply_within_the_selection(self, client, db, library):
-        """
-        Hand-picked used to fall back to the clean-share default, so the quota
-        boxes were silently ignored the moment someone switched modes.
-        """
-        for c in library[:3]:
+    def _curate(self, client, charts):
+        for c in charts:
             client.post(f"/auditor/keys/chart/{c.id}", json={
                 "name": "Curated", "authored_by": "T", "passphrase": PASS,
                 "mutations": [{"section": "SDx", "action": "Add",
                                "correct_value": "E11.1"}]})
-        batch_id = make_batch(client, charts_per=4, allocation_mode="manual",
-                              quota_clean=1, quota_manual=2, quota_auto=1)
-        client.post(f"/auditor/batches/{batch_id}/run-allocation",
-                    json={"run_by": "T",
-                          "manual_chart_ids": [c.id for c in library[:4]]})
+
+    def _sources(self, client, batch_id):
         rows = client.get(f"/auditor/batches/{batch_id}/plantings",
                           params={"limit": 500}).json()["plantings"]
         counts = {}
         for r in rows:
             counts[r["source"]] = counts.get(r["source"], 0) + 1
+        return counts
+
+    def test_the_clean_count_is_honoured_within_the_selection(
+            self, client, db, library):
+        """
+        The one quota hand-picked still takes. Every picked chart is curated
+        here, so the rest of the split is forced and the assertion is exact.
+        """
+        self._curate(client, library[:4])
+        batch_id = make_batch(client, charts_per=4, allocation_mode="manual",
+                              quota_clean=1)
+        client.post(f"/auditor/batches/{batch_id}/run-allocation",
+                    json={"run_by": "T",
+                          "manual_chart_ids": [c.id for c in library[:4]]})
+        assert self._sources(client, batch_id) == {"Clean": 1, "Manual": 3}
+
+    def test_an_authored_chart_is_never_generated_over(self, client, db, library):
+        """
+        The invariant that holds however the clean draw falls, and the one the
+        previous version of this test got wrong: it asserted Manual == 2 with
+        three curated charts, which only passed when the clean chart happened
+        to land on a curated one. Seeded on the batch id, so it passed or
+        failed depending on how many batches earlier tests had created.
+
+        What is actually guaranteed: a picked chart with an authored version
+        uses it unless it was drawn clean. None is ever handed to the generator.
+        """
+        self._curate(client, library[:3])
+        batch_id = make_batch(client, charts_per=4, allocation_mode="manual",
+                              quota_clean=1)
+        client.post(f"/auditor/batches/{batch_id}/run-allocation",
+                    json={"run_by": "T",
+                          "manual_chart_ids": [c.id for c in library[:4]]})
+        counts = self._sources(client, batch_id)
         assert counts.get("Clean", 0) == 1
-        assert counts.get("Manual", 0) == 2
-        assert counts.get("Auto", 0) == 1
+        assert sum(counts.values()) == 4
+        # One chart of the four has no authored version. It is Auto unless the
+        # clean draw took it, so Manual is 2 or 3 and Auto is at most 1 —
+        # never fewer than two curated charts using their own errors.
+        assert counts.get("Manual", 0) >= 2
+        assert counts.get("Auto", 0) <= 1
 
     def test_picking_an_unusable_chart_says_why(self, client, db, library):
         """

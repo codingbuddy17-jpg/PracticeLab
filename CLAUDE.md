@@ -14,7 +14,8 @@ Four modules: **Chart Library**, **PracticeLab** (coder), **Assessment** (MCQ),
 
 | | |
 |---|---|
-| Frontend | React 18 · TypeScript · Vite · `lucide-react` icons |
+| Frontend | React 18 · TypeScript · Vite |
+| — libraries | `lucide-react` icons · `recharts` charts · `axios` · `react-router-dom` · `react-hot-toast` · `@tiptap` rich text |
 | Backend | FastAPI · Python 3.11 (prod, `backend/runtime.txt`) · SQLAlchemy 2.0, **sync** |
 | Database | PostgreSQL (Render). Tests and local dev use SQLite |
 | Storage | S3-compatible (Cloudflare R2) for chart page images |
@@ -24,6 +25,9 @@ Four modules: **Chart Library**, **PracticeLab** (coder), **Assessment** (MCQ),
 This codebase is being migrated to an internal environment by a team that did
 not write it, and every added tool is something they must adopt. That includes
 CSS libraries, state managers, ORMs and test frameworks.
+
+The libraries above are already sanctioned — use them rather than hand-rolling.
+Charts are `recharts`; there is no second charting approach.
 
 **Styling is inline `style={{}}` objects only.** No CSS modules, no Tailwind,
 no styled-components. Shared style objects live in a `styles.ts` per feature
@@ -155,6 +159,70 @@ behaviour the code stopped having.
 mutation branches, two successive version-selection faults, a quota that ate a
 whole allocation — were found by running a probe and printing the distribution,
 and were invisible to both inspection and the test suite.
+
+---
+
+## Domain rules that the code does not explain
+
+**Specialties are not interchangeable.** Each grades different elements. `E/M`
+is the outlier — graded on the 2023 AMA medical-decision-making table rather
+than code matching, with its own tables and scoring path. `POA` (present on
+admission) is mandatory on inpatient diagnoses and meaningless elsewhere.
+**DRG-impacting is inpatient-only**; revenue-impacting is the wider notion and
+covers principal diagnosis, CC/MCC secondaries, PCS, CPT, modifier and units.
+
+**Never hardcode a specialty's form.** Sections and fields are served by the
+API from `routers/auditor_pkg/shared.py`. A screen that assumes IP-DRG shape
+breaks the other nine.
+
+### The Auditor module
+
+**Charts must render identically whether or not they carry errors.** A clean
+chart drawn differently — an empty section, a collapsed panel, a different
+tint — tells the auditor the answer before they look, and destroys the
+restraint measurement the module exists for. Colour by *category* is fine
+because it is fixed per section; colour by *content* is not.
+
+**Clean vs opportunity is trainer vocabulary.** The auditor's own screens and
+results never name it.
+
+**"Found" means found AND corrected.** Flagging alone earns nothing — an
+auditor who marks every line wrong knows nothing. `detected_not_corrected` is
+reported separately and never scored: "found 4, corrected 2" and "found 2 of 4"
+both come to 50% and are different coaching conversations.
+
+**Hand-picked allocation takes only the clean count.** The authored/generated
+split follows the charts the trainer picks, because a quota of three authored
+cannot be met if one picked chart has a version. Guided is the mode where
+numbers steer the draw.
+
+**`Quotas.manual = None` ≠ `0`.** `None` means "no opinion, so a chart with an
+authored version uses it"; `0` means "pass authored versions over". Conflating
+them silently discarded every trainer-authored error set in Automatic mode.
+
+**Version rotation keys on the chart's own use count** — not the cycle number,
+not the auditor. Keying on the auditor gives four auditors three different
+versions in one sitting; keying on the cycle pins a chart to one version
+forever when it does not appear every cycle.
+
+**Analytics says "Score", not "Accuracy"** — Audit Score, Clean Chart Score,
+PCS Score, Query Score. IP leads with PCS Score rather than DRG accuracy.
+
+---
+
+## Tests: two traps specific to this suite
+
+**Seeded randomness makes tests pass by luck.** The allocator seeds on
+`batch_id:cycle:auditor`, and `batch_id` shifts whenever earlier tests create
+more batches. A test asserting an exact split can pass for months and fail the
+day someone adds a test above it. Assert the invariant that holds for every
+draw, or construct the case so the split is forced. Two tests here have already
+been rewritten for this.
+
+**The test database is rebuilt from the models each run**, so it always has
+columns production lacks — see the `create_all()` trap above. It is also
+SQLite, not PostgreSQL: `NOW()` in raw DDL silently fails there, which once
+left four assessment tables not existing at all under test.
 
 ---
 
