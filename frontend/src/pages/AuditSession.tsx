@@ -8,6 +8,7 @@ import {
   AuditChart, AuditResultRow, AuditSessionData, AuditSummary, ChartWork,
   Finding, SectionSpec, openAuditSession, saveAuditDraft, submitAuditSession,
 } from '../api/auditorApi'
+import { ISSUE_COLORS } from './practicelab/shared'
 
 /**
  * The auditor's working screen.
@@ -437,25 +438,24 @@ function ChartPanel({ chart, state, sections, supportsQuery, onChange }: {
       ))}
 
       {supportsQuery && (
-        <div style={s.section}>
-          <div style={s.sectionHead}>
-            <span style={s.sectionName}>Physician Query</span>
+        <div style={{ ...s.section, borderLeft: `4px solid ${NEUTRAL.accent}` }}>
+          <div style={{ ...s.sectionHead, background: NEUTRAL.tint,
+                        borderBottomColor: NEUTRAL.line }}>
+            <span style={{ ...s.sectionName, color: NEUTRAL.accent }}>Physician Query</span>
           </div>
           <div style={{ padding: '14px 16px' }}>
             <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 10 }}>
               Does this chart need a physician query before it can be coded as documented?
             </div>
-            <div style={{ display: 'flex', gap: 10 }}>
-              {[{ v: false, label: 'No' }, { v: true, label: 'Yes — needs a query' }].map(o => (
-                <Radio
-                  key={String(o.v)}
-                  on={state.query_flag === o.v}
-                  label={o.label}
-                  tone={o.v ? 'amber' : 'green'}
-                  onClick={() => onChange({ query_flag: o.v })}
-                />
-              ))}
-            </div>
+            <Segmented
+              value={state.query_flag}
+              onChange={v => onChange({ query_flag: v })}
+              options={[
+                { value: false, label: 'No', tone: '#059669' },
+                { value: true, label: 'Yes — needs a query', tone: '#d97706' },
+              ]}
+            />
+
             {state.query_flag && (
               <>
                 <div style={{ ...s.hintBox, background: queryMissing ? '#fef2f2' : '#fffbeb', borderColor: queryMissing ? '#fecaca' : '#fde68a' }}>
@@ -478,8 +478,11 @@ function ChartPanel({ chart, state, sections, supportsQuery, onChange }: {
         </div>
       )}
 
-      <div style={s.section}>
-        <div style={s.sectionHead}><span style={s.sectionName}>Notes (Optional)</span></div>
+      <div style={{ ...s.section, borderLeft: `4px solid ${NEUTRAL.accent}` }}>
+        <div style={{ ...s.sectionHead, background: NEUTRAL.tint,
+                      borderBottomColor: NEUTRAL.line }}>
+          <span style={{ ...s.sectionName, color: NEUTRAL.accent }}>Notes (Optional)</span>
+        </div>
         <div style={{ padding: '14px 16px' }}>
           <textarea
             style={s.textarea}
@@ -545,15 +548,47 @@ function SectionBlock({ spec, chart, state, onVerdict, onUpsert }: {
     onUpsert((f: Finding) => f === existing, null)
   }
 
+  const t = themeOf(key)
+  const codeCount = isPdx ? (chart.claim.pdx_code ? 1 : 0) : rows.length
+  const tally = [
+    { action: 'Add' as const, n: adds.length },
+    { action: 'Revise' as const, n: mine.filter(f => f.action === 'Revise').length },
+    { action: 'Delete' as const, n: deletedLines.size },
+  ].filter(x => x.n > 0)
+
   return (
-    <div style={s.section}>
-      <div style={s.sectionHead}>
-        <span style={s.sectionName}>{SECTION_LABEL[key] || key}</span>
-        <div style={{ display: 'flex', gap: 8, marginLeft: 'auto' }}>
-          <Radio on={state.verdicts[key] === NO_CHANGES} label="Reviewed — no changes"
-            tone="green" onClick={() => onVerdict(NO_CHANGES)} />
-          <Radio on={open} label="Reviewed — needs changes"
-            tone="amber" onClick={() => onVerdict(NEEDS_CHANGES)} />
+    <div style={{ ...s.section, borderLeft: `4px solid ${t.accent}` }}>
+      <div style={{ ...s.sectionHead, background: t.tint, borderBottomColor: t.line }}>
+        <div style={{ minWidth: 0 }}>
+          {t.kind && <div style={{ ...s.eyebrow, color: t.accent }}>{t.kind}</div>}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span style={{ ...s.sectionName, color: t.accent }}>
+              {SECTION_LABEL[key] || key}
+            </span>
+            <span style={{ ...s.countPill, color: t.accent, borderColor: t.line }}>
+              {codeCount} {codeCount === 1 ? 'code' : 'codes'}
+            </span>
+            {tally.map(x => (
+              <span key={x.action} style={{
+                ...s.actionChip,
+                color: ACTION_COLOR[x.action],
+                borderColor: ACTION_COLOR[x.action] + '55',
+                background: ACTION_COLOR[x.action] + '12',
+              }}>
+                {x.n} {x.action}
+              </span>
+            ))}
+          </div>
+        </div>
+        <div style={{ marginLeft: 'auto' }}>
+          <Segmented
+            value={state.verdicts[key]}
+            onChange={onVerdict}
+            options={[
+              { value: NO_CHANGES, label: 'No changes', tone: '#059669' },
+              { value: NEEDS_CHANGES, label: 'Needs changes', tone: '#d97706' },
+            ]}
+          />
         </div>
       </div>
 
@@ -583,10 +618,18 @@ function SectionBlock({ spec, chart, state, onVerdict, onUpsert }: {
             {open && spec.actions.includes('Add') && (
               <div style={{ marginTop: 10 }}>
                 {adds.map((f, i) => (
-                  <div key={i} style={s.addRow}>
-                    <span style={s.addTag}>Add</span>
+                  <div key={i} style={{
+                    ...s.addRow,
+                    background: ACTION_COLOR.Add + '0e',
+                    boxShadow: `inset 3px 0 0 ${ACTION_COLOR.Add}`,
+                  }}>
+                    <span style={{ ...s.tagChip, color: ACTION_COLOR.Add,
+                                   background: ACTION_COLOR.Add + '18' }}>
+                      <Plus size={11} /> Missing
+                    </span>
                     <input
-                      style={s.input}
+                      style={{ ...s.input, width: 150,
+                               borderColor: f.correct_value ? ACTION_COLOR.Add + '66' : '#e5e7eb' }}
                       placeholder="Missing code"
                       value={f.correct_value || ''}
                       onChange={e => setAdd(i, e.target.value.toUpperCase())}
@@ -595,7 +638,8 @@ function SectionBlock({ spec, chart, state, onVerdict, onUpsert }: {
                     <button onClick={() => removeAdd(i)} style={s.iconBtn}><X size={13} /></button>
                   </div>
                 ))}
-                <button onClick={newAdd} style={s.addBtn}>
+                <button onClick={newAdd} style={{ ...s.addBtn, color: ACTION_COLOR.Add,
+                                                  borderColor: ACTION_COLOR.Add + '55' }}>
                   <Plus size={13} /> Add a missing code
                 </button>
               </div>
@@ -646,8 +690,21 @@ function LineRow({ index, row, fields, open, deleted, canDelete, revisionOf, set
   setRevision: (line: number, field: string, claimValue: string, value: string) => void
   onToggleDelete: () => void
 }) {
+  const [hover, setHover] = useState(false)
+  const del = ACTION_COLOR.Delete
+  const revised = fields.some(f => revisionOf(index, f))
+
   return (
-    <div style={{ ...s.line, opacity: deleted ? 0.55 : 1 }}>
+    <div
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        ...s.line,
+        background: deleted ? del + '0e' : hover && open ? '#fafafa' : 'transparent',
+        boxShadow: deleted ? `inset 3px 0 0 ${del}`
+          : revised ? `inset 3px 0 0 ${ACTION_COLOR.Revise}` : 'none',
+      }}
+    >
       <span style={s.lineNo}>{index + 1}</span>
       {fields.map(field => (
         <Field
@@ -660,16 +717,24 @@ function LineRow({ index, row, fields, open, deleted, canDelete, revisionOf, set
           onChange={v => setRevision(index, field, String(row[field] ?? ''), v)}
         />
       ))}
+      {deleted && <span style={{ ...s.tagChip, color: del, background: del + '18' }}>
+        <Trash2 size={11} /> Remove from claim
+      </span>}
       {open && canDelete && (
         <button
           onClick={onToggleDelete}
           title={deleted ? 'Keep this code' : 'This code should not be on the claim'}
-          style={{ ...s.iconBtn, marginLeft: 'auto', color: deleted ? '#dc2626' : '#9ca3af' }}
+          style={{
+            ...s.rowAction, marginLeft: 'auto',
+            opacity: deleted || hover ? 1 : 0.35,
+            color: deleted ? del : '#6b7280',
+            borderColor: deleted ? del + '55' : '#e5e7eb',
+            background: deleted ? del + '12' : '#fff',
+          }}
         >
-          <Trash2 size={14} />
+          {deleted ? <><X size={12} /> Undo</> : <><Trash2 size={12} /> Delete</>}
         </button>
       )}
-      {deleted && <span style={s.deletedTag}>Delete</span>}
     </div>
   )
 }
@@ -689,14 +754,17 @@ function Field({ label, value, open, revision, strike, onChange }: {
       {open ? (
         <input
           style={{ ...s.input, width: label === 'Code' ? 130 : 82,
-                   borderColor: changed ? '#7c3aed' : '#e5e7eb',
-                   background: changed ? '#faf5ff' : '#fff' }}
+                   borderColor: changed ? ACTION_COLOR.Revise : '#e5e7eb',
+                   background: changed ? ACTION_COLOR.Revise + '0e' : '#fff',
+                   boxShadow: changed ? `0 0 0 3px ${ACTION_COLOR.Revise}1f` : 'none',
+                   fontWeight: changed ? 700 : 400 }}
           value={revision?.correct_value ?? value}
           onChange={e => onChange(e.target.value.toUpperCase())}
           placeholder={value || '—'}
         />
       ) : (
-        <code style={{ ...s.codeChip, textDecoration: strike ? 'line-through' : 'none' }}>
+        <code style={{ ...s.codeChip, textDecoration: strike ? 'line-through' : 'none',
+                       color: strike ? '#9ca3af' : '#111' }}>
           {value || '—'}
         </code>
       )}
@@ -705,30 +773,36 @@ function Field({ label, value, open, revision, strike, onChange }: {
   )
 }
 
-function Radio({ on, label, tone, onClick }: {
-  on: boolean; label: string; tone: 'green' | 'amber'; onClick: () => void
+/**
+ * One control with two states rather than two independent pills.
+ *
+ * A verdict is a single choice, and two separate buttons let it look as though
+ * neither has been given — which is exactly the state the submit gate cares
+ * about. A segmented control shows the unanswered case as one empty track.
+ */
+function Segmented<T extends string | boolean>({ value, onChange, options }: {
+  value: T | undefined
+  onChange: (v: T) => void
+  options: { value: T; label: string; tone: string }[]
 }) {
-  const accent = tone === 'amber' ? '#d97706' : '#059669'
-  const bg = tone === 'amber' ? '#fffbeb' : '#f0fdf4'
   return (
-    <button
-      onClick={onClick}
-      style={{
-        display: 'flex', alignItems: 'center', gap: 7, padding: '7px 13px',
-        borderRadius: 8, cursor: 'pointer', fontSize: 12.5, fontWeight: 600,
-        border: `1.5px solid ${on ? accent : '#e5e7eb'}`,
-        background: on ? bg : '#fff', color: on ? accent : '#6b7280',
-        whiteSpace: 'nowrap',
-      }}
-    >
-      <span style={{
-        width: 13, height: 13, borderRadius: '50%', flexShrink: 0,
-        border: `2px solid ${on ? accent : '#d1d5db'}`,
-        background: on ? accent : '#fff',
-        boxShadow: on ? 'inset 0 0 0 2px #fff' : 'none',
-      }} />
-      {label}
-    </button>
+    <div style={s.segment}>
+      {options.map(o => {
+        const on = value === o.value
+        return (
+          <button key={String(o.value)} onClick={() => onChange(o.value)}
+            style={{
+              ...s.segmentBtn,
+              color: on ? '#fff' : '#6b7280',
+              background: on ? o.tone : 'transparent',
+              boxShadow: on ? '0 1px 3px rgba(0,0,0,0.16)' : 'none',
+            }}>
+            {on && <Check size={12} />}
+            {o.label}
+          </button>
+        )
+      })}
+    </div>
   )
 }
 
@@ -807,6 +881,38 @@ const SECTION_LABEL: Record<string, string> = {
   CPT: 'Procedures (CPT)',
 }
 
+/**
+ * Colour carries the code CATEGORY, not the chart's condition.
+ *
+ * Diagnoses are indigo, procedures teal, so the two procedure sections read as
+ * siblings and a coder scanning the page can tell what kind of code they are
+ * looking at before reading the heading. This is safe against the blind-chart
+ * rule that governs this screen: the hue is fixed per section, so a clean chart
+ * and one carrying errors are still drawn identically.
+ *
+ * Action colour is separate and comes from ISSUE_COLORS, the same palette the
+ * trainer screens use — Add red, Revise purple, Delete amber — so a finding
+ * means the same thing wherever it is seen.
+ */
+type Theme = { accent: string; tint: string; line: string; kind: string }
+
+const NEUTRAL: Theme = { accent: '#4b5563', tint: '#fafafa', line: '#e5e7eb', kind: '' }
+
+const SECTION_THEME: Record<string, Theme> = {
+  PDx: { accent: '#4338ca', tint: '#eef2ff', line: '#c7d2fe', kind: 'Diagnosis' },
+  SDx: { accent: '#5b21b6', tint: '#f5f3ff', line: '#ddd6fe', kind: 'Diagnosis' },
+  PCS: { accent: '#0f766e', tint: '#f0fdfa', line: '#99f6e4', kind: 'Procedure' },
+  CPT: { accent: '#0e7490', tint: '#ecfeff', line: '#a5f3fc', kind: 'Procedure' },
+}
+
+const themeOf = (key: string): Theme => SECTION_THEME[key] || NEUTRAL
+
+const ACTION_COLOR = {
+  Add: ISSUE_COLORS.Missed,
+  Revise: ISSUE_COLORS.Wrong_Code,
+  Delete: ISSUE_COLORS.Over_coded,
+} as const
+
 const FIELD_LABEL: Record<string, string> = {
   code: 'Code', poa: 'POA', ccmcc: 'CC/MCC', modifier: 'Modifier', units: 'Units',
 }
@@ -823,21 +929,26 @@ const s: Record<string, React.CSSProperties> = {
   chartMeta: { fontSize: 13, color: '#6b7280' },
   copyBtn: { display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: 12, fontWeight: 600, border: '1px solid #e5e7eb', borderRadius: 8, background: '#fff', cursor: 'pointer', color: '#4b5563' },
   intro: { fontSize: 13, color: '#6b7280', marginBottom: 20, lineHeight: 1.6 },
-  section: { border: '1px solid #e5e7eb', borderRadius: 12, background: '#fff', marginBottom: 14, overflow: 'hidden' },
-  sectionHead: { display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', background: '#fafafa', borderBottom: '1px solid #f3f4f6', flexWrap: 'wrap' },
-  sectionName: { fontSize: 14, fontWeight: 700, color: '#374151' },
-  line: { display: 'flex', alignItems: 'flex-end', gap: 12, padding: '8px 0', borderBottom: '1px solid #f9fafb', flexWrap: 'wrap' },
+  section: { border: '1px solid #e5e7eb', borderRadius: 14, background: '#fff', marginBottom: 16, overflow: 'hidden', boxShadow: '0 1px 2px rgba(16,24,40,0.04), 0 1px 3px rgba(16,24,40,0.06)' },
+  sectionHead: { display: 'flex', alignItems: 'center', gap: 12, padding: '11px 16px', borderBottom: '1px solid', flexWrap: 'wrap' },
+  sectionName: { fontSize: 14.5, fontWeight: 750, letterSpacing: -0.2 },
+  line: { display: 'flex', alignItems: 'flex-end', gap: 12, padding: '9px 10px', borderBottom: '1px solid #f3f4f6', flexWrap: 'wrap', borderRadius: 8, transition: 'background 120ms ease' },
   lineNo: { fontSize: 11, color: '#9ca3af', width: 16, paddingBottom: 6 },
   fieldLabel: { fontSize: 10, color: '#9ca3af', fontWeight: 700, letterSpacing: 0.3, textTransform: 'uppercase' },
   codeChip: { fontFamily: 'ui-monospace, monospace', fontSize: 13, padding: '6px 10px', background: '#f9fafb', borderRadius: 6, display: 'inline-block', minWidth: 60 },
   input: { fontFamily: 'ui-monospace, monospace', fontSize: 13, padding: '6px 9px', border: '1px solid #e5e7eb', borderRadius: 6, outline: 'none', textTransform: 'uppercase' },
   wasNote: { fontSize: 10, color: '#7c3aed', fontWeight: 600 },
+  eyebrow: { fontSize: 9.5, fontWeight: 800, letterSpacing: 0.9, textTransform: 'uppercase', marginBottom: 3, opacity: 0.75 },
+  countPill: { fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 999, border: '1px solid', background: '#fff' },
+  actionChip: { display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, fontWeight: 800, padding: '2px 8px', borderRadius: 999, border: '1px solid' },
+  tagChip: { display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 800, padding: '3px 8px', borderRadius: 999 },
+  rowAction: { display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, padding: '5px 10px', borderRadius: 8, border: '1px solid', cursor: 'pointer', transition: 'opacity 120ms ease' },
+  segment: { display: 'inline-flex', gap: 3, padding: 3, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10 },
+  segmentBtn: { display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 12px', fontSize: 12, fontWeight: 700, border: 'none', borderRadius: 8, cursor: 'pointer', transition: 'all 130ms ease' },
   lockedNote: { fontSize: 12, color: '#9ca3af', marginLeft: 'auto' },
   emptyRow: { fontSize: 12.5, color: '#9ca3af', padding: '6px 0' },
-  addRow: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 },
-  addTag: { fontSize: 10, fontWeight: 800, color: '#059669', background: '#d1fae5', padding: '3px 8px', borderRadius: 5 },
-  deletedTag: { fontSize: 10, fontWeight: 800, color: '#dc2626', background: '#fee2e2', padding: '3px 8px', borderRadius: 5 },
-  addBtn: { display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: 12, fontWeight: 600, border: '1px dashed #d1d5db', borderRadius: 8, background: '#fff', cursor: 'pointer', color: '#4b5563' },
+  addRow: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, padding: '8px 10px', borderRadius: 8 },
+  addBtn: { display: 'flex', alignItems: 'center', gap: 6, padding: '7px 13px', fontSize: 12, fontWeight: 700, border: '1px dashed', borderRadius: 9, background: '#fff', cursor: 'pointer' },
   iconBtn: { border: 'none', background: 'none', cursor: 'pointer', color: '#9ca3af', padding: 4, display: 'flex' },
   textarea: { width: '100%', boxSizing: 'border-box', height: 74, resize: 'vertical', fontFamily: 'system-ui, sans-serif', fontSize: 13, padding: '9px 11px', border: '1px solid #e5e7eb', borderRadius: 8, marginTop: 10 },
   hintBox: { display: 'flex', gap: 8, alignItems: 'flex-start', marginTop: 10, padding: '10px 12px', borderRadius: 8, border: '1px solid' },
