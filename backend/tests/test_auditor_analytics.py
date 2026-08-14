@@ -399,6 +399,12 @@ class TestFilters:
         assert client.get("/auditor/analytics/by-auditor", params=params).json()["auditors"][0]["charts"] == 4
         assert client.get("/auditor/analytics/detection", params=params).json()["charts_available"] == 4
         assert client.get("/auditor/analytics/chart-signals", params=params).json()["charts"]
+        # by-specialty was the one tab this test did not reach. It rolls each
+        # specialty up in a second, inner query, which is exactly where a
+        # filter gets dropped without anything failing loudly.
+        by_spec = client.get("/auditor/analytics/by-specialty",
+                             params=params).json()["specialties"]
+        assert [s["charts"] for s in by_spec] == [4]
 
         r = client.get("/auditor/analytics/export", params=params)
         assert r.status_code == 200, r.text
