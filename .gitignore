@@ -22,3 +22,15 @@ loadtest/
 # Claude Code agent worktrees (local only)
 .claude/worktrees/
 docs/~$*
+
+# Database backups — NEVER commit these. This repository is public, so a dump
+# pushed here publishes every row in it, permanently: git history, forks and
+# GitHub's caches all keep a copy long after the file is deleted.
+# Backups belong in Render's own backup storage or your IT team's secure store.
+*.dump
+*.sql.gz
+*.tar.gz
+*.tgz
+*.bak
+*.pgdump
+**/pg_dump*/
