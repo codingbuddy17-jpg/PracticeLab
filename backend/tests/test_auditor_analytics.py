@@ -372,6 +372,42 @@ class TestFilters:
         assert body["charts"] == 0
         assert body["audit_accuracy"] is None
 
+    def test_date_filter_narrows_every_view_and_export(self, client, db, library):
+        from datetime import datetime
+        from models import AuditResult
+
+        old_batch = make_batch(client, charts_per=4, name="Old audit wave")
+        _run(client, old_batch)
+        db.query(AuditResult).filter(AuditResult.batch_id == old_batch).update({
+            AuditResult.scored_at: datetime(2024, 1, 10, 12, 0, 0),
+        })
+        new_batch = make_batch(client, charts_per=4, name="August audit wave")
+        _run(client, new_batch)
+        db.query(AuditResult).filter(AuditResult.batch_id == new_batch).update({
+            AuditResult.scored_at: datetime(2026, 8, 10, 12, 0, 0),
+        })
+        db.commit()
+
+        params = {"from_date": "2026-08-01", "to_date": "2026-08-31"}
+        both = client.get("/auditor/analytics/overview").json()
+        scoped = client.get("/auditor/analytics/overview", params=params).json()
+        assert scoped["charts"] < both["charts"]
+        assert scoped["batches"] == 1
+
+        batches = client.get("/auditor/analytics/by-batch", params=params).json()["batches"]
+        assert [b["batch_id"] for b in batches] == [new_batch]
+        assert client.get("/auditor/analytics/by-auditor", params=params).json()["auditors"][0]["charts"] == 4
+        assert client.get("/auditor/analytics/detection", params=params).json()["charts_available"] == 4
+        assert client.get("/auditor/analytics/chart-signals", params=params).json()["charts"]
+
+        r = client.get("/auditor/analytics/export", params=params)
+        assert r.status_code == 200, r.text
+        import io
+        wb = load_workbook(filename=io.BytesIO(r.content), read_only=True)
+        rows = list(wb["By_Batch"].iter_rows(values_only=True))
+        names = {row[0] for row in rows if row and row[0] in {"Old audit wave", "August audit wave"}}
+        assert names == {"August audit wave"}
+
 
 class TestPdfReports:
 

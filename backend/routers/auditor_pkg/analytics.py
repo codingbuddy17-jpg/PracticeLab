@@ -58,7 +58,8 @@ def _split_auditor_key(auditor: Optional[str]) -> tuple[Optional[str], Optional[
 
 
 def _base_query(db: Session, batch_id: Optional[int], specialty: Optional[str],
-                auditor: Optional[str]):
+                auditor: Optional[str], from_date: Optional[str] = None,
+                to_date: Optional[str] = None):
     q = db.query(AuditResult)
     if batch_id:
         q = q.filter(AuditResult.batch_id == batch_id)
@@ -70,6 +71,10 @@ def _base_query(db: Session, batch_id: Optional[int], specialty: Optional[str],
             q = q.filter(AuditResult.emp_id == emp_id)
         else:
             q = q.filter(AuditResult.auditor_name == name)
+    if from_date:
+        q = q.filter(AuditResult.scored_at >= from_date)
+    if to_date:
+        q = q.filter(AuditResult.scored_at <= to_date + "T23:59:59")
     return q
 
 
@@ -87,6 +92,27 @@ _AGGREGATES = [
     func.sum(func.coalesce(R.over_calls, 0)),
     func.sum(func.coalesce(R.detected_not_corrected, 0)),
 ]
+
+
+def _feedback_section_rate(base, section: str) -> dict:
+    planted = found = detected_not_corrected = 0
+    for feedback, in base.with_entities(AuditResult.feedback).all():
+        for entry in feedback or []:
+            planting = entry.get("planting") or {}
+            if planting.get("section") != section:
+                continue
+            planted += 1
+            outcome = entry.get("outcome")
+            if outcome == "correct":
+                found += 1
+            elif outcome == "detected_not_corrected":
+                detected_not_corrected += 1
+    return {
+        "planted": planted,
+        "found": found,
+        "detected_not_corrected": detected_not_corrected,
+        "accuracy": _rate(found, planted),
+    }
 
 
 def _roll_sql(db: Session, base, cfg) -> dict:
@@ -153,6 +179,7 @@ def _roll_sql(db: Session, base, cfg) -> dict:
         "drg_planted": drg_planted,
         "drg_found": drg_found,
         "drg_accuracy": _rate(drg_found, drg_planted),
+        "pcs": _feedback_section_rate(base, "PCS"),
         "query_charts": int(q_total or 0),
         "query_correct": int(q_right or 0),
         "query_accuracy": _rate(int(q_right or 0), int(q_total or 0)),
@@ -170,9 +197,10 @@ def _roll_sql(db: Session, base, cfg) -> dict:
 @router.get("/analytics/overview")
 def overview(batch_id: Optional[int] = None, specialty: Optional[str] = None,
              auditor: Optional[str] = None,
+             from_date: Optional[str] = None, to_date: Optional[str] = None,
              db: Session = Depends(get_db)):
     cfg = scoring_config(db)
-    base = _base_query(db, batch_id, specialty, auditor)
+    base = _base_query(db, batch_id, specialty, auditor, from_date, to_date)
     body = _roll_sql(db, base, cfg)
     body["auditors"] = base.with_entities(
         func.count(func.distinct(_auditor_key_expr()))).scalar() or 0
@@ -185,15 +213,17 @@ def overview(batch_id: Optional[int] = None, specialty: Optional[str] = None,
 @router.get("/analytics/by-specialty")
 def by_specialty(batch_id: Optional[int] = None, specialty: Optional[str] = None,
                  auditor: Optional[str] = None,
+                 from_date: Optional[str] = None, to_date: Optional[str] = None,
                  db: Session = Depends(get_db)):
     cfg = scoring_config(db)
-    base = _base_query(db, batch_id, specialty, auditor)
+    base = _base_query(db, batch_id, specialty, auditor, from_date, to_date)
     specialties = [sp for sp, in base.with_entities(AuditResult.specialty)
                    .group_by(AuditResult.specialty)
                    .order_by(AuditResult.specialty.asc()).all()]
     out = []
     for sp in specialties:
-        scoped = _base_query(db, batch_id, sp.value if hasattr(sp, "value") else sp, auditor)
+        scoped = _base_query(db, batch_id, sp.value if hasattr(sp, "value") else sp,
+                             auditor, from_date, to_date)
         body = _roll_sql(db, scoped, cfg)
         out.append({
             "specialty": sp.value if hasattr(sp, "value") else sp,
@@ -211,10 +241,11 @@ def by_specialty(batch_id: Optional[int] = None, specialty: Optional[str] = None
 @router.get("/analytics/by-batch")
 def by_batch(batch_id: Optional[int] = None, specialty: Optional[str] = None,
              auditor: Optional[str] = None,
+             from_date: Optional[str] = None, to_date: Optional[str] = None,
              limit: int = Query(100, le=300),
              db: Session = Depends(get_db)):
     cfg = scoring_config(db)
-    base = _base_query(db, batch_id, specialty, auditor)
+    base = _base_query(db, batch_id, specialty, auditor, from_date, to_date)
     # One grouped query for the batch ids that actually have results, rather
     # than loading every result and bucketing them in Python.
     ids = [bid for bid, in base.with_entities(AuditResult.batch_id)
@@ -227,12 +258,14 @@ def by_batch(batch_id: Optional[int] = None, specialty: Optional[str] = None,
     out = []
     for bid in ids:
         batch = batches.get(bid)
-        scoped = _base_query(db, bid, specialty, auditor)
+        scoped = _base_query(db, bid, specialty, auditor, from_date, to_date)
+        scored_at = scoped.with_entities(func.max(AuditResult.scored_at)).scalar()
         out.append({
             "batch_id": bid,
             "name": batch.name if batch else f"Batch {bid}",
             "specialty": batch.specialty.value if batch else None,
             "status": batch.status.value if batch else None,
+            "scored_at": scored_at.isoformat() if scored_at else None,
             "auditors": scoped.with_entities(
                 func.count(func.distinct(_auditor_key_expr()))).scalar() or 0,
             **_roll_sql(db, scoped, cfg),
@@ -243,6 +276,7 @@ def by_batch(batch_id: Optional[int] = None, specialty: Optional[str] = None,
 @router.get("/analytics/by-auditor")
 def by_auditor(batch_id: Optional[int] = None, specialty: Optional[str] = None,
                auditor: Optional[str] = None,
+               from_date: Optional[str] = None, to_date: Optional[str] = None,
                limit: int = Query(200, le=500),
                db: Session = Depends(get_db)):
     """
@@ -253,7 +287,7 @@ def by_auditor(batch_id: Optional[int] = None, specialty: Optional[str] = None,
     their opportunities rather than on the mean of two percentages.
     """
     cfg = scoring_config(db)
-    base = _base_query(db, batch_id, specialty, auditor)
+    base = _base_query(db, batch_id, specialty, auditor, from_date, to_date)
     # Weakest first, decided in SQL so the cap keeps the auditors who most
     # need attention rather than an arbitrary slice.
     keys = base.with_entities(
@@ -269,7 +303,7 @@ def by_auditor(batch_id: Optional[int] = None, specialty: Optional[str] = None,
     out = []
     for emp, name, _avg_accuracy in keys:
         key = f"{emp}||{name}" if emp else name
-        scoped = _base_query(db, batch_id, specialty, key)
+        scoped = _base_query(db, batch_id, specialty, key, from_date, to_date)
         out.append({
             "auditor_name": name,
             "emp_id": emp,
@@ -284,6 +318,7 @@ def by_auditor(batch_id: Optional[int] = None, specialty: Optional[str] = None,
 @router.get("/analytics/chart-signals")
 def chart_signals(batch_id: Optional[int] = None, specialty: Optional[str] = None,
                   auditor: Optional[str] = None,
+                  from_date: Optional[str] = None, to_date: Optional[str] = None,
                   limit: int = Query(200, le=500),
                   db: Session = Depends(get_db)):
     """
@@ -293,7 +328,7 @@ def chart_signals(batch_id: Optional[int] = None, specialty: Optional[str] = Non
     difficult, but whether a pre-coded audit chart repeatedly creates misses,
     over-calls, or key-quality conversations.
     """
-    base = _base_query(db, batch_id, specialty, auditor)
+    base = _base_query(db, batch_id, specialty, auditor, from_date, to_date)
     rows = (base.join(Chart, Chart.id == AuditResult.chart_id)
             .with_entities(
                 AuditResult.chart_id,
@@ -367,6 +402,8 @@ KIND_LABELS = {
 def detection_patterns(batch_id: Optional[int] = None,
                        specialty: Optional[str] = None,
                        auditor: Optional[str] = None,
+                       from_date: Optional[str] = None,
+                       to_date: Optional[str] = None,
                        scan_limit: int = Query(5000, le=20000),
                        db: Session = Depends(get_db)):
     """
@@ -384,7 +421,7 @@ def detection_patterns(batch_id: Optional[int] = None,
     # This is the one report that cannot be done in SQL — the outcome of each
     # error lives inside a JSON column. So it is capped, and the payload says
     # how much it looked at rather than implying it read everything.
-    base = _base_query(db, batch_id, specialty, auditor)
+    base = _base_query(db, batch_id, specialty, auditor, from_date, to_date)
     total_results = base.with_entities(func.count(AuditResult.id)).scalar() or 0
     rows = (base.order_by(AuditResult.id.desc())
             .limit(scan_limit).all())
@@ -454,6 +491,8 @@ def detection_patterns(batch_id: Optional[int] = None,
 def export_analytics_workbook(batch_id: Optional[int] = None,
                               specialty: Optional[str] = None,
                               auditor: Optional[str] = None,
+                              from_date: Optional[str] = None,
+                              to_date: Optional[str] = None,
                               db: Session = Depends(get_db)):
     """All four analytics views in one workbook, current filters applied."""
     from services.audit_export import export_analytics
@@ -463,13 +502,18 @@ def export_analytics_workbook(batch_id: Optional[int] = None,
     # parameters whose defaults are FastAPI Query objects, so a positional call
     # silently lands the session on the wrong argument.
     data = export_analytics(
-        overview(batch_id=batch_id, specialty=specialty, auditor=auditor, db=db),
-        by_batch(batch_id=batch_id, specialty=specialty, auditor=auditor, limit=300, db=db)["batches"],
-        by_auditor(batch_id=batch_id, specialty=specialty, auditor=auditor, limit=500, db=db)["auditors"],
+        overview(batch_id=batch_id, specialty=specialty, auditor=auditor,
+                 from_date=from_date, to_date=to_date, db=db),
+        by_batch(batch_id=batch_id, specialty=specialty, auditor=auditor,
+                 from_date=from_date, to_date=to_date, limit=300, db=db)["batches"],
+        by_auditor(batch_id=batch_id, specialty=specialty, auditor=auditor,
+                   from_date=from_date, to_date=to_date, limit=500, db=db)["auditors"],
         detection_patterns(batch_id=batch_id, specialty=specialty, auditor=auditor,
-                           scan_limit=20000, db=db),
-        by_specialty(batch_id=batch_id, specialty=specialty, auditor=auditor, db=db)["specialties"],
-        chart_signals(batch_id=batch_id, specialty=specialty, auditor=auditor, limit=500, db=db)["charts"],
+                           from_date=from_date, to_date=to_date, scan_limit=20000, db=db),
+        by_specialty(batch_id=batch_id, specialty=specialty, auditor=auditor,
+                     from_date=from_date, to_date=to_date, db=db)["specialties"],
+        chart_signals(batch_id=batch_id, specialty=specialty, auditor=auditor,
+                      from_date=from_date, to_date=to_date, limit=500, db=db)["charts"],
     )
     return StreamingResponse(
         io.BytesIO(data),
@@ -480,11 +524,14 @@ def export_analytics_workbook(batch_id: Optional[int] = None,
 @router.get("/analytics/auditor-report.pdf")
 def auditor_report_pdf(auditor: str, batch_id: Optional[int] = None,
                        specialty: Optional[str] = None,
+                       from_date: Optional[str] = None,
+                       to_date: Optional[str] = None,
                        db: Session = Depends(get_db)):
     from services.download_headers import content_disposition
     from services.pdf_report_service import generate_audit_auditor_report_pdf
 
     rows = by_auditor(batch_id=batch_id, specialty=specialty, auditor=auditor,
+                      from_date=from_date, to_date=to_date,
                       limit=1, db=db)["auditors"]
     if not rows:
         raise HTTPException(status_code=404, detail="No data for this auditor")
@@ -492,11 +539,14 @@ def auditor_report_pdf(auditor: str, batch_id: Optional[int] = None,
     data = {
         "auditor": auditor_row,
         "overview": overview(batch_id=batch_id, specialty=specialty,
-                             auditor=auditor, db=db),
+                             auditor=auditor, from_date=from_date,
+                             to_date=to_date, db=db),
         "batches": by_batch(batch_id=batch_id, specialty=specialty,
-                            auditor=auditor, limit=300, db=db)["batches"],
+                            auditor=auditor, from_date=from_date,
+                            to_date=to_date, limit=300, db=db)["batches"],
         "detection": detection_patterns(batch_id=batch_id, specialty=specialty,
-                                        auditor=auditor, scan_limit=20000, db=db),
+                                        auditor=auditor, from_date=from_date,
+                                        to_date=to_date, scan_limit=20000, db=db),
         "specialty": specialty,
     }
     pdf_bytes = generate_audit_auditor_report_pdf(data)
