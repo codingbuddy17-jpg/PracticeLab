@@ -10,6 +10,7 @@ import {
 } from '../../api/auditorApi'
 import { ISSUE_COLORS } from '../practicelab/shared'
 import s from './styles'
+import { AUDITABLE } from './constants'
 
 /**
  * The trainer's audit keys.
@@ -25,7 +26,6 @@ const SECTION_LABEL: Record<string, string> = {
   PDx: 'Principal Dx', SDx: 'Secondary Dx', PCS: 'PCS', CPT: 'CPT',
 }
 
-const AUDITABLE = ['IP-DRG', 'SDS', 'ED Facility', 'Surgery', 'ED Single Path', 'Ancillary']
 
 /**
  * Laid out like the coder Answer Keys screen: pick a specialty, see coverage,

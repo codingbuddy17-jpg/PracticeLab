@@ -2,8 +2,10 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
 import {
   AlertTriangle, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, Copy,
-  Download, Eye, Loader, Plus, RefreshCw, Search, Shuffle, Square, Upload,
+  Download, Eye, FileSearch, Loader, Plus, RefreshCw, Search, Shuffle, Square,
+  Upload,
 } from 'lucide-react'
+import { AuditReview } from './AuditReview'
 import {
   closeAuditBatch, createAuditBatch, getAuditableCharts, getAuditBatch,
   getAuditPlantings,
@@ -16,8 +18,8 @@ import {
 import { CoderPicker } from '../../components/CoderPicker'
 import { DIFFICULTIES } from '../practicelab/shared'
 import s from './styles'
+import { AUDITABLE } from './constants'
 
-const AUDITABLE = ['IP-DRG', 'SDS', 'ED Facility', 'Surgery', 'ED Single Path', 'Ancillary']
 
 const MODES = [
   { key: 'auto', name: 'Automatic', blurb: 'The system decides the mix, the charts and the errors.' },
@@ -53,6 +55,7 @@ export function AuditBatches({ trainer }: { trainer: string }) {
   const [view, setView] = useState<View>('list')
   const [batches, setBatches] = useState<Record<string, any>[]>([])
   const [selected, setSelected] = useState<number | null>(null)
+  const [reviewSession, setReviewSession] = useState<number | null>(null)
   // Open by default — closed batches are the record, not the work.
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('open')
   // Groups start collapsed, so the page opens as a short index rather than a
@@ -92,9 +95,15 @@ export function AuditBatches({ trainer }: { trainer: string }) {
       onDone={id => { load(); setSelected(id); setView('detail') }}
       onCancel={() => setView('list')} />
   }
+  // A review sits on top of its batch, so closing it returns to the batch the
+  // trainer opened it from rather than all the way out to the list.
+  if (reviewSession !== null) {
+    return <AuditReview sessionId={reviewSession} onBack={() => setReviewSession(null)} />
+  }
   if (view === 'detail' && selected !== null) {
     return <AuditBatchDetail batchId={selected} trainer={trainer}
-      onBack={() => { load(); setView('list') }} />
+      onBack={() => { load(); setView('list') }}
+      onReview={setReviewSession} />
   }
 
   const sorted = [...batches].sort((a, b) =>
@@ -583,8 +592,9 @@ function CreateAuditBatch({ trainer, onDone, onCancel }: {
 
 // ── detail ───────────────────────────────────────────────────────────────────
 
-function AuditBatchDetail({ batchId, trainer, onBack }: {
+function AuditBatchDetail({ batchId, trainer, onBack, onReview }: {
   batchId: number; trainer: string; onBack: () => void
+  onReview: (sessionId: number) => void
 }) {
   const [batch, setBatch] = useState<any>(null)
   const [errors, setPlantings] = useState<any[]>([])
@@ -854,6 +864,11 @@ function AuditBatchDetail({ batchId, trainer, onBack }: {
                   <Copy size={13} />
                 </button>
                 <span style={{ marginLeft: 'auto', fontSize: 11, color: '#6b7280' }}>{c.status}</span>
+                {c.status === 'submitted' && (
+                  <button style={s.linkBtn} onClick={() => onReview(c.session_id)}>
+                    <FileSearch size={13} /> Review
+                  </button>
+                )}
               </div>
             ))}
           </div>

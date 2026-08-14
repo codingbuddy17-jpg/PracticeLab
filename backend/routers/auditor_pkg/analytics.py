@@ -148,9 +148,10 @@ def _roll_sql(db: Session, base, cfg) -> dict:
 
 @router.get("/analytics/overview")
 def overview(batch_id: Optional[int] = None, specialty: Optional[str] = None,
+             auditor: Optional[str] = None,
              db: Session = Depends(get_db)):
     cfg = scoring_config(db)
-    base = _base_query(db, batch_id, specialty, None)
+    base = _base_query(db, batch_id, specialty, auditor)
     body = _roll_sql(db, base, cfg)
     body["auditors"] = base.with_entities(
         func.count(func.distinct(AuditResult.auditor_name))).scalar() or 0
@@ -161,11 +162,12 @@ def overview(batch_id: Optional[int] = None, specialty: Optional[str] = None,
 
 
 @router.get("/analytics/by-batch")
-def by_batch(specialty: Optional[str] = None,
+def by_batch(batch_id: Optional[int] = None, specialty: Optional[str] = None,
+             auditor: Optional[str] = None,
              limit: int = Query(100, le=300),
              db: Session = Depends(get_db)):
     cfg = scoring_config(db)
-    base = _base_query(db, None, specialty, None)
+    base = _base_query(db, batch_id, specialty, auditor)
     # One grouped query for the batch ids that actually have results, rather
     # than loading every result and bucketing them in Python.
     ids = [bid for bid, in base.with_entities(AuditResult.batch_id)
@@ -176,12 +178,12 @@ def by_batch(specialty: Optional[str] = None,
     batches = {b.id: b for b in db.query(AuditBatch).filter(AuditBatch.id.in_(ids)).all()}
 
     out = []
-    for batch_id in ids:
-        batch = batches.get(batch_id)
-        scoped = _base_query(db, batch_id, specialty, None)
+    for bid in ids:
+        batch = batches.get(bid)
+        scoped = _base_query(db, bid, specialty, auditor)
         out.append({
-            "batch_id": batch_id,
-            "name": batch.name if batch else f"Batch {batch_id}",
+            "batch_id": bid,
+            "name": batch.name if batch else f"Batch {bid}",
             "specialty": batch.specialty.value if batch else None,
             "status": batch.status.value if batch else None,
             "auditors": scoped.with_entities(
@@ -193,6 +195,7 @@ def by_batch(specialty: Optional[str] = None,
 
 @router.get("/analytics/by-auditor")
 def by_auditor(batch_id: Optional[int] = None, specialty: Optional[str] = None,
+               auditor: Optional[str] = None,
                limit: int = Query(200, le=500),
                db: Session = Depends(get_db)):
     """
@@ -203,7 +206,7 @@ def by_auditor(batch_id: Optional[int] = None, specialty: Optional[str] = None,
     their opportunities rather than on the mean of two percentages.
     """
     cfg = scoring_config(db)
-    base = _base_query(db, batch_id, specialty, None)
+    base = _base_query(db, batch_id, specialty, auditor)
     # Weakest first, decided in SQL so the cap keeps the auditors who most
     # need attention rather than an arbitrary slice.
     names = [n for n, in base.with_entities(AuditResult.auditor_name)

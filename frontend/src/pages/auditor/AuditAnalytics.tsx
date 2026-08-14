@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
-import { Download, Target } from 'lucide-react'
+import { Download, Target, X } from 'lucide-react'
 import {
   downloadAuditAnalytics, getAuditByAuditor, getAuditByBatch, getAuditDetection,
   getAuditOverview,
 } from '../../api/auditorApi'
 import s from './styles'
+import { AUDITABLE } from './constants'
 
 /**
  * Not a copy of the coder analytics. Those answer "which codes do people get
@@ -27,24 +28,80 @@ export function AuditAnalytics() {
   const [auditors, setAuditors] = useState<any[]>([])
   const [detection, setDetection] = useState<any>(null)
 
+  const [fBatch, setFBatch] = useState('')
+  const [fSpecialty, setFSpecialty] = useState('')
+  const [fAuditor, setFAuditor] = useState('')
+
+  // Dropdown options come from one unfiltered read, kept aside. Building them
+  // from the filtered rows would let a filter remove its own option and strand
+  // the trainer on a selection they cannot clear from the list.
+  const [opts, setOpts] = useState<{ batches: any[]; auditors: any[] }>({
+    batches: [], auditors: [],
+  })
+
+  // The server does the filtering — every one of these endpoints already took
+  // these three parameters, so this passes them rather than trimming rows here.
   const load = useCallback(async () => {
+    const params: Record<string, unknown> = {}
+    if (fBatch) params.batch_id = Number(fBatch)
+    if (fSpecialty) params.specialty = fSpecialty
+    if (fAuditor) params.auditor = fAuditor
     try {
       const [o, b, a, d] = await Promise.all([
-        getAuditOverview(), getAuditByBatch(), getAuditByAuditor(), getAuditDetection(),
+        getAuditOverview(params), getAuditByBatch(params),
+        getAuditByAuditor(params), getAuditDetection(params),
       ])
       setOverview(o); setBatches(b.batches); setAuditors(a.auditors); setDetection(d)
+      setOpts(prev => (prev.batches.length || prev.auditors.length) ? prev
+        : { batches: b.batches, auditors: a.auditors })
     } catch { toast.error('Could not load audit analytics') }
-  }, [])
+  }, [fBatch, fSpecialty, fAuditor])
   useEffect(() => { load() }, [load])
 
+  const filtered = Boolean(fBatch || fSpecialty || fAuditor)
+
   if (!overview) return <div style={s.empty}>Loading…</div>
+
+  const filterBar = (
+    <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 16,
+                  flexWrap: 'wrap' }}>
+      <select style={{ ...s.input, width: 'auto', minWidth: 150 }}
+        value={fBatch} onChange={e => setFBatch(e.target.value)}>
+        <option value="">All batches</option>
+        {opts.batches.map(b => (
+          <option key={b.batch_id} value={b.batch_id}>{b.name}</option>
+        ))}
+      </select>
+      <select style={{ ...s.input, width: 'auto', minWidth: 130 }}
+        value={fSpecialty} onChange={e => setFSpecialty(e.target.value)}>
+        <option value="">All specialties</option>
+        {AUDITABLE.map(x => <option key={x} value={x}>{x}</option>)}
+      </select>
+      <select style={{ ...s.input, width: 'auto', minWidth: 150 }}
+        value={fAuditor} onChange={e => setFAuditor(e.target.value)}>
+        <option value="">All auditors</option>
+        {opts.auditors.map(a => (
+          <option key={a.auditor_name} value={a.auditor_name}>{a.auditor_name}</option>
+        ))}
+      </select>
+      {filtered && (
+        <button style={s.linkBtn}
+          onClick={() => { setFBatch(''); setFSpecialty(''); setFAuditor('') }}>
+          <X size={13} /> Clear
+        </button>
+      )}
+    </div>
+  )
+
   if (!overview.charts) {
     return (
       <div>
         <div style={s.h1}>Audit Analytics</div>
+        {filterBar}
         <div style={s.empty}>
-          Nothing scored yet. Run an allocation and have an auditor submit, and these
-          figures will fill in.
+          {filtered
+            ? 'Nothing scored matches these filters.'
+            : 'Nothing scored yet. Run an allocation and have an auditor submit, and these figures will fill in.'}
         </div>
       </div>
     )
@@ -62,10 +119,12 @@ export function AuditAnalytics() {
         </div>
         <button style={s.outlineBtn}
           title="All four views in one workbook, with every denominator"
-          onClick={() => downloadAuditAnalytics()}>
+          onClick={() => downloadAuditAnalytics(fSpecialty || undefined)}>
           <Download size={15} /> Export (.xlsx)
         </button>
       </div>
+
+      {filterBar}
 
       <div style={{ display: 'flex', gap: 6, marginTop: 16, flexWrap: 'wrap' }}>
         {TABS.map(t => (

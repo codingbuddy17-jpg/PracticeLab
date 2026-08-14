@@ -281,3 +281,65 @@ class TestScale:
         """
         r = client.get("/auditor/analytics/by-auditor", params={"limit": 1}).json()
         assert len(r["auditors"]) <= 1
+
+
+class TestFilters:
+    """
+    Every analytics view takes batch, specialty and auditor.
+
+    These are worth their own tests because the failure mode is silent: FastAPI
+    drops a query parameter the handler does not declare, so a filter the UI
+    sends can look wired up while changing nothing. Three of the four handlers
+    were in exactly that state — the assertions below are on the narrowing, not
+    on the status code.
+    """
+
+    def _two_auditors(self, client):
+        batch_id = make_batch(client, auditors=("Asha R", "Bo T"), charts_per=4)
+        _run(client, batch_id, auditor_index=0)
+        _run(client, batch_id, auditor_index=1)
+        return batch_id
+
+    def test_auditor_filter_narrows_every_view(self, client, db, library):
+        batch_id = self._two_auditors(client)
+
+        both = client.get("/auditor/analytics/overview").json()
+        one = client.get("/auditor/analytics/overview",
+                         params={"auditor": "Asha R"}).json()
+        assert both["auditors"] == 2 and one["auditors"] == 1
+        assert one["charts"] < both["charts"]
+
+        rows = client.get("/auditor/analytics/by-auditor",
+                          params={"auditor": "Asha R"}).json()["auditors"]
+        assert [r["auditor_name"] for r in rows] == ["Asha R"]
+
+        # by-batch keeps the batch but must count only that auditor inside it
+        b = client.get("/auditor/analytics/by-batch",
+                       params={"auditor": "Asha R"}).json()["batches"]
+        assert len(b) == 1 and b[0]["batch_id"] == batch_id
+        assert b[0]["auditors"] == 1
+
+        d = client.get("/auditor/analytics/detection",
+                       params={"auditor": "Asha R"}).json()
+        assert d is not None
+
+    def test_batch_filter_is_accepted_by_by_batch(self, client, db, library):
+        """by-batch took no batch_id at all, so selecting one changed nothing."""
+        first = self._two_auditors(client)
+        second = make_batch(client, auditors=("Cy K",), charts_per=4)
+        _run(client, second)
+
+        allb = client.get("/auditor/analytics/by-batch").json()["batches"]
+        assert {r["batch_id"] for r in allb} == {first, second}
+
+        just = client.get("/auditor/analytics/by-batch",
+                          params={"batch_id": second}).json()["batches"]
+        assert [r["batch_id"] for r in just] == [second]
+
+    def test_a_filter_matching_nothing_reports_zero_not_everything(
+            self, client, db, library):
+        self._two_auditors(client)
+        body = client.get("/auditor/analytics/overview",
+                          params={"auditor": "Nobody At All"}).json()
+        assert body["charts"] == 0
+        assert body["audit_accuracy"] is None
