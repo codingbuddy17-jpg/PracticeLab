@@ -676,6 +676,157 @@ def generate_batch_report_pdf(insights: dict) -> bytes:
     return buf.getvalue()
 
 
+# ── Auditor PDF Reports ───────────────────────────────────────────────────────
+
+def _pct(value) -> str:
+    return "NA" if value is None else f"{value}%"
+
+
+def _audit_verdict(summary: dict, pass_threshold: int = 80):
+    score = summary.get("audit_accuracy")
+    withheld = summary.get("verdict_withheld_reason")
+    if score is None:
+        return ("NO SCORED AUDITS YET", "There are no submitted audit charts in this scope.",
+                GRAY, GRAY_LIGHT, BORDER)
+    if withheld:
+        return ("INDICATIVE ONLY", f"{score}% audit accuracy — {withheld}.",
+                AMBER, AMBER_BG, AMBER_BORDER)
+    if score >= pass_threshold:
+        return ("ON TRACK", f"{score}% audit accuracy meets the {pass_threshold}% target.",
+                GREEN, GREEN_BG, GREEN_BORDER)
+    return ("NEEDS COACHING", f"{score}% audit accuracy is below the {pass_threshold}% target.",
+            RED, RED_BG, RED_BORDER)
+
+
+def _audit_component_rows(summary: dict, pass_threshold: int) -> list:
+    rows = []
+    for label, key in [("Add", "add"), ("Revise", "revise"), ("Delete", "delete")]:
+        cell = summary.get(key) or {}
+        basis = "NA" if not cell.get("planted") else f"{cell.get('found', 0)}/{cell.get('planted', 0)}"
+        rows.append([Paragraph(label, NORMAL), _score_cell(cell.get("accuracy"), pass_threshold=pass_threshold),
+                     Paragraph(basis, NORMAL)])
+    rows.append([Paragraph("DRG-impacting", NORMAL), _score_cell(summary.get("drg_accuracy"), pass_threshold=pass_threshold),
+                 Paragraph(f"{summary.get('drg_found', 0)}/{summary.get('drg_planted', 0)}", NORMAL)])
+    rows.append([Paragraph("Query calls", NORMAL), _score_cell(summary.get("query_accuracy"), pass_threshold=pass_threshold),
+                 Paragraph(f"{summary.get('query_correct', 0)}/{summary.get('query_charts', 0)}", NORMAL)])
+    return rows
+
+
+def generate_audit_auditor_report_pdf(data: dict) -> bytes:
+    buf = io.BytesIO()
+    doc = _doc(buf)
+    elements = []
+
+    auditor = data.get("auditor") or {}
+    summary = data.get("overview") or auditor
+    pt = summary.get("pass_threshold", 80)
+    name = auditor.get("auditor_name", "Auditor")
+    emp = auditor.get("emp_id")
+    subtitles = [f"Auditor: {name}" + (f"  |  Emp ID: {emp}" if emp else "")]
+    if data.get("specialty"):
+        subtitles.append(f"Specialty: {data['specialty']}")
+    _header(elements, "Auditor Performance Report", subtitles)
+
+    headline, detail, color, bg, border = _audit_verdict(summary, pt)
+    elements.append(_verdict_box(headline, detail, color, bg, border))
+    elements.append(Spacer(1, 12))
+    elements.append(_stat_row([
+        (str(summary.get("charts", 0)), "Charts Audited"),
+        (_pct(summary.get("audit_accuracy")), "Audit Accuracy"),
+        (_pct(summary.get("clean_accuracy")), "Clean Accuracy"),
+        (_pct(summary.get("opportunity_accuracy")), "Opportunity Accuracy"),
+        (str(summary.get("over_calls", 0)), "Over-calls"),
+        (str(summary.get("detected_not_corrected", 0)), "Found, Corrected Wrongly"),
+    ]))
+
+    _section_heading(elements, "Component Accuracy")
+    elements.append(_data_table(["Component", "Accuracy", "Basis"],
+                                _audit_component_rows(summary, pt), [2, 1, 1.2]))
+
+    detection = data.get("detection") or {}
+    weakest = detection.get("weakest") or []
+    if weakest:
+        _section_heading(elements, "What To Coach Next")
+        rows = [[Paragraph(w.get("label", "—"), NORMAL),
+                 _score_cell(w.get("accuracy"), pass_threshold=pt),
+                 Paragraph(f"{w.get('found', 0)}/{w.get('planted', 0)} caught", NORMAL)]
+                for w in weakest[:8]]
+        elements.append(_data_table(["Pattern", "Caught", "Basis"], rows, [3, 1, 1.3]))
+
+    batches = data.get("batches") or []
+    if batches:
+        _section_heading(elements, "Batch History")
+        rows = [[Paragraph(b.get("name", "—"), NORMAL),
+                 Paragraph(b.get("specialty") or "—", NORMAL),
+                 Paragraph(str(b.get("charts", 0)), NORMAL),
+                 _score_cell(b.get("audit_accuracy"), pass_threshold=pt),
+                 Paragraph(str(b.get("over_calls", 0)), NORMAL)]
+                for b in batches[:40]]
+        elements.append(_data_table(["Batch", "Specialty", "Charts", "Audit Accuracy", "Over-calls"],
+                                    rows, [2.4, 1.2, 0.8, 1, 0.8]))
+
+    _footer_note(elements)
+    doc.build(elements, onFirstPage=_draw_background, onLaterPages=_draw_background)
+    return buf.getvalue()
+
+
+def generate_audit_batch_report_pdf(data: dict) -> bytes:
+    buf = io.BytesIO()
+    doc = _doc(buf)
+    elements = []
+
+    summary = data.get("overview") or {}
+    batch = data.get("batch") or {}
+    pt = summary.get("pass_threshold", 80)
+    subtitles = [f"Batch: {batch.get('name', 'Audit Batch')}  |  Specialty: {batch.get('specialty', '—')}"]
+    if batch.get("status"):
+        subtitles.append(f"Status: {batch['status']}")
+    _header(elements, "Audit Batch Performance Report", subtitles)
+
+    headline, detail, color, bg, border = _audit_verdict(summary, pt)
+    elements.append(_verdict_box(headline, detail, color, bg, border))
+    elements.append(Spacer(1, 12))
+    elements.append(_stat_row([
+        (str(summary.get("auditors", 0)), "Auditors"),
+        (str(summary.get("charts", 0)), "Charts Audited"),
+        (_pct(summary.get("audit_accuracy")), "Audit Accuracy"),
+        (_pct(summary.get("clean_accuracy")), "Clean Accuracy"),
+        (_pct(summary.get("opportunity_accuracy")), "Opportunity Accuracy"),
+        (str(summary.get("opportunities", 0)), "Opportunities"),
+    ]))
+
+    _section_heading(elements, "Component Accuracy")
+    elements.append(_data_table(["Component", "Accuracy", "Basis"],
+                                _audit_component_rows(summary, pt), [2, 1, 1.2]))
+
+    auditors = data.get("auditors") or []
+    if auditors:
+        _section_heading(elements, "Auditor Results")
+        rows = [[Paragraph(a.get("auditor_name", "—"), NORMAL),
+                 Paragraph(a.get("emp_id") or "—", NORMAL),
+                 Paragraph(str(a.get("charts", 0)), NORMAL),
+                 _score_cell(a.get("audit_accuracy"), pass_threshold=pt),
+                 _score_cell(a.get("opportunity_accuracy"), pass_threshold=pt),
+                 Paragraph(str(a.get("over_calls", 0)), NORMAL)]
+                for a in auditors[:60]]
+        elements.append(_data_table(["Auditor", "Emp ID", "Charts", "Audit", "Opportunity", "Over-calls"],
+                                    rows, [2, 1, 0.7, 0.9, 1, 0.8]))
+
+    detection = data.get("detection") or {}
+    patterns = detection.get("by_kind") or []
+    if patterns:
+        _section_heading(elements, "Detection Patterns")
+        rows = [[Paragraph(p.get("label", "—"), NORMAL),
+                 _score_cell(p.get("accuracy"), pass_threshold=pt),
+                 Paragraph(f"{p.get('found', 0)}/{p.get('planted', 0)} caught", NORMAL)]
+                for p in patterns[:10]]
+        elements.append(_data_table(["Pattern", "Caught", "Basis"], rows, [3, 1, 1.3]))
+
+    _footer_note(elements)
+    doc.build(elements, onFirstPage=_draw_background, onLaterPages=_draw_background)
+    return buf.getvalue()
+
+
 # ── Assessment PDF Reports ────────────────────────────────────────────────────
 
 def generate_assessment_coder_report_pdf(coder_name: str, data: dict) -> bytes:

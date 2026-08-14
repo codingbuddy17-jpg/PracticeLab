@@ -161,8 +161,9 @@ def _bool(v) -> str:
 # ── analytics ────────────────────────────────────────────────────────────────
 
 def export_analytics(overview: dict, batches: list[dict], auditors: list[dict],
-                     detection: dict) -> bytes:
-    """The four analytics tabs, one sheet each."""
+                     detection: dict, specialties: Optional[list[dict]] = None,
+                     chart_signals: Optional[list[dict]] = None) -> bytes:
+    """The analytics tabs, one sheet each."""
     wb = Workbook()
 
     _sheet(wb, "Overview", ["Measure", "Value", "Basis"],
@@ -214,6 +215,12 @@ def export_analytics(overview: dict, batches: list[dict], auditors: list[dict],
             r.get("pass_fail") or "withheld",
         ]
 
+    if specialties is not None:
+        _sheet(wb, "By_Specialty", ["Specialty", "Auditors", "Batches"] + cols,
+               [[s.get("specialty"), s.get("auditors"), s.get("batches")] + _row(s)
+                for s in specialties],
+               note="Weakest first. Specialties with no scored audit results do not appear.")
+
     _sheet(wb, "By_Batch", ["Batch", "Specialty", "Status", "Auditors"] + cols,
            [[b.get("name"), b.get("specialty"), b.get("status"), b.get("auditors")]
             + _row(b) for b in batches])
@@ -241,6 +248,19 @@ def export_analytics(overview: dict, batches: list[dict], auditors: list[dict],
             for o in (detection.get("by_origin") or [])],
            note="Errors taken from real coder submissions against ones the system "
                 "generated. Only the first describes the job.")
+
+    if chart_signals is not None:
+        _sheet(wb, "Chart_Signals",
+               ["Chart", "Specialty", "Category", "Attempts", "Audit %",
+                "Clean", "Opportunity", "Opportunities", "Missed", "Over-calls",
+                "Found but corrected wrongly", "Signal"],
+               [[c.get("chart_number"), c.get("specialty"), c.get("category"),
+                 c.get("attempts"), _na(c.get("audit_accuracy")),
+                 c.get("clean_charts"), c.get("opportunity_charts"),
+                 c.get("opportunities"), c.get("missed"), c.get("over_calls"),
+                 c.get("detected_not_corrected"), c.get("signal")]
+                for c in chart_signals],
+               note="Chart/key QA view, weakest first.")
 
     return _finish(wb)
 

@@ -20,7 +20,10 @@ no Delete accuracy, and reporting 0% would say something false about them.
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+import io
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
@@ -40,6 +43,20 @@ def _avg(values: list[float]) -> Optional[float]:
     return round(sum(values) / len(values), 2) if values else None
 
 
+def _auditor_key_expr():
+    """Stable identity: employee id when present, otherwise the name."""
+    return func.coalesce(func.nullif(AuditResult.emp_id, ""), AuditResult.auditor_name)
+
+
+def _split_auditor_key(auditor: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+    if not auditor:
+        return None, None
+    if "||" in auditor:
+        emp_id, name = auditor.split("||", 1)
+        return emp_id or None, name or None
+    return None, auditor
+
+
 def _base_query(db: Session, batch_id: Optional[int], specialty: Optional[str],
                 auditor: Optional[str]):
     q = db.query(AuditResult)
@@ -48,7 +65,11 @@ def _base_query(db: Session, batch_id: Optional[int], specialty: Optional[str],
     if specialty:
         q = q.filter(AuditResult.specialty == specialty)
     if auditor:
-        q = q.filter(AuditResult.auditor_name == auditor)
+        emp_id, name = _split_auditor_key(auditor)
+        if emp_id:
+            q = q.filter(AuditResult.emp_id == emp_id)
+        else:
+            q = q.filter(AuditResult.auditor_name == name)
     return q
 
 
@@ -154,11 +175,37 @@ def overview(batch_id: Optional[int] = None, specialty: Optional[str] = None,
     base = _base_query(db, batch_id, specialty, auditor)
     body = _roll_sql(db, base, cfg)
     body["auditors"] = base.with_entities(
-        func.count(func.distinct(AuditResult.auditor_name))).scalar() or 0
+        func.count(func.distinct(_auditor_key_expr()))).scalar() or 0
     body["batches"] = base.with_entities(
         func.count(func.distinct(AuditResult.batch_id))).scalar() or 0
     body["pass_threshold"] = cfg.pass_threshold
     return body
+
+
+@router.get("/analytics/by-specialty")
+def by_specialty(batch_id: Optional[int] = None, specialty: Optional[str] = None,
+                 auditor: Optional[str] = None,
+                 db: Session = Depends(get_db)):
+    cfg = scoring_config(db)
+    base = _base_query(db, batch_id, specialty, auditor)
+    specialties = [sp for sp, in base.with_entities(AuditResult.specialty)
+                   .group_by(AuditResult.specialty)
+                   .order_by(AuditResult.specialty.asc()).all()]
+    out = []
+    for sp in specialties:
+        scoped = _base_query(db, batch_id, sp.value if hasattr(sp, "value") else sp, auditor)
+        body = _roll_sql(db, scoped, cfg)
+        out.append({
+            "specialty": sp.value if hasattr(sp, "value") else sp,
+            "auditors": scoped.with_entities(
+                func.count(func.distinct(_auditor_key_expr()))).scalar() or 0,
+            "batches": scoped.with_entities(
+                func.count(func.distinct(AuditResult.batch_id))).scalar() or 0,
+            **body,
+        })
+    out.sort(key=lambda x: (x["audit_accuracy"] if x["audit_accuracy"] is not None else 999,
+                            -x["charts"]))
+    return {"specialties": out, "pass_threshold": cfg.pass_threshold}
 
 
 @router.get("/analytics/by-batch")
@@ -187,7 +234,7 @@ def by_batch(batch_id: Optional[int] = None, specialty: Optional[str] = None,
             "specialty": batch.specialty.value if batch else None,
             "status": batch.status.value if batch else None,
             "auditors": scoped.with_entities(
-                func.count(func.distinct(AuditResult.auditor_name))).scalar() or 0,
+                func.count(func.distinct(_auditor_key_expr()))).scalar() or 0,
             **_roll_sql(db, scoped, cfg),
         })
     return {"batches": out}
@@ -209,23 +256,96 @@ def by_auditor(batch_id: Optional[int] = None, specialty: Optional[str] = None,
     base = _base_query(db, batch_id, specialty, auditor)
     # Weakest first, decided in SQL so the cap keeps the auditors who most
     # need attention rather than an arbitrary slice.
-    names = [n for n, in base.with_entities(AuditResult.auditor_name)
-             .group_by(AuditResult.auditor_name)
-             .order_by(func.avg(AuditResult.audit_accuracy).asc())
-             .limit(limit).all()]
+    keys = base.with_entities(
+        AuditResult.emp_id,
+        AuditResult.auditor_name,
+        func.avg(AuditResult.audit_accuracy).label("avg_accuracy"),
+    ).group_by(
+        AuditResult.emp_id,
+        AuditResult.auditor_name,
+    ).order_by(
+        func.avg(AuditResult.audit_accuracy).asc()
+    ).limit(limit).all()
     out = []
-    for name in names:
-        scoped = _base_query(db, batch_id, specialty, name)
-        emp = scoped.with_entities(AuditResult.emp_id).filter(
-            AuditResult.emp_id.isnot(None)).limit(1).scalar()
+    for emp, name, _avg_accuracy in keys:
+        key = f"{emp}||{name}" if emp else name
+        scoped = _base_query(db, batch_id, specialty, key)
         out.append({
             "auditor_name": name,
             "emp_id": emp,
+            "auditor_key": key,
             "batches": scoped.with_entities(
                 func.count(func.distinct(AuditResult.batch_id))).scalar() or 0,
             **_roll_sql(db, scoped, cfg),
         })
     return {"auditors": out, "pass_threshold": cfg.pass_threshold}
+
+
+@router.get("/analytics/chart-signals")
+def chart_signals(batch_id: Optional[int] = None, specialty: Optional[str] = None,
+                  auditor: Optional[str] = None,
+                  limit: int = Query(200, le=500),
+                  db: Session = Depends(get_db)):
+    """
+    Chart-level QA signals for trainer review.
+
+    This is the auditor version of chart signals: not whether a coding chart is
+    difficult, but whether a pre-coded audit chart repeatedly creates misses,
+    over-calls, or key-quality conversations.
+    """
+    base = _base_query(db, batch_id, specialty, auditor)
+    rows = (base.join(Chart, Chart.id == AuditResult.chart_id)
+            .with_entities(
+                AuditResult.chart_id,
+                Chart.chart_number,
+                Chart.category,
+                AuditResult.specialty,
+                func.count(AuditResult.id).label("attempts"),
+                func.avg(AuditResult.audit_accuracy).label("audit_accuracy"),
+                func.sum(case((AuditResult.is_clean == True, 1), else_=0)).label("clean_charts"),  # noqa: E712
+                func.sum(case((AuditResult.is_clean == False, 1), else_=0)).label("opportunity_charts"),  # noqa: E712
+                func.sum(func.coalesce(AuditResult.over_calls, 0)).label("over_calls"),
+                func.sum(func.coalesce(AuditResult.detected_not_corrected, 0)).label("detected_not_corrected"),
+                func.sum(func.coalesce(AuditResult.add_planted, 0)
+                         + func.coalesce(AuditResult.revise_planted, 0)
+                         + func.coalesce(AuditResult.delete_planted, 0)).label("opportunities"),
+                func.sum((func.coalesce(AuditResult.add_planted, 0) - func.coalesce(AuditResult.add_found, 0))
+                         + (func.coalesce(AuditResult.revise_planted, 0) - func.coalesce(AuditResult.revise_found, 0))
+                         + (func.coalesce(AuditResult.delete_planted, 0) - func.coalesce(AuditResult.delete_found, 0))).label("missed"),
+            )
+            .group_by(AuditResult.chart_id, Chart.chart_number, Chart.category, AuditResult.specialty)
+            .order_by(func.avg(AuditResult.audit_accuracy).asc(), func.count(AuditResult.id).desc())
+            .limit(limit).all())
+    out = []
+    for r in rows:
+        missed = int(r.missed or 0)
+        over_calls = int(r.over_calls or 0)
+        detected_not_corrected = int(r.detected_not_corrected or 0)
+        signals = []
+        if missed:
+            signals.append("missed findings")
+        if over_calls:
+            signals.append("over-calls")
+        if detected_not_corrected:
+            signals.append("found but corrected wrongly")
+        if not signals:
+            signals.append("stable")
+        out.append({
+            "chart_id": r.chart_id,
+            "chart_number": r.chart_number,
+            "category": r.category,
+            "specialty": r.specialty.value if hasattr(r.specialty, "value") else r.specialty,
+            "attempts": int(r.attempts or 0),
+            "audit_accuracy": round(float(r.audit_accuracy), 2) if r.audit_accuracy is not None else None,
+            "clean_charts": int(r.clean_charts or 0),
+            "opportunity_charts": int(r.opportunity_charts or 0),
+            "opportunities": int(r.opportunities or 0),
+            "missed": missed,
+            "over_calls": over_calls,
+            "detected_not_corrected": detected_not_corrected,
+            "signal": " · ".join(signals),
+        })
+    return {"charts": out}
 
 
 KIND_LABELS = {
@@ -331,11 +451,11 @@ def detection_patterns(batch_id: Optional[int] = None,
 
 
 @router.get("/analytics/export")
-def export_analytics_workbook(specialty: Optional[str] = None,
+def export_analytics_workbook(batch_id: Optional[int] = None,
+                              specialty: Optional[str] = None,
+                              auditor: Optional[str] = None,
                               db: Session = Depends(get_db)):
     """All four analytics views in one workbook, current filters applied."""
-    import io
-    from fastapi.responses import StreamingResponse
     from services.audit_export import export_analytics
     from services.download_headers import content_disposition
 
@@ -343,13 +463,46 @@ def export_analytics_workbook(specialty: Optional[str] = None,
     # parameters whose defaults are FastAPI Query objects, so a positional call
     # silently lands the session on the wrong argument.
     data = export_analytics(
-        overview(batch_id=None, specialty=specialty, db=db),
-        by_batch(specialty=specialty, limit=300, db=db)["batches"],
-        by_auditor(batch_id=None, specialty=specialty, limit=500, db=db)["auditors"],
-        detection_patterns(batch_id=None, specialty=specialty, auditor=None,
+        overview(batch_id=batch_id, specialty=specialty, auditor=auditor, db=db),
+        by_batch(batch_id=batch_id, specialty=specialty, auditor=auditor, limit=300, db=db)["batches"],
+        by_auditor(batch_id=batch_id, specialty=specialty, auditor=auditor, limit=500, db=db)["auditors"],
+        detection_patterns(batch_id=batch_id, specialty=specialty, auditor=auditor,
                            scan_limit=20000, db=db),
+        by_specialty(batch_id=batch_id, specialty=specialty, auditor=auditor, db=db)["specialties"],
+        chart_signals(batch_id=batch_id, specialty=specialty, auditor=auditor, limit=500, db=db)["charts"],
     )
     return StreamingResponse(
         io.BytesIO(data),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers=content_disposition("Audit_Analytics.xlsx", "Audit_Analytics.xlsx"))
+
+
+@router.get("/analytics/auditor-report.pdf")
+def auditor_report_pdf(auditor: str, batch_id: Optional[int] = None,
+                       specialty: Optional[str] = None,
+                       db: Session = Depends(get_db)):
+    from services.download_headers import content_disposition
+    from services.pdf_report_service import generate_audit_auditor_report_pdf
+
+    rows = by_auditor(batch_id=batch_id, specialty=specialty, auditor=auditor,
+                      limit=1, db=db)["auditors"]
+    if not rows:
+        raise HTTPException(status_code=404, detail="No data for this auditor")
+    auditor_row = rows[0]
+    data = {
+        "auditor": auditor_row,
+        "overview": overview(batch_id=batch_id, specialty=specialty,
+                             auditor=auditor, db=db),
+        "batches": by_batch(batch_id=batch_id, specialty=specialty,
+                            auditor=auditor, limit=300, db=db)["batches"],
+        "detection": detection_patterns(batch_id=batch_id, specialty=specialty,
+                                        auditor=auditor, scan_limit=20000, db=db),
+        "specialty": specialty,
+    }
+    pdf_bytes = generate_audit_auditor_report_pdf(data)
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers=content_disposition(
+            f"{auditor_row['auditor_name']}_Audit_Performance_Report.pdf",
+            "Audit_Performance_Report.pdf"))

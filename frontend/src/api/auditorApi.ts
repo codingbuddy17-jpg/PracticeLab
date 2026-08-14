@@ -284,6 +284,11 @@ export async function getAuditOverview(params: Record<string, unknown> = {}) {
   return data
 }
 
+export async function getAuditBySpecialty(params: Record<string, unknown> = {}) {
+  const { data } = await api.get('/auditor/analytics/by-specialty', { params })
+  return data as { specialties: Record<string, any>[]; pass_threshold: number }
+}
+
 export async function getAuditByBatch(params: Record<string, unknown> = {}) {
   const { data } = await api.get('/auditor/analytics/by-batch', { params })
   return data as { batches: Record<string, any>[] }
@@ -299,6 +304,11 @@ export async function getAuditDetection(params: Record<string, unknown> = {}) {
   return data
 }
 
+export async function getAuditChartSignals(params: Record<string, unknown> = {}) {
+  const { data } = await api.get('/auditor/analytics/chart-signals', { params })
+  return data as { charts: Record<string, any>[] }
+}
+
 // ── exports ──────────────────────────────────────────────────────────────────
 // Opened rather than fetched, so the browser handles the download and the
 // Content-Disposition filename survives — same as the coder exports.
@@ -307,13 +317,39 @@ export function downloadAuditBatchResults(batchId: number) {
   window.open(`${import.meta.env.VITE_API_URL || '/api'}/auditor/batches/${batchId}/export`, '_blank')
 }
 
+export async function downloadAuditBatchReportPdf(batchId: number) {
+  const res = await api.get(`/auditor/batches/${batchId}/report.pdf`, { responseType: 'blob' })
+  const url = URL.createObjectURL(res.data as Blob)
+  window.open(url, '_blank')
+  setTimeout(() => URL.revokeObjectURL(url), 60_000)
+}
+
 // The query string is appended AFTER the template literal rather than
 // interpolated into it, so the path stays a readable literal — the contract
 // checker scans these statically and cannot see through an interpolated one.
 
-export function downloadAuditAnalytics(specialty?: string) {
+function qs(params: Record<string, unknown> = {}) {
+  const q = new URLSearchParams()
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && String(v).trim() !== '') q.set(k, String(v))
+  })
+  return q.toString()
+}
+
+export function downloadAuditAnalytics(params: Record<string, unknown> = {}) {
   const url = `${import.meta.env.VITE_API_URL || '/api'}/auditor/analytics/export`
-  window.open(specialty ? url + '?specialty=' + encodeURIComponent(specialty) : url, '_blank')
+  const query = qs(params)
+  window.open(query ? `${url}?${query}` : url, '_blank')
+}
+
+export async function downloadAuditAuditorReportPdf(auditor: string, params: Record<string, unknown> = {}) {
+  const res = await api.get('/auditor/analytics/auditor-report.pdf', {
+    params: { ...params, auditor },
+    responseType: 'blob',
+  })
+  const url = URL.createObjectURL(res.data as Blob)
+  window.open(url, '_blank')
+  setTimeout(() => URL.revokeObjectURL(url), 60_000)
 }
 
 // Passphrase-gated: this file IS the answers, so it matches the coder

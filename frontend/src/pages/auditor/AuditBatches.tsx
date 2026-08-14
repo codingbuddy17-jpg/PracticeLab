@@ -9,7 +9,7 @@ import { AuditReview } from './AuditReview'
 import {
   closeAuditBatch, createAuditBatch, getAuditableCharts, getAuditBatch,
   getAuditPlantings,
-  downloadAuditBatchResults, listAuditBatches, regenerateAssignment,
+  downloadAuditBatchReportPdf, downloadAuditBatchResults, listAuditBatches, regenerateAssignment,
   reopenAuditBatch, runAuditAllocation,
 } from '../../api/auditorApi'
 import {
@@ -773,11 +773,21 @@ function AuditBatchDetail({ batchId, trainer, onBack, onReview }: {
               <Shuffle size={15} /> {busy ? 'Allocating…' : 'Run Allocation'}
             </button>
             {scoredCount > 0 && (
-              <button style={s.outlineBtn}
-                title="Per-chart scores and every finding, as Excel (.xlsx)"
-                onClick={() => downloadAuditBatchResults(batchId)}>
-                <Download size={15} /> Export Results (.xlsx)
-              </button>
+              <>
+                <button style={s.outlineBtn}
+                  title="Audit batch performance report (PDF)"
+                  onClick={async () => {
+                    try { await downloadAuditBatchReportPdf(batchId) }
+                    catch { toast.error('No PDF report could be generated for this audit batch') }
+                  }}>
+                  <FileSearch size={15} /> Report
+                </button>
+                <button style={s.outlineBtn}
+                  title="Per-chart scores and every finding, as Excel (.xlsx)"
+                  onClick={() => downloadAuditBatchResults(batchId)}>
+                  <Download size={15} /> Export Results (.xlsx)
+                </button>
+              </>
             )}
             {!confirmingClose ? (
               <button style={s.destructiveOutlineBtn}
@@ -806,6 +816,16 @@ function AuditBatchDetail({ batchId, trainer, onBack, onReview }: {
         )}
         {batch.status !== 'Open' && (
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            {scoredCount > 0 && (
+              <button style={s.outlineBtn}
+                title="Audit batch performance report (PDF)"
+                onClick={async () => {
+                  try { await downloadAuditBatchReportPdf(batchId) }
+                  catch { toast.error('No PDF report could be generated for this audit batch') }
+                }}>
+                <FileSearch size={15} /> Report
+              </button>
+            )}
             <button style={s.outlineBtn}
               title="Per-chart scores and every finding, as Excel (.xlsx)"
               onClick={() => downloadAuditBatchResults(batchId)}>

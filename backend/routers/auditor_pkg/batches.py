@@ -563,6 +563,40 @@ def export_batch(batch_id: int, db: Session = Depends(get_db)):
                                     "Audit_Results.xlsx"))
 
 
+@router.get("/batches/{batch_id}/report.pdf")
+def batch_report_pdf(batch_id: int, db: Session = Depends(get_db)):
+    """Audit batch performance report, as PDF."""
+    import io
+    from fastapi.responses import StreamingResponse
+    from services.download_headers import content_disposition
+    from services.pdf_report_service import generate_audit_batch_report_pdf
+    from routers.auditor_pkg.analytics import (
+        by_auditor, detection_patterns, overview,
+    )
+
+    batch = get_batch_or_404(db, batch_id)
+    summary = overview(batch_id=batch_id, db=db)
+    if not summary.get("charts"):
+        raise HTTPException(status_code=404, detail="No scored audit results yet for this batch")
+    data = {
+        "batch": {
+            "id": batch.id,
+            "name": batch.name,
+            "specialty": batch.specialty.value,
+            "status": batch.status.value,
+        },
+        "overview": summary,
+        "auditors": by_auditor(batch_id=batch_id, limit=500, db=db)["auditors"],
+        "detection": detection_patterns(batch_id=batch_id, scan_limit=20000, db=db),
+    }
+    pdf_bytes = generate_audit_batch_report_pdf(data)
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers=content_disposition(f"{batch.name}_Audit_Batch_Report.pdf",
+                                    "Audit_Batch_Report.pdf"))
+
+
 class BatchClose(BaseModel):
     closed_by: str
 

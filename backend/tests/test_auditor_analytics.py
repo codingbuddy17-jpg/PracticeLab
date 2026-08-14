@@ -10,6 +10,7 @@ Detection patterns is the report with no coder equivalent: which KINDS of error
 slip past a cohort. That is the one that turns scoring into a curriculum.
 """
 import pytest
+from openpyxl import load_workbook
 
 from tests.test_auditor_api import (
     PASS, allocate, library, make_batch, perfect_work, truth_map,
@@ -137,6 +138,23 @@ class TestByBatchAndAuditor:
         assert len(rows) == 1
         assert rows[0]["batches"] == 2
         assert rows[0]["charts"] == 8
+
+    def test_specialty_rows_are_available_for_mixed_analytics(self, client, db, library):
+        batch_id = make_batch(client, charts_per=4)
+        _run(client, batch_id)
+        rows = client.get("/auditor/analytics/by-specialty").json()["specialties"]
+        assert len(rows) == 1
+        assert rows[0]["charts"] == 4
+        assert rows[0]["specialty"]
+
+    def test_chart_signals_surface_chart_level_qa(self, client, db, library):
+        batch_id = make_batch(client, charts_per=6, clean_share=0)
+        _run(client, batch_id, find_everything=False)
+        rows = client.get("/auditor/analytics/chart-signals").json()["charts"]
+        assert rows
+        assert rows[0]["attempts"] >= 1
+        assert rows[0]["missed"] >= 0
+        assert rows[0]["signal"]
 
 
 class TestDetectionPatterns:
@@ -323,6 +341,16 @@ class TestFilters:
                        params={"auditor": "Asha R"}).json()
         assert d is not None
 
+    def test_workbook_export_honours_current_filters(self, client, db, library):
+        self._two_auditors(client)
+        r = client.get("/auditor/analytics/export", params={"auditor": "Asha R"})
+        assert r.status_code == 200, r.text
+        import io
+        wb = load_workbook(filename=io.BytesIO(r.content), read_only=True)
+        rows = list(wb["By_Auditor"].iter_rows(values_only=True))
+        names = [row[0] for row in rows if row and row[0] == "Asha R"]
+        assert names == ["Asha R"]
+
     def test_batch_filter_is_accepted_by_by_batch(self, client, db, library):
         """by-batch took no batch_id at all, so selecting one changed nothing."""
         first = self._two_auditors(client)
@@ -343,3 +371,26 @@ class TestFilters:
                           params={"auditor": "Nobody At All"}).json()
         assert body["charts"] == 0
         assert body["audit_accuracy"] is None
+
+
+class TestPdfReports:
+
+    def test_auditor_report_pdf_renders(self, client, db, library):
+        batch_id = make_batch(client, charts_per=6)
+        _run(client, batch_id)
+        r = client.get("/auditor/analytics/auditor-report.pdf",
+                       params={"auditor": "Asha R"})
+        assert r.status_code == 200, r.text
+        assert r.content[:4] == b"%PDF"
+
+    def test_batch_report_pdf_renders(self, client, db, library):
+        batch_id = make_batch(client, charts_per=6)
+        _run(client, batch_id)
+        r = client.get(f"/auditor/batches/{batch_id}/report.pdf")
+        assert r.status_code == 200, r.text
+        assert r.content[:4] == b"%PDF"
+
+    def test_batch_report_pdf_404s_without_scored_results(self, client, db, library):
+        batch_id = make_batch(client, charts_per=6)
+        r = client.get(f"/auditor/batches/{batch_id}/report.pdf")
+        assert r.status_code == 404
