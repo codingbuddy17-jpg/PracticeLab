@@ -16,6 +16,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -82,7 +83,7 @@ def open_session(token: str, db: Session = Depends(get_db)):
                    .join(Chart, Chart.id == AuditAssignment.chart_id)
                    .filter(AuditAssignment.batch_id == sess.batch_id,
                            AuditAssignment.cycle_id == sess.cycle_id,
-                           AuditAssignment.auditor_name == sess.auditor_name)
+                           _assignment_owner_filter(sess))
                    .order_by(Chart.chart_number).all())
 
     if sess.status == "in_progress":
@@ -127,6 +128,7 @@ def _session_header(sess: AuditSession) -> dict:
     return {
         "session_id": sess.id,
         "auditor_name": sess.auditor_name,
+        "emp_id": sess.emp_id,
         "specialty": sess.specialty.value,
         "status": sess.status,
         "supports_query": sess.specialty in QUERY_SPECIALTIES,
@@ -151,7 +153,7 @@ def save_draft(session_id: int, payload: SaveDraft, db: Session = Depends(get_db
     allowed = {a.chart_id for a in db.query(AuditAssignment.chart_id).filter(
         AuditAssignment.batch_id == sess.batch_id,
         AuditAssignment.cycle_id == sess.cycle_id,
-        AuditAssignment.auditor_name == sess.auditor_name).all()}
+        _assignment_owner_filter(sess)).all()}
     stray = [w.chart_id for w in payload.charts if w.chart_id not in allowed]
     if stray:
         raise HTTPException(
@@ -197,7 +199,7 @@ def submit_session(session_id: int, payload: SubmitSession, db: Session = Depend
     assignments = {a.chart_id: a for a in db.query(AuditAssignment).filter(
         AuditAssignment.batch_id == sess.batch_id,
         AuditAssignment.cycle_id == sess.cycle_id,
-        AuditAssignment.auditor_name == sess.auditor_name).all()}
+        _assignment_owner_filter(sess)).all()}
 
     required = [s["key"] for s in form_spec(sess.specialty)["sections"]]
     work_by_chart = {w.chart_id: w for w in payload.charts}
@@ -319,6 +321,16 @@ def _emp_id(db: Session, sess: AuditSession) -> Optional[str]:
     return row.emp_id if row else None
 
 
+def _assignment_owner_filter(sess: AuditSession):
+    if sess.emp_id:
+        return or_(
+            AuditAssignment.emp_id == sess.emp_id,
+            (AuditAssignment.emp_id.is_(None)
+             & (AuditAssignment.auditor_name == sess.auditor_name)),
+        )
+    return AuditAssignment.auditor_name == sess.auditor_name
+
+
 def _result_row(sess, assignment, score, findings, emp_id) -> AuditResult:
     return AuditResult(
         session_id=sess.id, assignment_id=assignment.id,
@@ -426,7 +438,7 @@ def review_session(session_id: int, db: Session = Depends(get_db)):
     assignments = {a.chart_id: a for a in db.query(AuditAssignment).filter(
         AuditAssignment.batch_id == sess.batch_id,
         AuditAssignment.cycle_id == sess.cycle_id,
-        AuditAssignment.auditor_name == sess.auditor_name).all()}
+        _assignment_owner_filter(sess)).all()}
     drafts = {d.chart_id: d for d in db.query(AuditChartDraft)
               .filter(AuditChartDraft.session_id == session_id).all()}
 

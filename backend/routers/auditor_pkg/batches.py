@@ -13,7 +13,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -101,20 +101,17 @@ def create_batch(payload: BatchCreate, db: Session = Depends(get_db)):
                     f"to find. Keep at least one chart carrying errors, or the "
                     f"session can only measure whether they left it alone.")
 
-    seen_names, seen_emp = set(), set()
+    seen_emp = set()
     auditors, skipped = [], []
     for a in payload.auditors:
         name, emp = a.name.strip(), (a.emp_id or "").strip()
-        if not name or name in seen_names or (emp and emp in seen_emp):
-            if name:
-                skipped.append(name)
+        if not name or not emp or emp in seen_emp:
+            skipped.append(f"{name or 'Unnamed'}{f' ({emp})' if emp else ''}")
             continue
         auditors.append((name, emp))
-        seen_names.add(name)
-        if emp:
-            seen_emp.add(emp)
+        seen_emp.add(emp)
     if not auditors:
-        raise HTTPException(400, "At least one auditor with a valid name is required")
+        raise HTTPException(400, "At least one auditor with a valid name and Emp ID is required")
 
     batch = AuditBatch(
         name=payload.name, specialty=specialty,
@@ -226,15 +223,24 @@ def get_batch(batch_id: int, db: Session = Depends(get_db)):
     assignments = (db.query(AuditAssignment, Chart)
                    .join(Chart, Chart.id == AuditAssignment.chart_id)
                    .filter(AuditAssignment.batch_id == batch_id).all())
-    results = {(r.auditor_name, r.chart_id): r
-               for r in db.query(AuditResult).filter(AuditResult.batch_id == batch_id).all()}
+    result_rows = db.query(AuditResult).filter(AuditResult.batch_id == batch_id).all()
+    result_assignment_ids = {r.assignment_id for r in result_rows if r.assignment_id}
+    result_legacy = {(r.auditor_name, r.chart_id): r for r in result_rows}
     sessions = (db.query(AuditSession)
                 .filter(AuditSession.batch_id == batch_id).all())
+    name_counts: dict[str, int] = {}
+    for a in auditors:
+        name_counts[a.auditor_name] = name_counts.get(a.auditor_name, 0) + 1
 
     by_auditor: dict[str, list] = {}
     for a, chart in assignments:
-        by_auditor.setdefault(a.auditor_name, []).append({
+        key = _auditor_display(a.auditor_name, a.emp_id,
+                               show_emp=name_counts.get(a.auditor_name, 0) > 1)
+        scored = a.id in result_assignment_ids or (
+            not result_assignment_ids and (a.auditor_name, a.chart_id) in result_legacy)
+        by_auditor.setdefault(key, []).append({
             "assignment_id": a.id, "chart_id": a.chart_id,
+            "auditor_name": a.auditor_name, "emp_id": a.emp_id,
             "chart_number": chart.chart_number, "category": chart.category,
             "cycle_id": a.cycle_id,
             # Trainer-side vocabulary only. The auditor is never told which
@@ -244,11 +250,13 @@ def get_batch(batch_id: int, db: Session = Depends(get_db)):
             "planting_count": len(a.ground_truth or []),
             "query_expected": a.query_expected,
             "opened": a.opened_at is not None,
-            "scored": (a.auditor_name, a.chart_id) in results,
+            "scored": scored,
         })
 
     pending_scoring = sum(1 for a, _c in assignments
-                          if (a.auditor_name, a.chart_id) not in results)
+                          if a.id not in result_assignment_ids
+                          and (result_assignment_ids
+                               or (a.auditor_name, a.chart_id) not in result_legacy))
     return {
         "id": batch.id, "name": batch.name, "specialty": batch.specialty.value,
         "status": batch.status.value, "created_by": batch.created_by,
@@ -281,6 +289,7 @@ def _tokens_by_cycle(sessions) -> dict:
     for s in sessions:
         out.setdefault(str(s.cycle_id), []).append({
             "auditor_name": s.auditor_name, "token": s.token,
+            "emp_id": s.emp_id,
             "status": s.status, "session_id": s.id,
         })
     return out
@@ -305,7 +314,10 @@ def run_allocation(batch_id: int, payload: AllocationRun, db: Session = Depends(
     if not all_auditors:
         raise HTTPException(400, "No auditors in this batch")
     excluded = {n.strip().lower() for n in payload.exclude_auditors}
-    auditors = [a for a in all_auditors if a.auditor_name.strip().lower() not in excluded]
+    auditors = [a for a in all_auditors
+                if _auditor_key(a.auditor_name, a.emp_id).lower() not in excluded
+                and a.auditor_name.strip().lower() not in excluded
+                and (a.emp_id or "").strip().lower() not in excluded]
     if not auditors:
         raise HTTPException(400, "All auditors are excluded")
 
@@ -344,13 +356,13 @@ def run_allocation(batch_id: int, payload: AllocationRun, db: Session = Depends(
     # authored version the next encounter produces — see resolve_source.
     chart_uses: dict[int, set] = {}
     for a in existing:
+        key = _auditor_key(a.auditor_name, a.emp_id)
         chart_uses.setdefault(a.chart_id, set()).add(a.cycle_id)
-        seen_counts.setdefault(a.auditor_name, {})
-        seen_counts[a.auditor_name][a.chart_id] = \
-            seen_counts[a.auditor_name].get(a.chart_id, 0) + 1
-        by_cycle.setdefault((a.auditor_name, a.cycle_id), set()).add(a.chart_id)
-    for (name, _cycle), ids in by_cycle.items():
-        prior_sets.setdefault(name, []).append(ids)
+        seen_counts.setdefault(key, {})
+        seen_counts[key][a.chart_id] = seen_counts[key].get(a.chart_id, 0) + 1
+        by_cycle.setdefault((key, a.cycle_id), set()).add(a.chart_id)
+    for (key, _cycle), ids in by_cycle.items():
+        prior_sets.setdefault(key, []).append(ids)
 
     last = (db.query(AuditAllocationCycle)
             .filter(AuditAllocationCycle.batch_id == batch_id)
@@ -378,11 +390,12 @@ def run_allocation(batch_id: int, payload: AllocationRun, db: Session = Depends(
 
     total, notes, issued = 0, [], []
     for auditor in auditors:
-        counts = seen_counts.get(auditor.auditor_name, {})
+        auditor_key = _auditor_key(auditor.auditor_name, auditor.emp_id)
+        counts = seen_counts.get(auditor_key, {})
         drawn, note = draw_for_person(
-            pool, counts, prior_sets.get(auditor.auditor_name, []), want)
+            pool, counts, prior_sets.get(auditor_key, []), want)
         if note.get("message"):
-            notes.append(f"{auditor.auditor_name}: {note['message']}")
+            notes.append(f"{_auditor_display(auditor.auditor_name, auditor.emp_id)}: {note['message']}")
         if not drawn:
             continue
 
@@ -392,10 +405,10 @@ def run_allocation(batch_id: int, payload: AllocationRun, db: Session = Depends(
         # Which POSITIONS get which treatment is random; how many is not. The
         # quota guarantees the mix a coin flip would only approximate — and
         # that now covers the authored/generated split, not just clean.
-        rng = random.Random(f"{batch_id}:{cycle_number}:{auditor.auditor_name}")
+        rng = random.Random(f"{batch_id}:{cycle_number}:{auditor_key}")
         intents, quota_notes = assign_intents(drawn, quotas, all_sets, rng)
         for msg in quota_notes:
-            notes.append(f"{auditor.auditor_name}: {msg}")
+            notes.append(f"{_auditor_display(auditor.auditor_name, auditor.emp_id)}: {msg}")
 
         for idx, chart in enumerate(drawn):
             # Version follows the chart's own use count, so it is the same for
@@ -412,7 +425,8 @@ def run_allocation(batch_id: int, payload: AllocationRun, db: Session = Depends(
                 observations=observed.get(chart.id))
             db.add(AuditAssignment(
                 batch_id=batch_id, cycle_id=cycle.id,
-                auditor_name=auditor.auditor_name, specialty=chart.specialty,
+                auditor_name=auditor.auditor_name, emp_id=auditor.emp_id,
+                specialty=chart.specialty,
                 **built))
             total += 1
 
@@ -423,7 +437,8 @@ def run_allocation(batch_id: int, payload: AllocationRun, db: Session = Depends(
             chart_ids=[c.id for c in drawn], status="in_progress",
             show_results_to_auditor=bool(batch.show_results_to_auditor))
         db.add(session)
-        issued.append({"auditor_name": auditor.auditor_name, "token": session.token,
+        issued.append({"auditor_name": auditor.auditor_name, "emp_id": auditor.emp_id,
+                       "token": session.token,
                        "charts": len(drawn)})
 
     cycle.charts_allocated = total
@@ -451,7 +466,12 @@ def review_plantings(batch_id: int, auditor: Optional[str] = None,
          .join(Chart, Chart.id == AuditAssignment.chart_id)
          .filter(AuditAssignment.batch_id == batch_id))
     if auditor:
-        q = q.filter(AuditAssignment.auditor_name == auditor)
+        key_emp, key_name = _split_auditor_key(auditor)
+        if key_emp:
+            q = q.filter(AuditAssignment.emp_id == key_emp)
+        elif key_name:
+            q = q.filter(or_(AuditAssignment.emp_id == key_name,
+                             AuditAssignment.auditor_name == key_name))
     total = q.count()
     rows = (q.order_by(AuditAssignment.auditor_name, Chart.chart_number)
             .limit(limit).offset(offset).all())
@@ -460,7 +480,7 @@ def review_plantings(batch_id: int, auditor: Optional[str] = None,
     # list of summaries.
     return {"total": total, "limit": limit, "offset": offset,
             "plantings": [{
-        "assignment_id": a.id, "auditor_name": a.auditor_name,
+        "assignment_id": a.id, "auditor_name": a.auditor_name, "emp_id": a.emp_id,
         "chart_id": a.chart_id, "chart_number": c.chart_number,
         "source": a.source.value, "set_id": a.set_id, "seed": a.seed,
         "query_expected": a.query_expected,
@@ -606,11 +626,14 @@ def close_batch(batch_id: int, payload: BatchClose, db: Session = Depends(get_db
     batch = get_batch_or_404(db, batch_id)
     if batch.status == BatchStatus.CLOSED:
         raise HTTPException(400, "Already closed")
-    scored = {(r.auditor_name, r.chart_id) for r in
-              db.query(AuditResult).filter(AuditResult.batch_id == batch_id).all()}
+    result_rows = db.query(AuditResult).filter(AuditResult.batch_id == batch_id).all()
+    scored_assignment_ids = {r.assignment_id for r in result_rows if r.assignment_id}
+    scored_legacy = {(r.auditor_name, r.chart_id) for r in result_rows}
     outstanding = [a for a in db.query(AuditAssignment).filter(
         AuditAssignment.batch_id == batch_id).all()
-        if (a.auditor_name, a.chart_id) not in scored]
+        if a.id not in scored_assignment_ids
+        and (scored_assignment_ids
+             or (a.auditor_name, a.chart_id) not in scored_legacy)]
     if outstanding:
         raise HTTPException(
             400, f"{len(outstanding)} assigned chart(s) have not been submitted yet")
@@ -635,3 +658,23 @@ def reopen_batch(batch_id: int, payload: BatchReopen, db: Session = Depends(get_
     batch.closed_by = None
     db.commit()
     return {"reopened": True, "batch_id": batch_id}
+
+
+def _auditor_key(name: str, emp_id: Optional[str]) -> str:
+    emp = (emp_id or "").strip()
+    return emp or name.strip()
+
+
+def _auditor_display(name: str, emp_id: Optional[str], show_emp: bool = True) -> str:
+    emp = (emp_id or "").strip()
+    return f"{name} ({emp})" if emp and show_emp else name
+
+
+def _split_auditor_key(raw: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+    if not raw:
+        return None, None
+    if "||" in raw:
+        emp, name = raw.split("||", 1)
+        return emp or None, name or None
+    text = raw.strip()
+    return None, text or None

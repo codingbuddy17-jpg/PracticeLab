@@ -203,6 +203,7 @@ class AuditAssignment(Base):
     batch_id = Column(Integer, ForeignKey("audit_batches.id"), nullable=False, index=True)
     cycle_id = Column(Integer, ForeignKey("audit_allocation_cycles.id"), nullable=True)
     auditor_name = Column(String(100), nullable=False, index=True)
+    emp_id = Column(String(50), nullable=True, index=True)
     chart_id = Column(Integer, ForeignKey("charts.id"), nullable=False)
     specialty = Column(SAEnum(Specialty), nullable=False)
 

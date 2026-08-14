@@ -312,7 +312,9 @@ export function AuditSession() {
 
       <aside style={s.sidebar}>
         <div style={s.brand}>PracticeLab — Auditor</div>
-        <div style={s.who}>{session.auditor_name} · {session.specialty}</div>
+        <div style={s.who}>
+          {session.auditor_name}{session.emp_id ? ` (${session.emp_id})` : ''} · {session.specialty}
+        </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 16 }}>
           {session.charts.map(c => {
             const st = states[c.chart_id] || EMPTY_STATE()

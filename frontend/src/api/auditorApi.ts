@@ -67,6 +67,7 @@ export type AuditChart = {
 export type AuditSessionData = {
   session_id: number
   auditor_name: string
+  emp_id?: string | null
   specialty: string
   status: string
   supports_query: boolean

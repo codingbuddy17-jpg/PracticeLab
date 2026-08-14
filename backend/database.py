@@ -614,6 +614,7 @@ def _run_migrations():
              "INTEGER DEFAULT 100", "INTEGER DEFAULT 100")
     _add_col("audit_scoring_configs", "mix_substitute_pcs",
              "INTEGER DEFAULT 5", "INTEGER DEFAULT 5")
+    _add_col("audit_assignments", "emp_id", "VARCHAR(50)", "VARCHAR(50)")
 
     # ── Fix practice tables: attach sequences so PG auto-increments id ──────────
     # Tables were created with INTEGER PRIMARY KEY (no sequence on PG). Each step

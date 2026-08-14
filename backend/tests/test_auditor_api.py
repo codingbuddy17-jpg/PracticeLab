@@ -15,8 +15,8 @@ wiring between them, and three rules that live only at this layer:
 import pytest
 
 from models import (
-    AnswerKey, AuditAssignment, AuditSource, Chart, ChartStatus, Difficulty,
-    Specialty,
+    AnswerKey, AuditAssignment, AuditSession, AuditSource, Chart, ChartStatus,
+    Difficulty, Specialty,
 )
 
 PASS = "test-passphrase"
@@ -1056,6 +1056,35 @@ class TestBatchCounts:
         assert r["total"] == 0
         # The counts still describe everything, so the tab can show "Open 1".
         assert r["counts"]["open"] >= 1
+
+
+class TestEmpIdIdentity:
+
+    def test_same_name_auditors_are_separated_by_emp_id(self, client, db, library):
+        r = client.post("/auditor/batches", json={
+            "name": "Same name wave", "specialty": "IP-DRG",
+            "charts_per_auditor": 2, "created_by": "Trainer",
+            "auditors": [
+                {"name": "Alex Lee", "emp_id": "E100"},
+                {"name": "Alex Lee", "emp_id": "E200"},
+            ],
+        })
+        assert r.status_code == 200, r.text
+        batch_id = r.json()["batch_id"]
+
+        alloc = allocate(client, batch_id)
+        assert len(alloc["access_codes"]) == 2
+        assert {c["emp_id"] for c in alloc["access_codes"]} == {"E100", "E200"}
+
+        detail = client.get(f"/auditor/batches/{batch_id}").json()
+        assert set(detail["assignments"].keys()) == {"Alex Lee (E100)", "Alex Lee (E200)"}
+
+        sessions = db.query(AuditSession).filter(AuditSession.batch_id == batch_id).all()
+        assert {s.emp_id for s in sessions} == {"E100", "E200"}
+        for s in sessions:
+            opened = client.get(f"/auditor/sessions/by-token/{s.token}")
+            assert opened.status_code == 200, opened.text
+            assert len(opened.json()["charts"]) == 2
 
 
 class TestDeepReviewFixes:

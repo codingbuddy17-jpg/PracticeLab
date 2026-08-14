@@ -755,6 +755,34 @@ function AuditBatchDetail({ batchId, trainer, onBack, onReview }: {
     .flat().filter((a: any) => a.scored).length
 
   const codes = Object.values(batch.tokens_by_cycle || {}).flat() as any[]
+  const cycleEntries = Object.entries(batch.tokens_by_cycle || {})
+    .sort(([a], [b]) => Number(b) - Number(a))
+  const latestCycle = [...(batch.allocation_cycles || [])]
+    .sort((a: any, b: any) => Number(b.cycle_number) - Number(a.cycle_number))[0]
+  const assignmentRows = Object.values(batch.assignments || {}).flat() as any[]
+  const assignedTotal = assignmentRows.length
+  const openedTotal = assignmentRows.filter((a: any) => a.opened).length
+  const pendingTotal = assignmentRows.filter((a: any) => !a.scored).length
+  const cleanTarget = batch.allocation_mode === 'auto'
+    ? `${batch.clean_share || 0}%`
+    : String(batch.quota_clean || 0)
+  const opportunityTarget = batch.allocation_mode === 'guided'
+    ? `${(batch.quota_manual || 0) + (batch.quota_auto || 0)}`
+    : batch.allocation_mode === 'manual'
+      ? `${Math.max(0, maxPerAuditor - (batch.quota_clean || 0))}`
+      : 'system'
+
+  function copyAccessCode(c: any) {
+    navigator.clipboard.writeText(c.token)
+    toast.success('Copied')
+  }
+
+  function copyAllAccessCodes() {
+    const text = codes.map(c =>
+      `${c.auditor_name}${c.emp_id ? ` (${c.emp_id})` : ''}\t${c.token}`).join('\n')
+    navigator.clipboard.writeText(text)
+    toast.success('All access codes copied')
+  }
 
   return (
     <div>
@@ -840,6 +868,15 @@ function AuditBatchDetail({ batchId, trainer, onBack, onReview }: {
 
       {batch.status === 'Open' && (
         <Panel title="Next allocation">
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(145px, 1fr))',
+                        gap: 10, marginBottom: 12 }}>
+            <Metric label="Latest cycle" value={latestCycle ? `Cycle ${latestCycle.cycle_number}` : 'Not run'} />
+            <Metric label="Assigned charts" value={assignedTotal} tone="#4f46e5" />
+            <Metric label="Opened" value={openedTotal} tone="#d97706" />
+            <Metric label="Pending score" value={pendingTotal} tone={pendingTotal ? '#dc2626' : '#059669'} />
+            <Metric label="Clean target" value={cleanTarget} tone="#2563eb" />
+            <Metric label="Opportunity target" value={opportunityTarget} tone="#7c3aed" />
+          </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <label style={{ fontSize: 12, color: '#374151', fontWeight: 600 }}>
               {handPicked ? 'Max charts per auditor' : 'Charts per auditor'}
@@ -959,22 +996,61 @@ function AuditBatchDetail({ batchId, trainer, onBack, onReview }: {
       )}
 
       {codes.length > 0 && (
-        <Panel title="Access codes">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {codes.map((c, i) => (
-              <div key={i} style={s.codeRow}>
-                <span style={{ fontWeight: 600, fontSize: 13 }}>{c.auditor_name}</span>
-                <code style={s.codeChip}>{c.token}</code>
-                <button style={s.iconBtn}
-                  onClick={() => { navigator.clipboard.writeText(c.token); toast.success('Copied') }}>
-                  <Copy size={13} />
-                </button>
-                <span style={{ marginLeft: 'auto', fontSize: 11, color: '#6b7280' }}>{c.status}</span>
-                {c.status === 'submitted' && (
-                  <button style={s.linkBtn} onClick={() => onReview(c.session_id)}>
-                    <FileSearch size={13} /> Review
-                  </button>
-                )}
+        <Panel title="Access code distribution"
+          right={<button style={s.linkBtn} onClick={copyAllAccessCodes}>
+            <Copy size={13} /> Copy all
+          </button>}>
+          <div style={s.note}>
+            Access codes are grouped by allocation cycle. Emp ID is shown here so
+            same-name auditors can be distributed and tracked without ambiguity.
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 10 }}>
+            {cycleEntries.map(([cycleId, cycleCodes]) => (
+              <div key={cycleId}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 7 }}>
+                  <span style={{ fontWeight: 800, fontSize: 12, color: '#374151' }}>
+                    Cycle {cycleId}
+                  </span>
+                  <span style={s.groupCount}>{(cycleCodes as any[]).length} code(s)</span>
+                  <span style={{ flex: 1, height: 1, background: '#f3f4f6' }} />
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))',
+                              gap: 8 }}>
+                  {(cycleCodes as any[]).map((c, i) => (
+                    <div key={`${cycleId}-${i}`} style={s.codeRow}>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+                          <span style={{ fontWeight: 700, fontSize: 13 }}>{c.auditor_name}</span>
+                          {c.emp_id && <span style={{ ...s.tag, background: '#f5f3ff', color: '#7c3aed' }}>
+                            {c.emp_id}
+                          </span>}
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 7 }}>
+                          <code style={s.codeChip}>{c.token}</code>
+                          <button style={s.iconBtn} title="Copy access code"
+                            onClick={() => copyAccessCode(c)}>
+                            <Copy size={13} />
+                          </button>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end',
+                                    gap: 6 }}>
+                        <span style={{
+                          ...s.tag,
+                          background: c.status === 'submitted' ? '#d1fae5' : '#eff6ff',
+                          color: c.status === 'submitted' ? '#059669' : '#2563eb',
+                        }}>
+                          {c.status}
+                        </span>
+                        {c.status === 'submitted' && (
+                          <button style={s.linkBtn} onClick={() => onReview(c.session_id)}>
+                            <FileSearch size={13} /> Review
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             ))}
           </div>
@@ -1061,7 +1137,10 @@ function AuditBatchDetail({ batchId, trainer, onBack, onReview }: {
           <div style={s.empty}>Nothing allocated yet.</div>
         ) : Object.entries(batch.assignments).map(([auditor, rows]) => (
           <div key={auditor} style={{ marginBottom: 12 }}>
-            <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6 }}>{auditor}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+              <span style={{ fontWeight: 700, fontSize: 13 }}>{auditor}</span>
+              <span style={s.groupCount}>{(rows as any[]).length} chart(s)</span>
+            </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               {(rows as any[]).map(r => (
                 <span key={r.assignment_id} style={{
@@ -1110,6 +1189,25 @@ function Num({ label, value, onChange }: { label: string; value: number; onChang
       <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 3 }}>{label}</div>
       <input style={{ ...s.input, width: 74 }} type="number" min={0} value={value}
         onChange={e => onChange(Math.max(0, parseInt(e.target.value) || 0))} />
+    </div>
+  )
+}
+
+function Metric({ label, value, tone = '#374151' }: {
+  label: string; value: React.ReactNode; tone?: string
+}) {
+  return (
+    <div style={{
+      border: '1px solid #eef2f7', borderRadius: 8, padding: '9px 10px',
+      background: '#fcfcfd',
+    }}>
+      <div style={{ fontSize: 10.5, fontWeight: 700, color: '#9ca3af',
+                    textTransform: 'uppercase' }}>
+        {label}
+      </div>
+      <div style={{ marginTop: 4, fontSize: 17, fontWeight: 800, color: tone }}>
+        {value}
+      </div>
     </div>
   )
 }
