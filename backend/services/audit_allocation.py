@@ -143,6 +143,59 @@ def assignment_seed(chart_id: int, cycle_number: int) -> int:
     return (chart_id * 1_000_003 + cycle_number * 7_919) % (2 ** 31)
 
 
+def assign_intents(drawn, quotas, sets_by_chart: dict, rng) -> tuple[list, list]:
+    """
+    Decide, per drawn chart, whether it comes up clean / authored / generated.
+
+    The quotas the trainer typed were only ever honoured for CLEAN. Everything
+    else fell through to "authored if the chart happens to have a version,
+    generated otherwise" — so Guided mode told a trainer they were choosing the
+    mix while the pool actually chose it.
+
+    A chart with no authored version cannot satisfy the authored quota, so the
+    shortfall is reported rather than silently absorbed: a trainer who asked
+    for three of their own and got one should be told why.
+
+    Returns (intents, notes) where intents[i] is 'clean' | 'manual' | 'auto'.
+    """
+    n = len(drawn)
+    intents = ["auto"] * n
+    notes = []
+
+    def _versions(i):
+        return sets_by_chart.get(drawn[i].id) or []
+
+    # A version flagged always-use is not subject to any quota — that is the
+    # entire meaning of the flag, and letting a quota override it would make
+    # the checkbox a suggestion.
+    forced = {i for i in range(n)
+              if any(getattr(v, "always_plant", False) for v in _versions(i))}
+    for i in forced:
+        intents[i] = "manual"
+
+    free = [i for i in range(n) if i not in forced]
+    rng.shuffle(free)
+
+    clean_n = min(max(0, quotas.clean), len(free))
+    for i in free[:clean_n]:
+        intents[i] = "clean"
+
+    remaining = free[clean_n:]
+    curated = [i for i in remaining if _versions(i)]
+    # Charts forced above already count toward what the trainer asked for.
+    want_manual = max(0, min(quotas.manual, len(free)) - len(forced))
+
+    for i in curated[:want_manual]:
+        intents[i] = "manual"
+    short = want_manual - len(curated[:want_manual])
+    if short > 0:
+        notes.append(
+            f"asked for {quotas.manual} chart(s) with your own errors but only "
+            f"{len(curated) + len(forced)} of the drawn charts have any "
+            f"authored — {short} fell back to system-generated")
+    return intents, notes
+
+
 def resolve_source(chart_id: int, is_clean: bool, sets_by_chart: dict,
                    use_index: int):
     """

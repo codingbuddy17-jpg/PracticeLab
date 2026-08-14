@@ -1032,3 +1032,82 @@ class TestBatchCounts:
         assert r["total"] == 0
         # The counts still describe everything, so the tab can show "Open 1".
         assert r["counts"]["open"] >= 1
+
+
+class TestDeepReviewFixes:
+    """
+    Issues a deep review of allocation and mutation raised. Each was verified
+    against the running code before being fixed.
+    """
+
+    def test_guided_quotas_control_the_authored_split(self, client, db, library):
+        """
+        Only the CLEAN quota was ever honoured. "Yours = 2" fell through to
+        "authored if the chart happens to have a version", so Guided told a
+        trainer they were choosing the mix while the pool chose it.
+        """
+        for c in library[:4]:
+            client.post(f"/auditor/keys/chart/{c.id}", json={
+                "name": "Curated", "authored_by": "T", "passphrase": PASS,
+                "mutations": [{"section": "SDx", "action": "Add",
+                               "correct_value": "E11.1"}]})
+
+        batch_id = make_batch(client, charts_per=6, allocation_mode="guided",
+                              quota_clean=1, quota_manual=2, quota_auto=3)
+        allocate(client, batch_id)
+        rows = client.get(f"/auditor/batches/{batch_id}/plantings",
+                          params={"limit": 500}).json()["plantings"]
+        counts = {}
+        for r in rows:
+            counts[r["source"]] = counts.get(r["source"], 0) + 1
+        assert counts.get("Clean", 0) == 1
+        assert counts.get("Manual", 0) == 2
+        assert counts.get("Auto", 0) == 3
+
+    def test_a_shortfall_of_authored_charts_is_reported_not_absorbed(
+            self, client, db, library):
+        """A trainer who asked for three and got one should be told why."""
+        client.post(f"/auditor/keys/chart/{library[0].id}", json={
+            "name": "Curated", "authored_by": "T", "passphrase": PASS,
+            "mutations": [{"section": "SDx", "action": "Add", "correct_value": "E11.1"}]})
+        batch_id = make_batch(client, charts_per=6, allocation_mode="guided",
+                              quota_clean=0, quota_manual=4, quota_auto=2)
+        res = allocate(client, batch_id)
+        assert any("fell back to system-generated" in n for n in res["pool_notes"])
+
+    def test_an_always_used_version_ignores_the_quota(self, client, db, library):
+        """That is the entire meaning of the flag."""
+        client.post(f"/auditor/keys/chart/{library[0].id}", json={
+            "name": "Forced", "authored_by": "T", "passphrase": PASS,
+            "always_plant": True,
+            "mutations": [{"section": "SDx", "action": "Add", "correct_value": "E11.1"}]})
+        batch_id = make_batch(client, charts_per=8, allocation_mode="guided",
+                              quota_clean=4, quota_manual=0, quota_auto=4)
+        allocate(client, batch_id)
+        row = next(r for r in client.get(f"/auditor/batches/{batch_id}/plantings",
+                                         params={"limit": 500}).json()["plantings"]
+                   if r["chart_id"] == library[0].id)
+        assert row["source"] == "Manual"
+
+    def test_an_error_naming_a_code_not_on_the_key_is_refused_at_save(
+            self, client, db, library):
+        """
+        Preview warned and dropped it; save accepted it. A stored version could
+        therefore shed half its errors when next allocated, and for an audit
+        key silently dropping the answer is the worst possible failure.
+        """
+        r = client.post(f"/auditor/keys/chart/{library[0].id}", json={
+            "name": "Bad", "authored_by": "T", "passphrase": PASS,
+            "mutations": [{"section": "SDx", "action": "Add",
+                           "correct_value": "NOTONKEY"}]})
+        assert r.status_code == 400
+        assert "not on this chart's answer key" in r.json()["detail"]
+
+    def test_a_revision_beyond_the_end_of_a_section_is_refused(
+            self, client, db, library):
+        r = client.post(f"/auditor/keys/chart/{library[0].id}", json={
+            "name": "Bad", "authored_by": "T", "passphrase": PASS,
+            "mutations": [{"section": "SDx", "action": "Revise", "field": "code",
+                           "line": 99, "claim_value": "ZZZ"}]})
+        assert r.status_code == 400
+        assert "does not exist" in r.json()["detail"]

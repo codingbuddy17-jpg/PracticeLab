@@ -143,17 +143,36 @@ def _uses_units(specialty: Specialty) -> bool:
     return specialty not in _NO_UNITS
 
 
-def _is_drg_impacting(section: str, entry: Optional[dict]) -> bool:
+def _is_drg_impacting(section: str, entry: Optional[dict],
+                      specialty: Optional[Specialty] = None) -> bool:
     """
     Mirrors the rule already in grading_engine: only PDx, a CC/MCC secondary
-    and PCS can move the DRG. Used to report DRG-impacting recall separately
-    rather than blending severity into one weighted figure.
+    and PCS can move the DRG.
+
+    Gated on the specialty, because a DRG is an INPATIENT concept. An
+    outpatient claim has no DRG at all, so marking a wrong modifier on a
+    Surgery chart "DRG-impacting" put a number in the analytics that could not
+    be true — the column read as though outpatient auditors were missing DRG
+    movement on charts that never had a DRG.
     """
+    if specialty is not None and specialty not in _IP_SPECIALTIES:
+        return False
     if section in ("PDx", "PCS"):
         return True
     if section == "SDx" and entry:
         return str(entry.get("ccmcc") or "").upper() in ("CC", "MCC")
     return False
+
+
+def _is_revenue_impacting(section: str, field: Optional[str] = None) -> bool:
+    """
+    The wider notion, and the one that applies on every specialty: anything
+    that changes what is billed. Wrong modifiers drive denials and wrong units
+    are overbilling, whether or not a DRG exists.
+    """
+    if section in ("PDx", "PCS", "CPT"):
+        return True
+    return (field or "") in ("modifier", "units")
 
 
 # ── the claim ────────────────────────────────────────────────────────────────
@@ -370,7 +389,7 @@ def generate(key, specialty: Specialty, seed: int,
 
     if observations and cfg.observed_share_pct > 0:
         room = max(1, round(want * cfg.observed_share_pct / 100))
-        _plant_observed(observations, claim, room, rng, used, ground_truth)
+        _plant_observed(observations, claim, specialty, room, rng, used, ground_truth)
 
     attempts = 0
     while len(ground_truth) < want and attempts < want * 8:
@@ -387,8 +406,8 @@ def generate(key, specialty: Specialty, seed: int,
     return claim, ground_truth
 
 
-def _plant_observed(observations, claim: dict, room: int, rng: random.Random,
-                    used: set, emitted: list[dict]) -> None:
+def _plant_observed(observations, claim: dict, specialty: Specialty, room: int,
+                    rng: random.Random, used: set, emitted: list[dict]) -> None:
     """
     Plant real coder mistakes, weighted so a trend outranks a one-off.
 
@@ -404,13 +423,13 @@ def _plant_observed(observations, claim: dict, room: int, rng: random.Random,
         weights = [getattr(o, "weight", 1.0) for o in pool]
         pick = rng.choices(range(len(pool)), weights=weights, k=1)[0]
         obs = pool.pop(pick)
-        record = _apply_instruction(obs.as_instruction(), claim, used, emitted)
+        record = _apply_instruction(obs.as_instruction(), claim, specialty, used, emitted)
         if record:
             emitted.append(record)
 
 
-def _apply_instruction(instr: dict, claim: dict, used: set,
-                       emitted: list[dict]) -> Optional[dict]:
+def _apply_instruction(instr: dict, claim: dict, specialty: Specialty,
+                       used: set, emitted: list[dict]) -> Optional[dict]:
     """
     Apply one concrete planting instruction and return its ground-truth record.
 
@@ -434,7 +453,9 @@ def _apply_instruction(instr: dict, claim: dict, used: set,
         claim[column] = instr.get("claim_value")
         used.add(("PDx", 0))
         return {**instr, "kind": "observed", "line": 0, "field": fld,
-                "correct_value": correct, "drg_impacting": True}
+                "correct_value": correct,
+                "drg_impacting": _is_drg_impacting("PDx", None, specialty),
+                "revenue_impacting": True}
 
     if rows is None:
         return None
@@ -452,7 +473,8 @@ def _apply_instruction(instr: dict, claim: dict, used: set,
         _shift_used(used, section, idx, emitted)
         return {**instr, "kind": "observed", "action": "Add",
                 "correct_value": removed.get("code"), "entry": removed,
-                "drg_impacting": _is_drg_impacting(section, removed)}
+                "drg_impacting": _is_drg_impacting(section, removed, specialty),
+                "revenue_impacting": _is_revenue_impacting(section)}
 
     if action == "Delete":
         code = instr.get("claim_value") or instr.get("code")
@@ -481,7 +503,8 @@ def _apply_instruction(instr: dict, claim: dict, used: set,
         used.add((section, idx))
         return {**instr, "kind": "observed", "line": idx, "field": fld,
                 "claim_value": instr.get("claim_value"), "correct_value": correct,
-                "drg_impacting": _is_drg_impacting(section, rows[idx])}
+                "drg_impacting": _is_drg_impacting(section, rows[idx], specialty),
+                "revenue_impacting": _is_revenue_impacting(section, fld)}
 
     return None
 
@@ -517,7 +540,8 @@ def _apply(kind: str, claim: dict, specialty: Specialty, corpus: Corpus,
             "kind": kind, "section": "SDx", "action": "Add",
             "correct_value": removed.get("code"),
             "entry": removed,
-            "drg_impacting": _is_drg_impacting("SDx", removed),
+            "drg_impacting": _is_drg_impacting("SDx", removed, specialty),
+            "revenue_impacting": _is_revenue_impacting("SDx"),
         }
 
     if kind == "omit_proc":
@@ -534,7 +558,8 @@ def _apply(kind: str, claim: dict, specialty: Specialty, corpus: Corpus,
             "kind": kind, "section": section, "action": "Add",
             "correct_value": removed.get("code"),
             "entry": removed,
-            "drg_impacting": section == "PCS",
+            "drg_impacting": _is_drg_impacting(section, None, specialty),
+            "revenue_impacting": True,
         }
 
     if kind in ("modifier_missing", "modifier_wrong"):
@@ -556,7 +581,8 @@ def _apply(kind: str, claim: dict, specialty: Specialty, corpus: Corpus,
             "kind": kind, "section": "CPT", "action": "Revise", "field": "modifier",
             "line": i, "code": cpt[i].get("code"),
             "claim_value": new, "correct_value": current,
-            "drg_impacting": True,
+            "drg_impacting": _is_drg_impacting("CPT", None, specialty),
+            "revenue_impacting": True,
         }
 
     if kind == "substitute":
@@ -575,7 +601,8 @@ def _apply(kind: str, claim: dict, specialty: Specialty, corpus: Corpus,
             "kind": kind, "section": "SDx", "action": "Revise",
             "field": "code", "line": i,
             "claim_value": replacement, "correct_value": original,
-            "drg_impacting": _is_drg_impacting("SDx", sdx[i]),
+            "drg_impacting": _is_drg_impacting("SDx", sdx[i], specialty),
+            "revenue_impacting": _is_revenue_impacting("SDx"),
         }
 
     if kind == "substitute_pcs":
@@ -596,7 +623,8 @@ def _apply(kind: str, claim: dict, specialty: Specialty, corpus: Corpus,
             "kind": kind, "section": "PCS", "action": "Revise",
             "field": "code", "line": i, "pcs_character": changed,
             "claim_value": mutated, "correct_value": original,
-            "drg_impacting": True,
+            "drg_impacting": _is_drg_impacting("PCS", None, specialty),
+            "revenue_impacting": True,
         }
 
     if kind == "swap_pdx":
@@ -622,7 +650,8 @@ def _apply(kind: str, claim: dict, specialty: Specialty, corpus: Corpus,
             "kind": kind, "section": "PDx", "action": "Revise", "field": "code",
             "line": 0, "swapped_with_line": i,
             "claim_value": claim["pdx_code"], "correct_value": old_pdx,
-            "drg_impacting": True,
+            "drg_impacting": _is_drg_impacting("PDx", None, specialty),
+            "revenue_impacting": True,
         }
 
     if kind == "units":
@@ -642,7 +671,8 @@ def _apply(kind: str, claim: dict, specialty: Specialty, corpus: Corpus,
             "kind": kind, "section": "CPT", "action": "Revise", "field": "units",
             "line": i, "code": cpt[i].get("code"),
             "claim_value": str(new), "correct_value": current,
-            "drg_impacting": True,
+            "drg_impacting": False,   # units exist only where there is no DRG
+            "revenue_impacting": True,
         }
 
     if kind == "poa":
@@ -661,7 +691,8 @@ def _apply(kind: str, claim: dict, specialty: Specialty, corpus: Corpus,
                 "kind": kind, "section": "SDx", "action": "Revise", "field": "poa",
                 "line": i, "code": sdx[i].get("code"),
                 "claim_value": new, "correct_value": current,
-                "drg_impacting": _is_drg_impacting("SDx", sdx[i]),
+                "drg_impacting": _is_drg_impacting("SDx", sdx[i], specialty),
+                "revenue_impacting": False,
             }
         if claim.get("pdx_poa") and ("PDx", 0) not in used:
             current = str(claim["pdx_poa"]).upper()
@@ -671,7 +702,8 @@ def _apply(kind: str, claim: dict, specialty: Specialty, corpus: Corpus,
             return {
                 "kind": kind, "section": "PDx", "action": "Revise", "field": "poa",
                 "line": 0, "claim_value": new, "correct_value": current,
-                "drg_impacting": True,
+                "drg_impacting": _is_drg_impacting("PDx", None, specialty),
+                "revenue_impacting": True,
             }
         return None
 
@@ -690,6 +722,7 @@ def _apply(kind: str, claim: dict, specialty: Specialty, corpus: Corpus,
             "kind": kind, "section": "SDx", "action": "Delete",
             "line": at, "claim_value": code,
             "drg_impacting": False,
+            "revenue_impacting": False,
         }
 
     return None

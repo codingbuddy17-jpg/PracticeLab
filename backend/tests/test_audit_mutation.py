@@ -448,3 +448,50 @@ class TestDRGImpact:
                         assert r["drg_impacting"] is False
                         seen = True
         assert seen
+
+
+class TestDRGImpactIsInpatientOnly:
+    """
+    A DRG is an inpatient concept. Marking a wrong modifier on a Surgery chart
+    "DRG-impacting" put a figure in the analytics that could not be true — the
+    column read as though outpatient auditors were missing DRG movement on
+    charts that never had a DRG.
+    """
+
+    def test_no_outpatient_error_is_ever_drg_impacting(self):
+        for seed in range(80):
+            _claim, gt = generate(op_key(), Specialty.SURGERY, seed=seed, corpus=CORPUS)
+            assert all(r["drg_impacting"] is False for r in gt), \
+                [r for r in gt if r["drg_impacting"]]
+
+    def test_inpatient_pdx_and_pcs_errors_still_are(self):
+        seen = False
+        for seed in range(60):
+            _claim, gt = generate(ip_key(), Specialty.IP_DRG, seed=seed, corpus=CORPUS)
+            for r in gt:
+                if r["section"] in ("PDx", "PCS"):
+                    assert r["drg_impacting"] is True
+                    seen = True
+        assert seen
+
+    def test_outpatient_cpt_errors_are_still_revenue_impacting(self):
+        """
+        The distinction the fix draws: no DRG to move, but a wrong modifier
+        still drives a denial and wrong units are still overbilling.
+        """
+        seen = False
+        for seed in range(80):
+            _claim, gt = generate(op_key(), Specialty.SURGERY, seed=seed, corpus=CORPUS)
+            for r in gt:
+                if r.get("field") in ("modifier", "units"):
+                    assert r["revenue_impacting"] is True
+                    seen = True
+        assert seen
+
+    def test_a_plain_secondary_is_neither(self):
+        for seed in range(60):
+            _claim, gt = generate(ip_key(), Specialty.IP_DRG, seed=seed, corpus=CORPUS)
+            for r in gt:
+                if r["action"] == "Add" and r["section"] == "SDx" \
+                        and str((r.get("entry") or {}).get("ccmcc")).upper() not in ("CC", "MCC"):
+                    assert r["drg_impacting"] is False

@@ -25,7 +25,8 @@ from models import (
 from services.allocation import draw_for_person
 from services.audit_observations import load_observations, summarise
 from services.audit_allocation import (
-    build_assignment, build_corpus, new_token, resolve_quotas, resolve_source,
+    assign_intents, build_assignment, build_corpus, new_token, resolve_quotas,
+    resolve_source,
 )
 from .shared import (
     chart_pool, get_batch_or_404, mutation_config, parse_specialty,
@@ -352,18 +353,21 @@ def run_allocation(batch_id: int, payload: AllocationRun, db: Session = Depends(
         quotas = resolve_quotas(
             batch.allocation_mode, len(drawn), batch.clean_share,
             batch.quota_clean, batch.quota_manual, batch.quota_auto)
-        # Which POSITIONS come up clean is random; how many is not. The quota
-        # guarantees the mix a coin flip would only approximate.
+        # Which POSITIONS get which treatment is random; how many is not. The
+        # quota guarantees the mix a coin flip would only approximate — and
+        # that now covers the authored/generated split, not just clean.
         rng = random.Random(f"{batch_id}:{cycle_number}:{auditor.auditor_name}")
-        positions = list(range(len(drawn)))
-        rng.shuffle(positions)
-        clean_positions = set(positions[:min(quotas.clean, len(drawn))])
+        intents, quota_notes = assign_intents(drawn, quotas, all_sets, rng)
+        for msg in quota_notes:
+            notes.append(f"{auditor.auditor_name}: {msg}")
 
         for idx, chart in enumerate(drawn):
             # Version follows the chart's own use count, so it is the same for
             # every auditor in this cycle and different from last encounter.
+            intent = intents[idx]
             source, key_set = resolve_source(
-                chart.id, idx in clean_positions, all_sets,
+                chart.id, intent == "clean",
+                all_sets if intent != "auto" else {},
                 len(chart_uses.get(chart.id, ())))
             built = build_assignment(
                 chart, keys.get(chart.id), source, key_set,

@@ -56,7 +56,12 @@ class KeySetPayload(BaseModel):
     passphrase: str
 
 
-def _validate(chart: Chart, mutations: list[Mutation]) -> None:
+def _bare(code) -> str:
+    return str(code or "").strip().upper().replace(".", "")
+
+
+def _validate(chart: Chart, mutations: list[Mutation],
+              key: Optional[AnswerKey] = None) -> None:
     for i, m in enumerate(mutations, start=1):
         where = f"error {i}"
         if m.section not in VALID_SECTIONS:
@@ -77,6 +82,25 @@ def _validate(chart: Chart, mutations: list[Mutation]) -> None:
                 400, f"{where}: a Revise needs the wrong value to put on the claim")
         if m.action == "Revise" and m.section != "PDx" and m.line is None:
             raise HTTPException(400, f"{where}: a Revise needs the line to change")
+
+        # Checked against the answer key, not just for shape. Preview warned
+        # about an error naming a code the chart does not have and then dropped
+        # it; saving accepted the same thing, so a version could be stored that
+        # quietly shed half its errors when it was next allocated. For an audit
+        # key, silently dropping the answer is the worst possible failure.
+        if key is None:
+            continue
+        rows = {"SDx": key.sdx, "PCS": key.pcs, "CPT": key.cpt}.get(m.section) or []
+        if m.action == "Add" and m.section != "PDx":
+            if not any(_bare(r.get("code")) == _bare(m.correct_value) for r in rows):
+                raise HTTPException(
+                    400, f"{where}: {m.correct_value} is not on this chart's answer "
+                         f"key, so the auditor could never be asked to add it")
+        if m.action == "Revise" and m.section != "PDx":
+            if not 0 <= (m.line or 0) < len(rows):
+                raise HTTPException(
+                    400, f"{where}: {m.section} line {(m.line or 0) + 1} does not "
+                         f"exist — the key has {len(rows)} code(s) in that section")
 
 
 def _serialise(row: AuditKeySet, chart: Optional[Chart] = None) -> dict:
@@ -201,7 +225,8 @@ def create_set(chart_id: int, payload: KeySetPayload, db: Session = Depends(get_
         raise HTTPException(404, "Chart not found")
     if chart.specialty not in AUDITABLE_SPECIALTIES:
         raise HTTPException(400, f"{chart.specialty.value} cannot be audited")
-    if not db.query(AnswerKey).filter(AnswerKey.chart_id == chart_id).first():
+    key = db.query(AnswerKey).filter(AnswerKey.chart_id == chart_id).first()
+    if not key:
         raise HTTPException(
             400, "This chart has no answer key — there is no truth to introduce errors into")
     if not (payload.name or "").strip():
@@ -225,7 +250,7 @@ def create_set(chart_id: int, payload: KeySetPayload, db: Session = Depends(get_
         raise HTTPException(
             400, f"A physician query determination only applies to "
                  f"{', '.join(s.value for s in QUERY_SPECIALTIES)}")
-    _validate(chart, payload.mutations)
+    _validate(chart, payload.mutations, key)
 
     row = AuditKeySet(
         chart_id=chart_id,
@@ -255,7 +280,8 @@ def update_set(set_id: int, payload: KeySetPayload, db: Session = Depends(get_db
     if not row:
         raise HTTPException(404, "Audit key set not found")
     chart = db.query(Chart).filter(Chart.id == row.chart_id).first()
-    _validate(chart, payload.mutations)
+    _validate(chart, payload.mutations,
+              db.query(AnswerKey).filter(AnswerKey.chart_id == row.chart_id).first())
 
     row.name = payload.name.strip() or row.name
     row.mutations = [m.model_dump() for m in payload.mutations]
