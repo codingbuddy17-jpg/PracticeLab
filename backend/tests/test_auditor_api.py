@@ -1321,6 +1321,48 @@ class TestHandPickedAllocation:
         assert len(rows) == 2
 
 
+class TestPerCycleChartCount:
+    """
+    The number of charts a cycle hands out is a per-allocation choice in every
+    mode, matching the coder screen.
+
+    It used to be fixed at batch creation: the allocation call never sent
+    charts_per_auditor, so every cycle in a batch was the same size and the
+    only way to run a bigger one was to create another batch.
+    """
+
+    @pytest.mark.parametrize("mode", ["auto", "guided", "manual"])
+    def test_a_cycle_can_differ_from_the_batch(self, client, db, library, mode):
+        batch_id = make_batch(client, auditors=("Asha R",), charts_per=2,
+                              allocation_mode=mode)
+        kw = {"manual_chart_ids": [c.id for c in library[:5]]} if mode == "manual" else {}
+        allocate(client, batch_id, charts_per_auditor=5, **kw)
+
+        rows = client.get(f"/auditor/batches/{batch_id}").json()["assignments"]["Asha R"]
+        assert len(rows) == 5
+
+    def test_two_cycles_in_one_batch_can_be_different_sizes(
+            self, client, db, library):
+        batch_id = make_batch(client, auditors=("Asha R",), charts_per=4,
+                              allocation_mode="guided")
+        allocate(client, batch_id, charts_per_auditor=2)
+        allocate(client, batch_id, charts_per_auditor=3)
+
+        got = client.get(f"/auditor/batches/{batch_id}").json()
+        by_cycle = {}
+        for r in got["assignments"]["Asha R"]:
+            by_cycle.setdefault(r["cycle_id"], 0)
+            by_cycle[r["cycle_id"]] += 1
+        assert sorted(by_cycle.values()) == [2, 3]
+
+    def test_omitting_it_still_falls_back_to_the_batch(self, client, db, library):
+        batch_id = make_batch(client, auditors=("Asha R",), charts_per=3,
+                              allocation_mode="guided")
+        allocate(client, batch_id)
+        rows = client.get(f"/auditor/batches/{batch_id}").json()["assignments"]["Asha R"]
+        assert len(rows) == 3
+
+
 class TestAuditableChartPicker:
 
     def test_only_charts_that_can_be_audited_are_offered(self, client, db, library):
