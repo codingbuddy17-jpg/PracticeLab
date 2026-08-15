@@ -695,3 +695,67 @@ class TestEveryRowCarriesTheBlend:
                 f"{name}: blend and detection coincide, so this guard proves nothing")
             assert row["audit_score"] > row["audit_accuracy"], (
                 f"{name}: the blend must sit above detection when review is stronger")
+
+
+class TestWeeklyTrend:
+    """
+    The trend is weekly, because audit sessions do not run daily and a
+    per-day line was a scatter of isolated points with gaps between them.
+    """
+
+    def _scored_on(self, client, db, when, charts=4, perfect=True, name="W"):
+        from models import AuditResult
+        batch_id = make_batch(client, charts_per=charts, name=name)
+        _run(client, batch_id, find_everything=perfect)
+        db.query(AuditResult).filter(AuditResult.batch_id == batch_id).update(
+            {AuditResult.scored_at: when})
+        db.commit()
+        return batch_id
+
+    def test_days_in_one_week_become_one_point(self, client, db, library):
+        from datetime import datetime
+        self._scored_on(client, db, datetime(2026, 8, 3, 9), name="Mon")
+        self._scored_on(client, db, datetime(2026, 8, 5, 9), name="Wed")
+        self._scored_on(client, db, datetime(2026, 8, 12, 9), name="NextWeek")
+
+        trend = client.get("/auditor/analytics/overview").json()["trend"]
+        assert [p["week_of"] for p in trend] == ["2026-08-03", "2026-08-10"]
+        assert trend[0]["charts"] == 8      # Monday and Wednesday merged
+        assert trend[1]["charts"] == 4
+
+    def test_a_week_pools_by_chart_not_by_day(self, client, db, library):
+        """
+        The trap this guards. Detection is an average of chart scores, so
+        rolling days up means summing and dividing by the chart count — a day
+        with one chart must not weigh the same as a day with eight. Averaging
+        the daily averages would give 50 here; pooling gives 88.89.
+        """
+        from datetime import datetime
+        self._scored_on(client, db, datetime(2026, 9, 7, 9), charts=8,
+                        perfect=True, name="Busy")
+        self._scored_on(client, db, datetime(2026, 9, 9, 9), charts=1,
+                        perfect=False, name="Quiet")
+
+        trend = client.get("/auditor/analytics/overview").json()["trend"]
+        point = [p for p in trend if p["week_of"] == "2026-09-07"][0]
+        assert point["charts"] == 9
+        assert point["detection"] > 60, (
+            f"detection {point['detection']} looks like an average of daily "
+            f"averages rather than a pool over charts")
+
+    def test_an_empty_week_is_absent_rather_than_zero(self, client, db, library):
+        """A week nobody worked is not a week they scored nothing."""
+        from datetime import datetime
+        self._scored_on(client, db, datetime(2026, 10, 5, 9), name="A")
+        self._scored_on(client, db, datetime(2026, 10, 26, 9), name="B")
+        trend = client.get("/auditor/analytics/overview").json()["trend"]
+        assert [p["week_of"] for p in trend] == ["2026-10-05", "2026-10-26"]
+        assert all(p["score"] is not None for p in trend)
+
+    def test_the_point_carries_both_halves_of_the_blend(self, client, db, library):
+        from datetime import datetime
+        self._scored_on(client, db, datetime(2026, 11, 2, 9), perfect=False)
+        point = client.get("/auditor/analytics/overview").json()["trend"][0]
+        assert point["detection"] is not None and point["review"] is not None
+        assert point["score"] == round(
+            point["detection"] * 0.5 + point["review"] * 0.5, 2)

@@ -18,6 +18,7 @@ NA is a real value throughout. A cohort that has never met a spurious code has
 no Delete accuracy, and reporting 0% would say something false about them.
 """
 
+from datetime import datetime, timedelta
 from typing import Optional
 
 import io
@@ -144,39 +145,65 @@ def _review_rollup(base) -> dict:
 
 
 
-def _score_trend(base, cfg, cap: int = 30) -> list:
+def _score_trend(base, cfg, weeks: int = 12) -> list:
     """
-    Audit Score over TIME, bucketed by the day charts were scored.
+    Audit Score over time, bucketed by WEEK.
 
-    The dashboard previously drew its trend from the by-batch list, which is
-    ordered by batch id. That is creation sequence, not time: it ignored the
-    date filter entirely, and two batches running concurrently plotted as
-    consecutive points. Grouping on scored_at makes the line mean what its
-    axis claims, and makes the date filter change its shape.
+    It was drawn from the by-batch list first — batch id order, which is
+    creation sequence rather than time and ignored the date filter entirely.
+    Then by day, which is honest but sparse: audit sessions do not run daily,
+    so the line was a scatter of isolated points with gaps between them.
 
-    Days with nothing scored simply do not appear — an absent day is not a
-    zero, and drawing it as one would invent a collapse that never happened.
+    Weeks match how the work is actually scheduled, and give each point enough
+    charts behind it to mean something.
+
+    The rollup is done here rather than in SQL because week-truncation is not
+    portable — Postgres has date_trunc('week'), SQLite does not. The database
+    still does the per-row aggregation; this merges at most a few dozen day
+    buckets, which is not the "count in Python" trap. Each day contributes its
+    SUM and COUNT rather than its average, so a week of one chart cannot
+    outweigh a week of thirty.
+
+    Weeks with nothing scored are absent, not zero — an empty week is a week
+    nobody worked, and drawing it as a collapse would be a lie.
     """
     day = func.date(R.scored_at)
     rows = (base.with_entities(day.label("day"),
-                               func.avg(R.audit_accuracy),
+                               func.sum(R.audit_accuracy),
+                               func.count(R.id),
                                func.sum(func.coalesce(R.review_correct, 0)),
-                               func.sum(func.coalesce(R.review_total, 0)),
-                               func.count(R.id))
+                               func.sum(func.coalesce(R.review_total, 0)))
             .group_by(day).order_by(day.asc()).all())
+
+    buckets: dict = {}
+    for d, det_sum, n, r_correct, r_total in rows:
+        try:
+            date = datetime.strptime(str(d)[:10], "%Y-%m-%d").date()
+        except (TypeError, ValueError):
+            continue
+        monday = date - timedelta(days=date.weekday())
+        acc = buckets.setdefault(monday, {"det": 0.0, "charts": 0,
+                                          "correct": 0, "total": 0})
+        acc["det"] += float(det_sum or 0)
+        acc["charts"] += int(n or 0)
+        acc["correct"] += int(r_correct or 0)
+        acc["total"] += int(r_total or 0)
+
     out = []
-    for d, avg, r_correct, r_total, n in rows[-cap:]:
-        detection = round(float(avg), 2) if avg is not None else None
-        review = (round(int(r_correct or 0) / int(r_total) * 100, 2)
-                  if r_total else None)
+    for monday in sorted(buckets)[-weeks:]:
+        acc = buckets[monday]
+        detection = round(acc["det"] / acc["charts"], 2) if acc["charts"] else None
+        review = (round(acc["correct"] / acc["total"] * 100, 2)
+                  if acc["total"] else None)
         out.append({
-            "date": str(d),
-            # The line plots the Audit Score, the same blend the verdict uses,
-            # so the trend and the headline cannot tell different stories.
+            "date": monday.isoformat(),
+            "week_of": monday.isoformat(),
+            # The blend the verdict uses, so the line and the headline cannot
+            # tell different stories.
             "score": blended_score(detection, review, cfg),
             "detection": detection,
             "review": review,
-            "charts": int(n or 0),
+            "charts": acc["charts"],
         })
     return out
 
