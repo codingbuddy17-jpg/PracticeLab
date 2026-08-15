@@ -402,7 +402,7 @@ class TestSession:
         s = score_session(charts)
         assert s.opportunities == 4
         assert s.pass_fail is None
-        assert "indicative" in s.verdict_withheld_reason
+        assert "review lines for verdict" in s.verdict_withheld_reason
 
     def test_a_verdict_needs_enough_CODES_REVIEWED_not_enough_errors(self):
         """
@@ -425,7 +425,7 @@ class TestSession:
         claim = {"pdx_code": "J18.9", "sdx": [{"code": "E11.1"}]}
         s = score_session([score_chart([], [], claim=claim) for _ in range(2)])
         assert s.pass_fail is None
-        assert "needed for a verdict" in (s.verdict_withheld_reason or "")
+        assert "review lines for verdict" in (s.verdict_withheld_reason or "")
 
     def test_the_pass_bar_is_90_on_the_blended_audit_score(self):
         """

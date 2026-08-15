@@ -305,15 +305,12 @@ function Verdict({ overview, threshold }: { overview: any; threshold: number }) 
                   padding: '12px 16px', borderRadius: 12, background: bg,
                   border: `1px solid ${accent}33`, borderLeft: `4px solid ${accent}` }}>
       <span style={{ fontSize: 20, fontWeight: 800, color: accent, letterSpacing: -0.3 }}>
-        {verdict || 'No verdict'}
+        {verdict || 'Verdict pending'}
       </span>
       <span style={{ fontSize: 12.5, color: '#4b5563', lineHeight: 1.5 }}>
         {verdict
-          ? <>Audit Score {pct(overview.audit_score)} against a {threshold}% threshold —
-              detection {pct(overview.audit_accuracy)}, review {pct(overview.review_score)},
-              over {overview.review_total} code lines.</>
-          : <>{overview.verdict_withheld_reason || 'Not enough reviewed yet.'}{' '}
-              Scores and every figure below are still valid.</>}
+          ? <>Audit Score {pct(overview.audit_score)} against a {threshold}% threshold.</>
+          : <>Verdict pending. Audit Score {pct(overview.audit_score)} is directional until more charts are reviewed.</>}
       </span>
       {!verdict && need > 0 && (
         <span style={{ marginLeft: 'auto', minWidth: 130 }}>
@@ -404,8 +401,8 @@ function ReviewMetricsTab({ overview, specialties, threshold }: {
 
   return (
     <div style={stackStyle}>
-      <Panel title="Metric Workspace"
-        right={specialties.length ? (
+      {specialties.length > 0 && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
           <select style={{ ...s.input, width: 210 }} value={selectedSpecialty}
             onChange={e => {
               setSelectedSpecialty(e.target.value)
@@ -414,13 +411,8 @@ function ReviewMetricsTab({ overview, specialties, threshold }: {
             <option value="">All specialties</option>
             {specialties.map(r => <option key={r.specialty} value={r.specialty}>{r.specialty}</option>)}
           </select>
-        ) : null}>
-        <div style={{ ...s.note, marginTop: 0 }}>
-          {selectedSpecialty
-            ? `${selectedSpecialty} metrics. Click a score for detail.`
-            : 'Select a specialty, then click a score for detail.'}
         </div>
-      </Panel>
+      )}
 
       <div style={metricGridStyle}>
         <Metric label="Charts Reviewed" value={scoped.charts || 0} tone="#475569" />
@@ -739,13 +731,24 @@ function SpecialtiesTab({ rows, threshold }: { rows: any[]; threshold: number })
 }
 
 function ErrorPatternsTab({ data, threshold }: { data: any; threshold: number }) {
+  const [showAllInsights, setShowAllInsights] = useState(false)
   if (!data || !data.total_plantings) return <div style={s.empty}>No scored error patterns yet.</div>
+  const notes = [...(data.commentary || []), ...(showAllInsights ? (data.commentary_more || []) : [])]
   return (
     <div style={stackStyle}>
-      <SignalNote
-        title="Auditor Detection Patterns"
-        text="This tab reads the errors intentionally introduced into audit charts and shows what auditors caught, missed, or detected but corrected incorrectly."
-      />
+      {notes.length > 0 && (
+        <Panel title="Error Insights">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {notes.map((n: any, i: number) => <InsightRow key={i} note={n} />)}
+          </div>
+          {data.commentary_more?.length > 0 && (
+            <button onClick={() => setShowAllInsights(v => !v)}
+              style={{ ...miniBtn, marginTop: 10 }}>
+              {showAllInsights ? 'Show fewer' : `${data.commentary_more.length} more`}
+            </button>
+          )}
+        </Panel>
+      )}
       <div style={metricGridStyle}>
         <Metric label="Errors Introduced" value={data.total_plantings} tone="#7c3aed" />
         <Metric label="Charts Scored" value={data.charts_available} tone="#2563eb" />
@@ -783,10 +786,6 @@ function ChartSignalsTab({ data, query, setQuery, threshold }: {
   const capped = (data?.charts_total || 0) > rows.length
   return (
     <div style={stackStyle}>
-      <SignalNote
-        title="Chart-Level Audit Signals"
-        text="This view highlights audit charts that repeatedly produce missed introduced errors, overcalls, or wrong corrections. It is a review queue, not a verdict that the chart is bad."
-      />
       <div style={metricGridStyle}>
         <Metric label="Charts With Signals" value={reviewNeeded} tone={reviewNeeded ? '#dc2626' : '#059669'}
           sub={`of ${data?.charts_total ?? 0} charts`} />
@@ -999,11 +998,19 @@ function RiskRow({ label, value, color }: { label: string; value: any; color: st
   )
 }
 
-function SignalNote({ title, text }: { title: string; text: string }) {
+function InsightRow({ note }: { note: any }) {
+  const meta: Record<string, { c: string; bg: string }> = {
+    focus: { c: '#3730a3', bg: '#eef2ff' },
+    coaching: { c: '#1d4ed8', bg: '#dbeafe' },
+    warn: { c: '#92400e', bg: '#fef3c7' },
+    good: { c: '#166534', bg: '#dcfce7' },
+    info: { c: '#374151', bg: '#f9fafb' },
+  }
+  const m = meta[note?.kind] || meta.info
   return (
-    <div style={noteBoxStyle}>
-      <div style={{ fontSize: 12, fontWeight: 900, color: '#5b21b6' }}>{title}</div>
-      <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4, lineHeight: 1.45 }}>{text}</div>
+    <div style={{ background: m.bg, border: `1px solid ${m.c}22`, borderRadius: 8,
+                  padding: '9px 12px', fontSize: 12.5, color: m.c, lineHeight: 1.45 }}>
+      {note?.text}
     </div>
   )
 }
@@ -1090,7 +1097,6 @@ const metricGridStyle: React.CSSProperties = { display: 'grid', gridTemplateColu
 const metricStyle: React.CSSProperties = { border: '1px solid #e5e7eb', borderRadius: 8, background: '#fff', padding: '14px 16px' }
 const drillCardStyle: React.CSSProperties = { textAlign: 'left', border: '1px solid #e5e7eb', borderRadius: 8, background: '#fff', padding: 12, cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 4, minHeight: 92 }
 const factStyle: React.CSSProperties = { border: '1px solid #e5e7eb', borderRadius: 8, background: '#f8fafc', padding: '10px 12px' }
-const noteBoxStyle: React.CSSProperties = { border: '1px solid #ddd6fe', borderRadius: 8, background: '#faf5ff', padding: '10px 12px' }
 const filterBarStyle: React.CSSProperties = { display: 'flex', gap: 8, alignItems: 'center', padding: '10px 14px', background: '#f8fafc', border: '1px solid #e5e7eb', borderRadius: 8, marginTop: 16, marginBottom: 10, flexWrap: 'wrap' }
 const tabBarStyle: React.CSSProperties = { display: 'flex', border: '1px solid #c4b5fd', borderRadius: 10, overflow: 'hidden', flexWrap: 'wrap', background: '#faf5ff', marginTop: 12 }
 const tabStyle: React.CSSProperties = { padding: '8px 14px', border: 'none', background: 'transparent', color: '#6b7280', fontSize: 13, fontWeight: 800, cursor: 'pointer' }

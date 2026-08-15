@@ -618,8 +618,7 @@ def score_session(chart_scores: list[ChartScore],
     # figure with enough of them to be stable.
     if out.review_total < cfg.min_review_opportunities:
         out.verdict_withheld_reason = (
-            f"indicative only — {out.review_total} codes reviewed, "
-            f"{cfg.min_review_opportunities} needed for a verdict"
+            f"{out.review_total}/{cfg.min_review_opportunities} review lines for verdict"
             if out.review_total else
             "restraint measure only — nothing reviewed in this session")
     else:

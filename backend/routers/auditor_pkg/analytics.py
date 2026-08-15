@@ -317,8 +317,7 @@ def _roll_sql(db: Session, base, cfg) -> dict:
         verdict = "PASS" if (audit_score or 0) >= cfg.pass_threshold else "FAIL"
     else:
         withheld = (
-            f"indicative only — {review['review_total']} codes reviewed, "
-            f"{cfg.min_review_opportunities} needed for a verdict"
+            f"{review['review_total']}/{cfg.min_review_opportunities} review lines for verdict"
             if review["review_total"] else
             "restraint measure only — nothing reviewed yet")
 
@@ -700,15 +699,75 @@ def detection_patterns(batch_id: Optional[int] = None,
     # A kind seen twice is not a pattern. Surfaced separately so a trainer does
     # not build a curriculum on a single miss.
     weak = [k for k in kinds if k["planted"] >= 5 and (k["accuracy"] or 0) < 60]
+    origins = shape(by_origin, {"observed": "Errors your coders really made",
+                                "synthetic": "System-generated errors"})
+    sections = shape(by_section)
+    total_plantings = sum(c["planted"] for c in by_kind.values())
+
+    notes = []
+    if weak:
+        top = weak[0]
+        notes.append({
+            "kind": "focus",
+            "text": f"{top['label']} is the weakest repeated pattern: "
+                    f"{top['found']}/{top['planted']} caught.",
+        })
+
+    missed = sum(c["missed"] for c in by_kind.values())
+    if total_plantings and missed / total_plantings >= 0.3:
+        notes.append({
+            "kind": "coaching",
+            "text": f"Auditors missed {missed}/{total_plantings} introduced errors. "
+                    "Prioritise detection practice before correction quality.",
+        })
+
+    wrong_fix = sum(c["detected_not_corrected"] for c in by_kind.values())
+    if total_plantings and wrong_fix / total_plantings >= 0.15:
+        notes.append({
+            "kind": "coaching",
+            "text": f"{wrong_fix} finding(s) were detected but corrected incorrectly. "
+                    "These need coding-rule review, not just audit workflow practice.",
+        })
+
+    top_section = sections[0] if sections else None
+    if top_section and total_plantings and top_section["planted"] / total_plantings >= 0.4:
+        notes.append({
+            "kind": "focus",
+            "text": f"{top_section['label']} carries most of the missed opportunity "
+                    f"({top_section['planted']} introduced). Treat it as the first drill area.",
+        })
+
+    origin_map = {o["key"]: o for o in origins}
+    observed = origin_map.get("observed")
+    synthetic = origin_map.get("synthetic")
+    if observed and synthetic and observed["planted"] >= 5 and synthetic["planted"] >= 5:
+        observed_acc = observed["accuracy"] or 0
+        synthetic_acc = synthetic["accuracy"] or 0
+        if observed_acc + 15 < synthetic_acc:
+            notes.append({
+                "kind": "warn",
+                "text": "Real coder-error patterns are being missed more often than generated errors.",
+            })
+        elif observed_acc >= synthetic_acc + 15:
+            notes.append({
+                "kind": "good",
+                "text": "Auditors are catching real coder-error patterns better than generated errors.",
+            })
+
+    ACTION_ORDER = {"focus": 0, "coaching": 1, "warn": 2, "good": 3, "info": 4}
+    notes.sort(key=lambda n: ACTION_ORDER.get(n["kind"], 9))
+    extra_notes = notes[4:]
+    notes = notes[:4]
 
     return {
         "by_kind": kinds,
-        "by_section": shape(by_section),
-        "by_origin": shape(by_origin, {"observed": "Errors your coders really made",
-                                       "synthetic": "System-generated errors"}),
+        "by_section": sections,
+        "by_origin": origins,
         "pcs_characters": shape(pcs_chars),
         "weakest": weak,
-        "total_plantings": sum(c["planted"] for c in by_kind.values()),
+        "commentary": notes,
+        "commentary_more": extra_notes,
+        "total_plantings": total_plantings,
         "min_for_pattern": 5,
         "charts_scanned": len(rows),
         "charts_available": int(total_results),
