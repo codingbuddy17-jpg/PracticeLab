@@ -102,25 +102,43 @@ _AGGREGATES = [
 ]
 
 
-def _feedback_section_rate(base, section: str) -> dict:
-    planted = found = detected_not_corrected = 0
+# The sections a score can be reported for, in the order a claim is read.
+# Which of them a given specialty actually uses comes from the data, not from a
+# list here: a section nobody has had an error in reports no score at all
+# rather than a permanent NA.
+SCORED_SECTIONS = ("PDx", "SDx", "PCS", "CPT")
+
+
+def _feedback_section_rates(base) -> dict:
+    """
+    Detection rate per section — PDx, SDx, PCS and CPT — in ONE pass.
+
+    Only PCS was ever reported, which left the eight specialties that code
+    procedures as CPT with no procedure score at all and a permanently blank
+    PCS card. The previous version took a section argument and scanned every
+    row's feedback for it, so reporting four sections would have meant four
+    full scans of the same JSON. This buckets all four in a single read.
+
+    Still Python rather than SQL because the outcome lives inside a JSON array
+    of per-finding records, which no portable aggregate can reach. Scoped by
+    the same filters as everything else, so the date filter bounds it.
+    """
+    acc = {s: {"planted": 0, "found": 0, "detected_not_corrected": 0}
+           for s in SCORED_SECTIONS}
     for feedback, in base.with_entities(AuditResult.feedback).all():
         for entry in feedback or []:
-            planting = entry.get("planting") or {}
-            if planting.get("section") != section:
+            section = (entry.get("planting") or {}).get("section")
+            bucket = acc.get(section)
+            if bucket is None:
                 continue
-            planted += 1
+            bucket["planted"] += 1
             outcome = entry.get("outcome")
             if outcome == "correct":
-                found += 1
+                bucket["found"] += 1
             elif outcome == "detected_not_corrected":
-                detected_not_corrected += 1
-    return {
-        "planted": planted,
-        "found": found,
-        "detected_not_corrected": detected_not_corrected,
-        "accuracy": _rate(found, planted),
-    }
+                bucket["detected_not_corrected"] += 1
+    return {s: {**v, "accuracy": _rate(v["found"], v["planted"])}
+            for s, v in acc.items()}
 
 
 
@@ -210,7 +228,7 @@ def _roll_sql(db: Session, base, cfg) -> dict:
         "drg_planted": drg_planted,
         "drg_found": drg_found,
         "drg_accuracy": _rate(drg_found, drg_planted),
-        "pcs": _feedback_section_rate(base, "PCS"),
+        "sections": _feedback_section_rates(base),
         "query_charts": int(q_total or 0),
         "query_correct": int(q_right or 0),
         "query_accuracy": _rate(int(q_right or 0), int(q_total or 0)),

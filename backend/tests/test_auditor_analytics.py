@@ -530,3 +530,49 @@ class TestTotalsAndSearch:
         scoped = client.get("/auditor/analytics/overview",
                             params={"from_date": "2026-02-01"}).json()["trend"]
         assert [p["date"] for p in scoped] == ["2026-03-09"]
+
+
+class TestSectionScores:
+    """
+    A score per section, and only for sections that exist in the data.
+
+    PCS was the only one reported and its card rendered unconditionally, so the
+    eight specialties that code procedures as CPT saw a permanent "PCS Score:
+    NA" and no score for the procedure work they actually do.
+    """
+
+    def test_every_section_is_scored_in_one_pass(self, client, db, library):
+        batch_id = make_batch(client, charts_per=6)
+        _run(client, batch_id)
+        sections = client.get("/auditor/analytics/overview").json()["sections"]
+        assert set(sections) == {"PDx", "SDx", "PCS", "CPT"}
+        for body in sections.values():
+            assert {"planted", "found", "detected_not_corrected", "accuracy"} <= set(body)
+
+    def test_a_section_with_no_errors_reports_NA_not_zero(
+            self, client, db, library):
+        """NA is a real value here — nothing of that kind was introduced."""
+        batch_id = make_batch(client, charts_per=6)
+        _run(client, batch_id)
+        sections = client.get("/auditor/analytics/overview").json()["sections"]
+        for name, body in sections.items():
+            if body["planted"] == 0:
+                assert body["accuracy"] is None, f"{name} reported 0% for nothing"
+
+    def test_a_perfect_audit_scores_every_section_it_touched(
+            self, client, db, library):
+        batch_id = make_batch(client, charts_per=6)
+        _run(client, batch_id)
+        sections = client.get("/auditor/analytics/overview").json()["sections"]
+        touched = [b for b in sections.values() if b["planted"]]
+        assert touched, "the fixture introduced no errors at all"
+        for body in touched:
+            assert body["accuracy"] == 100.0
+
+    def test_the_sections_answer_to_the_filters(self, client, db, library):
+        batch_id = make_batch(client, charts_per=6)
+        _run(client, batch_id)
+        empty = client.get("/auditor/analytics/overview",
+                           params={"from_date": "2099-01-01"}).json()
+        # nothing in scope at all, so no sections to report
+        assert empty["charts"] == 0

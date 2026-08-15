@@ -9,6 +9,7 @@ import {
   Finding, SectionSpec, openAuditSession, saveAuditDraft, submitAuditSession,
 } from '../api/auditorApi'
 import { ISSUE_COLORS } from './practicelab/shared'
+import { checkField, isBlocking } from '../codeFormat'
 
 /**
  * The auditor's working screen.
@@ -63,6 +64,17 @@ function chartGaps(state: ChartState, sections: SectionSpec[], supportsQuery: bo
       gaps.push(`${spec.key} has a missing diagnosis without POA`)
     if (mine.some(f => f.action === 'Revise' && !(f.correct_value || '').trim()))
       gaps.push(`${spec.key} has a revision with no corrected value`)
+    // Shape problems are shown at the box and never block — except units and
+    // pointers, where there is no legitimate non-numeric value and letting one
+    // through would be scored as a wrong answer rather than a typo.
+    for (const f of mine) {
+      for (const field of ['units', 'pointers']) {
+        const v = String((f as any)[field] ?? '')
+        if (!v) continue
+        const c = checkField(spec.key, field, v)
+        if (!c.ok && isBlocking(field)) gaps.push(`${spec.key}: ${c.hint}`)
+      }
+    }
   }
   if (supportsQuery && state.query_flag && !state.query_text.trim())
     gaps.push('the query has not been written')
@@ -633,6 +645,7 @@ function SectionBlock({ spec, chart, state, onVerdict, onUpsert }: {
                 revisionOf={revisionOf}
                 setRevision={setRevision}
                 onToggleDelete={() => toggleDelete(i, row.code || '')}
+                section={key}
               />
             ))}
             {open && spec.actions.includes('Add') && (
@@ -657,6 +670,7 @@ function SectionBlock({ spec, chart, state, onVerdict, onUpsert }: {
                         fieldId={`${key}-${i}-${field}`}
                         autoFocus={field === 'code' && !f.correct_value}
                         required={field === 'code' || field === 'poa'}
+                        section={key}
                       />
                     ))}
                     <button onClick={() => removeAdd(i)} style={s.iconBtn}><X size={13} /></button>
@@ -695,6 +709,8 @@ function PdxRow({ chart, spec, open, revisionOf, setRevision }: {
           value={values[field] || ''}
           open={open}
           revision={revisionOf(0, field)}
+          section="PDx"
+          field={field}
           onChange={v => setRevision(0, field, values[field] || '', v)}
         />
       ))}
@@ -703,8 +719,9 @@ function PdxRow({ chart, spec, open, revisionOf, setRevision }: {
   )
 }
 
-function LineRow({ index, row, fields, open, deleted, canDelete, revisionOf, setRevision, onToggleDelete }: {
+function LineRow({ index, row, fields, open, deleted, canDelete, revisionOf, setRevision, onToggleDelete, section }: {
   index: number
+  section: string
   row: Record<string, unknown>
   fields: string[]
   open: boolean
@@ -738,6 +755,8 @@ function LineRow({ index, row, fields, open, deleted, canDelete, revisionOf, set
           open={open && !deleted}
           strike={deleted}
           revision={revisionOf(index, field)}
+          section={section}
+          field={field}
           onChange={v => setRevision(index, field, String(row[field] ?? ''), v)}
         />
       ))}
@@ -763,7 +782,8 @@ function LineRow({ index, row, fields, open, deleted, canDelete, revisionOf, set
   )
 }
 
-function AddField({ field, finding, onChange, onEnter, fieldId, autoFocus, required }: {
+function AddField({ field, finding, onChange, onEnter, fieldId, autoFocus, required,
+                   section }: {
   field: string
   finding: Finding
   onChange: (v: string) => void
@@ -771,11 +791,15 @@ function AddField({ field, finding, onChange, onEnter, fieldId, autoFocus, requi
   fieldId: string
   autoFocus?: boolean
   required?: boolean
+  section: string
 }) {
   const value = field === 'code'
     ? finding.correct_value || ''
     : String((finding as any)[field] ?? '')
   const missing = required && !value.trim()
+  // Shape only. A code that does not look like its kind is pointed at, never
+  // refused — the auditor may be right and this file may be out of date.
+  const check = checkField(section, field, value)
   const width = field === 'code' ? 150 : field === 'units' ? 72 : 88
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -794,7 +818,8 @@ function AddField({ field, finding, onChange, onEnter, fieldId, autoFocus, requi
       ) : (
         <input
           style={{ ...s.input, width,
-                   borderColor: missing ? '#dc2626' : value ? ACTION_COLOR.Add + '66' : '#e5e7eb' }}
+                   borderColor: missing || !check.ok ? '#dc2626'
+                     : value ? ACTION_COLOR.Add + '66' : '#e5e7eb' }}
           placeholder={FIELD_PLACEHOLDER[field] || FIELD_LABEL[field] || field}
           value={value}
           onChange={e => onChange(e.target.value.toUpperCase())}
@@ -803,26 +828,36 @@ function AddField({ field, finding, onChange, onEnter, fieldId, autoFocus, requi
           autoFocus={autoFocus}
         />
       )}
+      {!check.ok && <span style={s.formatHint}>{check.hint}</span>}
     </div>
   )
 }
 
-function Field({ label, value, open, revision, strike, onChange }: {
+function Field({ label, value, open, revision, strike, onChange, section, field }: {
   label: string
   value: string
   open: boolean
   revision?: Finding
   strike?: boolean
+  section?: string
+  field?: string
   onChange: (v: string) => void
 }) {
   const changed = !!revision
+  // Checked only once the auditor has typed a correction — the claim's own
+  // value is whatever it is, and flagging the chart's existing codes would be
+  // telling them where to look.
+  const check = changed
+    ? checkField(section || '', field || 'code', revision?.correct_value || '')
+    : { ok: true } as ReturnType<typeof checkField>
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
       <span style={s.fieldLabel}>{label}</span>
       {open ? (
         <input
           style={{ ...s.input, width: label === 'Code' ? 130 : 82,
-                   borderColor: changed ? ACTION_COLOR.Revise : '#e5e7eb',
+                   borderColor: !check.ok ? '#dc2626'
+                     : changed ? ACTION_COLOR.Revise : '#e5e7eb',
                    background: changed ? ACTION_COLOR.Revise + '0e' : '#fff',
                    boxShadow: changed ? `0 0 0 3px ${ACTION_COLOR.Revise}1f` : 'none',
                    fontWeight: changed ? 700 : 400 }}
@@ -837,6 +872,7 @@ function Field({ label, value, open, revision, strike, onChange }: {
         </code>
       )}
       {changed && <span style={s.wasNote}>was {value || '—'}</span>}
+      {!check.ok && <span style={s.formatHint}>{check.hint}</span>}
     </div>
   )
 }
@@ -1013,6 +1049,7 @@ const s: Record<string, React.CSSProperties> = {
   fieldLabel: { fontSize: 10, color: '#9ca3af', fontWeight: 700, letterSpacing: 0.3, textTransform: 'uppercase' },
   codeChip: { fontFamily: 'ui-monospace, monospace', fontSize: 13, padding: '6px 10px', background: '#f9fafb', borderRadius: 6, display: 'inline-block', minWidth: 60 },
   input: { fontFamily: 'ui-monospace, monospace', fontSize: 13, padding: '6px 9px', border: '1px solid #e5e7eb', borderRadius: 6, outline: 'none', textTransform: 'uppercase' },
+  formatHint: { fontSize: 10, color: '#dc2626', fontWeight: 600, maxWidth: 190, lineHeight: 1.3 },
   wasNote: { fontSize: 10, color: '#7c3aed', fontWeight: 600 },
   eyebrow: { fontSize: 9.5, fontWeight: 800, letterSpacing: 0.9, textTransform: 'uppercase', marginBottom: 3, opacity: 0.75 },
   countPill: { fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 999, border: '1px solid', background: '#fff' },

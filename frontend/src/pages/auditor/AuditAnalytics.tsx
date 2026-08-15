@@ -245,6 +245,36 @@ function GlobalFilters({ draft, setDraft, apply, clear, active }: {
  * many they had, whether the cohort passed, or why no verdict appeared — the
  * one number the whole rule turns on was invisible.
  */
+const SECTION_LABEL: Record<string, string> = {
+  PDx: 'PDx Score', SDx: 'SDx Score', PCS: 'PCS Score', CPT: 'CPT Score',
+}
+const SECTION_TONE: Record<string, string> = {
+  PDx: '#4338ca', SDx: '#5b21b6', PCS: '#0f766e', CPT: '#0e7490',
+}
+
+/**
+ * Section cards follow the DATA, not a fixed list.
+ *
+ * PCS was the only section scored and its card rendered unconditionally, so
+ * the eight specialties that code procedures as CPT saw a permanently blank
+ * "PCS Score: NA" and no score at all for the procedure work they actually
+ * do. Rendering only sections that have had an error introduced makes the row
+ * adapt on its own: an inpatient cohort shows PCS, an outpatient one shows
+ * CPT, and filtering the specialty at the top reshapes it with no mapping to
+ * keep in step.
+ */
+function SectionMetrics({ sections }: { sections: any }) {
+  const order = ['PDx', 'SDx', 'PCS', 'CPT']
+  return (
+    <>
+      {order.filter(k => (sections?.[k]?.planted || 0) > 0).map(k => (
+        <Metric key={k} label={SECTION_LABEL[k]} value={pct(sections[k].accuracy)}
+          tone={SECTION_TONE[k]} sub={countSub(sections[k])} />
+      ))}
+    </>
+  )
+}
+
 function Verdict({ overview, threshold }: { overview: any; threshold: number }) {
   const verdict = overview.pass_fail as string | null
   const need = overview.opportunities_needed
@@ -291,7 +321,7 @@ function OverviewTab({ overview, trend, cleanOpportunity, specialties, detection
         <Metric label="Audit Score" value={pct(overview.audit_accuracy)} tone={tone(overview.audit_accuracy, threshold)} />
         <Metric label="Clean Chart Score" value={pct(overview.clean_accuracy)} tone="#2563eb" />
         <Metric label="Opportunity Chart Score" value={pct(overview.opportunity_accuracy)} tone="#7c3aed" />
-        <Metric label="PCS Score" value={pct(overview.pcs?.accuracy)} tone="#0f766e" sub={countSub(overview.pcs)} />
+        <SectionMetrics sections={overview.sections} />
         <Metric label="Query Score" value={pct(overview.query_accuracy)} tone="#475569"
           sub={overview.query_charts ? `${overview.query_correct}/${overview.query_charts}` : 'NA'} />
         {/*
@@ -435,7 +465,7 @@ function AuditorsTab({ rows, matched, query, setQuery, selected, setSelected, pr
                   sub={<Versus mine={profile.overview.clean_accuracy} cohort={cohort?.clean_accuracy} />} />
                 <Metric label="Opportunity Chart Score" value={pct(profile.overview.opportunity_accuracy)} tone="#7c3aed"
                   sub={<Versus mine={profile.overview.opportunity_accuracy} cohort={cohort?.opportunity_accuracy} />} />
-                <Metric label="PCS Score" value={pct(profile.overview.pcs?.accuracy)} tone="#0f766e" sub={countSub(profile.overview.pcs)} />
+                <SectionMetrics sections={profile.overview.sections} />
                 <Metric label="Found, Corrected Wrongly" value={profile.overview.detected_not_corrected || 0} tone="#7c3aed" />
                 <Metric label="Overcalls" value={profile.overview.over_calls || 0} tone="#ea580c" />
               </div>
@@ -601,6 +631,26 @@ function ChartSignalsTab({ data, query, setQuery, threshold }: {
   )
 }
 
+/**
+ * The procedure score for a row, whichever kind of procedure that row codes.
+ *
+ * This column was hardcoded to PCS and printed "NA" for every specialty except
+ * IP-DRG — nine rows of nothing in a ten-row table. Inpatient work is PCS,
+ * everything else is CPT, and the cell says which so the two are never read as
+ * the same number.
+ */
+function ProcedureCell({ row }: { row: any }) {
+  const ip = row.specialty === 'IP-DRG'
+  const sec = row.sections?.[ip ? 'PCS' : 'CPT']
+  if (!sec || !sec.planted) return <span style={muted}>NA</span>
+  return (
+    <span>
+      <strong>{pct(sec.accuracy)}</strong>
+      <span style={{ ...muted, marginLeft: 5 }}>{ip ? 'PCS' : 'CPT'}</span>
+    </span>
+  )
+}
+
 function ScoreTable({ rows, nameKey, threshold = 90 }: {
   rows: any[]; nameKey: string; threshold?: number
 }) {
@@ -609,7 +659,7 @@ function ScoreTable({ rows, nameKey, threshold = 90 }: {
       <div style={{ overflowX: 'auto' }}>
         <table style={tableStyle}>
           <thead>
-            <tr>{['', 'Charts', 'Audit Score', 'Clean', 'Opportunity', 'PCS', 'Add', 'Revise', 'Delete', 'Overcalls'].map(h => <th key={h} style={th}>{h}</th>)}</tr>
+            <tr>{['', 'Charts', 'Audit Score', 'Clean', 'Opportunity', 'Procedure', 'Add', 'Revise', 'Delete', 'Overcalls'].map(h => <th key={h} style={th}>{h}</th>)}</tr>
           </thead>
           <tbody>
             {rows.slice(0, ROW_CAP).map((r, i) => (
@@ -619,7 +669,7 @@ function ScoreTable({ rows, nameKey, threshold = 90 }: {
                 <td style={{ ...td, fontWeight: 800, color: tone(r.audit_accuracy, threshold) }}>{pct(r.audit_accuracy)}</td>
                 <td style={td}>{pct(r.clean_accuracy)}</td>
                 <td style={td}>{pct(r.opportunity_accuracy)}</td>
-                <td style={td}>{r.specialty === 'IP-DRG' ? cell(r.pcs) : 'NA'}</td>
+                <td style={td}><ProcedureCell row={r} /></td>
                 <td style={td}>{cell(r.add)}</td>
                 <td style={td}>{cell(r.revise)}</td>
                 <td style={td}>{cell(r.delete)}</td>
@@ -641,7 +691,7 @@ function CompactBatchTable({ rows, showPdf = false, threshold = 90 }: {
     <div style={{ overflowX: 'auto', marginTop: 12 }}>
       <table style={tableStyle}>
         <thead>
-          <tr>{['Batch', 'Specialty', 'Auditors', 'Charts', 'Audit Score', 'PCS', showPdf ? '' : null].filter(Boolean).map(h => <th key={String(h)} style={th}>{h}</th>)}</tr>
+          <tr>{['Batch', 'Specialty', 'Auditors', 'Charts', 'Audit Score', 'Procedure', showPdf ? '' : null].filter(Boolean).map(h => <th key={String(h)} style={th}>{h}</th>)}</tr>
         </thead>
         <tbody>
           {rows.map(r => (
@@ -651,7 +701,7 @@ function CompactBatchTable({ rows, showPdf = false, threshold = 90 }: {
               <td style={td}>{r.auditors}</td>
               <td style={td}>{r.charts}</td>
               <td style={{ ...td, fontWeight: 800, color: tone(r.audit_accuracy, threshold) }}>{pct(r.audit_accuracy)}</td>
-              <td style={td}>{r.specialty === 'IP-DRG' ? cell(r.pcs) : 'NA'}</td>
+              <td style={td}><ProcedureCell row={r} /></td>
               {showPdf && (
                 <td style={{ ...td, textAlign: 'right' }}>
                   <button style={miniBtn} onClick={() => downloadAuditBatchReportPdf(r.batch_id)}>PDF</button>

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { checkCpt, checkDx, checkModifier, checkPcs } from '../codeFormat'
 import { useParams } from 'react-router-dom'
 import { Flag, Save, ChevronRight, CheckCircle, AlertTriangle, Circle, Send, BookOpen, Plus, X, Info, Copy, Check } from 'lucide-react'
 import {
@@ -143,6 +144,23 @@ function usesUnits(specialty: string) {
  * is what is asked for and stored. Letters are still accepted because keys
  * written before the switch used them and mean the same positions.
  */
+/**
+ * A shape warning under a code box. Never blocks: this checks that a code
+ * looks like its kind, not that it exists, so an unusual-but-real code must
+ * still go through. It exists to catch `J189` for `J18.9`, which otherwise
+ * scores as a wrong answer and reads as a knowledge gap.
+ *
+ * Same rules as the auditor screen — one module, so the two cannot drift.
+ */
+function CodeHint({ check }: { check: { ok: boolean; hint?: string } }) {
+  if (check.ok) return null
+  return (
+    <div style={{ fontSize: 10.5, color: '#dc2626', fontWeight: 600, marginTop: 3, lineHeight: 1.3 }}>
+      {check.hint}
+    </div>
+  )
+}
+
 function parsePointers(raw: string): string[] {
   return raw.toUpperCase()
     .split(/[,\s]+/)
@@ -1227,6 +1245,7 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
               value={entry.pdx_code}
               onChange={e => onChange({ pdx_code: e.target.value.toUpperCase() })}
             />
+            <CodeHint check={checkDx(entry.pdx_code)} />
             <div style={s.hint}>ICD-10-CM · dot optional</div>
           </div>
           {ip && (
@@ -1254,12 +1273,15 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
       <Section title={ip ? "Secondary Diagnoses" : "Additional Diagnoses"} type="diagnosis">
         {entry.sdx.map((row, i) => (
           <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 8 }}>
-            <input
-              style={{ ...s.inputField, flex: 1, marginBottom: 0 }}
-              placeholder="e.g. E11.9"
-              value={row.code}
-              onChange={e => updateSdx(i, 'code', e.target.value.toUpperCase())}
-            />
+            <div style={{ flex: 1 }}>
+              <input
+                style={{ ...s.inputField, marginBottom: 0, width: '100%', boxSizing: 'border-box' }}
+                placeholder="e.g. E11.9"
+                value={row.code}
+                onChange={e => updateSdx(i, 'code', e.target.value.toUpperCase())}
+              />
+              <CodeHint check={checkDx(row.code)} />
+            </div>
             {ip && (
               <select
                 style={{ ...s.selectField, width: 180, marginBottom: 0, borderColor: row.code.trim() && !row.poa ? '#fca5a5' : '#e5e7eb' }}
@@ -1286,7 +1308,8 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
           {entry.pcs.map((row, i) => (
             <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 8 }}>
               <input
-                style={{ ...s.inputField, flex: 1, marginBottom: 0, fontFamily: 'monospace' }}
+                style={{ ...s.inputField, flex: 1, marginBottom: 0, fontFamily: 'monospace',
+                         borderColor: checkPcs(row.code).ok ? '#e5e7eb' : '#dc2626' }}
                 placeholder="e.g. 0BHN3BZ"
                 value={row.code}
                 onChange={e => updatePcs(i, e.target.value.toUpperCase())}
@@ -1320,13 +1343,16 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
           {entry.cpt.map((row, i) => (
             <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 8 }}>
               <input
-                style={{ ...s.inputField, width: 140, marginBottom: 0 }}
+                style={{ ...s.inputField, width: 140, marginBottom: 0,
+                         borderColor: checkCpt(row.code).ok ? '#e5e7eb' : '#dc2626' }}
                 placeholder="e.g. 20610"
                 value={row.code}
                 onChange={e => updateCpt(i, 'code', e.target.value)}
               />
               <input
-                style={{ ...s.inputField, flex: 1, marginBottom: 0 }}
+                style={{ ...s.inputField, flex: 1, marginBottom: 0,
+                         borderColor: (row.modifier || '').split(/[,\s]+/).filter(Boolean)
+                           .every((m: string) => checkModifier(m).ok) ? '#e5e7eb' : '#dc2626' }}
                 placeholder="e.g. 25, 59"
                 value={row.modifier}
                 onChange={e => updateCpt(i, 'modifier', e.target.value)}
