@@ -427,20 +427,48 @@ class TestSession:
         assert s.pass_fail is None
         assert "needed for a verdict" in (s.verdict_withheld_reason or "")
 
-    def test_the_pass_bar_is_90_on_the_review_score(self):
+    def test_the_pass_bar_is_90_on_the_blended_audit_score(self):
         """
-        Ten lines a chart, one wrong, over six charts: 90% exactly, which
-        passes. Two wrong is 80% and fails.
+        The verdict is decided on the Audit Score — detection and review
+        weighted together, 50/50 by default. Missing every error tanks
+        detection to 0, so no amount of correct reviewing carries the session.
         """
-        def session_missing(n_wrong):
-            claim = {"pdx_code": "J18.9",
-                     "sdx": [{"code": f"E11.{i}"} for i in range(9)]}
-            gt = [revise(i, "E11.9", "E11.8") for i in range(n_wrong)]
-            charts = [score_chart(gt, [], claim=claim) for _ in range(6)]
-            return score_session(charts)
-        assert session_missing(1).review_score == 90.0
-        assert session_missing(1).pass_fail == "PASS"
-        assert session_missing(2).pass_fail == "FAIL"
+        claim = {"pdx_code": "J18.9",
+                 "sdx": [{"code": f"E11.{i}"} for i in range(9)]}
+        gt = [revise(i, "E11.9", "E11.8") for i in range(1)]
+
+        missed = score_session([score_chart(gt, [], claim=claim) for _ in range(6)])
+        assert missed.review_score == 90.0        # reviewing was near-perfect
+        assert missed.audit_accuracy == 0.0       # but nothing was found
+        assert missed.audit_score == 45.0         # 0*0.5 + 90*0.5
+        assert missed.pass_fail == "FAIL"
+
+        found = [{"section": "SDx", "action": "Revise", "line": 0,
+                  "field": "code", "correct_value": "E11.8"}]
+        perfect = score_session(
+            [score_chart(gt, found, claim=claim) for _ in range(6)])
+        assert perfect.audit_score == 100.0
+        assert perfect.pass_fail == "PASS"
+
+    def test_the_weights_are_configurable(self):
+        """A trainer who cares more about detection can say so."""
+        claim = {"pdx_code": "J18.9",
+                 "sdx": [{"code": f"E11.{i}"} for i in range(9)]}
+        gt = [revise(0, "E11.9", "E11.8")]
+        charts = [score_chart(gt, [], claim=claim) for _ in range(6)]
+
+        even = score_session(charts, ScoringConfig())
+        heavy = score_session(charts, ScoringConfig(detection_weight=80,
+                                                    review_weight=20))
+        assert even.audit_score == 45.0           # 0*.5 + 90*.5
+        assert heavy.audit_score == 18.0          # 0*.8 + 90*.2
+        assert heavy.audit_score < even.audit_score
+
+    def test_an_absent_half_renormalises_rather_than_dragging_to_zero(self):
+        """A session with nothing reviewed reports its detection alone."""
+        s = score_session([score_chart([], [])])   # no claim, so no lines
+        assert s.review_score is None
+        assert s.audit_score == s.audit_accuracy
 
     def test_drg_impacting_accuracy_is_its_own_number(self):
         """

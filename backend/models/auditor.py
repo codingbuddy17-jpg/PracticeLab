@@ -403,6 +403,10 @@ class AuditScoringConfig(Base):
     # the opportunities per chart that detection has. Fifty is about five
     # charts — the same length already suggested at batch creation.
     min_review_opportunities = Column(Integer, nullable=False, default=50)
+    # How the Audit Score blends the two schemes. 50/50 by default; a trainer
+    # who cares more about detection than review can shift it.
+    detection_weight = Column(Integer, nullable=False, default=50)
+    review_weight = Column(Integer, nullable=False, default=50)
 
     # Mutation mix. Must total 100; renormalised per chart over the mutations
     # that chart can actually support.

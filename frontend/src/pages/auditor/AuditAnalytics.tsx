@@ -313,7 +313,8 @@ function Verdict({ overview, threshold }: { overview: any; threshold: number }) 
       </span>
       <span style={{ fontSize: 12.5, color: '#4b5563', lineHeight: 1.5 }}>
         {verdict
-          ? <>Review Score {pct(overview.review_score)} against a {threshold}% threshold,
+          ? <>Audit Score {pct(overview.audit_score)} against a {threshold}% threshold —
+              detection {pct(overview.audit_accuracy)}, review {pct(overview.review_score)},
               over {overview.review_total} code lines.</>
           : <>{overview.verdict_withheld_reason || 'Not enough reviewed yet.'}{' '}
               Scores and every figure below are still valid.</>}
@@ -343,12 +344,15 @@ function OverviewTab({ overview, trend, cleanOpportunity, specialties, detection
           sits beside it, never blended: an auditor can review carefully and
           still find nothing, and one number would hide which.
         */}
+        <Metric label="Audit Score" value={pct(overview.audit_score)}
+          tone={tone(overview.audit_score, threshold)}
+          sub={`${overview.detection_weight ?? 50}/${overview.review_weight ?? 50} detection · review`} />
+        <Metric label="Error Detection Rate" value={pct(overview.audit_accuracy)}
+          tone={tone(overview.audit_accuracy, threshold)}
+          sub={overview.opportunities ? `${overview.opportunities} errors introduced` : 'none introduced'} />
         <Metric label="Review Score" value={pct(overview.review_score)}
           tone={tone(overview.review_score, threshold)}
           sub={overview.review_total ? `${overview.review_correct} of ${overview.review_total} lines` : 'NA'} />
-        <Metric label="Detection Score" value={pct(overview.audit_accuracy)}
-          tone={tone(overview.audit_accuracy, threshold)}
-          sub={overview.opportunities ? `${overview.opportunities} errors introduced` : 'none introduced'} />
         <Metric label="Clean Chart Score" value={pct(overview.clean_accuracy)} tone="#2563eb" />
         <Metric label="Opportunity Chart Score" value={pct(overview.opportunity_accuracy)} tone="#7c3aed" />
         <SectionMetrics sections={overview.sections} />
@@ -489,10 +493,13 @@ function AuditorsTab({ rows, matched, query, setQuery, selected, setSelected, pr
           {!profile ? <div style={s.empty}>Loading profile...</div> : (
             <div style={stackStyle}>
               <div style={metricGridStyle}>
+                <Metric label="Audit Score" value={pct(profile.overview.audit_score)}
+                  tone={tone(profile.overview.audit_score, threshold)}
+                  sub={<Versus mine={profile.overview.audit_score} cohort={cohort?.audit_score} />} />
                 <Metric label="Review Score" value={pct(profile.overview.review_score)}
                   tone={tone(profile.overview.review_score, threshold)}
                   sub={<Versus mine={profile.overview.review_score} cohort={cohort?.review_score} />} />
-                <Metric label="Detection Score" value={pct(profile.overview.audit_accuracy)}
+                <Metric label="Error Detection Rate" value={pct(profile.overview.audit_accuracy)}
                   tone={tone(profile.overview.audit_accuracy, threshold)}
                   sub={<Versus mine={profile.overview.audit_accuracy} cohort={cohort?.audit_accuracy} />} />
                 <Metric label="Clean Chart Score" value={pct(profile.overview.clean_accuracy)} tone="#2563eb"
@@ -611,7 +618,7 @@ function ChartSignalsTab({ data, query, setQuery, threshold }: {
         {!shown.length ? <div style={s.empty}>No chart-level audit signals yet.</div> : (
           <div style={{ overflowX: 'auto', marginTop: 12 }}>
             <table style={tableStyle}>
-              <thead><tr>{['Chart', 'Specialty', 'Attempts', 'Audit Score', 'Opportunity Mix', 'Missed', 'Overcalls', 'Signal', ''].map(h => <th key={h} style={th}>{h}</th>)}</tr></thead>
+              <thead><tr>{['Chart', 'Specialty', 'Attempts', 'Detection', 'Opportunity Mix', 'Missed', 'Overcalls', 'Signal', ''].map(h => <th key={h} style={th}>{h}</th>)}</tr></thead>
               <tbody>
                 {shown.map(r => (
                   <tr key={r.chart_id}>
@@ -621,7 +628,7 @@ function ChartSignalsTab({ data, query, setQuery, threshold }: {
                     </td>
                     <td style={td}>{r.specialty}</td>
                     <td style={td}>{r.attempts}</td>
-                    <td style={{ ...td, fontWeight: 800, color: tone(r.audit_accuracy, threshold) }}>{pct(r.audit_accuracy)}</td>
+                    <td style={{ ...td, fontWeight: 800, color: tone(r.audit_score, threshold) }}>{pct(r.audit_score)}</td>
                     <td style={td}>
                       <span style={{ color: '#2563eb', fontWeight: 700 }}>{r.clean_charts || 0}</span>
                       <span style={muted}> clean · </span>
@@ -700,7 +707,7 @@ function ScoreTable({ rows, nameKey, threshold = 90 }: {
               <tr key={i}>
                 <td style={td}><strong>{r[nameKey]}</strong><div style={muted}>{r.batches} batch(es) · {r.auditors} auditor(s)</div></td>
                 <td style={td}>{r.charts}</td>
-                <td style={{ ...td, fontWeight: 800, color: tone(r.audit_accuracy, threshold) }}>{pct(r.audit_accuracy)}</td>
+                <td style={{ ...td, fontWeight: 800, color: tone(r.audit_score, threshold) }}>{pct(r.audit_score)}</td>
                 <td style={td}>{pct(r.clean_accuracy)}</td>
                 <td style={td}>{pct(r.opportunity_accuracy)}</td>
                 <td style={td}><ProcedureCell row={r} /></td>

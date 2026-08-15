@@ -121,13 +121,20 @@ export function AuditConfig({ trainer }: { trainer: string }) {
       </Block>
 
       <Block title="Passing"
-        note="Judged on the session, not per chart: chart scores are quantised by error
-              count, so a per-chart bar at 90% would mean 'perfect only'.">
+        note="The verdict is decided on the Audit Score — the Error Detection Rate and
+              the Review Score blended by the weights below, renormalised if a session
+              has only one of them. Neither works alone: detection is quantised by error
+              count, and review starts high because most lines on any chart are correct.
+              Judged on the session, never per chart.">
         <div style={{ display: 'flex', gap: 14, alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <Num label="Pass threshold %" value={cfg.pass_threshold}
             onChange={v => set('pass_threshold', v)} />
-          <Num label="Min opportunities for a verdict" value={cfg.min_opportunities_for_verdict}
-            onChange={v => set('min_opportunities_for_verdict', v)} width={120} />
+          <Num label="Min code lines for a verdict" value={cfg.min_review_opportunities}
+            onChange={v => set('min_review_opportunities', v)} width={120} />
+          <Num label="Detection weight %" value={cfg.detection_weight}
+            onChange={v => set('detection_weight', v)} />
+          <Num label="Review weight %" value={cfg.review_weight}
+            onChange={v => set('review_weight', v)} />
         </div>
       </Block>
 

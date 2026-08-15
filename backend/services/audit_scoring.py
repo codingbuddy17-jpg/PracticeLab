@@ -46,6 +46,13 @@ class ScoringConfig:
     # two and a half errors. Fifty is therefore about five charts, which is
     # also the suggested session length, so the two finally agree.
     min_review_opportunities: int = 50
+    # The Audit Score blends the two schemes, and the verdict is decided on it.
+    # Detection alone is quantised by planting count; Review alone has a high
+    # floor, because most lines on any chart are correct. Together they
+    # separate an auditor who finds nothing (58%) from one who finds most
+    # things (92%) far better than either does alone. Trainer-adjustable.
+    detection_weight: int = 50
+    review_weight: int = 50
 
     @classmethod
     def from_db(cls, row) -> "ScoringConfig":
@@ -506,6 +513,7 @@ class SessionScore:
     review_score: Optional[float] = None
     review_sections: dict = field(default_factory=dict)
     review_attributes: dict = field(default_factory=dict)
+    audit_score: Optional[float] = None
     pass_fail: Optional[str] = None
     verdict_withheld_reason: Optional[str] = None
 
@@ -594,14 +602,18 @@ def score_session(chart_scores: list[ChartScore],
         for name, acc in attrs.items() if acc["total"]
     }
 
-    # The verdict is decided on the REVIEW score, not detection.
+    out.audit_score = blended_score(out.audit_accuracy, out.review_score, cfg)
+
+    # The verdict is decided on the blended Audit Score.
     #
-    # Detection is quantised by planting count — a chart with one error can
-    # only score 0 or 100 — so a verdict on it was noise until a session ran
-    # long enough to be impractical. Review has about four times the
-    # opportunities per chart, so a normal session reaches a defensible
-    # figure. Detection is still reported beside it and is still the thing
-    # that says whether an auditor can find an error at all.
+    # Neither half works alone. Detection is quantised by planting count — a
+    # chart with one error can only score 0 or 100. Review has a high floor,
+    # because most lines on any chart are correct, so an auditor who flags
+    # nothing still starts in the eighties. Blended, the same passive auditor
+    # scores 58% and someone who finds three quarters scores 92%.
+    #
+    # The floor is still counted in review opportunities, since that is the
+    # figure with enough of them to be stable.
     if out.review_total < cfg.min_review_opportunities:
         out.verdict_withheld_reason = (
             f"indicative only — {out.review_total} codes reviewed, "
@@ -609,5 +621,22 @@ def score_session(chart_scores: list[ChartScore],
             if out.review_total else
             "restraint measure only — nothing reviewed in this session")
     else:
-        out.pass_fail = "PASS" if (out.review_score or 0) >= cfg.pass_threshold else "FAIL"
+        out.pass_fail = "PASS" if (out.audit_score or 0) >= cfg.pass_threshold else "FAIL"
     return out
+
+
+def blended_score(detection: Optional[float], review: Optional[float],
+                  cfg: ScoringConfig) -> Optional[float]:
+    """
+    The Audit Score: the two schemes weighted together.
+
+    Renormalised over whichever halves exist, the same way the component
+    weights already are — a session with nothing reviewed reports its detection
+    alone rather than being dragged toward zero by an absent half.
+    """
+    parts = [(detection, cfg.detection_weight), (review, cfg.review_weight)]
+    live = [(v, w) for v, w in parts if v is not None and w > 0]
+    if not live:
+        return None
+    total = sum(w for _v, w in live)
+    return round(sum(v * w for v, w in live) / total, 2) if total else None

@@ -30,6 +30,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from models import AuditBatch, AuditResult, Chart
+from services.audit_scoring import blended_score
 from .shared import scoring_config
 
 router = APIRouter()
@@ -143,7 +144,7 @@ def _review_rollup(base) -> dict:
 
 
 
-def _score_trend(base, cap: int = 30) -> list:
+def _score_trend(base, cfg, cap: int = 30) -> list:
     """
     Audit Score over TIME, bucketed by the day charts were scored.
 
@@ -159,11 +160,25 @@ def _score_trend(base, cap: int = 30) -> list:
     day = func.date(R.scored_at)
     rows = (base.with_entities(day.label("day"),
                                func.avg(R.audit_accuracy),
+                               func.sum(func.coalesce(R.review_correct, 0)),
+                               func.sum(func.coalesce(R.review_total, 0)),
                                func.count(R.id))
             .group_by(day).order_by(day.asc()).all())
-    return [{"date": str(d), "score": round(float(avg), 2) if avg is not None else None,
-             "charts": int(n or 0)}
-            for d, avg, n in rows[-cap:]]
+    out = []
+    for d, avg, r_correct, r_total, n in rows[-cap:]:
+        detection = round(float(avg), 2) if avg is not None else None
+        review = (round(int(r_correct or 0) / int(r_total) * 100, 2)
+                  if r_total else None)
+        out.append({
+            "date": str(d),
+            # The line plots the Audit Score, the same blend the verdict uses,
+            # so the trend and the headline cannot tell different stories.
+            "score": blended_score(detection, review, cfg),
+            "detection": detection,
+            "review": review,
+            "charts": int(n or 0),
+        })
+    return out
 
 def _roll_sql(db: Session, base, cfg) -> dict:
     """
@@ -208,10 +223,11 @@ def _roll_sql(db: Session, base, cfg) -> dict:
     # long. Review counts code lines, of which a chart has about four times as
     # many, so a normal session reaches a defensible figure.
     review = _review_rollup(base)
+    audit_score = blended_score(audit_accuracy, review["review_score"], cfg)
     verdict = None
     withheld = None
     if review["review_total"] >= cfg.min_review_opportunities:
-        verdict = "PASS" if (review["review_score"] or 0) >= cfg.pass_threshold else "FAIL"
+        verdict = "PASS" if (audit_score or 0) >= cfg.pass_threshold else "FAIL"
     else:
         withheld = (
             f"indicative only — {review['review_total']} codes reviewed, "
@@ -255,6 +271,11 @@ def _roll_sql(db: Session, base, cfg) -> dict:
         "review_total": review["review_total"],
         "review_correct": review["review_correct"],
         "review_basis": "pooled code lines judged correctly",
+        # The blended figure the verdict is decided on, with the weights that
+        # produced it so a reader can see how it was made.
+        "audit_score": audit_score,
+        "detection_weight": cfg.detection_weight,
+        "review_weight": cfg.review_weight,
         "sections": review["sections"],
         "attributes": review["attributes"],
         # The verdict rule, shipped beside the figure it judges.
@@ -272,7 +293,7 @@ def overview(batch_id: Optional[int] = None, specialty: Optional[str] = None,
     cfg = scoring_config(db)
     base = _base_query(db, batch_id, specialty, auditor, from_date, to_date)
     body = _roll_sql(db, base, cfg)
-    body["trend"] = _score_trend(base)
+    body["trend"] = _score_trend(base, cfg)
     body["auditors"] = base.with_entities(
         func.count(func.distinct(_auditor_key_expr()))).scalar() or 0
     body["batches"] = base.with_entities(

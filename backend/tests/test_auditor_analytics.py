@@ -591,3 +591,59 @@ class TestSectionScores:
         empty = client.get("/auditor/analytics/overview",
                            params={"from_date": "2099-01-01"}).json()
         assert empty["charts"] == 0
+
+
+class TestAuditScoreBlend:
+    """
+    The Audit Score is the Error Detection Rate and the Review Score weighted
+    together, and it is what the verdict is decided on.
+
+    Neither half works alone. Detection is quantised by planting count — a
+    chart with one error can only score 0 or 100. Review starts high because
+    most lines on any chart are correct, so an auditor who flags nothing was
+    still scoring in the eighties and passing.
+    """
+
+    def test_the_blend_is_reported_with_the_weights_that_made_it(
+            self, client, db, library):
+        batch_id = make_batch(client, charts_per=8)
+        _run(client, batch_id)
+        body = client.get("/auditor/analytics/overview").json()
+        assert body["detection_weight"] == 50
+        assert body["review_weight"] == 50
+        assert body["audit_score"] == round(
+            body["audit_accuracy"] * 0.5 + body["review_score"] * 0.5, 2)
+
+    def test_a_passive_auditor_fails_the_blend(self, client, db, library):
+        """The load-bearing assertion: flagging nothing must not pass."""
+        batch_id = make_batch(client, charts_per=8)
+        _run(client, batch_id, find_everything=False)
+        body = client.get("/auditor/analytics/overview").json()
+        assert body["review_score"] > 80, "review alone still reads well"
+        assert body["audit_score"] < 90, "but the blend must fail them"
+        assert body["pass_fail"] == "FAIL"
+
+    def test_the_weights_are_settable_from_the_score_panel(
+            self, client, db, library):
+        batch_id = make_batch(client, charts_per=8)
+        _run(client, batch_id, find_everything=False)
+        even = client.get("/auditor/analytics/overview").json()["audit_score"]
+
+        r = client.put("/auditor/config", json={
+            "detection_weight": 80, "review_weight": 20,
+            "updated_by": "T", "passphrase": PASS})
+        assert r.status_code == 200, r.text
+
+        body = client.get("/auditor/analytics/overview").json()
+        assert body["detection_weight"] == 80
+        assert body["audit_score"] < even, (
+            "weighting detection harder must lower a passive auditor's score")
+
+    def test_the_trend_plots_the_blend_not_one_half(self, client, db, library):
+        batch_id = make_batch(client, charts_per=8)
+        _run(client, batch_id)
+        trend = client.get("/auditor/analytics/overview").json()["trend"]
+        assert trend
+        for point in trend:
+            assert "detection" in point and "review" in point
+            assert point["score"] is not None

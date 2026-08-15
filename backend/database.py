@@ -625,6 +625,10 @@ def _run_migrations():
     _add_col("audit_results", "review_attributes", "JSONB", "TEXT")
     _add_col("audit_scoring_configs", "min_review_opportunities",
              "INTEGER DEFAULT 50", "INTEGER DEFAULT 50")
+    _add_col("audit_scoring_configs", "detection_weight",
+             "INTEGER DEFAULT 50", "INTEGER DEFAULT 50")
+    _add_col("audit_scoring_configs", "review_weight",
+             "INTEGER DEFAULT 50", "INTEGER DEFAULT 50")
     _add_col("audit_assignments", "emp_id", "VARCHAR(50)", "VARCHAR(50)")
 
     # ── Fix practice tables: attach sequences so PG auto-increments id ──────────
