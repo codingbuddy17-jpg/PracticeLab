@@ -104,6 +104,31 @@ _AGGREGATES = [
 ]
 
 
+def _blend_expr(cfg):
+    """
+    The Audit Score as a SQL expression, so a "weakest first" list can be
+    ordered by the figure it actually displays.
+
+    Both halves are expressible from stored columns: detection is the average
+    of the per-chart scores, review is pooled correct over total. When one half
+    is missing the other stands in for it, which is the same renormalisation
+    blended_score() does in Python — a cohort with nothing reviewed sorts on
+    its detection rather than falling to the bottom on a NULL.
+
+    Ordering by detection while showing the blend is not a cosmetic mismatch:
+    these lists are capped, so it decides WHICH rows a trainer ever sees. An
+    over-caller with fair detection and poor review would never surface.
+    """
+    detection = func.avg(R.audit_accuracy)
+    review = (func.sum(func.coalesce(R.review_correct, 0)) * 100.0
+              / func.nullif(func.sum(func.coalesce(R.review_total, 0)), 0))
+    wd, wr = cfg.detection_weight or 0, cfg.review_weight or 0
+    if wd + wr <= 0:
+        return detection
+    return (func.coalesce(detection, review) * wd
+            + func.coalesce(review, detection) * wr) / (wd + wr)
+
+
 def _review_rollup(base) -> dict:
     """
     Review scoring, pooled over everything in scope.
@@ -388,7 +413,7 @@ def by_specialty(batch_id: Optional[int] = None, specialty: Optional[str] = None
                 func.count(func.distinct(AuditResult.batch_id))).scalar() or 0,
             **body,
         })
-    out.sort(key=lambda x: (x["audit_accuracy"] if x["audit_accuracy"] is not None else 999,
+    out.sort(key=lambda x: (x["audit_score"] if x["audit_score"] is not None else 999,
                             -x["charts"]))
     return {"specialties": out, "pass_threshold": cfg.pass_threshold}
 
@@ -463,7 +488,9 @@ def by_auditor(batch_id: Optional[int] = None, specialty: Optional[str] = None,
         AuditResult.emp_id,
         AuditResult.auditor_name,
     ).order_by(
-        func.avg(AuditResult.audit_accuracy).asc()
+        # Weakest first on the Audit Score — the figure the card shows. These
+        # lists are capped, so the sort decides who a trainer ever sees.
+        _blend_expr(cfg).asc()
     ).limit(limit).all()
     out = []
     for emp, name, _avg_accuracy in keys:

@@ -759,3 +759,45 @@ class TestWeeklyTrend:
         assert point["detection"] is not None and point["review"] is not None
         assert point["score"] == round(
             point["detection"] * 0.5 + point["review"] * 0.5, 2)
+
+
+class TestWeakestFirstOrdering:
+    """
+    The capped lists must be ordered by the figure they DISPLAY.
+
+    "Weakest first" sorted on detection while the card showed the blended Audit
+    Score. That is not cosmetic: these lists are capped — ten auditor cards out
+    of however many exist — so the sort decides who a trainer ever sees. An
+    over-caller with strong detection and weak review would never surface.
+    """
+
+    def _result(self, db, name, detection, review_correct, review_total, chart_id):
+        from datetime import datetime
+        from models import AuditResult
+        from models.charts import Specialty
+        db.add(AuditResult(
+            session_id=1, assignment_id=chart_id, chart_id=chart_id, batch_id=1,
+            auditor_name=name, emp_id=name, specialty=Specialty.IP_DRG,
+            is_clean=False, audit_accuracy=detection,
+            review_correct=review_correct, review_total=review_total,
+            review_score=round(review_correct / review_total * 100, 2),
+            scored_at=datetime(2026, 8, 10, 9), findings=[], feedback=[]))
+
+    def test_the_order_follows_the_blend_not_detection(self, client, db, library):
+        # Sharp detects but over-calls; Steady is middling on both.
+        self._result(db, "Sharp", detection=95.0, review_correct=60,
+                     review_total=100, chart_id=1)     # blend 77.5
+        self._result(db, "Steady", detection=80.0, review_correct=85,
+                     review_total=100, chart_id=2)     # blend 82.5
+        db.commit()
+
+        rows = client.get("/auditor/analytics/by-auditor").json()["auditors"]
+        order = [r["auditor_name"] for r in rows]
+        scores = {r["auditor_name"]: r["audit_score"] for r in rows}
+
+        # The two orderings genuinely disagree here, which is what makes this
+        # test worth having — by detection Steady (80) is weakest, by the blend
+        # Sharp (77.5) is.
+        assert scores["Sharp"] < scores["Steady"]
+        assert order == ["Sharp", "Steady"], (
+            f"ordered {order}; by detection alone this would be Steady first")
