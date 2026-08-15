@@ -253,6 +253,27 @@ const SECTION_TONE: Record<string, string> = {
 }
 
 /**
+ * POA, modifiers and units — reported, never in the denominator.
+ *
+ * Each is an attribute OF a code line rather than a line of its own. Counting
+ * them as opportunities doubled the denominator with judgements that are
+ * almost never wrong (POA is 2% of the error mix), which let an auditor who
+ * flagged nothing score 94% and pass. They still get a percentage, because
+ * POA on an inpatient diagnosis is real gradeable work.
+ */
+function AttributeMetrics({ attributes }: { attributes: any }) {
+  const order = ['POA', 'Modifier', 'Units']
+  return (
+    <>
+      {order.filter(k => attributes?.[k]?.total).map(k => (
+        <Metric key={k} label={`${k} Score`} value={pct(attributes[k].score)}
+          tone="#475569" sub={`${attributes[k].correct} of ${attributes[k].total}`} />
+      ))}
+    </>
+  )
+}
+
+/**
  * Section cards follow the DATA, not a fixed list.
  *
  * PCS was the only section scored and its card rendered unconditionally, so
@@ -269,7 +290,8 @@ function SectionMetrics({ sections }: { sections: any }) {
     <>
       {order.filter(k => (sections?.[k]?.planted || 0) > 0).map(k => (
         <Metric key={k} label={SECTION_LABEL[k]} value={pct(sections[k].accuracy)}
-          tone={SECTION_TONE[k]} sub={countSub(sections[k])} />
+          tone={SECTION_TONE[k]}
+          sub={`${sections[k].correct} of ${sections[k].total} lines`} />
       ))}
     </>
   )
@@ -278,7 +300,7 @@ function SectionMetrics({ sections }: { sections: any }) {
 function Verdict({ overview, threshold }: { overview: any; threshold: number }) {
   const verdict = overview.pass_fail as string | null
   const need = overview.opportunities_needed
-  const has = overview.opportunities ?? 0
+  const has = overview.review_total ?? 0
   const pass = verdict === 'PASS'
   const accent = verdict ? (pass ? '#059669' : '#dc2626') : '#6b7280'
   const bg = verdict ? (pass ? '#f0fdf4' : '#fef2f2') : '#f8fafc'
@@ -291,11 +313,9 @@ function Verdict({ overview, threshold }: { overview: any; threshold: number }) 
       </span>
       <span style={{ fontSize: 12.5, color: '#4b5563', lineHeight: 1.5 }}>
         {verdict
-          ? <>Audit Score {pct(overview.audit_accuracy)} against a {threshold}% threshold,
-              over {has} opportunities.</>
-          : <>{overview.verdict_withheld_reason || 'Not enough opportunities yet.'}{' '}
-              <strong>{has}</strong> opportunit{has === 1 ? 'y' : 'ies'} so far
-              {need ? <> of the <strong>{need}</strong> a verdict needs</> : null}.
+          ? <>Review Score {pct(overview.review_score)} against a {threshold}% threshold,
+              over {overview.review_total} code lines.</>
+          : <>{overview.verdict_withheld_reason || 'Not enough reviewed yet.'}{' '}
               Scores and every figure below are still valid.</>}
       </span>
       {!verdict && need > 0 && (
@@ -318,10 +338,21 @@ function OverviewTab({ overview, trend, cleanOpportunity, specialties, detection
     <div style={stackStyle}>
       <Verdict overview={overview} threshold={threshold} />
       <div style={metricGridStyle}>
-        <Metric label="Audit Score" value={pct(overview.audit_accuracy)} tone={tone(overview.audit_accuracy, threshold)} />
+        {/*
+          Review leads because it is what the verdict is decided on. Detection
+          sits beside it, never blended: an auditor can review carefully and
+          still find nothing, and one number would hide which.
+        */}
+        <Metric label="Review Score" value={pct(overview.review_score)}
+          tone={tone(overview.review_score, threshold)}
+          sub={overview.review_total ? `${overview.review_correct} of ${overview.review_total} lines` : 'NA'} />
+        <Metric label="Detection Score" value={pct(overview.audit_accuracy)}
+          tone={tone(overview.audit_accuracy, threshold)}
+          sub={overview.opportunities ? `${overview.opportunities} errors introduced` : 'none introduced'} />
         <Metric label="Clean Chart Score" value={pct(overview.clean_accuracy)} tone="#2563eb" />
         <Metric label="Opportunity Chart Score" value={pct(overview.opportunity_accuracy)} tone="#7c3aed" />
         <SectionMetrics sections={overview.sections} />
+        <AttributeMetrics attributes={overview.attributes} />
         <Metric label="Query Score" value={pct(overview.query_accuracy)} tone="#475569"
           sub={overview.query_charts ? `${overview.query_correct}/${overview.query_charts}` : 'NA'} />
         {/*
@@ -458,7 +489,10 @@ function AuditorsTab({ rows, matched, query, setQuery, selected, setSelected, pr
           {!profile ? <div style={s.empty}>Loading profile...</div> : (
             <div style={stackStyle}>
               <div style={metricGridStyle}>
-                <Metric label="Audit Score" value={pct(profile.overview.audit_accuracy)}
+                <Metric label="Review Score" value={pct(profile.overview.review_score)}
+                  tone={tone(profile.overview.review_score, threshold)}
+                  sub={<Versus mine={profile.overview.review_score} cohort={cohort?.review_score} />} />
+                <Metric label="Detection Score" value={pct(profile.overview.audit_accuracy)}
                   tone={tone(profile.overview.audit_accuracy, threshold)}
                   sub={<Versus mine={profile.overview.audit_accuracy} cohort={cohort?.audit_accuracy} />} />
                 <Metric label="Clean Chart Score" value={pct(profile.overview.clean_accuracy)} tone="#2563eb"

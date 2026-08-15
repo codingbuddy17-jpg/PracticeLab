@@ -141,7 +141,12 @@ class TestEndToEnd:
         assert summary["over_calls"] == 0
 
     def test_the_clean_quota_is_honoured_and_rounds_down(self, client, db, library):
-        batch_id = make_batch(client, charts_per=5)
+        """
+        States its own share rather than leaning on the default, which moved
+        from 50 to 30 when the verdict shifted to the Review Score — a test
+        that reads the default is testing the default, not the rule.
+        """
+        batch_id = make_batch(client, charts_per=5, clean_share=50)
         allocate(client, batch_id)
         plantings = client.get(f"/auditor/batches/{batch_id}/plantings").json()["plantings"]
         clean = [p for p in plantings if p["source"] == "Clean"]

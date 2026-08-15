@@ -231,7 +231,7 @@ function CreateAuditBatch({ trainer, onDone, onCancel }: {
   const [difficulties, setDifficulties] = useState<string[]>([])
   const [chartsPer, setChartsPer] = useState(5)
   const [mode, setMode] = useState('guided')
-  const [cleanShare, setCleanShare] = useState(50)
+  const [cleanShare, setCleanShare] = useState(30)
   const [quotaClean, setQuotaClean] = useState(2)
   const [quotaManual, setQuotaManual] = useState(1)
   const [quotaAuto, setQuotaAuto] = useState(2)

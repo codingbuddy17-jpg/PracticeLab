@@ -614,6 +614,17 @@ def _run_migrations():
              "INTEGER DEFAULT 100", "INTEGER DEFAULT 100")
     _add_col("audit_scoring_configs", "mix_substitute_pcs",
              "INTEGER DEFAULT 5", "INTEGER DEFAULT 5")
+    # Review scoring. New columns on an EXISTING table, so create_all() will
+    # not add them — without these lines every request touching audit_results
+    # 500s in production while every test passes, which is exactly how
+    # /auditor/batches went down before.
+    _add_col("audit_results", "review_total", "INTEGER")
+    _add_col("audit_results", "review_correct", "INTEGER")
+    _add_col("audit_results", "review_score", "DOUBLE PRECISION", "REAL")
+    _add_col("audit_results", "review_sections", "JSONB", "TEXT")
+    _add_col("audit_results", "review_attributes", "JSONB", "TEXT")
+    _add_col("audit_scoring_configs", "min_review_opportunities",
+             "INTEGER DEFAULT 50", "INTEGER DEFAULT 50")
     _add_col("audit_assignments", "emp_id", "VARCHAR(50)", "VARCHAR(50)")
 
     # ── Fix practice tables: attach sequences so PG auto-increments id ──────────

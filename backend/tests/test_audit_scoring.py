@@ -404,26 +404,43 @@ class TestSession:
         assert s.pass_fail is None
         assert "indicative" in s.verdict_withheld_reason
 
-    def test_a_verdict_is_given_once_there_are_enough_opportunities(self):
-        charts = [score_chart([add(f"A{i}") for i in range(5)],
-                              [{"section": "SDx", "action": "Add",
-                                "correct_value": f"A{i}"} for i in range(5)])
-                  for _ in range(5)]
+    def test_a_verdict_needs_enough_CODES_REVIEWED_not_enough_errors(self):
+        """
+        The verdict moved to the Review Score, so the floor is counted in code
+        lines rather than plantings. Detection is quantised by planting count —
+        a chart with one error can only score 0 or 100 — which made a verdict
+        on it noise until a session ran long enough to be impractical.
+        """
+        claim = {"pdx_code": "J18.9",
+                 "sdx": [{"code": f"E11.{i}"} for i in range(9)]}
+        perfect = [{"section": "SDx", "action": "Add", "correct_value": "A0"}]
+        charts = [score_chart([add("A0")], perfect, claim=claim) for _ in range(6)]
         s = score_session(charts)
-        assert s.opportunities == 25
+        assert s.review_total >= 50
+        assert s.review_score == 100.0
         assert s.pass_fail == "PASS"
         assert s.verdict_withheld_reason is None
 
-    def test_the_pass_bar_is_90(self):
-        def session_at(found_per_chart):
-            charts = [score_chart([add(f"A{i}") for i in range(10)],
-                                  [{"section": "SDx", "action": "Add",
-                                    "correct_value": f"A{i}"}
-                                   for i in range(found_per_chart)])
-                      for _ in range(3)]
+    def test_a_short_session_withholds_the_verdict(self):
+        claim = {"pdx_code": "J18.9", "sdx": [{"code": "E11.1"}]}
+        s = score_session([score_chart([], [], claim=claim) for _ in range(2)])
+        assert s.pass_fail is None
+        assert "needed for a verdict" in (s.verdict_withheld_reason or "")
+
+    def test_the_pass_bar_is_90_on_the_review_score(self):
+        """
+        Ten lines a chart, one wrong, over six charts: 90% exactly, which
+        passes. Two wrong is 80% and fails.
+        """
+        def session_missing(n_wrong):
+            claim = {"pdx_code": "J18.9",
+                     "sdx": [{"code": f"E11.{i}"} for i in range(9)]}
+            gt = [revise(i, "E11.9", "E11.8") for i in range(n_wrong)]
+            charts = [score_chart(gt, [], claim=claim) for _ in range(6)]
             return score_session(charts)
-        assert session_at(9).pass_fail == "PASS"
-        assert session_at(8).pass_fail == "FAIL"
+        assert session_missing(1).review_score == 90.0
+        assert session_missing(1).pass_fail == "PASS"
+        assert session_missing(2).pass_fail == "FAIL"
 
     def test_drg_impacting_accuracy_is_its_own_number(self):
         """

@@ -501,10 +501,10 @@ class TestTotalsAndSearch:
         _run(client, batch_id)
         body = client.get("/auditor/analytics/overview").json()
         assert "opportunities" in body
-        assert body["opportunities_needed"] == 20
+        assert body["opportunities_needed"] == 50   # code lines, not errors
         assert body["pass_threshold"] == 90
-        assert body["pass_fail"] is None          # too few opportunities
-        assert body["verdict_withheld_reason"]
+        assert body["review_total"] > 0
+        assert body["review_basis"] == "pooled code lines judged correctly"
 
     def test_the_trend_is_bucketed_by_date_not_batch_order(
             self, client, db, library):
@@ -534,45 +534,60 @@ class TestTotalsAndSearch:
 
 class TestSectionScores:
     """
-    A score per section, and only for sections that exist in the data.
+    Section scores are REVIEW scores now — code lines judged correctly, not
+    errors detected. A section appears when the chart had lines in it, so an
+    inpatient cohort reports PCS and an outpatient one reports CPT without a
+    mapping to keep in step.
 
-    PCS was the only one reported and its card rendered unconditionally, so the
-    eight specialties that code procedures as CPT saw a permanent "PCS Score:
-    NA" and no score for the procedure work they actually do.
+    POA, modifiers and units are attributes OF a line and are reported with
+    their own percentages rather than inflating the denominator. Counting them
+    as opportunities roughly doubled it with judgements that are almost never
+    wrong, and let an auditor who flagged nothing score 94% and pass.
     """
 
-    def test_every_section_is_scored_in_one_pass(self, client, db, library):
-        batch_id = make_batch(client, charts_per=6)
-        _run(client, batch_id)
-        sections = client.get("/auditor/analytics/overview").json()["sections"]
-        assert set(sections) == {"PDx", "SDx", "PCS", "CPT"}
-        for body in sections.values():
-            assert {"planted", "found", "detected_not_corrected", "accuracy"} <= set(body)
-
-    def test_a_section_with_no_errors_reports_NA_not_zero(
-            self, client, db, library):
-        """NA is a real value here — nothing of that kind was introduced."""
-        batch_id = make_batch(client, charts_per=6)
-        _run(client, batch_id)
-        sections = client.get("/auditor/analytics/overview").json()["sections"]
-        for name, body in sections.items():
-            if body["planted"] == 0:
-                assert body["accuracy"] is None, f"{name} reported 0% for nothing"
-
-    def test_a_perfect_audit_scores_every_section_it_touched(
+    def test_sections_are_the_code_lines_the_chart_actually_had(
             self, client, db, library):
         batch_id = make_batch(client, charts_per=6)
         _run(client, batch_id)
-        sections = client.get("/auditor/analytics/overview").json()["sections"]
-        touched = [b for b in sections.values() if b["planted"]]
-        assert touched, "the fixture introduced no errors at all"
-        for body in touched:
-            assert body["accuracy"] == 100.0
+        body = client.get("/auditor/analytics/overview").json()
+        sections = body["sections"]
+        assert sections, "an IP cohort must report some sections"
+        assert set(sections) <= {"PDx", "SDx", "PCS", "CPT"}
+        assert "POA" not in sections, "POA is an attribute, not a line"
+        for name, s in sections.items():
+            assert s["total"] > 0, f"{name} reported with no lines"
+            assert 0 <= s["score"] <= 100
+
+    def test_attributes_are_reported_separately(self, client, db, library):
+        batch_id = make_batch(client, charts_per=6)
+        _run(client, batch_id)
+        attrs = client.get("/auditor/analytics/overview").json()["attributes"]
+        # IP-DRG judges POA on every diagnosis, so it has its own percentage
+        assert "POA" in attrs
+        assert attrs["POA"]["total"] > 0
+
+    def test_a_perfect_audit_reviews_every_line_correctly(
+            self, client, db, library):
+        batch_id = make_batch(client, charts_per=6)
+        _run(client, batch_id)
+        body = client.get("/auditor/analytics/overview").json()
+        assert body["review_score"] == 100.0
+        assert body["review_correct"] == body["review_total"]
+        for s in body["sections"].values():
+            assert s["score"] == 100.0
+
+    def test_the_review_score_is_pooled_not_averaged(self, client, db, library):
+        """A twenty-line chart must outweigh a five-line one."""
+        batch_id = make_batch(client, charts_per=6)
+        _run(client, batch_id)
+        body = client.get("/auditor/analytics/overview").json()
+        assert body["review_basis"] == "pooled code lines judged correctly"
+        assert body["review_score"] == round(
+            body["review_correct"] / body["review_total"] * 100, 2)
 
     def test_the_sections_answer_to_the_filters(self, client, db, library):
         batch_id = make_batch(client, charts_per=6)
         _run(client, batch_id)
         empty = client.get("/auditor/analytics/overview",
                            params={"from_date": "2099-01-01"}).json()
-        # nothing in scope at all, so no sections to report
         assert empty["charts"] == 0

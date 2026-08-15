@@ -102,43 +102,44 @@ _AGGREGATES = [
 ]
 
 
-# The sections a score can be reported for, in the order a claim is read.
-# Which of them a given specialty actually uses comes from the data, not from a
-# list here: a section nobody has had an error in reports no score at all
-# rather than a permanent NA.
-SCORED_SECTIONS = ("PDx", "SDx", "PCS", "CPT")
-
-
-def _feedback_section_rates(base) -> dict:
+def _review_rollup(base) -> dict:
     """
-    Detection rate per section — PDx, SDx, PCS and CPT — in ONE pass.
+    Review scoring, pooled over everything in scope.
 
-    Only PCS was ever reported, which left the eight specialties that code
-    procedures as CPT with no procedure score at all and a permanently blank
-    PCS card. The previous version took a section argument and scanned every
-    row's feedback for it, so reporting four sections would have meant four
-    full scans of the same JSON. This buckets all four in a single read.
+    The chart total comes from plain integer columns so the database does the
+    sum. The per-section and per-attribute breakdowns come from the stored JSON
+    in one pass — the same single read the old per-section detection rates
+    needed, except those had to scan every row's feedback array to find one
+    section at a time.
 
-    Still Python rather than SQL because the outcome lives inside a JSON array
-    of per-finding records, which no portable aggregate can reach. Scoped by
-    the same filters as everything else, so the date filter bounds it.
+    Pooled, never averaged: a twenty-line chart carries more weight than a
+    five-line one, which is the point of counting lines at all.
     """
-    acc = {s: {"planted": 0, "found": 0, "detected_not_corrected": 0}
-           for s in SCORED_SECTIONS}
-    for feedback, in base.with_entities(AuditResult.feedback).all():
-        for entry in feedback or []:
-            section = (entry.get("planting") or {}).get("section")
-            bucket = acc.get(section)
-            if bucket is None:
-                continue
-            bucket["planted"] += 1
-            outcome = entry.get("outcome")
-            if outcome == "correct":
-                bucket["found"] += 1
-            elif outcome == "detected_not_corrected":
-                bucket["detected_not_corrected"] += 1
-    return {s: {**v, "accuracy": _rate(v["found"], v["planted"])}
-            for s, v in acc.items()}
+    total, correct = base.with_entities(
+        func.coalesce(func.sum(R.review_total), 0),
+        func.coalesce(func.sum(R.review_correct), 0)).one()
+    total, correct = int(total or 0), int(correct or 0)
+
+    sections: dict = {}
+    attributes: dict = {}
+    for secs, attrs in base.with_entities(R.review_sections, R.review_attributes).all():
+        for store, blob in ((sections, secs), (attributes, attrs)):
+            for name, body in (blob or {}).items():
+                acc = store.setdefault(name, {"total": 0, "correct": 0})
+                acc["total"] += (body or {}).get("total", 0)
+                acc["correct"] += (body or {}).get("correct", 0)
+
+    def _finish(store):
+        return {name: {**acc, "score": round(acc["correct"] / acc["total"] * 100, 2)}
+                for name, acc in store.items() if acc["total"]}
+
+    return {
+        "review_total": total,
+        "review_correct": correct,
+        "review_score": round(correct / total * 100, 2) if total else None,
+        "sections": _finish(sections),
+        "attributes": _finish(attributes),
+    }
 
 
 
@@ -200,14 +201,23 @@ def _roll_sql(db: Session, base, cfg) -> dict:
     opportunities = components["add"]["planted"] + components["revise"]["planted"] \
         + components["delete"]["planted"]
     audit_accuracy = round(float(avg_acc), 2) if avg_acc is not None else None
+
+    # The verdict is decided on the REVIEW score, not detection. Detection is
+    # quantised by planting count — a chart with one error can only score 0 or
+    # 100 — so a verdict on it was noise until a session ran impractically
+    # long. Review counts code lines, of which a chart has about four times as
+    # many, so a normal session reaches a defensible figure.
+    review = _review_rollup(base)
     verdict = None
     withheld = None
-    if opportunities >= cfg.min_opportunities_for_verdict:
-        verdict = "PASS" if (audit_accuracy or 0) >= cfg.pass_threshold else "FAIL"
+    if review["review_total"] >= cfg.min_review_opportunities:
+        verdict = "PASS" if (review["review_score"] or 0) >= cfg.pass_threshold else "FAIL"
     else:
-        withheld = ("indicative only — too few opportunities for a verdict"
-                    if opportunities else
-                    "restraint measure only — no opportunities yet")
+        withheld = (
+            f"indicative only — {review['review_total']} codes reviewed, "
+            f"{cfg.min_review_opportunities} needed for a verdict"
+            if review["review_total"] else
+            "restraint measure only — nothing reviewed yet")
 
     return {
         "charts": int(charts),
@@ -228,7 +238,6 @@ def _roll_sql(db: Session, base, cfg) -> dict:
         "drg_planted": drg_planted,
         "drg_found": drg_found,
         "drg_accuracy": _rate(drg_found, drg_planted),
-        "sections": _feedback_section_rates(base),
         "query_charts": int(q_total or 0),
         "query_correct": int(q_right or 0),
         "query_accuracy": _rate(int(q_right or 0), int(q_total or 0)),
@@ -238,9 +247,18 @@ def _roll_sql(db: Session, base, cfg) -> dict:
         # both come out at 50% and are different coaching conversations.
         "detected_not_corrected": int(dnc or 0),
         "opportunities": opportunities,
-        # Shipped beside the count, so the dashboard can say "9 of 20" rather
-        # than leaving the reader to know the rule.
-        "opportunities_needed": cfg.min_opportunities_for_verdict,
+        # Review scoring — the second scheme. Detection above answers "did you
+        # find what was wrong"; this answers "of every code line you had to
+        # judge, how many did you judge correctly". Both are reported because
+        # blending them hides whichever is weak.
+        "review_score": review["review_score"],
+        "review_total": review["review_total"],
+        "review_correct": review["review_correct"],
+        "review_basis": "pooled code lines judged correctly",
+        "sections": review["sections"],
+        "attributes": review["attributes"],
+        # The verdict rule, shipped beside the figure it judges.
+        "opportunities_needed": cfg.min_review_opportunities,
         "pass_fail": verdict,
         "verdict_withheld_reason": withheld,
     }

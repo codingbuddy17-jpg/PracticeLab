@@ -26,7 +26,7 @@ from models import (
 )
 from services.audit_scoring import score_chart, score_session
 from .shared import (
-    QUERY_SPECIALTIES, assert_batch_open, form_spec, scoring_config,
+    QUERY_SPECIALTIES, assert_batch_open, fields_for, form_spec, scoring_config,
 )
 
 router = APIRouter()
@@ -274,7 +274,11 @@ def submit_session(session_id: int, payload: SubmitSession, db: Session = Depend
         score = score_chart(
             assignment.ground_truth or [], findings, cfg,
             query_expected=assignment.query_expected,
-            query_flagged=bool(work.query_flag) if work else False)
+            query_flagged=bool(work.query_flag) if work else False,
+            # Review scoring needs the claim: the denominator is every code
+            # line the auditor had to judge, not just the ones with an error.
+            claim=assignment.claim or {},
+            poa_applies="poa" in _poa_fields(sess.specialty))
         chart_scores.append(score)
         db.add(_result_row(sess, assignment, score, findings, emp_id))
 
@@ -331,6 +335,15 @@ def _assignment_owner_filter(sess: AuditSession):
     return AuditAssignment.auditor_name == sess.auditor_name
 
 
+
+def _poa_fields(specialty) -> set:
+    """
+    Whether POA is judged at all for this specialty, from the one place that
+    decides a form's shape rather than a second list to keep in step.
+    """
+    fields = fields_for(specialty) or {}
+    return {f for spec in fields.values() for f in (spec or [])}
+
 def _result_row(sess, assignment, score, findings, emp_id) -> AuditResult:
     return AuditResult(
         session_id=sess.id, assignment_id=assignment.id,
@@ -351,6 +364,9 @@ def _result_row(sess, assignment, score, findings, emp_id) -> AuditResult:
         drg_impacting_planted=score.drg_impacting_planted,
         drg_impacting_found=score.drg_impacting_found,
         audit_accuracy=score.audit_accuracy,
+        review_total=score.review_total, review_correct=score.review_correct,
+        review_score=score.review_score, review_sections=score.review_sections,
+        review_attributes=score.review_attributes,
         findings=findings, feedback=score.matched,
     )
 

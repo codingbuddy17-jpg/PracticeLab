@@ -98,7 +98,7 @@ class BatchCreate(BaseModel):
     quota_clean: Optional[int] = None
     quota_manual: Optional[int] = None
     quota_auto: Optional[int] = None
-    clean_share: int = 50
+    clean_share: int = 30
     difficulty_tier: Optional[str] = None
     show_results_to_auditor: bool = False
 

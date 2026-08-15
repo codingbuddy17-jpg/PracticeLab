@@ -137,16 +137,29 @@ def test_the_clean_half_cannot_hide_a_failing_detection_half():
     restraint and nothing on detection; the headline alone would read as a
     mediocre pass rather than a total failure to find anything.
     """
-    planted = []
-    for seed in range(10):
-        _claim, gt = generate(ip_key(), Specialty.IP_DRG, seed=seed, corpus=CORPUS)
-        planted.append(score_chart(gt, []))
-    s = score_session(planted + [score_chart([], []) for _ in range(10)])
+    charts = []
+    for seed in range(14):
+        claim, gt = generate(ip_key(), Specialty.IP_DRG, seed=seed, corpus=CORPUS)
+        charts.append(score_chart(gt, [], claim=claim, poa_applies=True))
+    for seed in range(6):                       # 30% clean, the default share
+        claim, _ = generate(ip_key(), Specialty.IP_DRG, seed=900 + seed,
+                            corpus=CORPUS, budget=0)
+        charts.append(score_chart([], [], claim=claim, poa_applies=True))
+    s = score_session(charts)
 
-    # Enough opportunities for the verdict to be given at all — a smaller
-    # session withholds it, which is the floor doing its job.
-    assert s.opportunities >= 20
     assert s.clean_accuracy == 100.0
     assert s.opportunity_accuracy == 0.0
-    assert s.audit_accuracy == 50.0
+    assert s.audit_accuracy < 40                # detection barely registers
+
+    # And the verdict, which is decided on the Review Score, must still FAIL.
+    # This is the load-bearing assertion of the whole review scheme. Review
+    # counts every code line, and most lines on any chart are correct, so
+    # "change nothing" starts from a high floor by arithmetic. Two things keep
+    # it under the bar: the clean share sits at 30 rather than 50, and POA,
+    # modifiers and units are attributes of a line rather than lines of their
+    # own. Undo either and a passive auditor passes — at a 50% clean share
+    # they score 90.1%, and counting POA separately took them to 94%.
+    assert s.review_total >= 50
+    assert s.review_score < 90, (
+        f"a passive auditor scored {s.review_score} and would PASS")
     assert s.pass_fail == "FAIL"

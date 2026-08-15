@@ -131,7 +131,11 @@ class AuditBatch(Base):
     # QUOTA rounded down, not a per-chart coin flip: a 50% roll on five charts
     # can land on zero or five clean by chance. Flooring also guarantees at
     # least one opportunity chart per session at any share below 100%.
-    clean_share = Column(Integer, nullable=False, default=50)
+    # 30, not 50. The pass/fail verdict is decided on the Review Score, whose
+    # denominator is every code line — and clean charts are all-correct lines.
+    # At a 50% clean share an auditor who flags nothing scores 90.1% and
+    # passes; at 30% they score 85.5% and fail, which is the whole point.
+    clean_share = Column(Integer, nullable=False, default=30)
     difficulty_tier = Column(String(20), nullable=True)
     # Whether auditors see their own results after submitting. On by default —
     # seeing what you missed is most of the learning — but a trainer recycling
@@ -334,6 +338,17 @@ class AuditResult(Base):
     drg_impacting_found = Column(Integer, nullable=False, default=0)
 
     audit_accuracy = Column(Float, nullable=False, default=0.0)
+
+    # Review scoring — the second scheme, mirroring the coder's DPO columns.
+    # Raw counts as well as the percentage, so a cohort pools them instead of
+    # averaging averages. The denominator is CODE LINES; POA, modifiers and
+    # units are attributes of a line and are reported in review_attributes
+    # with their own percentages rather than inflating the total.
+    review_total = Column(Integer, nullable=True)
+    review_correct = Column(Integer, nullable=True)
+    review_score = Column(Float, nullable=True)
+    review_sections = Column(JSON, nullable=True)
+    review_attributes = Column(JSON, nullable=True)
     pass_fail = Column(SAEnum(PassFail), nullable=True)
     findings = Column(JSON, nullable=True, default=list)
     feedback = Column(JSON, nullable=True, default=list)
@@ -384,6 +399,10 @@ class AuditScoringConfig(Base):
     # scores are quantised by planting count, so a verdict on a two-planting
     # session would be noise dressed as judgement.
     min_opportunities_for_verdict = Column(Integer, nullable=False, default=20)
+    # The verdict is decided on the Review Score, which has roughly four times
+    # the opportunities per chart that detection has. Fifty is about five
+    # charts — the same length already suggested at batch creation.
+    min_review_opportunities = Column(Integer, nullable=False, default=50)
 
     # Mutation mix. Must total 100; renormalised per chart over the mutations
     # that chart can actually support.

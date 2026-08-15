@@ -41,6 +41,11 @@ class ScoringConfig:
     query_unnecessary_pct: int = 20
     pass_threshold: int = 90
     min_opportunities_for_verdict: int = 20
+    # The verdict is decided on the Review Score, which has roughly four times
+    # the opportunities per chart that detection has — about ten codes against
+    # two and a half errors. Fifty is therefore about five charts, which is
+    # also the suggested session length, so the two finally agree.
+    min_review_opportunities: int = 50
 
     @classmethod
     def from_db(cls, row) -> "ScoringConfig":
@@ -159,6 +164,13 @@ class ChartScore:
     base_accuracy: float = 100.0
     audit_accuracy: float = 100.0
     matched: list = field(default_factory=list)
+    # Review scoring — every judgement the chart asked for, not just the
+    # planted ones. Raw counts so a cohort pools rather than averaging.
+    review_total: int = 0
+    review_correct: int = 0
+    review_score: Optional[float] = None
+    review_sections: dict = field(default_factory=dict)
+    review_attributes: dict = field(default_factory=dict)
 
     @property
     def opportunities(self) -> int:
@@ -168,7 +180,9 @@ class ChartScore:
 def score_chart(ground_truth: list[dict], findings: list[dict],
                 cfg: Optional[ScoringConfig] = None,
                 query_expected: Optional[bool] = None,
-                query_flagged: Optional[bool] = None) -> ChartScore:
+                query_flagged: Optional[bool] = None,
+                claim: Optional[dict] = None,
+                poa_applies: bool = False) -> ChartScore:
     """
     Score one chart.
 
@@ -263,6 +277,18 @@ def score_chart(ground_truth: list[dict], findings: list[dict],
     score.audit_accuracy = round(max(
         0.0, score.base_accuracy - score.over_call_deduction - score.query_deduction), 2)
     score.matched = matched
+
+    # The second scheme. Detection above answers "did you find what was
+    # wrong"; this answers "of everything you had to judge, how much did you
+    # judge correctly". Both are kept — blending them would hide whichever is
+    # weak, which is the same reason clean and opportunity charts are reported
+    # apart.
+    review = score_review(claim or {}, ground_truth, matched, over, poa_applies)
+    score.review_total = review["total"]
+    score.review_correct = review["correct"]
+    score.review_score = review["score"]
+    score.review_sections = review["sections"]
+    score.review_attributes = review["attributes"]
     return score
 
 
@@ -289,6 +315,162 @@ def _weighted_base(score: ChartScore, cfg: ScoringConfig) -> float:
     if total_weight <= 0:
         return 100.0
     return round(sum(acc * w for acc, w in live) / total_weight, 2)
+
+
+
+# ── review scoring ───────────────────────────────────────────────────────────
+#
+# The second of two schemes, mirroring the coder module, where a weighted score
+# and a DPO accuracy have always sat side by side answering different
+# questions. Here:
+#
+#   Detection Score — of the errors introduced, how many were found AND
+#                     corrected. Sharp, and the training signal.
+#   Review Score    — of every code the auditor had to judge, how many they
+#                     judged correctly.
+#
+# Detection alone made a one-error chart binary: an auditor who correctly
+# validated eight of nine codes and missed the ninth scored 0%, which is true
+# of their detection and says nothing about the review they actually did.
+#
+# Review is also far steadier. A chart carries ~2.5 errors but ~10 codes, so a
+# six-chart session yields roughly 60 review opportunities against 15
+# detection ones — which is why the pass/fail verdict is decided on this one.
+
+# The denominator is CODE LINES. Nothing else.
+LINE_SECTIONS = ("PDx", "SDx", "PCS", "CPT")
+
+# Reported with their own percentage, never added to the denominator. POA is
+# judged on every diagnosis and modifiers and units on every CPT, but they are
+# attributes OF a line, not lines of their own — and they carry a tiny share of
+# the introduced errors (POA is 2% of the mix). Counting them as opportunities
+# roughly doubled the denominator with judgements that are almost never wrong,
+# which pushed a passive auditor who flagged nothing to 94% and let them pass.
+ATTRIBUTE_SCORES = {"poa": "POA", "modifier": "Modifier", "units": "Units"}
+
+
+def _line_key(entry: dict) -> tuple:
+    """
+    Identifies the LINE a planting or finding concerns.
+
+    A line is one judgement covering its code and its attributes together, so a
+    diagnosis with both the wrong code and the wrong POA is one defective line,
+    not two. A missing code has no line number — it is keyed on the code that
+    should have been there.
+    """
+    section = entry.get("section")
+    if entry.get("action") == "Add" or entry.get("line") is None:
+        return (section, "add", str(entry.get("correct_value") or "").upper())
+    return (section, "line", entry.get("line"))
+
+
+def _codes_in(rows) -> int:
+    return len([r for r in (rows or []) if str((r or {}).get("code") or "").strip()])
+
+
+def review_opportunities(claim: dict, ground_truth: list) -> dict:
+    """
+    One opportunity per code line the auditor had to judge.
+
+    A code ON the claim is a line: keep it, revise it, or delete it. A code
+    MISSING from the claim is one too — they were meant to add it — so each Add
+    planting contributes a line its section would not otherwise have.
+    """
+    claim = claim or {}
+    opp = {
+        "PDx": 1 if str(claim.get("pdx_code") or "").strip() else 0,
+        "SDx": _codes_in(claim.get("sdx")),
+        "PCS": _codes_in(claim.get("pcs")),
+        "CPT": _codes_in(claim.get("cpt")),
+    }
+    for planting in ground_truth or []:
+        if planting.get("action") != "Add":
+            continue
+        section = planting.get("section")
+        if section in opp:
+            opp[section] += 1
+    return opp
+
+
+def _attribute_scores(claim: dict, matched: list, over: list,
+                      poa_applies: bool) -> dict:
+    """
+    POA, Modifier and Units as percentages in their own right.
+
+    Reported because they are real, gradeable work — POA is mandatory on
+    inpatient diagnoses — but kept out of the chart denominator so they cannot
+    dilute it. Each is measured over the lines it could apply to.
+    """
+    claim = claim or {}
+    dx_lines = (1 if str(claim.get("pdx_code") or "").strip() else 0) \
+        + _codes_in(claim.get("sdx"))
+    cpt_lines = _codes_in(claim.get("cpt"))
+    totals = {"POA": dx_lines if poa_applies else 0,
+              "Modifier": cpt_lines, "Units": cpt_lines}
+    defects = {"POA": 0, "Modifier": 0, "Units": 0}
+    for entry in matched or []:
+        if entry.get("outcome") == "correct":
+            continue
+        name = ATTRIBUTE_SCORES.get(
+            ((entry.get("planting") or {}).get("field") or "").lower())
+        if name:
+            defects[name] += 1
+    for finding in over or []:
+        name = ATTRIBUTE_SCORES.get((finding.get("field") or "").lower())
+        if name:
+            defects[name] += 1
+    out = {}
+    for name, total in totals.items():
+        if not total:
+            continue
+        correct = max(0, total - defects[name])
+        out[name] = {"total": total, "correct": correct,
+                     "score": round(correct / total * 100, 2)}
+    return out
+
+
+def score_review(claim: dict, ground_truth: list, matched: list, over: list,
+                 poa_applies: bool) -> dict:
+    """
+    Per-section and whole-chart review figures.
+
+    Correct and total are kept as raw counts, not just percentages, so a cohort
+    pools them rather than averaging averages — the lesson already written into
+    the coder's DPO columns.
+    """
+    opp = review_opportunities(claim, ground_truth)
+
+    # A line is wrong once, however many things are wrong on it.
+    wrong: set = set()
+    for entry in matched or []:
+        if entry.get("outcome") == "correct":
+            continue
+        wrong.add(_line_key(entry.get("planting") or {}))
+    for finding in over or []:
+        wrong.add(_line_key(finding or {}))
+
+    defects: dict = {}
+    for section, _kind, _ref in list(wrong):
+        if section in opp:
+            defects[section] = defects.get(section, 0) + 1
+
+    sections, total_opp, total_correct = {}, 0, 0
+    for name in LINE_SECTIONS:
+        o = opp.get(name, 0)
+        if not o:
+            continue
+        correct = max(0, o - defects.get(name, 0))
+        sections[name] = {"total": o, "correct": correct,
+                          "score": round(correct / o * 100, 2)}
+        total_opp += o
+        total_correct += correct
+    return {
+        "sections": sections,
+        "attributes": _attribute_scores(claim, matched, over, poa_applies),
+        "total": total_opp,
+        "correct": total_correct,
+        "score": round(total_correct / total_opp * 100, 2) if total_opp else None,
+    }
 
 
 # ── the session score ────────────────────────────────────────────────────────
@@ -319,6 +501,11 @@ class SessionScore:
     over_calls: int = 0
     detected_not_corrected: int = 0
     opportunities: int = 0
+    review_total: int = 0
+    review_correct: int = 0
+    review_score: Optional[float] = None
+    review_sections: dict = field(default_factory=dict)
+    review_attributes: dict = field(default_factory=dict)
     pass_fail: Optional[str] = None
     verdict_withheld_reason: Optional[str] = None
 
@@ -379,13 +566,48 @@ def score_session(chart_scores: list[ChartScore],
     out.detected_not_corrected = sum(c.detected_not_corrected for c in chart_scores)
     out.opportunities = sum(c.opportunities for c in chart_scores)
 
-    # Chart scores are quantised by planting count, so a verdict on a session
-    # with few opportunities would be noise dressed as judgement.
-    if out.opportunities < cfg.min_opportunities_for_verdict:
+    # POOLED, not averaged. Raw counts add up so a twenty-code chart carries
+    # more weight than a five-code one, which is the point — averaging the
+    # percentages would make them equal.
+    out.review_total = sum(c.review_total for c in chart_scores)
+    out.review_correct = sum(c.review_correct for c in chart_scores)
+    if out.review_total:
+        out.review_score = round(out.review_correct / out.review_total * 100, 2)
+    merged: dict = {}
+    for c in chart_scores:
+        for name, body in (c.review_sections or {}).items():
+            acc = merged.setdefault(name, {"total": 0, "correct": 0})
+            acc["total"] += body.get("total", 0)
+            acc["correct"] += body.get("correct", 0)
+    out.review_sections = {
+        name: {**acc, "score": round(acc["correct"] / acc["total"] * 100, 2)}
+        for name, acc in merged.items() if acc["total"]
+    }
+    attrs: dict = {}
+    for c in chart_scores:
+        for name, body in (c.review_attributes or {}).items():
+            acc = attrs.setdefault(name, {"total": 0, "correct": 0})
+            acc["total"] += body.get("total", 0)
+            acc["correct"] += body.get("correct", 0)
+    out.review_attributes = {
+        name: {**acc, "score": round(acc["correct"] / acc["total"] * 100, 2)}
+        for name, acc in attrs.items() if acc["total"]
+    }
+
+    # The verdict is decided on the REVIEW score, not detection.
+    #
+    # Detection is quantised by planting count — a chart with one error can
+    # only score 0 or 100 — so a verdict on it was noise until a session ran
+    # long enough to be impractical. Review has about four times the
+    # opportunities per chart, so a normal session reaches a defensible
+    # figure. Detection is still reported beside it and is still the thing
+    # that says whether an auditor can find an error at all.
+    if out.review_total < cfg.min_review_opportunities:
         out.verdict_withheld_reason = (
-            "indicative only — too few opportunities for a verdict"
-            if out.opportunities else
-            "restraint measure only — no opportunities in this session")
+            f"indicative only — {out.review_total} codes reviewed, "
+            f"{cfg.min_review_opportunities} needed for a verdict"
+            if out.review_total else
+            "restraint measure only — nothing reviewed in this session")
     else:
-        out.pass_fail = "PASS" if out.audit_accuracy >= cfg.pass_threshold else "FAIL"
+        out.pass_fail = "PASS" if (out.review_score or 0) >= cfg.pass_threshold else "FAIL"
     return out
