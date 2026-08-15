@@ -428,7 +428,6 @@ function ReviewMetricsTab({ overview, specialties, threshold }: {
           tone={tone(scoped.review_score, threshold)} />
         <Metric label="Error Detection Rate" value={pct(scoped.audit_accuracy)}
           tone={tone(scoped.audit_accuracy, threshold)} />
-        <Metric label="Query Score" value={pct(scoped.query_accuracy)} tone="#475569" />
       </div>
 
       <div style={chartGridStyle}>
@@ -526,13 +525,21 @@ function sectionMetricRows(row: any) {
 }
 
 function attributeMetricRows(row: any) {
-  return ['POA', 'Modifier']
+  const rows = ['POA', 'Modifier']
     .filter(k => row?.attributes?.[k]?.total)
     .map(k => ({
       kind: 'attribute', key: k, label: `${k} Score`,
       score: row.attributes[k].score,
       basis: `${row.attributes[k].correct}/${row.attributes[k].total} correct`,
     }))
+  if (row?.specialty === 'IP-DRG' && row.query_charts) {
+    rows.push({
+      kind: 'attribute', key: 'Query', label: 'Query Score',
+      score: row.query_accuracy,
+      basis: `${row.query_correct || 0}/${row.query_charts} correct`,
+    })
+  }
+  return rows
 }
 
 function metricBody(row: any, focus: any) {
@@ -551,6 +558,19 @@ function metricBody(row: any, focus: any) {
     }
   }
   if (focus.kind === 'attribute') {
+    if (focus.key === 'Query') {
+      return {
+        title: 'Query Detail',
+        score: row?.query_accuracy,
+        basis: row?.query_charts ? `${row.query_correct || 0} of ${row.query_charts} query calls correct` : 'No reviewed queries',
+        facts: [
+          { label: 'Correct', value: row?.query_correct || 0 },
+          { label: 'Reviewed', value: row?.query_charts || 0 },
+          { label: 'Missed/Wrong', value: Math.max(0, (row?.query_charts || 0) - (row?.query_correct || 0)) },
+        ],
+        note: 'Query score is shown with IP-DRG specialty metrics because the query judgement is separate from diagnosis and procedure line scoring.',
+      }
+    }
     const body = row?.attributes?.[focus.key] || {}
     return {
       title: `${focus.key} Detail`,
