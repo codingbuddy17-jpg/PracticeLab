@@ -183,12 +183,13 @@ def _score_trend(base, cfg, cap: int = 30) -> list:
 
 def _session_pass_rate(base, cfg) -> dict:
     """
-    Pass rate is a session-level verdict count, not a chart-level average.
+    Pass rate is a session-level score count, not a chart-level average.
 
     The Audit Score is recomputed from the stored detection and review pieces
-    for each submitted audit session. Sessions without enough reviewed code
-    lines are excluded from the pass-rate denominator because they have no
-    verdict yet.
+    for each submitted audit session. It deliberately counts scored thin
+    sessions too: the overview card answers "how many submitted attempts are
+    currently passing?", while pass_fail/verdict_withheld_reason separately
+    explains whether the formal verdict gate has enough review volume.
     """
     rows = (base.with_entities(
         R.session_id,
@@ -199,13 +200,13 @@ def _session_pass_rate(base, cfg) -> dict:
     passed = eligible = 0
     for _session_id, detection_avg, review_correct, review_total in rows:
         review_total = int(review_total or 0)
-        if review_total < cfg.min_review_opportunities:
-            continue
         detection = round(float(detection_avg), 2) if detection_avg is not None else None
         review = round(int(review_correct or 0) / review_total * 100, 2) if review_total else None
         score = blended_score(detection, review, cfg)
+        if score is None:
+            continue
         eligible += 1
-        if score is not None and score >= cfg.pass_threshold:
+        if score >= cfg.pass_threshold:
             passed += 1
     return {
         "pass_count": passed,

@@ -77,6 +77,9 @@ class TestOverview:
         body = client.get("/auditor/analytics/overview").json()
         assert body["pass_fail"] is None
         assert body["verdict_withheld_reason"]
+        assert body["pass_count"] == 1
+        assert body["verdict_count"] == 1
+        assert body["pass_rate"] == 100.0
 
     def test_drg_impact_is_its_own_number(self, client, db, library):
         """Never blended into the headline as a weight."""
