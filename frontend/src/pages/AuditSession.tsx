@@ -567,6 +567,12 @@ function SectionBlock({ spec, chart, state, onVerdict, onUpsert }: {
     onUpsert((f: Finding) => f === existing, null)
   }
 
+  function addComplete(f: Finding) {
+    if (!(f.correct_value || '').trim()) return false
+    if (spec.fields.includes('poa') && !String((f as any).poa || '').trim()) return false
+    return true
+  }
+
   function confirmAddField(index: number, field: string) {
     const pos = spec.fields.indexOf(field)
     const next = spec.fields[pos + 1]
@@ -673,6 +679,11 @@ function SectionBlock({ spec, chart, state, onVerdict, onUpsert }: {
                         section={key}
                       />
                     ))}
+                    {addComplete(f) && (
+                      <span style={{ ...s.tagChip, color: '#059669', background: '#dcfce7' }}>
+                        <Check size={11} /> Added
+                      </span>
+                    )}
                     <button onClick={() => removeAdd(i)} style={s.iconBtn}><X size={13} /></button>
                   </div>
                 ))}
@@ -863,6 +874,12 @@ function Field({ label, value, open, revision, strike, onChange, section, field 
                    fontWeight: changed ? 700 : 400 }}
           value={revision?.correct_value ?? value}
           onChange={e => onChange(e.target.value.toUpperCase())}
+          onKeyDown={e => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              if (e.currentTarget instanceof HTMLElement) e.currentTarget.blur()
+            }
+          }}
           placeholder={value || '—'}
         />
       ) : (
