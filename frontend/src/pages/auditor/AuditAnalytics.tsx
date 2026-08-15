@@ -419,7 +419,7 @@ function ReviewMetricsTab({ overview, specialties, threshold }: {
       </Panel>
 
       <div style={metricGridStyle}>
-        <Metric label="Code Lines Reviewed" value={scoped.review_total || 0} tone="#475569" />
+        <Metric label="Charts Reviewed" value={scoped.charts || 0} tone="#475569" />
         <Metric label="Review Score" value={pct(scoped.review_score)}
           tone={tone(scoped.review_score, threshold)} />
         <Metric label="Error Detection Rate" value={pct(scoped.audit_accuracy)}
@@ -630,7 +630,7 @@ function AuditorsTab({ rows, matched, query, setQuery, selected, setSelected, pr
                 style={{ ...auditorCardStyle, borderColor: on ? '#7c3aed' : '#e5e7eb', background: on ? '#f5f3ff' : '#fff' }}>
                 <span style={{ fontWeight: 800 }}>{r.auditor_name}</span>
                 <span style={{ fontSize: 11, color: '#6b7280' }}>{r.emp_id || 'No Emp ID'}</span>
-                <span style={{ fontWeight: 800, color: tone(r.audit_accuracy, threshold) }}>{pct(r.audit_accuracy)}</span>
+                <span style={{ fontWeight: 800, color: tone(r.audit_score, threshold) }}>{pct(r.audit_score)}</span>
               </button>
             )
           })}
@@ -705,7 +705,7 @@ function SpecialtiesTab({ rows, threshold }: { rows: any[]; threshold: number })
             <XAxis type="number" domain={[0, 100]} tickFormatter={v => `${v}%`} tick={{ fontSize: 10 }} />
             <YAxis type="category" dataKey="specialty" width={120} tick={{ fontSize: 11, fontWeight: 700 }} />
             <Tooltip formatter={(v: any) => [`${v}%`, 'Audit Score']} contentStyle={tooltipStyle} />
-            <Bar dataKey="audit_accuracy" fill="#7c3aed" radius={[0, 5, 5, 0]} />
+            <Bar dataKey="audit_score" fill="#7c3aed" radius={[0, 5, 5, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </Panel>
@@ -900,7 +900,7 @@ function CompactBatchTable({ rows, showPdf = false, threshold = 90 }: {
               <td style={td}>{r.specialty}</td>
               <td style={td}>{r.auditors}</td>
               <td style={td}>{r.charts}</td>
-              <td style={{ ...td, fontWeight: 800, color: tone(r.audit_accuracy, threshold) }}>{pct(r.audit_accuracy)}</td>
+              <td style={{ ...td, fontWeight: 800, color: tone(r.audit_score, threshold) }}>{pct(r.audit_score)}</td>
               <td style={td}><ProcedureCell row={r} /></td>
               {showPdf && (
                 <td style={{ ...td, textAlign: 'right' }}>

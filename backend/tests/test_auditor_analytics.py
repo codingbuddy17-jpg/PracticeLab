@@ -650,3 +650,48 @@ class TestAuditScoreBlend:
         for point in trend:
             assert "detection" in point and "review" in point
             assert point["score"] is not None
+
+
+class TestEveryRowCarriesTheBlend:
+    """
+    Every row shape the dashboard renders must carry audit_score, not just
+    audit_accuracy.
+
+    This has now been got wrong twice. The two are different numbers — one is
+    the blend the verdict uses, the other is the detection half — and a column
+    headed "Audit Score" rendering audit_accuracy is wrong in a way nothing
+    fails on: it just quietly shows the harsher figure. Asserting the field is
+    present everywhere is the cheapest guard against the next rewrite dropping
+    it again.
+    """
+
+    def _rows(self, client, batch_id):
+        return {
+            "by-batch": client.get("/auditor/analytics/by-batch").json()["batches"],
+            "by-auditor": client.get("/auditor/analytics/by-auditor").json()["auditors"],
+            "by-specialty": client.get("/auditor/analytics/by-specialty").json()["specialties"],
+        }
+
+    def test_every_grouping_reports_the_blended_score(self, client, db, library):
+        batch_id = make_batch(client, charts_per=8)
+        _run(client, batch_id, find_everything=False)
+        for name, rows in self._rows(client, batch_id).items():
+            assert rows, f"{name} returned nothing"
+            for row in rows:
+                assert "audit_score" in row, f"{name} row has no audit_score"
+                assert "audit_accuracy" in row, f"{name} row has no audit_accuracy"
+
+    def test_the_blend_and_the_detection_half_are_different_numbers(
+            self, client, db, library):
+        """
+        If these were ever equal the bug would be invisible, so the fixture has
+        to produce a partial auditor — one who reviews well and detects badly.
+        """
+        batch_id = make_batch(client, charts_per=8)
+        _run(client, batch_id, find_everything=False)
+        for name, rows in self._rows(client, batch_id).items():
+            row = rows[0]
+            assert row["audit_score"] != row["audit_accuracy"], (
+                f"{name}: blend and detection coincide, so this guard proves nothing")
+            assert row["audit_score"] > row["audit_accuracy"], (
+                f"{name}: the blend must sit above detection when review is stronger")
