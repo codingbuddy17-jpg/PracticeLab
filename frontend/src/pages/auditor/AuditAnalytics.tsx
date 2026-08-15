@@ -122,8 +122,10 @@ export function AuditAnalytics() {
   // Bucketed by the day charts were scored, computed in SQL. It used to be
   // built from the by-batch list, which is ordered by batch id — creation
   // sequence, not time — so the line ignored the date filter entirely.
+  // Weekly, so the label is the week beginning rather than a single day.
   const trend = (overview?.trend || []).map((p: any) => ({
     label: shortDate(p.date), score: p.score, charts: p.charts,
+    detection: p.detection, review: p.review,
   }))
   const threshold = overview?.pass_threshold ?? 90
   const cleanOpportunity = [
@@ -347,14 +349,16 @@ function OverviewTab({ overview, trend, cleanOpportunity, threshold }: {
       </div>
 
       <div style={chartGridStyle}>
-        <Panel title="Audit Score Trend">
+        <Panel title="Audit Score Trend — by week">
           {trend.length > 1 ? (
             <ResponsiveContainer width="100%" height={190}>
               <LineChart data={trend} margin={{ left: 0, right: 16, top: 8, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
                 <XAxis dataKey="label" tick={{ fontSize: 10 }} />
                 <YAxis domain={[0, 100]} tickFormatter={v => `${v}%`} tick={{ fontSize: 10 }} width={34} />
-                <Tooltip formatter={(v: any) => [`${v}%`, 'Audit Score']} contentStyle={tooltipStyle} />
+                <Tooltip contentStyle={tooltipStyle}
+                  formatter={(v: any) => [`${v}%`, 'Audit Score']}
+                  labelFormatter={(l: any) => `Week of ${l}`} />
                 <Line type="monotone" dataKey="score" stroke="#7c3aed" strokeWidth={2.5} dot={{ r: 3 }} />
               </LineChart>
             </ResponsiveContainer>
