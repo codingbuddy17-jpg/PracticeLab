@@ -3,7 +3,7 @@ import toast from 'react-hot-toast'
 import { Download, FileText, KeyRound, Search, X } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import {
-  Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart,
+  Bar, BarChart, CartesianGrid, Cell, Line, LineChart,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts'
 import {
@@ -14,7 +14,7 @@ import {
 import s from './styles'
 import { AUDITABLE } from './constants'
 
-const TABS = ['Overview', 'Auditors', 'Batches', 'Specialties', 'Error Patterns', 'Chart Signals'] as const
+const TABS = ['Overview', 'Review Metrics', 'Auditors', 'Batches', 'Specialties', 'Error Patterns', 'Chart Signals'] as const
 type Tab = typeof TABS[number]
 type Filters = { from_date?: string; to_date?: string; specialty?: string }
 
@@ -71,12 +71,7 @@ export function AuditAnalytics() {
     async function fetchFor(t: Tab) {
       if (loaded[t]) return
       try {
-        if (t === 'Overview') {
-          const [sp, d] = await Promise.all([
-            getAuditBySpecialty(filters), getAuditDetection(filters)])
-          if (cancelled) return
-          setSpecialties(sp.specialties); setDetection(d)
-        } else if (t === 'Specialties') {
+        if (t === 'Specialties') {
           const sp = await getAuditBySpecialty(filters)
           if (cancelled) return
           setSpecialties(sp.specialties)
@@ -182,9 +177,10 @@ export function AuditAnalytics() {
             ))}
           </div>
 
-          {tab === 'Overview' && (
-            <OverviewTab overview={overview} trend={trend} cleanOpportunity={cleanOpportunity}
-              specialties={specialties} detection={detection} threshold={threshold} />
+          {tab === 'Overview' && <OverviewTab overview={overview} threshold={threshold} />}
+          {tab === 'Review Metrics' && (
+            <ReviewMetricsTab overview={overview} trend={trend} cleanOpportunity={cleanOpportunity}
+              threshold={threshold} />
           )}
           {tab === 'Auditors' && (
             <AuditorsTab rows={auditors} matched={auditorMatched}
@@ -331,46 +327,50 @@ function Verdict({ overview, threshold }: { overview: any; threshold: number }) 
   )
 }
 
-function OverviewTab({ overview, trend, cleanOpportunity, specialties, detection, threshold }: {
-  overview: any; trend: any[]; cleanOpportunity: any[]; specialties: any[]
-  detection: any; threshold: number
-}) {
+function OverviewTab({ overview, threshold }: { overview: any; threshold: number }) {
   return (
     <div style={stackStyle}>
       <Verdict overview={overview} threshold={threshold} />
       <div style={metricGridStyle}>
-        {/*
-          Review leads because it is what the verdict is decided on. Detection
-          sits beside it, never blended: an auditor can review carefully and
-          still find nothing, and one number would hide which.
-        */}
-        <Metric label="Audit Score" value={pct(overview.audit_score)}
+        <Metric label="Auditors Tested" value={overview.auditors || 0} tone="#475569"
+          sub={`${overview.charts || 0} chart(s)`} />
+        <Metric label="Overall Audit Score" value={pct(overview.audit_score)}
           tone={tone(overview.audit_score, threshold)}
-          sub={`${overview.detection_weight ?? 50}/${overview.review_weight ?? 50} detection · review`} />
+          sub="cumulative" />
         <Metric label="Error Detection Rate" value={pct(overview.audit_accuracy)}
           tone={tone(overview.audit_accuracy, threshold)}
-          sub={overview.opportunities ? `${overview.opportunities} errors introduced` : 'none introduced'} />
+          sub="cumulative" />
         <Metric label="Review Score" value={pct(overview.review_score)}
           tone={tone(overview.review_score, threshold)}
-          sub={overview.review_total ? `${overview.review_correct} of ${overview.review_total} lines` : 'NA'} />
+          sub="cumulative" />
         <Metric label="Clean Chart Score" value={pct(overview.clean_accuracy)} tone="#2563eb" />
-        <Metric label="Opportunity Chart Score" value={pct(overview.opportunity_accuracy)} tone="#7c3aed" />
-        <SectionMetrics sections={overview.sections} />
-        <AttributeMetrics attributes={overview.attributes} />
+        <Metric label="Opp Chart Score" value={pct(overview.opportunity_accuracy)} tone="#7c3aed" />
+        <Metric label="Total Pass Rate" value={pct(overview.pass_rate)}
+          tone={tone(overview.pass_rate, 70)}
+          sub={`${overview.pass_count || 0}/${overview.verdict_count || 0} passed`} />
+      </div>
+    </div>
+  )
+}
+
+function ReviewMetricsTab({ overview, trend, cleanOpportunity, threshold }: {
+  overview: any; trend: any[]; cleanOpportunity: any[]; threshold: number
+}) {
+  return (
+    <div style={stackStyle}>
+      <div style={metricGridStyle}>
+        <Metric label="Code Lines Reviewed" value={overview.review_total || 0} tone="#475569"
+          sub={overview.review_total ? `${overview.review_correct} correct` : 'NA'} />
         <Metric label="Query Score" value={pct(overview.query_accuracy)} tone="#475569"
           sub={overview.query_charts ? `${overview.query_correct}/${overview.query_charts}` : 'NA'} />
-        {/*
-          Reported, never scored — and the one measure with no coder-side
-          equivalent. "Found 4, corrected 2" and "found 2 of 4" both score 50%
-          and are different conversations: one auditor cannot spot the error,
-          the other cannot fix it. It was a single line in Risk Signals, which
-          buried the distinction the module exists to draw.
-        */}
         <Metric label="Found, Corrected Wrongly" value={overview.detected_not_corrected || 0}
           tone="#7c3aed"
           sub={overview.detected_not_corrected
             ? 'spotted the error, got the fix wrong'
             : 'every find was corrected'} />
+        <Metric label="Overcalls" value={overview.over_calls || 0} tone="#ea580c" />
+        <SectionMetrics sections={overview.sections} />
+        <AttributeMetrics attributes={overview.attributes} />
       </div>
 
       <div style={chartGridStyle}>
@@ -404,24 +404,10 @@ function OverviewTab({ overview, trend, cleanOpportunity, specialties, detection
       </div>
 
       <div style={chartGridStyle}>
-        <Panel title="Specialty Mix">
-          <ResponsiveContainer width="100%" height={190}>
-            <PieChart>
-              <Pie data={specialties.map((r: any) => ({ name: r.specialty, value: r.charts }))}
-                dataKey="value" nameKey="name" outerRadius={74}>
-                {specialties.map((_, i) => <Cell key={i} fill={palette[i % palette.length]} />)}
-              </Pie>
-              <Tooltip contentStyle={tooltipStyle} />
-            </PieChart>
-          </ResponsiveContainer>
-        </Panel>
         <Panel title="Risk Signals">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <RiskRow label="Missed Errors" value={missedTotal(overview)} color="#dc2626" />
             <RiskRow label="Overcalls" value={overview.over_calls || 0} color="#ea580c" />
-            {detection?.weakest?.slice(0, 3).map((r: any) => (
-              <RiskRow key={r.key} label={r.label} value={pct(r.accuracy)} color={tone(r.accuracy, threshold)} />
-            ))}
           </div>
         </Panel>
       </div>
@@ -899,7 +885,6 @@ function short(text: string, n: number) {
   return text.length > n ? `${text.slice(0, n - 1)}...` : text
 }
 
-const palette = ['#7c3aed', '#2563eb', '#0f766e', '#db2777', '#ea580c', '#64748b', '#16a34a']
 const muted: React.CSSProperties = { fontSize: 11, color: '#9ca3af' }
 const tooltipStyle: React.CSSProperties = { fontSize: 12, borderRadius: 8 }
 const stackStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 16, marginTop: 16 }

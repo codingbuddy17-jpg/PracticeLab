@@ -180,6 +180,40 @@ def _score_trend(base, cfg, cap: int = 30) -> list:
         })
     return out
 
+
+def _session_pass_rate(base, cfg) -> dict:
+    """
+    Pass rate is a session-level verdict count, not a chart-level average.
+
+    The Audit Score is recomputed from the stored detection and review pieces
+    for each submitted audit session. Sessions without enough reviewed code
+    lines are excluded from the pass-rate denominator because they have no
+    verdict yet.
+    """
+    rows = (base.with_entities(
+        R.session_id,
+        func.avg(R.audit_accuracy),
+        func.sum(func.coalesce(R.review_correct, 0)),
+        func.sum(func.coalesce(R.review_total, 0)),
+    ).group_by(R.session_id).all())
+    passed = eligible = 0
+    for _session_id, detection_avg, review_correct, review_total in rows:
+        review_total = int(review_total or 0)
+        if review_total < cfg.min_review_opportunities:
+            continue
+        detection = round(float(detection_avg), 2) if detection_avg is not None else None
+        review = round(int(review_correct or 0) / review_total * 100, 2) if review_total else None
+        score = blended_score(detection, review, cfg)
+        eligible += 1
+        if score is not None and score >= cfg.pass_threshold:
+            passed += 1
+    return {
+        "pass_count": passed,
+        "verdict_count": eligible,
+        "pass_rate": _rate(passed, eligible),
+    }
+
+
 def _roll_sql(db: Session, base, cfg) -> dict:
     """
     The figures every level of this report shares, computed in the database.
@@ -217,13 +251,13 @@ def _roll_sql(db: Session, base, cfg) -> dict:
         + components["delete"]["planted"]
     audit_accuracy = round(float(avg_acc), 2) if avg_acc is not None else None
 
-    # The verdict is decided on the REVIEW score, not detection. Detection is
-    # quantised by planting count — a chart with one error can only score 0 or
-    # 100 — so a verdict on it was noise until a session ran impractically
-    # long. Review counts code lines, of which a chart has about four times as
-    # many, so a normal session reaches a defensible figure.
+    # The verdict is decided on the blended Audit Score. Detection alone is
+    # quantised by planting count, while review counts the code lines judged in
+    # the chart; the blend keeps both skills visible without overcrowding the
+    # overview.
     review = _review_rollup(base)
     audit_score = blended_score(audit_accuracy, review["review_score"], cfg)
+    session_verdicts = _session_pass_rate(base, cfg)
     verdict = None
     withheld = None
     if review["review_total"] >= cfg.min_review_opportunities:
@@ -282,6 +316,7 @@ def _roll_sql(db: Session, base, cfg) -> dict:
         "opportunities_needed": cfg.min_review_opportunities,
         "pass_fail": verdict,
         "verdict_withheld_reason": withheld,
+        **session_verdicts,
     }
 
 
