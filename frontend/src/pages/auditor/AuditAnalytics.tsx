@@ -71,7 +71,7 @@ export function AuditAnalytics() {
     async function fetchFor(t: Tab) {
       if (loaded[t]) return
       try {
-        if (t === 'Specialties') {
+        if (t === 'Specialties' || t === 'Review Metrics') {
           const sp = await getAuditBySpecialty(filters)
           if (cancelled) return
           setSpecialties(sp.specialties)
@@ -177,10 +177,12 @@ export function AuditAnalytics() {
             ))}
           </div>
 
-          {tab === 'Overview' && <OverviewTab overview={overview} threshold={threshold} />}
+          {tab === 'Overview' && (
+            <OverviewTab overview={overview} trend={trend}
+              cleanOpportunity={cleanOpportunity} threshold={threshold} />
+          )}
           {tab === 'Review Metrics' && (
-            <ReviewMetricsTab overview={overview} trend={trend} cleanOpportunity={cleanOpportunity}
-              threshold={threshold} />
+            <ReviewMetricsTab overview={overview} specialties={specialties} threshold={threshold} />
           )}
           {tab === 'Auditors' && (
             <AuditorsTab rows={auditors} matched={auditorMatched}
@@ -284,8 +286,8 @@ function SectionMetrics({ sections }: { sections: any }) {
   const order = ['PDx', 'SDx', 'PCS', 'CPT']
   return (
     <>
-      {order.filter(k => (sections?.[k]?.planted || 0) > 0).map(k => (
-        <Metric key={k} label={SECTION_LABEL[k]} value={pct(sections[k].accuracy)}
+      {order.filter(k => (sections?.[k]?.total || 0) > 0).map(k => (
+        <Metric key={k} label={SECTION_LABEL[k]} value={pct(sections[k].score)}
           tone={SECTION_TONE[k]}
           sub={`${sections[k].correct} of ${sections[k].total} lines`} />
       ))}
@@ -327,7 +329,9 @@ function Verdict({ overview, threshold }: { overview: any; threshold: number }) 
   )
 }
 
-function OverviewTab({ overview, threshold }: { overview: any; threshold: number }) {
+function OverviewTab({ overview, trend, cleanOpportunity, threshold }: {
+  overview: any; trend: any[]; cleanOpportunity: any[]; threshold: number
+}) {
   return (
     <div style={stackStyle}>
       <Verdict overview={overview} threshold={threshold} />
@@ -349,29 +353,6 @@ function OverviewTab({ overview, threshold }: { overview: any; threshold: number
           tone={tone(overview.pass_rate, 70)}
           sub={`${overview.pass_count || 0}/${overview.verdict_count || 0} passed`} />
       </div>
-    </div>
-  )
-}
-
-function ReviewMetricsTab({ overview, trend, cleanOpportunity, threshold }: {
-  overview: any; trend: any[]; cleanOpportunity: any[]; threshold: number
-}) {
-  return (
-    <div style={stackStyle}>
-      <div style={metricGridStyle}>
-        <Metric label="Code Lines Reviewed" value={overview.review_total || 0} tone="#475569"
-          sub={overview.review_total ? `${overview.review_correct} correct` : 'NA'} />
-        <Metric label="Query Score" value={pct(overview.query_accuracy)} tone="#475569"
-          sub={overview.query_charts ? `${overview.query_correct}/${overview.query_charts}` : 'NA'} />
-        <Metric label="Found, Corrected Wrongly" value={overview.detected_not_corrected || 0}
-          tone="#7c3aed"
-          sub={overview.detected_not_corrected
-            ? 'spotted the error, got the fix wrong'
-            : 'every find was corrected'} />
-        <Metric label="Overcalls" value={overview.over_calls || 0} tone="#ea580c" />
-        <SectionMetrics sections={overview.sections} />
-        <AttributeMetrics attributes={overview.attributes} />
-      </div>
 
       <div style={chartGridStyle}>
         <Panel title="Audit Score Trend">
@@ -385,7 +366,7 @@ function ReviewMetricsTab({ overview, trend, cleanOpportunity, threshold }: {
                 <Line type="monotone" dataKey="score" stroke="#7c3aed" strokeWidth={2.5} dot={{ r: 3 }} />
               </LineChart>
             </ResponsiveContainer>
-          ) : <div style={s.empty}>Need at least two scored batches for trend.</div>}
+          ) : <div style={s.empty}>Need at least two scored days for trend.</div>}
         </Panel>
 
         <Panel title="Clean vs Opportunity">
@@ -403,16 +384,219 @@ function ReviewMetricsTab({ overview, trend, cleanOpportunity, threshold }: {
         </Panel>
       </div>
 
+      <Panel title="Risk Signals">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 10 }}>
+          <RiskRow label="Missed Errors" value={missedTotal(overview)} color="#dc2626" />
+          <RiskRow label="Found, Corrected Wrongly" value={overview.detected_not_corrected || 0} color="#7c3aed" />
+          <RiskRow label="Overcalls" value={overview.over_calls || 0} color="#ea580c" />
+        </div>
+      </Panel>
+    </div>
+  )
+}
+
+function ReviewMetricsTab({ overview, specialties, threshold }: {
+  overview: any; specialties: any[]; threshold: number
+}) {
+  const [selectedSpecialty, setSelectedSpecialty] = useState('')
+  const [focus, setFocus] = useState<any>({ kind: 'action', key: 'add' })
+  const scoped = specialties.find(r => r.specialty === selectedSpecialty) || overview
+  const actionRows = ['add', 'revise', 'delete'].map(k => actionMetric(scoped, k))
+  const sectionRows = sectionMetricRows(scoped)
+  const attributeRows = attributeMetricRows(scoped)
+  const active = metricBody(scoped, focus)
+
+  return (
+    <div style={stackStyle}>
+      <Panel title="Metric Workspace"
+        right={specialties.length ? (
+          <select style={{ ...s.input, width: 210 }} value={selectedSpecialty}
+            onChange={e => {
+              setSelectedSpecialty(e.target.value)
+              setFocus({ kind: 'action', key: 'add' })
+            }}>
+            <option value="">All specialties</option>
+            {specialties.map(r => <option key={r.specialty} value={r.specialty}>{r.specialty}</option>)}
+          </select>
+        ) : null}>
+        <div style={{ ...s.note, marginTop: 0 }}>
+          {selectedSpecialty
+            ? `${selectedSpecialty} metrics only. Click a score to inspect the numerator, denominator and coaching angle.`
+            : 'Cumulative metrics across the current date and specialty filters. Select a specialty for CPT, PCS, PDx, SDx and attribute drill-down.'}
+        </div>
+      </Panel>
+
+      <div style={metricGridStyle}>
+        <Metric label="Code Lines Reviewed" value={scoped.review_total || 0} tone="#475569"
+          sub={scoped.review_total ? `${scoped.review_correct} correct` : 'NA'} />
+        <Metric label="Review Score" value={pct(scoped.review_score)}
+          tone={tone(scoped.review_score, threshold)} sub="all code-line judgements" />
+        <Metric label="Error Detection Rate" value={pct(scoped.audit_accuracy)}
+          tone={tone(scoped.audit_accuracy, threshold)} sub="errors found and fixed" />
+        <Metric label="Query Score" value={pct(scoped.query_accuracy)} tone="#475569"
+          sub={scoped.query_charts ? `${scoped.query_correct}/${scoped.query_charts}` : 'NA'} />
+      </div>
+
       <div style={chartGridStyle}>
-        <Panel title="Risk Signals">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <RiskRow label="Missed Errors" value={missedTotal(overview)} color="#dc2626" />
-            <RiskRow label="Overcalls" value={overview.over_calls || 0} color="#ea580c" />
-          </div>
+        <Panel title="Action Scores">
+          <MetricDrillGrid rows={actionRows} focus={focus} setFocus={setFocus} threshold={threshold} />
+        </Panel>
+        <Panel title="Code Family Scores">
+          {sectionRows.length
+            ? <MetricDrillGrid rows={sectionRows} focus={focus} setFocus={setFocus} threshold={threshold} />
+            : <div style={s.empty}>No code-family review metrics in scope.</div>}
+        </Panel>
+      </div>
+
+      <div style={chartGridStyle}>
+        <Panel title="Attribute Scores">
+          {attributeRows.length
+            ? <MetricDrillGrid rows={attributeRows} focus={focus} setFocus={setFocus} threshold={threshold} />
+            : <div style={s.empty}>No POA, modifier or unit review metrics in scope.</div>}
+        </Panel>
+        <Panel title={active.title}>
+          <MetricDetail body={active} threshold={threshold} />
         </Panel>
       </div>
     </div>
   )
+}
+
+function MetricDrillGrid({ rows, focus, setFocus, threshold }: {
+  rows: any[]; focus: any; setFocus: (v: any) => void; threshold: number
+}) {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(145px, 1fr))', gap: 8 }}>
+      {rows.map(r => {
+        const on = focus.kind === r.kind && focus.key === r.key
+        return (
+          <button key={`${r.kind}-${r.key}`} onClick={() => setFocus({ kind: r.kind, key: r.key })}
+            style={{
+              ...drillCardStyle,
+              borderColor: on ? '#7c3aed' : '#e5e7eb',
+              background: on ? '#f5f3ff' : '#fff',
+            }}>
+            <span style={{ fontSize: 20, fontWeight: 900, color: tone(r.score, threshold) }}>{pct(r.score)}</span>
+            <span style={{ fontSize: 11, fontWeight: 900, color: '#4b5563' }}>{r.label}</span>
+            <span style={muted}>{r.basis}</span>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+function MetricDetail({ body, threshold }: { body: any; threshold: number }) {
+  return (
+    <div style={{ display: 'grid', gap: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 32, fontWeight: 900, color: tone(body.score, threshold), lineHeight: 1 }}>
+          {pct(body.score)}
+        </span>
+        <span style={{ fontSize: 12, color: '#4b5563' }}>{body.basis}</span>
+      </div>
+      <div style={{ height: 8, background: '#f3f4f6', borderRadius: 6, overflow: 'hidden' }}>
+        <div style={{ height: '100%', width: `${Math.max(0, Math.min(100, body.score || 0))}%`,
+                      background: tone(body.score, threshold), borderRadius: 6 }} />
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8 }}>
+        {body.facts.map((f: any) => (
+          <div key={f.label} style={factStyle}>
+            <div style={{ fontSize: 17, fontWeight: 900 }}>{f.value}</div>
+            <div style={muted}>{f.label}</div>
+          </div>
+        ))}
+      </div>
+      <div style={s.note}>{body.note}</div>
+    </div>
+  )
+}
+
+function actionMetric(row: any, key: string) {
+  const body = row?.[key] || {}
+  const label = key === 'add' ? 'Add Score' : key === 'revise' ? 'Revise Score' : 'Delete Score'
+  return {
+    kind: 'action', key, label,
+    score: body.accuracy,
+    basis: body.planted ? `${body.found || 0}/${body.planted} found and fixed` : 'NA',
+  }
+}
+
+function sectionMetricRows(row: any) {
+  return ['PDx', 'SDx', 'PCS', 'CPT']
+    .filter(k => row?.sections?.[k]?.total)
+    .map(k => ({
+      kind: 'section', key: k, label: SECTION_LABEL[k],
+      score: row.sections[k].score,
+      basis: `${row.sections[k].correct}/${row.sections[k].total} correct`,
+    }))
+}
+
+function attributeMetricRows(row: any) {
+  return ['POA', 'Modifier', 'Units']
+    .filter(k => row?.attributes?.[k]?.total)
+    .map(k => ({
+      kind: 'attribute', key: k, label: `${k} Score`,
+      score: row.attributes[k].score,
+      basis: `${row.attributes[k].correct}/${row.attributes[k].total} correct`,
+    }))
+}
+
+function metricBody(row: any, focus: any) {
+  if (focus.kind === 'section') {
+    const body = row?.sections?.[focus.key] || {}
+    return {
+      title: `${SECTION_LABEL[focus.key] || focus.key} Detail`,
+      score: body.score,
+      basis: body.total ? `${body.correct || 0} of ${body.total} code-line judgements correct` : 'No reviewed lines',
+      facts: [
+        { label: 'Correct', value: body.correct || 0 },
+        { label: 'Reviewed', value: body.total || 0 },
+        { label: 'Missed/Wrong', value: Math.max(0, (body.total || 0) - (body.correct || 0)) },
+      ],
+      note: sectionNote(focus.key),
+    }
+  }
+  if (focus.kind === 'attribute') {
+    const body = row?.attributes?.[focus.key] || {}
+    return {
+      title: `${focus.key} Detail`,
+      score: body.score,
+      basis: body.total ? `${body.correct || 0} of ${body.total} attribute judgements correct` : 'No reviewed attributes',
+      facts: [
+        { label: 'Correct', value: body.correct || 0 },
+        { label: 'Reviewed', value: body.total || 0 },
+        { label: 'Missed/Wrong', value: Math.max(0, (body.total || 0) - (body.correct || 0)) },
+      ],
+      note: `${focus.key} is reported separately from the code-line score so a small attribute denominator does not hide or inflate the main review metric.`,
+    }
+  }
+  const body = row?.[focus.key] || {}
+  const label = focus.key === 'add' ? 'Add' : focus.key === 'revise' ? 'Revise' : 'Delete'
+  return {
+    title: `${label} Detail`,
+    score: body.accuracy,
+    basis: body.planted ? `${body.found || 0} of ${body.planted} introduced ${label.toLowerCase()} errors found and fixed` : 'No introduced errors',
+    facts: [
+      { label: 'Found', value: body.found || 0 },
+      { label: 'Introduced', value: body.planted || 0 },
+      { label: 'Missed/Wrong', value: Math.max(0, (body.planted || 0) - (body.found || 0)) },
+    ],
+    note: actionNote(focus.key),
+  }
+}
+
+function actionNote(key: string) {
+  if (key === 'add') return 'Add measures whether auditors caught omitted codes and supplied the correct missing code back.'
+  if (key === 'revise') return 'Revise measures whether auditors caught an existing code or attribute that needed correction.'
+  return 'Delete measures whether auditors identified spurious codes that should not have been present.'
+}
+
+function sectionNote(key: string) {
+  if (key === 'PCS') return 'PCS is the inpatient procedure review score.'
+  if (key === 'CPT') return 'CPT is the outpatient procedure review score.'
+  if (key === 'PDx') return 'PDx isolates principal diagnosis judgement, including wrong principal or swapped diagnosis issues.'
+  return 'SDx isolates secondary diagnosis judgement, including omitted, substituted and CC/MCC-bearing diagnosis lines.'
 }
 
 /**
@@ -669,10 +853,10 @@ function ChartSignalsTab({ data, query, setQuery, threshold }: {
 function ProcedureCell({ row }: { row: any }) {
   const ip = row.specialty === 'IP-DRG'
   const sec = row.sections?.[ip ? 'PCS' : 'CPT']
-  if (!sec || !sec.planted) return <span style={muted}>NA</span>
+  if (!sec || !sec.total) return <span style={muted}>NA</span>
   return (
     <span>
-      <strong>{pct(sec.accuracy)}</strong>
+      <strong>{pct(sec.score)}</strong>
       <span style={{ ...muted, marginLeft: 5 }}>{ip ? 'PCS' : 'CPT'}</span>
     </span>
   )
@@ -891,6 +1075,8 @@ const stackStyle: React.CSSProperties = { display: 'flex', flexDirection: 'colum
 const chartGridStyle: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16 }
 const metricGridStyle: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }
 const metricStyle: React.CSSProperties = { border: '1px solid #e5e7eb', borderRadius: 8, background: '#fff', padding: '14px 16px' }
+const drillCardStyle: React.CSSProperties = { textAlign: 'left', border: '1px solid #e5e7eb', borderRadius: 8, background: '#fff', padding: 12, cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 4, minHeight: 92 }
+const factStyle: React.CSSProperties = { border: '1px solid #e5e7eb', borderRadius: 8, background: '#f8fafc', padding: '10px 12px' }
 const noteBoxStyle: React.CSSProperties = { border: '1px solid #ddd6fe', borderRadius: 8, background: '#faf5ff', padding: '10px 12px' }
 const filterBarStyle: React.CSSProperties = { display: 'flex', gap: 8, alignItems: 'center', padding: '10px 14px', background: '#f8fafc', border: '1px solid #e5e7eb', borderRadius: 8, marginTop: 16, marginBottom: 10, flexWrap: 'wrap' }
 const tabBarStyle: React.CSSProperties = { display: 'flex', border: '1px solid #c4b5fd', borderRadius: 10, overflow: 'hidden', flexWrap: 'wrap', background: '#faf5ff', marginTop: 12 }
