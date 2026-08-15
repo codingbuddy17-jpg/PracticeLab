@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import {
   ChevronDown, ChevronLeft, ChevronRight, Download, Eye, Plus, Save, Trash2, X,
@@ -34,8 +35,16 @@ const SECTION_LABEL: Record<string, string> = {
  * ones instead.
  */
 export function AuditKeys({ trainer }: { trainer: string }) {
-  const [specialty, setSpecialty] = useState('IP-DRG')
-  const [chartId, setChartId] = useState<number | null>(null)
+  // Deep-linkable: Chart Signals sends a trainer straight to the errors
+  // authored for a chart it has flagged, because the next question after "this
+  // chart keeps being missed" is always "is the key wrong?". Reading it from
+  // the URL rather than a prop keeps the link shareable and survives a reload.
+  const [params, setParams] = useSearchParams()
+  const linkedChart = Number(params.get('chart')) || null
+  const linkedSpecialty = params.get('specialty')
+
+  const [specialty, setSpecialty] = useState(linkedSpecialty || 'IP-DRG')
+  const [chartId, setChartId] = useState<number | null>(linkedChart)
   const [sets, setSets] = useState<Record<string, any>[]>([])
   const [status, setStatus] = useState<any>(null)
   const [uncurated, setUncurated] = useState<Record<string, any>[]>([])
@@ -63,7 +72,12 @@ export function AuditKeys({ trainer }: { trainer: string }) {
 
   if (chartId !== null) {
     return <ChartKeyEditor chartId={chartId} trainer={trainer}
-      onBack={() => { setChartId(null); load() }} />
+      onBack={() => {
+        setChartId(null)
+        // Drop the deep link too, or Back reopens the editor it just closed.
+        if (params.get('chart')) setParams({}, { replace: true })
+        load()
+      }} />
   }
 
   const COLS = '130px 1fr 90px 1fr 150px'

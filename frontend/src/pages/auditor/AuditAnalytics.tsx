@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
-import { Download, FileText, Search, X } from 'lucide-react'
+import { Download, FileText, KeyRound, Search, X } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import {
   Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
@@ -18,6 +19,13 @@ type Tab = typeof TABS[number]
 type Filters = { from_date?: string; to_date?: string; specialty?: string }
 
 const ROW_CAP = 40
+
+const keyLinkStyle: React.CSSProperties = {
+  display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11,
+  fontWeight: 700, color: '#7c3aed', textDecoration: 'none',
+  border: '1px solid #ddd6fe', background: '#f5f3ff',
+  padding: '4px 9px', borderRadius: 7, whiteSpace: 'nowrap',
+}
 const AUDITOR_MATCH_CAP = 20
 
 export function AuditAnalytics() {
@@ -182,7 +190,8 @@ export function AuditAnalytics() {
             <AuditorsTab rows={auditors} matched={auditorMatched}
               query={auditorSearch} setQuery={setAuditorSearch}
               selected={selectedAuditor} setSelected={setSelectedAuditor}
-              profile={auditorProfile} filters={filters} threshold={threshold} />
+              profile={auditorProfile} filters={filters} threshold={threshold}
+              cohort={overview} />
           )}
           {tab === 'Batches' && <BatchesTab rows={batches} query={batchSearch} setQuery={setBatchSearch} threshold={threshold} />}
           {tab === 'Specialties' && <SpecialtiesTab rows={specialties} threshold={threshold} />}
@@ -285,6 +294,18 @@ function OverviewTab({ overview, trend, cleanOpportunity, specialties, detection
         <Metric label="PCS Score" value={pct(overview.pcs?.accuracy)} tone="#0f766e" sub={countSub(overview.pcs)} />
         <Metric label="Query Score" value={pct(overview.query_accuracy)} tone="#475569"
           sub={overview.query_charts ? `${overview.query_correct}/${overview.query_charts}` : 'NA'} />
+        {/*
+          Reported, never scored — and the one measure with no coder-side
+          equivalent. "Found 4, corrected 2" and "found 2 of 4" both score 50%
+          and are different conversations: one auditor cannot spot the error,
+          the other cannot fix it. It was a single line in Risk Signals, which
+          buried the distinction the module exists to draw.
+        */}
+        <Metric label="Found, Corrected Wrongly" value={overview.detected_not_corrected || 0}
+          tone="#7c3aed"
+          sub={overview.detected_not_corrected
+            ? 'spotted the error, got the fix wrong'
+            : 'every find was corrected'} />
       </div>
 
       <div style={chartGridStyle}>
@@ -333,7 +354,6 @@ function OverviewTab({ overview, trend, cleanOpportunity, specialties, detection
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <RiskRow label="Missed Errors" value={missedTotal(overview)} color="#dc2626" />
             <RiskRow label="Overcalls" value={overview.over_calls || 0} color="#ea580c" />
-            <RiskRow label="Detected, Not Corrected" value={overview.detected_not_corrected || 0} color="#7c3aed" />
             {detection?.weakest?.slice(0, 3).map((r: any) => (
               <RiskRow key={r.key} label={r.label} value={pct(r.accuracy)} color={tone(r.accuracy, threshold)} />
             ))}
@@ -344,11 +364,31 @@ function OverviewTab({ overview, trend, cleanOpportunity, specialties, detection
   )
 }
 
+/**
+ * One auditor against the cohort they sat with.
+ *
+ * A bare "82%" is a number; "82%, cohort 89%" is a coaching conversation. The
+ * cohort figure is the page-level overview, which carries the same date and
+ * specialty filters but no auditor — so the comparison is always like for
+ * like, and follows the filter bar.
+ */
+function Versus({ mine, cohort }: { mine: number | null | undefined; cohort: number | null | undefined }) {
+  if (mine === null || mine === undefined || cohort === null || cohort === undefined) return null
+  const d = Math.round((mine - cohort) * 10) / 10
+  const colour = d > 0 ? '#059669' : d < 0 ? '#dc2626' : '#6b7280'
+  return (
+    <span>
+      cohort {pct(cohort)}{' '}
+      <strong style={{ color: colour }}>{d > 0 ? '+' : ''}{d}</strong>
+    </span>
+  )
+}
+
 function AuditorsTab({ rows, matched, query, setQuery, selected, setSelected, profile,
-                      filters, threshold }: {
+                      filters, threshold, cohort }: {
   rows: any[]; matched: number; query: string; setQuery: (v: string) => void
   selected: any; setSelected: (r: any) => void; profile: any; filters: Filters
-  threshold: number
+  threshold: number; cohort: any
 }) {
   // The server has already searched and ordered these — weakest first — so
   // this only decides how many to draw. Filtering here would limit search to
@@ -388,10 +428,15 @@ function AuditorsTab({ rows, matched, query, setQuery, selected, setSelected, pr
           {!profile ? <div style={s.empty}>Loading profile...</div> : (
             <div style={stackStyle}>
               <div style={metricGridStyle}>
-                <Metric label="Audit Score" value={pct(profile.overview.audit_accuracy)} tone={tone(profile.overview.audit_accuracy, threshold)} />
-                <Metric label="Clean Chart Score" value={pct(profile.overview.clean_accuracy)} tone="#2563eb" />
-                <Metric label="Opportunity Chart Score" value={pct(profile.overview.opportunity_accuracy)} tone="#7c3aed" />
+                <Metric label="Audit Score" value={pct(profile.overview.audit_accuracy)}
+                  tone={tone(profile.overview.audit_accuracy, threshold)}
+                  sub={<Versus mine={profile.overview.audit_accuracy} cohort={cohort?.audit_accuracy} />} />
+                <Metric label="Clean Chart Score" value={pct(profile.overview.clean_accuracy)} tone="#2563eb"
+                  sub={<Versus mine={profile.overview.clean_accuracy} cohort={cohort?.clean_accuracy} />} />
+                <Metric label="Opportunity Chart Score" value={pct(profile.overview.opportunity_accuracy)} tone="#7c3aed"
+                  sub={<Versus mine={profile.overview.opportunity_accuracy} cohort={cohort?.opportunity_accuracy} />} />
                 <Metric label="PCS Score" value={pct(profile.overview.pcs?.accuracy)} tone="#0f766e" sub={countSub(profile.overview.pcs)} />
+                <Metric label="Found, Corrected Wrongly" value={profile.overview.detected_not_corrected || 0} tone="#7c3aed" />
                 <Metric label="Overcalls" value={profile.overview.over_calls || 0} tone="#ea580c" />
               </div>
               <CompactBatchTable rows={profile.batches} threshold={threshold} />
@@ -502,7 +547,7 @@ function ChartSignalsTab({ data, query, setQuery, threshold }: {
         {!shown.length ? <div style={s.empty}>No chart-level audit signals yet.</div> : (
           <div style={{ overflowX: 'auto', marginTop: 12 }}>
             <table style={tableStyle}>
-              <thead><tr>{['Chart', 'Specialty', 'Attempts', 'Audit Score', 'Opportunity Mix', 'Missed', 'Overcalls', 'Signal'].map(h => <th key={h} style={th}>{h}</th>)}</tr></thead>
+              <thead><tr>{['Chart', 'Specialty', 'Attempts', 'Audit Score', 'Opportunity Mix', 'Missed', 'Overcalls', 'Signal', ''].map(h => <th key={h} style={th}>{h}</th>)}</tr></thead>
               <tbody>
                 {shown.map(r => (
                   <tr key={r.chart_id}>
@@ -523,6 +568,21 @@ function ChartSignalsTab({ data, query, setQuery, threshold }: {
                     <td style={{ ...td, color: r.over_calls ? '#ea580c' : '#6b7280', fontWeight: r.over_calls ? 800 : 500 }}>{r.over_calls}</td>
                     <td style={td}>
                       <SignalChips text={r.signal} />
+                    </td>
+                    {/*
+                      A signal says a chart keeps producing misses. The next
+                      question is always whether the introduced error is unfair
+                      or the answer key is wrong, and that was a manual hunt
+                      through another tab. This lands on the chart's authored
+                      errors directly.
+                    */}
+                    <td style={td}>
+                      <Link
+                        to={`/trainer/auditor/keys?chart=${r.chart_id}&specialty=${encodeURIComponent(r.specialty || '')}`}
+                        title="Open the errors authored for this chart"
+                        style={keyLinkStyle}>
+                        <KeyRound size={12} /> Key
+                      </Link>
                     </td>
                   </tr>
                 ))}
@@ -643,7 +703,9 @@ function Panel({ title, right, children }: { title: string; right?: React.ReactN
   )
 }
 
-function Metric({ label, value, tone: color, sub }: { label: string; value: any; tone?: string; sub?: string }) {
+function Metric({ label, value, tone: color, sub }: {
+  label: string; value: any; tone?: string; sub?: React.ReactNode
+}) {
   return (
     <div style={metricStyle}>
       <div style={{ fontSize: 24, fontWeight: 900, color: color || '#111827', lineHeight: 1 }}>{value}</div>
