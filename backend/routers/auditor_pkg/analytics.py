@@ -25,6 +25,7 @@ import io
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy import case, func
+from sqlalchemy.orm import aliased as sa_aliased
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -80,6 +81,13 @@ def _base_query(db: Session, batch_id: Optional[int], specialty: Optional[str],
 
 R = AuditResult
 
+# Errors introduced that were not found, summed. Used by chart_signals both for
+# the per-row figure and for the totals, so the two can never disagree.
+_MISSED_EXPR = func.sum(
+    (func.coalesce(R.add_planted, 0) - func.coalesce(R.add_found, 0))
+    + (func.coalesce(R.revise_planted, 0) - func.coalesce(R.revise_found, 0))
+    + (func.coalesce(R.delete_planted, 0) - func.coalesce(R.delete_found, 0)))
+
 # Everything the roll-up needs, as one aggregate row rather than a table load.
 _AGGREGATES = [
     func.count(R.id),
@@ -114,6 +122,29 @@ def _feedback_section_rate(base, section: str) -> dict:
         "accuracy": _rate(found, planted),
     }
 
+
+
+def _score_trend(base, cap: int = 30) -> list:
+    """
+    Audit Score over TIME, bucketed by the day charts were scored.
+
+    The dashboard previously drew its trend from the by-batch list, which is
+    ordered by batch id. That is creation sequence, not time: it ignored the
+    date filter entirely, and two batches running concurrently plotted as
+    consecutive points. Grouping on scored_at makes the line mean what its
+    axis claims, and makes the date filter change its shape.
+
+    Days with nothing scored simply do not appear — an absent day is not a
+    zero, and drawing it as one would invent a collapse that never happened.
+    """
+    day = func.date(R.scored_at)
+    rows = (base.with_entities(day.label("day"),
+                               func.avg(R.audit_accuracy),
+                               func.count(R.id))
+            .group_by(day).order_by(day.asc()).all())
+    return [{"date": str(d), "score": round(float(avg), 2) if avg is not None else None,
+             "charts": int(n or 0)}
+            for d, avg, n in rows[-cap:]]
 
 def _roll_sql(db: Session, base, cfg) -> dict:
     """
@@ -189,6 +220,9 @@ def _roll_sql(db: Session, base, cfg) -> dict:
         # both come out at 50% and are different coaching conversations.
         "detected_not_corrected": int(dnc or 0),
         "opportunities": opportunities,
+        # Shipped beside the count, so the dashboard can say "9 of 20" rather
+        # than leaving the reader to know the rule.
+        "opportunities_needed": cfg.min_opportunities_for_verdict,
         "pass_fail": verdict,
         "verdict_withheld_reason": withheld,
     }
@@ -202,6 +236,7 @@ def overview(batch_id: Optional[int] = None, specialty: Optional[str] = None,
     cfg = scoring_config(db)
     base = _base_query(db, batch_id, specialty, auditor, from_date, to_date)
     body = _roll_sql(db, base, cfg)
+    body["trend"] = _score_trend(base)
     body["auditors"] = base.with_entities(
         func.count(func.distinct(_auditor_key_expr()))).scalar() or 0
     body["batches"] = base.with_entities(
@@ -275,7 +310,7 @@ def by_batch(batch_id: Optional[int] = None, specialty: Optional[str] = None,
 
 @router.get("/analytics/by-auditor")
 def by_auditor(batch_id: Optional[int] = None, specialty: Optional[str] = None,
-               auditor: Optional[str] = None,
+               auditor: Optional[str] = None, search: Optional[str] = None,
                from_date: Optional[str] = None, to_date: Optional[str] = None,
                limit: int = Query(200, le=500),
                db: Session = Depends(get_db)):
@@ -288,8 +323,18 @@ def by_auditor(batch_id: Optional[int] = None, specialty: Optional[str] = None,
     """
     cfg = scoring_config(db)
     base = _base_query(db, batch_id, specialty, auditor, from_date, to_date)
+    # Search runs HERE, not in the browser. The tab shows twenty rows at most,
+    # so filtering a loaded page meant an auditor past the cap could not be
+    # found at all — the cap silently became the roster.
+    if search:
+        needle = f"%{search.strip()}%"
+        base = base.filter(
+            func.coalesce(AuditResult.auditor_name, "").ilike(needle)
+            | func.coalesce(AuditResult.emp_id, "").ilike(needle))
     # Weakest first, decided in SQL so the cap keeps the auditors who most
     # need attention rather than an arbitrary slice.
+    grouping = (AuditResult.emp_id, AuditResult.auditor_name)
+    matched = base.with_entities(*grouping).group_by(*grouping).count()
     keys = base.with_entities(
         AuditResult.emp_id,
         AuditResult.auditor_name,
@@ -312,7 +357,8 @@ def by_auditor(batch_id: Optional[int] = None, specialty: Optional[str] = None,
                 func.count(func.distinct(AuditResult.batch_id))).scalar() or 0,
             **_roll_sql(db, scoped, cfg),
         })
-    return {"auditors": out, "pass_threshold": cfg.pass_threshold}
+    return {"auditors": out, "matched": matched,
+            "pass_threshold": cfg.pass_threshold}
 
 
 @router.get("/analytics/chart-signals")
@@ -351,6 +397,42 @@ def chart_signals(batch_id: Optional[int] = None, specialty: Optional[str] = Non
             .group_by(AuditResult.chart_id, Chart.chart_number, Chart.category, AuditResult.specialty)
             .order_by(func.avg(AuditResult.audit_accuracy).asc(), func.count(AuditResult.id).desc())
             .limit(limit).all())
+
+    # Totals come from the whole filtered set, never from the capped page
+    # above. Counting the loaded rows is the defect this codebase has already
+    # paid for three times: it reads correctly at a dozen charts and silently
+    # understates everything past the cap.
+    grouped = (base.with_entities(
+        AuditResult.chart_id.label("chart_id"),
+        _MISSED_EXPR.label("missed"),
+        func.sum(func.coalesce(AuditResult.over_calls, 0)).label("over_calls"),
+        func.sum(func.coalesce(AuditResult.detected_not_corrected, 0)).label("dnc"),
+    ).group_by(AuditResult.chart_id).subquery())
+
+    g = sa_aliased(grouped)
+    has_signal = case(
+        ((g.c.missed > 0) | (g.c.over_calls > 0) | (g.c.dnc > 0), 1), else_=0)
+    total_charts, with_signals = db.query(
+        func.count(), func.coalesce(func.sum(has_signal), 0)).select_from(g).one()
+
+    def _top(col):
+        row = (db.query(g.c.chart_id, col).select_from(g)
+               .order_by(col.desc()).limit(1).first())
+        if not row or not row[1]:
+            return None
+        chart = db.query(Chart).filter(Chart.id == row[0]).first()
+        return {"chart_number": chart.chart_number if chart else str(row[0]),
+                "count": int(row[1])}
+
+    totals = {
+        "charts_total": int(total_charts or 0),
+        "charts_with_signals": int(with_signals or 0),
+        "charts_stable": int((total_charts or 0) - (with_signals or 0)),
+        "most_missed": _top(g.c.missed),
+        "most_over_called": _top(g.c.over_calls),
+        "returned": len(rows),
+    }
+
     out = []
     for r in rows:
         missed = int(r.missed or 0)
@@ -380,7 +462,7 @@ def chart_signals(batch_id: Optional[int] = None, specialty: Optional[str] = Non
             "detected_not_corrected": detected_not_corrected,
             "signal": " · ".join(signals),
         })
-    return {"charts": out}
+    return {"charts": out, **totals}
 
 
 KIND_LABELS = {

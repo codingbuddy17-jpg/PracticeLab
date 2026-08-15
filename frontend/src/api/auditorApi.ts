@@ -301,7 +301,7 @@ export async function getAuditByBatch(params: Record<string, unknown> = {}) {
 
 export async function getAuditByAuditor(params: Record<string, unknown> = {}) {
   const { data } = await api.get('/auditor/analytics/by-auditor', { params })
-  return data as { auditors: Record<string, any>[]; pass_threshold: number }
+  return data as { auditors: Record<string, any>[]; matched?: number; pass_threshold: number }
 }
 
 export async function getAuditDetection(params: Record<string, unknown> = {}) {

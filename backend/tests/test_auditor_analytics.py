@@ -436,3 +436,97 @@ class TestPdfReports:
         batch_id = make_batch(client, charts_per=6)
         r = client.get(f"/auditor/batches/{batch_id}/report.pdf")
         assert r.status_code == 404
+
+
+class TestTotalsAndSearch:
+    """
+    Figures that must describe the whole query, not the page that came back.
+
+    Counting loaded rows is the defect this codebase has paid for three times
+    now: it reads correctly at a dozen rows and silently understates past the
+    cap, with nothing failing.
+    """
+
+    def test_chart_signal_totals_survive_a_cap(self, client, db, library):
+        batch_id = make_batch(client, charts_per=6)
+        _run(client, batch_id, find_everything=False)
+
+        full = client.get("/auditor/analytics/chart-signals").json()
+        capped = client.get("/auditor/analytics/chart-signals",
+                            params={"limit": 2}).json()
+
+        # the page shrinks; the totals do not
+        assert len(capped["charts"]) == 2
+        assert capped["returned"] == 2
+        assert capped["charts_total"] == full["charts_total"]
+        assert capped["charts_with_signals"] == full["charts_with_signals"]
+        assert capped["charts_stable"] == full["charts_stable"]
+        assert capped["most_missed"] == full["most_missed"]
+
+    def test_totals_agree_with_the_rows_when_nothing_is_capped(
+            self, client, db, library):
+        batch_id = make_batch(client, charts_per=6)
+        _run(client, batch_id, find_everything=False)
+        body = client.get("/auditor/analytics/chart-signals").json()
+        from_rows = sum(1 for r in body["charts"]
+                        if r["missed"] or r["over_calls"] or r["detected_not_corrected"])
+        assert from_rows == body["charts_with_signals"]
+        assert body["charts_total"] == len(body["charts"])
+
+    def test_auditor_search_runs_on_the_server(self, client, db, library):
+        batch_id = make_batch(client, auditors=("Asha R", "Bo T"), charts_per=4)
+        _run(client, batch_id, auditor_index=0)
+        _run(client, batch_id, auditor_index=1)
+
+        every = client.get("/auditor/analytics/by-auditor").json()
+        assert every["matched"] == 2
+
+        by_name = client.get("/auditor/analytics/by-auditor",
+                             params={"search": "asha"}).json()
+        assert by_name["matched"] == 1
+        assert [a["auditor_name"] for a in by_name["auditors"]] == ["Asha R"]
+
+        # and by employee id, which is why the search is not name-only
+        by_emp = client.get("/auditor/analytics/by-auditor",
+                            params={"search": "E0"}).json()
+        assert by_emp["matched"] == 1
+
+        assert client.get("/auditor/analytics/by-auditor",
+                          params={"search": "nobody"}).json()["matched"] == 0
+
+    def test_the_overview_carries_the_verdict_rule_it_is_judged_by(
+            self, client, db, library):
+        """The dashboard prints "9 of 20"; both numbers come from here."""
+        batch_id = make_batch(client, charts_per=4)
+        _run(client, batch_id)
+        body = client.get("/auditor/analytics/overview").json()
+        assert "opportunities" in body
+        assert body["opportunities_needed"] == 20
+        assert body["pass_threshold"] == 90
+        assert body["pass_fail"] is None          # too few opportunities
+        assert body["verdict_withheld_reason"]
+
+    def test_the_trend_is_bucketed_by_date_not_batch_order(
+            self, client, db, library):
+        from datetime import datetime
+        from models import AuditResult
+
+        first = make_batch(client, charts_per=4, name="Older")
+        _run(client, first)
+        db.query(AuditResult).filter(AuditResult.batch_id == first).update({
+            AuditResult.scored_at: datetime(2026, 1, 5, 9, 0, 0)})
+        second = make_batch(client, charts_per=4, name="Newer")
+        _run(client, second)
+        db.query(AuditResult).filter(AuditResult.batch_id == second).update({
+            AuditResult.scored_at: datetime(2026, 3, 9, 9, 0, 0)})
+        db.commit()
+
+        trend = client.get("/auditor/analytics/overview").json()["trend"]
+        assert [p["date"] for p in trend] == ["2026-01-05", "2026-03-09"]
+        assert all(p["charts"] == 4 for p in trend)
+
+        # and it answers to the date filter, which the batch-ordered version
+        # ignored completely
+        scoped = client.get("/auditor/analytics/overview",
+                            params={"from_date": "2026-02-01"}).json()["trend"]
+        assert [p["date"] for p in scoped] == ["2026-03-09"]

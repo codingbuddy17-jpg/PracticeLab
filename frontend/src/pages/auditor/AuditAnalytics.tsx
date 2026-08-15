@@ -26,7 +26,7 @@ export function AuditAnalytics() {
   const [specialties, setSpecialties] = useState<any[]>([])
   const [batches, setBatches] = useState<any[]>([])
   const [auditors, setAuditors] = useState<any[]>([])
-  const [chartSignals, setChartSignals] = useState<any[]>([])
+  const [chartSignals, setChartSignals] = useState<any>(null)
   const [detection, setDetection] = useState<any>(null)
   const [draft, setDraft] = useState<Filters>({})
   const [filters, setFilters] = useState<Filters>({})
@@ -36,25 +36,74 @@ export function AuditAnalytics() {
   const [auditorProfile, setAuditorProfile] = useState<any>(null)
   const [batchSearch, setBatchSearch] = useState('')
   const [chartSearch, setChartSearch] = useState('')
+  const [auditorMatched, setAuditorMatched] = useState(0)
+
+  // Overview carries the header counts, the verdict and the trend, so it loads
+  // for every tab. Everything else is fetched the first time its tab is
+  // opened: all six endpoints used to fire on every filter change to render
+  // one visible panel, nine round trips once an auditor was selected.
+  const [loaded, setLoaded] = useState<Record<string, boolean>>({})
 
   const load = useCallback(async () => {
     setRefreshing(true)
     try {
-      const [o, sp, b, a, d, ch] = await Promise.all([
-        getAuditOverview(filters),
-        getAuditBySpecialty(filters),
-        getAuditByBatch(filters),
-        getAuditByAuditor({ ...filters, limit: 500 }),
-        getAuditDetection(filters),
-        getAuditChartSignals(filters),
-      ])
-      setOverview(o); setSpecialties(sp.specialties); setBatches(b.batches)
-      setAuditors(a.auditors); setDetection(d); setChartSignals(ch.charts)
+      const o = await getAuditOverview(filters)
+      setOverview(o)
     } catch { toast.error('Could not load audit analytics') }
     setRefreshing(false)
   }, [filters])
 
   useEffect(() => { load() }, [load])
+
+  // A filter change invalidates every cached tab, not just the visible one.
+  useEffect(() => { setLoaded({}) }, [filters])
+
+  useEffect(() => {
+    let cancelled = false
+    async function fetchFor(t: Tab) {
+      if (loaded[t]) return
+      try {
+        if (t === 'Overview') {
+          const [sp, d] = await Promise.all([
+            getAuditBySpecialty(filters), getAuditDetection(filters)])
+          if (cancelled) return
+          setSpecialties(sp.specialties); setDetection(d)
+        } else if (t === 'Specialties') {
+          const sp = await getAuditBySpecialty(filters)
+          if (cancelled) return
+          setSpecialties(sp.specialties)
+        } else if (t === 'Batches') {
+          const b = await getAuditByBatch(filters)
+          if (cancelled) return
+          setBatches(b.batches)
+        } else if (t === 'Error Patterns') {
+          const d = await getAuditDetection(filters)
+          if (cancelled) return
+          setDetection(d)
+        } else if (t === 'Chart Signals') {
+          const ch = await getAuditChartSignals(filters)
+          if (cancelled) return
+          setChartSignals(ch)
+        }
+        if (!cancelled) setLoaded(prev => ({ ...prev, [t]: true }))
+      } catch { if (!cancelled) toast.error(`Could not load ${t}`) }
+    }
+    fetchFor(tab)
+    return () => { cancelled = true }
+  }, [tab, filters, loaded])
+
+  // Auditors search the server rather than a loaded page, so someone past the
+  // cap is still findable. Debounced, because it fires per keystroke.
+  useEffect(() => {
+    if (tab !== 'Auditors') return
+    let cancelled = false
+    const t = setTimeout(() => {
+      getAuditByAuditor({ ...filters, search: auditorSearch.trim() || undefined, limit: 50 })
+        .then(a => { if (!cancelled) { setAuditors(a.auditors); setAuditorMatched(a.matched ?? a.auditors.length) } })
+        .catch(() => { if (!cancelled) toast.error('Could not search auditors') })
+    }, auditorSearch ? 250 : 0)
+    return () => { cancelled = true; clearTimeout(t) }
+  }, [tab, filters, auditorSearch])
 
   useEffect(() => {
     if (!selectedAuditor) { setAuditorProfile(null); return }
@@ -62,16 +111,18 @@ export function AuditAnalytics() {
     Promise.all([
       getAuditOverview({ ...filters, auditor }),
       getAuditByBatch({ ...filters, auditor, limit: 300 }),
-      getAuditDetection({ ...filters, auditor }),
-    ]).then(([o, b, d]) => setAuditorProfile({ overview: o, batches: b.batches, detection: d }))
+    ]).then(([o, b]) => setAuditorProfile({ overview: o, batches: b.batches }))
       .catch(() => toast.error('Could not load auditor profile'))
   }, [selectedAuditor, filters])
 
   const activeFilters = Object.values(filters).filter(Boolean).length
-  const trend = batches.slice(0, 12).reverse().map((b: any) => ({
-    label: short(b.name || `Batch ${b.batch_id}`, 14),
-    score: b.audit_accuracy,
+  // Bucketed by the day charts were scored, computed in SQL. It used to be
+  // built from the by-batch list, which is ordered by batch id — creation
+  // sequence, not time — so the line ignored the date filter entirely.
+  const trend = (overview?.trend || []).map((p: any) => ({
+    label: shortDate(p.date), score: p.score, charts: p.charts,
   }))
+  const threshold = overview?.pass_threshold ?? 90
   const cleanOpportunity = [
     { name: 'Clean', score: overview?.clean_accuracy ?? 0, fill: '#2563eb' },
     { name: 'Opportunity', score: overview?.opportunity_accuracy ?? 0, fill: '#7c3aed' },
@@ -125,17 +176,18 @@ export function AuditAnalytics() {
 
           {tab === 'Overview' && (
             <OverviewTab overview={overview} trend={trend} cleanOpportunity={cleanOpportunity}
-              specialties={specialties} detection={detection} />
+              specialties={specialties} detection={detection} threshold={threshold} />
           )}
           {tab === 'Auditors' && (
-            <AuditorsTab rows={auditors} query={auditorSearch} setQuery={setAuditorSearch}
+            <AuditorsTab rows={auditors} matched={auditorMatched}
+              query={auditorSearch} setQuery={setAuditorSearch}
               selected={selectedAuditor} setSelected={setSelectedAuditor}
-              profile={auditorProfile} filters={filters} />
+              profile={auditorProfile} filters={filters} threshold={threshold} />
           )}
-          {tab === 'Batches' && <BatchesTab rows={batches} query={batchSearch} setQuery={setBatchSearch} />}
-          {tab === 'Specialties' && <SpecialtiesTab rows={specialties} />}
-          {tab === 'Error Patterns' && <ErrorPatternsTab data={detection} />}
-          {tab === 'Chart Signals' && <ChartSignalsTab rows={chartSignals} query={chartSearch} setQuery={setChartSearch} />}
+          {tab === 'Batches' && <BatchesTab rows={batches} query={batchSearch} setQuery={setBatchSearch} threshold={threshold} />}
+          {tab === 'Specialties' && <SpecialtiesTab rows={specialties} threshold={threshold} />}
+          {tab === 'Error Patterns' && <ErrorPatternsTab data={detection} threshold={threshold} />}
+          {tab === 'Chart Signals' && <ChartSignalsTab data={chartSignals} query={chartSearch} setQuery={setChartSearch} threshold={threshold} />}
         </>
       )}
     </div>
@@ -175,13 +227,59 @@ function GlobalFilters({ draft, setDraft, apply, clear, active }: {
   )
 }
 
-function OverviewTab({ overview, trend, cleanOpportunity, specialties, detection }: {
-  overview: any; trend: any[]; cleanOpportunity: any[]; specialties: any[]; detection: any
+/**
+ * The verdict, and the opportunity count that gates it.
+ *
+ * The API has always returned pass_fail, verdict_withheld_reason and
+ * opportunities; nothing rendered them. So a trainer was told at batch
+ * creation that a verdict needs N opportunities, then had no way to see how
+ * many they had, whether the cohort passed, or why no verdict appeared — the
+ * one number the whole rule turns on was invisible.
+ */
+function Verdict({ overview, threshold }: { overview: any; threshold: number }) {
+  const verdict = overview.pass_fail as string | null
+  const need = overview.opportunities_needed
+  const has = overview.opportunities ?? 0
+  const pass = verdict === 'PASS'
+  const accent = verdict ? (pass ? '#059669' : '#dc2626') : '#6b7280'
+  const bg = verdict ? (pass ? '#f0fdf4' : '#fef2f2') : '#f8fafc'
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap',
+                  padding: '12px 16px', borderRadius: 12, background: bg,
+                  border: `1px solid ${accent}33`, borderLeft: `4px solid ${accent}` }}>
+      <span style={{ fontSize: 20, fontWeight: 800, color: accent, letterSpacing: -0.3 }}>
+        {verdict || 'No verdict'}
+      </span>
+      <span style={{ fontSize: 12.5, color: '#4b5563', lineHeight: 1.5 }}>
+        {verdict
+          ? <>Audit Score {pct(overview.audit_accuracy)} against a {threshold}% threshold,
+              over {has} opportunities.</>
+          : <>{overview.verdict_withheld_reason || 'Not enough opportunities yet.'}{' '}
+              <strong>{has}</strong> opportunit{has === 1 ? 'y' : 'ies'} so far
+              {need ? <> of the <strong>{need}</strong> a verdict needs</> : null}.
+              Scores and every figure below are still valid.</>}
+      </span>
+      {!verdict && need > 0 && (
+        <span style={{ marginLeft: 'auto', minWidth: 130 }}>
+          <span style={{ display: 'block', height: 6, borderRadius: 3, background: '#e5e7eb' }}>
+            <span style={{ display: 'block', height: 6, borderRadius: 3, background: '#7c3aed',
+                           width: `${Math.min(100, Math.round(has / need * 100))}%` }} />
+          </span>
+        </span>
+      )}
+    </div>
+  )
+}
+
+function OverviewTab({ overview, trend, cleanOpportunity, specialties, detection, threshold }: {
+  overview: any; trend: any[]; cleanOpportunity: any[]; specialties: any[]
+  detection: any; threshold: number
 }) {
   return (
     <div style={stackStyle}>
+      <Verdict overview={overview} threshold={threshold} />
       <div style={metricGridStyle}>
-        <Metric label="Audit Score" value={pct(overview.audit_accuracy)} tone={tone(overview.audit_accuracy)} />
+        <Metric label="Audit Score" value={pct(overview.audit_accuracy)} tone={tone(overview.audit_accuracy, threshold)} />
         <Metric label="Clean Chart Score" value={pct(overview.clean_accuracy)} tone="#2563eb" />
         <Metric label="Opportunity Chart Score" value={pct(overview.opportunity_accuracy)} tone="#7c3aed" />
         <Metric label="PCS Score" value={pct(overview.pcs?.accuracy)} tone="#0f766e" sub={countSub(overview.pcs)} />
@@ -237,7 +335,7 @@ function OverviewTab({ overview, trend, cleanOpportunity, specialties, detection
             <RiskRow label="Overcalls" value={overview.over_calls || 0} color="#ea580c" />
             <RiskRow label="Detected, Not Corrected" value={overview.detected_not_corrected || 0} color="#7c3aed" />
             {detection?.weakest?.slice(0, 3).map((r: any) => (
-              <RiskRow key={r.key} label={r.label} value={pct(r.accuracy)} color={tone(r.accuracy)} />
+              <RiskRow key={r.key} label={r.label} value={pct(r.accuracy)} color={tone(r.accuracy, threshold)} />
             ))}
           </div>
         </Panel>
@@ -246,15 +344,16 @@ function OverviewTab({ overview, trend, cleanOpportunity, specialties, detection
   )
 }
 
-function AuditorsTab({ rows, query, setQuery, selected, setSelected, profile, filters }: {
-  rows: any[]; query: string; setQuery: (v: string) => void
+function AuditorsTab({ rows, matched, query, setQuery, selected, setSelected, profile,
+                      filters, threshold }: {
+  rows: any[]; matched: number; query: string; setQuery: (v: string) => void
   selected: any; setSelected: (r: any) => void; profile: any; filters: Filters
+  threshold: number
 }) {
-  const q = query.trim().toLowerCase()
-  const matches = rows.filter(r => !q
-    || (r.auditor_name || '').toLowerCase().includes(q)
-    || (r.emp_id || '').toLowerCase().includes(q))
-  const shown = q ? matches.slice(0, AUDITOR_MATCH_CAP) : rows.slice(0, 10)
+  // The server has already searched and ordered these — weakest first — so
+  // this only decides how many to draw. Filtering here would limit search to
+  // whatever happened to be loaded.
+  const shown = rows.slice(0, query.trim() ? AUDITOR_MATCH_CAP : 10)
   return (
     <div style={stackStyle}>
       <Panel title="Find Auditor">
@@ -267,12 +366,17 @@ function AuditorsTab({ rows, query, setQuery, selected, setSelected, profile, fi
                 style={{ ...auditorCardStyle, borderColor: on ? '#7c3aed' : '#e5e7eb', background: on ? '#f5f3ff' : '#fff' }}>
                 <span style={{ fontWeight: 800 }}>{r.auditor_name}</span>
                 <span style={{ fontSize: 11, color: '#6b7280' }}>{r.emp_id || 'No Emp ID'} · {r.charts} chart(s)</span>
-                <span style={{ fontWeight: 800, color: tone(r.audit_accuracy) }}>{pct(r.audit_accuracy)}</span>
+                <span style={{ fontWeight: 800, color: tone(r.audit_accuracy, threshold) }}>{pct(r.audit_accuracy)}</span>
               </button>
             )
           })}
         </div>
-        {matches.length > shown.length && <div style={s.note}>Showing {shown.length} of {matches.length} matches. Keep typing to narrow.</div>}
+        {matched > shown.length && (
+          <div style={s.note}>
+            Showing {shown.length} of {matched} {query.trim() ? 'matches' : 'auditors'}
+            {query.trim() ? '. Keep typing to narrow.' : ' — weakest first. Search to reach the rest.'}
+          </div>
+        )}
       </Panel>
 
       {selected && (
@@ -284,13 +388,13 @@ function AuditorsTab({ rows, query, setQuery, selected, setSelected, profile, fi
           {!profile ? <div style={s.empty}>Loading profile...</div> : (
             <div style={stackStyle}>
               <div style={metricGridStyle}>
-                <Metric label="Audit Score" value={pct(profile.overview.audit_accuracy)} tone={tone(profile.overview.audit_accuracy)} />
+                <Metric label="Audit Score" value={pct(profile.overview.audit_accuracy)} tone={tone(profile.overview.audit_accuracy, threshold)} />
                 <Metric label="Clean Chart Score" value={pct(profile.overview.clean_accuracy)} tone="#2563eb" />
                 <Metric label="Opportunity Chart Score" value={pct(profile.overview.opportunity_accuracy)} tone="#7c3aed" />
                 <Metric label="PCS Score" value={pct(profile.overview.pcs?.accuracy)} tone="#0f766e" sub={countSub(profile.overview.pcs)} />
                 <Metric label="Overcalls" value={profile.overview.over_calls || 0} tone="#ea580c" />
               </div>
-              <CompactBatchTable rows={profile.batches} />
+              <CompactBatchTable rows={profile.batches} threshold={threshold} />
             </div>
           )}
         </Panel>
@@ -299,7 +403,9 @@ function AuditorsTab({ rows, query, setQuery, selected, setSelected, profile, fi
   )
 }
 
-function BatchesTab({ rows, query, setQuery }: { rows: any[]; query: string; setQuery: (v: string) => void }) {
+function BatchesTab({ rows, query, setQuery, threshold }: {
+  rows: any[]; query: string; setQuery: (v: string) => void; threshold: number
+}) {
   const q = query.trim().toLowerCase()
   const filtered = rows.filter(r => !q || (r.name || '').toLowerCase().includes(q)
     || (r.specialty || '').toLowerCase().includes(q))
@@ -307,13 +413,13 @@ function BatchesTab({ rows, query, setQuery }: { rows: any[]; query: string; set
   return (
     <Panel title="Batch Performance">
       <SearchInput value={query} onChange={setQuery} placeholder="Search batch or specialty..." />
-      <CompactBatchTable rows={shown} showPdf />
+      <CompactBatchTable rows={shown} showPdf threshold={threshold} />
       {filtered.length > shown.length && <div style={s.note}>Showing {shown.length} of {filtered.length} rows.</div>}
     </Panel>
   )
 }
 
-function SpecialtiesTab({ rows }: { rows: any[] }) {
+function SpecialtiesTab({ rows, threshold }: { rows: any[]; threshold: number }) {
   if (!rows.length) return <div style={s.empty}>No specialty data yet.</div>
   return (
     <div style={stackStyle}>
@@ -328,12 +434,12 @@ function SpecialtiesTab({ rows }: { rows: any[] }) {
           </BarChart>
         </ResponsiveContainer>
       </Panel>
-      <ScoreTable rows={rows} nameKey="specialty" />
+      <ScoreTable rows={rows} nameKey="specialty" threshold={threshold} />
     </div>
   )
 }
 
-function ErrorPatternsTab({ data }: { data: any }) {
+function ErrorPatternsTab({ data, threshold }: { data: any; threshold: number }) {
   if (!data || !data.total_plantings) return <div style={s.empty}>No scored error patterns yet.</div>
   return (
     <div style={stackStyle}>
@@ -346,27 +452,36 @@ function ErrorPatternsTab({ data }: { data: any }) {
         <Metric label="Charts Scored" value={data.charts_available} tone="#2563eb" />
         <Metric label="Training Signals" value={data.weakest?.length || 0} tone="#dc2626" />
       </div>
-      <Bucket title="What To Train Next" rows={data.weakest} empty="No repeated weak pattern has crossed the training threshold." />
-      <Bucket title="Detection by Error Type" rows={data.by_kind} />
-      <Bucket title="Real vs Generated Detection" rows={data.by_origin} />
-      <Bucket title="Detection by Section and Action" rows={data.by_section} />
-      {data.pcs_characters?.length > 0 && <Bucket title="PCS Character" rows={data.pcs_characters} />}
+      <Bucket threshold={threshold} title="What To Train Next" rows={data.weakest} empty="No repeated weak pattern has crossed the training threshold." />
+      <Bucket threshold={threshold} title="Detection by Error Type" rows={data.by_kind} />
+      <Bucket threshold={threshold} title="Real vs Generated Detection" rows={data.by_origin} />
+      <Bucket threshold={threshold} title="Detection by Section and Action" rows={data.by_section} />
+      {data.pcs_characters?.length > 0 && <Bucket threshold={threshold} title="PCS Character" rows={data.pcs_characters} />}
       {data.truncated && <div style={s.warnBox}>Showing the most recent {data.charts_scanned} of {data.charts_available} scored charts.</div>}
     </div>
   )
 }
 
-function ChartSignalsTab({ rows, query, setQuery }: { rows: any[]; query: string; setQuery: (v: string) => void }) {
+function ChartSignalsTab({ data, query, setQuery, threshold }: {
+  data: any; query: string; setQuery: (v: string) => void; threshold: number
+}) {
+  const rows: any[] = data?.charts || []
   const q = query.trim().toLowerCase()
   const filtered = rows.filter(r => !q
     || (r.chart_number || '').toLowerCase().includes(q)
     || (r.category || '').toLowerCase().includes(q)
     || (r.specialty || '').toLowerCase().includes(q))
   const shown = filtered.slice(0, ROW_CAP)
-  const reviewNeeded = rows.filter(r => (r.missed || 0) > 0 || (r.over_calls || 0) > 0 || (r.detected_not_corrected || 0) > 0)
-  const stable = rows.length - reviewNeeded.length
-  const highestMiss = [...rows].sort((a, b) => (b.missed || 0) - (a.missed || 0))[0]
-  const highestOvercall = [...rows].sort((a, b) => (b.over_calls || 0) - (a.over_calls || 0))[0]
+  // These four come from the SERVER, computed over every chart in scope. They
+  // used to be derived from `rows`, which is a capped page — so at any real
+  // size "Charts With Signals" undercounted and "Most Missed" could name a
+  // chart that merely happened to be loaded. Counting loaded rows instead of
+  // the query is a defect this codebase has now paid for three times.
+  const reviewNeeded = data?.charts_with_signals ?? 0
+  const stable = data?.charts_stable ?? 0
+  const highestMiss = data?.most_missed
+  const highestOvercall = data?.most_over_called
+  const capped = (data?.charts_total || 0) > rows.length
   return (
     <div style={stackStyle}>
       <SignalNote
@@ -374,12 +489,13 @@ function ChartSignalsTab({ rows, query, setQuery }: { rows: any[]; query: string
         text="This view highlights audit charts that repeatedly produce missed introduced errors, overcalls, or wrong corrections. It is a review queue, not a verdict that the chart is bad."
       />
       <div style={metricGridStyle}>
-        <Metric label="Charts With Signals" value={reviewNeeded.length} tone={reviewNeeded.length ? '#dc2626' : '#059669'} />
+        <Metric label="Charts With Signals" value={reviewNeeded} tone={reviewNeeded ? '#dc2626' : '#059669'}
+          sub={`of ${data?.charts_total ?? 0} charts`} />
         <Metric label="Stable Charts" value={stable} tone="#059669" />
         <Metric label="Most Missed" value={highestMiss?.chart_number || 'NA'} tone="#dc2626"
-          sub={highestMiss ? `${highestMiss.missed || 0} missed` : undefined} />
+          sub={highestMiss ? `${highestMiss.count} missed` : undefined} />
         <Metric label="Most Overcalled" value={highestOvercall?.chart_number || 'NA'} tone="#ea580c"
-          sub={highestOvercall ? `${highestOvercall.over_calls || 0} overcalls` : undefined} />
+          sub={highestOvercall ? `${highestOvercall.count} overcalls` : undefined} />
       </div>
       <Panel title="Signal Evidence">
         <SearchInput value={query} onChange={setQuery} placeholder="Search chart, category or specialty..." />
@@ -396,7 +512,7 @@ function ChartSignalsTab({ rows, query, setQuery }: { rows: any[]; query: string
                     </td>
                     <td style={td}>{r.specialty}</td>
                     <td style={td}>{r.attempts}</td>
-                    <td style={{ ...td, fontWeight: 800, color: tone(r.audit_accuracy) }}>{pct(r.audit_accuracy)}</td>
+                    <td style={{ ...td, fontWeight: 800, color: tone(r.audit_accuracy, threshold) }}>{pct(r.audit_accuracy)}</td>
                     <td style={td}>
                       <span style={{ color: '#2563eb', fontWeight: 700 }}>{r.clean_charts || 0}</span>
                       <span style={muted}> clean · </span>
@@ -414,13 +530,20 @@ function ChartSignalsTab({ rows, query, setQuery }: { rows: any[]; query: string
             </table>
           </div>
         )}
-        {filtered.length > shown.length && <div style={s.note}>Showing {shown.length} of {filtered.length} charts.</div>}
+        {(filtered.length > shown.length || capped) && (
+          <div style={s.note}>
+            Showing {shown.length} of {filtered.length} loaded
+            {capped ? ` — ${data.charts_total} charts match in total; search to reach the rest` : ''}.
+          </div>
+        )}
       </Panel>
     </div>
   )
 }
 
-function ScoreTable({ rows, nameKey }: { rows: any[]; nameKey: string }) {
+function ScoreTable({ rows, nameKey, threshold = 90 }: {
+  rows: any[]; nameKey: string; threshold?: number
+}) {
   return (
     <Panel title="Score Table">
       <div style={{ overflowX: 'auto' }}>
@@ -433,7 +556,7 @@ function ScoreTable({ rows, nameKey }: { rows: any[]; nameKey: string }) {
               <tr key={i}>
                 <td style={td}><strong>{r[nameKey]}</strong><div style={muted}>{r.batches} batch(es) · {r.auditors} auditor(s)</div></td>
                 <td style={td}>{r.charts}</td>
-                <td style={{ ...td, fontWeight: 800, color: tone(r.audit_accuracy) }}>{pct(r.audit_accuracy)}</td>
+                <td style={{ ...td, fontWeight: 800, color: tone(r.audit_accuracy, threshold) }}>{pct(r.audit_accuracy)}</td>
                 <td style={td}>{pct(r.clean_accuracy)}</td>
                 <td style={td}>{pct(r.opportunity_accuracy)}</td>
                 <td style={td}>{r.specialty === 'IP-DRG' ? cell(r.pcs) : 'NA'}</td>
@@ -450,7 +573,9 @@ function ScoreTable({ rows, nameKey }: { rows: any[]; nameKey: string }) {
   )
 }
 
-function CompactBatchTable({ rows, showPdf = false }: { rows: any[]; showPdf?: boolean }) {
+function CompactBatchTable({ rows, showPdf = false, threshold = 90 }: {
+  rows: any[]; showPdf?: boolean; threshold?: number
+}) {
   if (!rows?.length) return <div style={s.empty}>No batches in scope.</div>
   return (
     <div style={{ overflowX: 'auto', marginTop: 12 }}>
@@ -465,7 +590,7 @@ function CompactBatchTable({ rows, showPdf = false }: { rows: any[]; showPdf?: b
               <td style={td}>{r.specialty}</td>
               <td style={td}>{r.auditors}</td>
               <td style={td}>{r.charts}</td>
-              <td style={{ ...td, fontWeight: 800, color: tone(r.audit_accuracy) }}>{pct(r.audit_accuracy)}</td>
+              <td style={{ ...td, fontWeight: 800, color: tone(r.audit_accuracy, threshold) }}>{pct(r.audit_accuracy)}</td>
               <td style={td}>{r.specialty === 'IP-DRG' ? cell(r.pcs) : 'NA'}</td>
               {showPdf && (
                 <td style={{ ...td, textAlign: 'right' }}>
@@ -480,14 +605,16 @@ function CompactBatchTable({ rows, showPdf = false }: { rows: any[]; showPdf?: b
   )
 }
 
-function Bucket({ title, rows, empty }: { title: string; rows: any[]; empty?: string }) {
+function Bucket({ title, rows, empty, threshold = 90 }: {
+  title: string; rows: any[]; empty?: string; threshold?: number
+}) {
   if (!rows?.length) return empty ? <Panel title={title}><div style={s.empty}>{empty}</div></Panel> : null
   return (
     <Panel title={title}>
       {rows.slice(0, ROW_CAP).map(r => (
         <div key={r.key} style={{ marginBottom: 10 }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
-            <span style={{ minWidth: 54, fontWeight: 800, color: tone(r.accuracy) }}>{pct(r.accuracy)}</span>
+            <span style={{ minWidth: 54, fontWeight: 800, color: tone(r.accuracy, threshold) }}>{pct(r.accuracy)}</span>
             <span style={{ fontSize: 12.5 }}>{r.label}</span>
             <span style={{ fontSize: 11, color: '#9ca3af', marginLeft: 'auto' }}>
               {r.found} caught · {r.missed} missed · {r.planted} introduced
@@ -495,7 +622,7 @@ function Bucket({ title, rows, empty }: { title: string; rows: any[]; empty?: st
           </div>
           <div style={{ height: 5, background: '#f3f4f6', borderRadius: 3, overflow: 'hidden', marginTop: 4 }}>
             <div style={{ height: '100%', width: `${Math.max(0, Math.min(100, r.accuracy || 0))}%`,
-                          background: tone(r.accuracy), borderRadius: 3 }} />
+                          background: tone(r.accuracy, threshold), borderRadius: 3 }} />
           </div>
         </div>
       ))}
@@ -580,9 +707,26 @@ function pct(v: number | null | undefined) {
   return v === null || v === undefined ? 'NA' : `${Number(v).toFixed(Number.isInteger(v) ? 0 : 1)}%`
 }
 
-function tone(v: number | null | undefined) {
+/**
+ * Colour a score against the CONFIGURED pass threshold, not a literal.
+ *
+ * This hardcoded 90/70. `pass_threshold` is a real column a trainer can
+ * change, and both this API and the scorer already honour it — so moving it to
+ * 85 left every colour on the dashboard still judging against 90, silently
+ * disagreeing with the verdict printed beside it. "Borderline" is the band
+ * from two-thirds of the threshold up to it.
+ */
+function tone(v: number | null | undefined, threshold = 90) {
   if (v === null || v === undefined) return '#9ca3af'
-  return v >= 90 ? '#059669' : v >= 70 ? '#d97706' : '#dc2626'
+  if (v >= threshold) return '#059669'
+  return v >= threshold * 0.78 ? '#d97706' : '#dc2626'
+}
+
+/** "2026-08-15" -> "15 Aug", for a dense trend axis. */
+function shortDate(iso: string) {
+  const d = new Date(iso + 'T00:00:00')
+  return isNaN(d.getTime()) ? iso
+    : `${d.getDate()} ${d.toLocaleString('en', { month: 'short' })}`
 }
 
 function cell(c: any) {
