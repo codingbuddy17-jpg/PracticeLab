@@ -40,6 +40,8 @@ class ScoringConfig:
     query_missed_pct: int = 20
     query_unnecessary_pct: int = 20
     pass_threshold: int = 90
+    # Superseded by min_review_opportunities — see the model. Kept so a stored
+    # config row still loads.
     min_opportunities_for_verdict: int = 20
     # The verdict is decided on the Review Score, which has roughly four times
     # the opportunities per chart that detection has — about ten codes against

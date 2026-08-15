@@ -1181,8 +1181,14 @@ class TestShortSessionWarning:
     disappeared while still being true.
     """
 
-    def test_it_reports_opportunities_and_what_would_reach_a_verdict(
+    def test_it_reports_code_lines_and_what_would_reach_a_verdict(
             self, client, db, library):
+        """
+        The note has to speak in the units the rule uses, and the rule has
+        moved twice: charts against a suggested five, then errors introduced
+        against twenty, and now CODE LINES REVIEWED against fifty. Each time it
+        named the right consequence against the wrong number.
+        """
         r = client.post("/auditor/batches", json={
             "name": "Spot check", "specialty": "IP-DRG", "created_by": "T",
             "charts_per_auditor": 2,
@@ -1190,9 +1196,9 @@ class TestShortSessionWarning:
         assert r.status_code == 200, r.text
         warning = r.json()["warning"]
         assert warning
-        assert "opportunities" in warning
-        assert "20" in warning              # the actual gate
-        # and it must not promise that the suggested chart count earns a verdict
+        assert "code lines" in warning
+        assert "50" in warning              # the actual gate
+        assert "opportunities" not in warning
         assert "below the suggested" not in warning
 
     def test_a_batch_that_can_reach_a_verdict_is_not_warned(

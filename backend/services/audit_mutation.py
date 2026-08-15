@@ -200,13 +200,17 @@ def total_codes(claim: dict) -> int:
              + len(claim.get("cpt") or [])
 
 
-# Guidance only — never used in scoring. The real budget is per chart and
-# scales with its code count (see planting_budget below), so the number of
-# opportunities a session will carry cannot be known before the charts are
-# drawn. Measured at 2.48 over 400 generated charts of each shape, on the
-# library the tests use. Good enough to tell a trainer whether a batch can
-# reach a verdict; not good enough to promise them it will.
-TYPICAL_ERRORS_PER_OPPORTUNITY_CHART = 2.5
+# Guidance only — never used in scoring.
+#
+# The verdict is decided on the Audit Score and gated on how many CODE LINES
+# were reviewed, so this is the figure a trainer needs before any chart has
+# been drawn: roughly how many lines a chart carries. Measured over 300
+# generated charts of each shape on the library the tests use — 12.3 for
+# IP-DRG, 10.3 for outpatient — so eleven is the honest middle.
+#
+# Clean charts count in full here, unlike the error budget: every line is one
+# the auditor had to judge, whether or not anything was wrong with it.
+TYPICAL_CODE_LINES_PER_CHART = 11
 
 
 def planting_budget(claim: dict, cfg: MutationConfig, rng: random.Random) -> int:

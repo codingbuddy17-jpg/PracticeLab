@@ -29,7 +29,7 @@ from services.audit_allocation import (
     assign_intents, build_assignment, build_corpus, new_token, resolve_quotas,
     resolve_source,
 )
-from services.audit_mutation import TYPICAL_ERRORS_PER_OPPORTUNITY_CHART
+from services.audit_mutation import TYPICAL_CODE_LINES_PER_CHART
 from .shared import (
     chart_pool, get_batch_or_404, mutation_config, parse_specialty,
     require_passphrase, scoring_config, sets_by_chart,
@@ -41,44 +41,33 @@ ALLOCATION_MODES = {"auto", "guided", "manual"}
 MIN_CHARTS_SUGGESTED = 5
 
 
-def _verdict_reach_note(charts: int, quota_clean: Optional[int],
-                        clean_share: int, cfg) -> str:
+def _verdict_reach_note(charts: int, cfg) -> str:
     """
-    Whether this batch can reach a pass/fail verdict, said in the units the
-    rule actually uses.
+    Whether this batch can reach a pass/fail verdict, in the units the rule
+    actually uses.
 
-    A verdict needs `min_opportunities_for_verdict` OPPORTUNITIES — individual
-    errors introduced — not a number of charts. Clean charts carry none, so a
-    chart count alone never answered the question. The old wording named the
-    right consequence against the wrong number, and worse, vanished at 5
-    charts while still being true.
+    The rule has moved twice and this note has to move with it. It once counted
+    charts against a suggested five, which had nothing to do with the verdict.
+    It then counted errors introduced against twenty. The verdict is now
+    decided on the Audit Score and gated on CODE LINES REVIEWED — a far
+    steadier figure, because every line on every chart counts, clean ones
+    included, so it does not swing with how many errors happened to land.
 
-    Both figures are estimates: the per-chart error budget scales with how many
-    codes a chart has and nothing has been drawn yet, so this says "roughly"
-    and "around" rather than promising.
+    Approximate on purpose: a chart's line count depends on its claim and
+    nothing has been drawn yet.
     """
     if charts < 1:
         return ""
-    # From the intended SHARE, not a rounded count, so the suggested chart
-    # count does not wobble as the typed number changes.
-    clean_fraction = (quota_clean / charts) if quota_clean is not None \
-        else (clean_share / 100)
-    clean_fraction = min(max(clean_fraction, 0.0), 0.9)
-    per_chart = TYPICAL_ERRORS_PER_OPPORTUNITY_CHART * (1 - clean_fraction)
-    if per_chart <= 0:
-        return ""
-
-    expect = round(charts * per_chart)
-    need = cfg.min_opportunities_for_verdict
+    expect = round(charts * TYPICAL_CODE_LINES_PER_CHART)
+    need = cfg.min_review_opportunities
     if expect >= need:
         return ""
-    reach = max(charts + 1, math.ceil(need / per_chart))
-    return (f"{charts} {'chart' if charts == 1 else 'charts'} per auditor yields roughly "
-            f"{expect} {'opportunity' if expect == 1 else 'opportunities'}. "
-            f"A pass/fail verdict needs {need}, so this batch will report scores "
-            f"without one — around {reach} charts would reach it. Scores, "
-            f"findings and every analytics figure still work; only the verdict "
-            f"is held back.")
+    reach = max(charts + 1, math.ceil(need / TYPICAL_CODE_LINES_PER_CHART))
+    return (f"{charts} {'chart' if charts == 1 else 'charts'} per auditor is "
+            f"roughly {expect} code lines. A pass/fail verdict needs {need} — "
+            f"about {reach} charts — so this batch will report scores without "
+            f"one. Scores, findings and every analytics figure still work; "
+            f"only the verdict is held back.")
 
 
 class AuditorEntry(BaseModel):
@@ -177,8 +166,7 @@ def create_batch(payload: BatchCreate, db: Session = Depends(get_db)):
     if payload.charts_per_auditor < MIN_CHARTS_SUGGESTED:
         # A warning, not a block — a short spot check is legitimate.
         warning = _verdict_reach_note(
-            payload.charts_per_auditor, payload.quota_clean,
-            payload.clean_share, scoring_config(db)) or None
+            payload.charts_per_auditor, scoring_config(db)) or None
     return {"batch_id": batch.id, "name": batch.name,
             "skipped_duplicates": skipped, "warning": warning}
 

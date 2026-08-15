@@ -398,6 +398,12 @@ class AuditScoringConfig(Base):
     # Pass/fail is withheld below this many opportunities in a session. Chart
     # scores are quantised by planting count, so a verdict on a two-planting
     # session would be noise dressed as judgement.
+    # SUPERSEDED. The verdict was once gated on how many errors were
+    # introduced; it is now gated on how many code lines were reviewed
+    # (min_review_opportunities), because detection is quantised by planting
+    # count. Nothing reads this and it is no longer settable — kept only
+    # because the migrations in this codebase are additive and dropping a
+    # column on a live database is the one thing they will not do.
     min_opportunities_for_verdict = Column(Integer, nullable=False, default=20)
     # The verdict is decided on the Review Score, which has roughly four times
     # the opportunities per chart that detection has. Fifty is about five
