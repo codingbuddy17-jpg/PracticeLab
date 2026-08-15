@@ -149,10 +149,7 @@ export function AuditAnalytics() {
       <div style={s.rowBetween}>
         <div>
           <div style={s.h1}>Audit Analytics</div>
-          <div style={s.sub}>
-            {overview.charts || 0} chart(s) · {overview.auditors || 0} auditor(s) · {overview.batches || 0} batch(es)
-            {refreshing && <span style={{ marginLeft: 8, color: '#7c3aed', fontWeight: 700 }}>Updating...</span>}
-          </div>
+          {refreshing && <div style={s.sub}>Updating...</div>}
         </div>
         <button style={s.outlineBtn} onClick={() => downloadAuditAnalytics(filters)}>
           <Download size={15} /> Export Workbook
@@ -251,16 +248,15 @@ const SECTION_TONE: Record<string, string> = {
 }
 
 /**
- * POA, modifiers and units — reported, never in the denominator.
+ * POA and modifiers — reported, never in the denominator.
  *
  * Each is an attribute OF a code line rather than a line of its own. Counting
  * them as opportunities doubled the denominator with judgements that are
- * almost never wrong (POA is 2% of the error mix), which let an auditor who
- * flagged nothing score 94% and pass. They still get a percentage, because
- * POA on an inpatient diagnosis is real gradeable work.
+ * almost never wrong, which let an auditor who flagged nothing score too high
+ * and pass. They still get a percentage where they are real gradeable work.
  */
 function AttributeMetrics({ attributes }: { attributes: any }) {
-  const order = ['POA', 'Modifier', 'Units']
+  const order = ['POA', 'Modifier']
   return (
     <>
       {order.filter(k => attributes?.[k]?.total).map(k => (
@@ -336,22 +332,18 @@ function OverviewTab({ overview, trend, cleanOpportunity, threshold }: {
     <div style={stackStyle}>
       <Verdict overview={overview} threshold={threshold} />
       <div style={metricGridStyle}>
-        <Metric label="Auditors Tested" value={overview.auditors || 0} tone="#475569"
-          sub={`${overview.charts || 0} chart(s)`} />
+        <Metric label="Auditors Tested" value={overview.auditors || 0} tone="#475569" />
         <Metric label="Overall Audit Score" value={pct(overview.audit_score)}
-          tone={tone(overview.audit_score, threshold)}
-          sub="cumulative" />
+          tone={tone(overview.audit_score, threshold)} />
         <Metric label="Error Detection Rate" value={pct(overview.audit_accuracy)}
-          tone={tone(overview.audit_accuracy, threshold)}
-          sub="cumulative" />
+          tone={tone(overview.audit_accuracy, threshold)} />
         <Metric label="Review Score" value={pct(overview.review_score)}
-          tone={tone(overview.review_score, threshold)}
-          sub="cumulative" />
+          tone={tone(overview.review_score, threshold)} />
         <Metric label="Clean Chart Score" value={pct(overview.clean_accuracy)} tone="#2563eb" />
         <Metric label="Opp Chart Score" value={pct(overview.opportunity_accuracy)} tone="#7c3aed" />
         <Metric label="Total Pass Rate" value={pct(overview.pass_rate)}
           tone={tone(overview.pass_rate, 70)}
-          sub={`${overview.pass_count || 0}/${overview.verdict_count || 0} passed`} />
+          sub={`${overview.pass_count || 0}/${overview.verdict_count || 0}`} />
       </div>
 
       <div style={chartGridStyle}>
@@ -421,20 +413,18 @@ function ReviewMetricsTab({ overview, specialties, threshold }: {
         ) : null}>
         <div style={{ ...s.note, marginTop: 0 }}>
           {selectedSpecialty
-            ? `${selectedSpecialty} metrics only. Click a score to inspect the numerator, denominator and coaching angle.`
-            : 'Cumulative metrics across the current date and specialty filters. Select a specialty for CPT, PCS, PDx, SDx and attribute drill-down.'}
+            ? `${selectedSpecialty} metrics. Click a score for detail.`
+            : 'Select a specialty, then click a score for detail.'}
         </div>
       </Panel>
 
       <div style={metricGridStyle}>
-        <Metric label="Code Lines Reviewed" value={scoped.review_total || 0} tone="#475569"
-          sub={scoped.review_total ? `${scoped.review_correct} correct` : 'NA'} />
+        <Metric label="Code Lines Reviewed" value={scoped.review_total || 0} tone="#475569" />
         <Metric label="Review Score" value={pct(scoped.review_score)}
-          tone={tone(scoped.review_score, threshold)} sub="all code-line judgements" />
+          tone={tone(scoped.review_score, threshold)} />
         <Metric label="Error Detection Rate" value={pct(scoped.audit_accuracy)}
-          tone={tone(scoped.audit_accuracy, threshold)} sub="errors found and fixed" />
-        <Metric label="Query Score" value={pct(scoped.query_accuracy)} tone="#475569"
-          sub={scoped.query_charts ? `${scoped.query_correct}/${scoped.query_charts}` : 'NA'} />
+          tone={tone(scoped.audit_accuracy, threshold)} />
+        <Metric label="Query Score" value={pct(scoped.query_accuracy)} tone="#475569" />
       </div>
 
       <div style={chartGridStyle}>
@@ -452,7 +442,7 @@ function ReviewMetricsTab({ overview, specialties, threshold }: {
         <Panel title="Attribute Scores">
           {attributeRows.length
             ? <MetricDrillGrid rows={attributeRows} focus={focus} setFocus={setFocus} threshold={threshold} />
-            : <div style={s.empty}>No POA, modifier or unit review metrics in scope.</div>}
+            : <div style={s.empty}>No POA or modifier review metrics in scope.</div>}
         </Panel>
         <Panel title={active.title}>
           <MetricDetail body={active} threshold={threshold} />
@@ -478,7 +468,6 @@ function MetricDrillGrid({ rows, focus, setFocus, threshold }: {
             }}>
             <span style={{ fontSize: 20, fontWeight: 900, color: tone(r.score, threshold) }}>{pct(r.score)}</span>
             <span style={{ fontSize: 11, fontWeight: 900, color: '#4b5563' }}>{r.label}</span>
-            <span style={muted}>{r.basis}</span>
           </button>
         )
       })}
@@ -533,7 +522,7 @@ function sectionMetricRows(row: any) {
 }
 
 function attributeMetricRows(row: any) {
-  return ['POA', 'Modifier', 'Units']
+  return ['POA', 'Modifier']
     .filter(k => row?.attributes?.[k]?.total)
     .map(k => ({
       kind: 'attribute', key: k, label: `${k} Score`,
@@ -640,7 +629,7 @@ function AuditorsTab({ rows, matched, query, setQuery, selected, setSelected, pr
               <button key={r.auditor_key || r.auditor_name} onClick={() => setSelected(r)}
                 style={{ ...auditorCardStyle, borderColor: on ? '#7c3aed' : '#e5e7eb', background: on ? '#f5f3ff' : '#fff' }}>
                 <span style={{ fontWeight: 800 }}>{r.auditor_name}</span>
-                <span style={{ fontSize: 11, color: '#6b7280' }}>{r.emp_id || 'No Emp ID'} · {r.charts} chart(s)</span>
+                <span style={{ fontSize: 11, color: '#6b7280' }}>{r.emp_id || 'No Emp ID'}</span>
                 <span style={{ fontWeight: 800, color: tone(r.audit_accuracy, threshold) }}>{pct(r.audit_accuracy)}</span>
               </button>
             )
@@ -875,7 +864,7 @@ function ScoreTable({ rows, nameKey, threshold = 90 }: {
           <tbody>
             {rows.slice(0, ROW_CAP).map((r, i) => (
               <tr key={i}>
-                <td style={td}><strong>{r[nameKey]}</strong><div style={muted}>{r.batches} batch(es) · {r.auditors} auditor(s)</div></td>
+                <td style={td}><strong>{r[nameKey]}</strong></td>
                 <td style={td}>{r.charts}</td>
                 <td style={{ ...td, fontWeight: 800, color: tone(r.audit_score, threshold) }}>{pct(r.audit_score)}</td>
                 <td style={td}>{pct(r.clean_accuracy)}</td>
