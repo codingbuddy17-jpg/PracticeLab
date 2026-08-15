@@ -404,9 +404,12 @@ function CreateAuditBatch({ trainer, onDone, onCancel }: {
       {chartsPer < 5 && (
         <div style={s.warnBox}>
           <AlertTriangle size={14} color="#d97706" style={{ flexShrink: 0, marginTop: 1 }} />
-          <span>Sessions this short report a score but withhold a pass/fail verdict — chart
-            scores are quantised by error count, so a verdict on a handful of
-            opportunities would be noise.</span>
+          <span>
+            Roughly {Math.max(1, Math.round(chartsPer * 1.7))} opportunities. A pass/fail
+            verdict needs 20 — around 12 charts — so this batch reports scores without
+            one. Chart scores are quantised by error count, and a verdict on a handful of
+            opportunities would be noise. Everything else still works.
+          </span>
         </div>
       )}
 

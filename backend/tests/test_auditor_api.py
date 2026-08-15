@@ -1166,6 +1166,40 @@ class TestDeepReviewFixes:
         assert "does not exist" in r.json()["detail"]
 
 
+class TestShortSessionWarning:
+    """
+    The warning names the verdict rule, so it has to speak in the rule's units.
+
+    It used to say a session below 5 charts "will withhold a pass/fail
+    verdict". The verdict is gated on OPPORTUNITIES (20 by default), not
+    charts, so 5 charts does not earn one either — the warning simply
+    disappeared while still being true.
+    """
+
+    def test_it_reports_opportunities_and_what_would_reach_a_verdict(
+            self, client, db, library):
+        r = client.post("/auditor/batches", json={
+            "name": "Spot check", "specialty": "IP-DRG", "created_by": "T",
+            "charts_per_auditor": 2,
+            "auditors": [{"name": "A", "emp_id": "E1"}]})
+        assert r.status_code == 200, r.text
+        warning = r.json()["warning"]
+        assert warning
+        assert "opportunities" in warning
+        assert "20" in warning              # the actual gate
+        # and it must not promise that the suggested chart count earns a verdict
+        assert "below the suggested" not in warning
+
+    def test_a_batch_that_can_reach_a_verdict_is_not_warned(
+            self, client, db, library):
+        r = client.post("/auditor/batches", json={
+            "name": "Full wave", "specialty": "IP-DRG", "created_by": "T",
+            "charts_per_auditor": 20,
+            "auditors": [{"name": "A", "emp_id": "E1"}]})
+        assert r.status_code == 200, r.text
+        assert r.json()["warning"] is None
+
+
 class TestHandPickedMode:
     """
     The trainer chooses WHICH charts. Only the clean count is a quota here —

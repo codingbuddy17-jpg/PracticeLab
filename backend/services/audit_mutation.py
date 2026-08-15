@@ -200,6 +200,15 @@ def total_codes(claim: dict) -> int:
              + len(claim.get("cpt") or [])
 
 
+# Guidance only — never used in scoring. The real budget is per chart and
+# scales with its code count (see planting_budget below), so the number of
+# opportunities a session will carry cannot be known before the charts are
+# drawn. Measured at 2.48 over 400 generated charts of each shape, on the
+# library the tests use. Good enough to tell a trainer whether a batch can
+# reach a verdict; not good enough to promise them it will.
+TYPICAL_ERRORS_PER_OPPORTUNITY_CHART = 2.5
+
+
 def planting_budget(claim: dict, cfg: MutationConfig, rng: random.Random) -> int:
     """
     How many errors this chart can carry without ceasing to look like a claim.
