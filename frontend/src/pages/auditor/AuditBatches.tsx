@@ -760,6 +760,8 @@ function AuditBatchDetail({ batchId, trainer, onBack, onReview }: {
   const codes = Object.values(batch.tokens_by_cycle || {}).flat() as any[]
   const cycleEntries = Object.entries(batch.tokens_by_cycle || {})
     .sort(([a], [b]) => Number(b) - Number(a))
+  const cycleNumberById = Object.fromEntries((batch.allocation_cycles || [])
+    .map((c: any) => [String(c.id), c.cycle_number]))
   const latestCycle = [...(batch.allocation_cycles || [])]
     .sort((a: any, b: any) => Number(b.cycle_number) - Number(a.cycle_number))[0]
   const assignmentRows = Object.values(batch.assignments || {}).flat() as any[]
@@ -1012,7 +1014,7 @@ function AuditBatchDetail({ batchId, trainer, onBack, onReview }: {
               <div key={cycleId}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 7 }}>
                   <span style={{ fontWeight: 800, fontSize: 12, color: '#374151' }}>
-                    Cycle {cycleId}
+                    Cycle {cycleNumberById[cycleId] ?? cycleId}
                   </span>
                   <span style={s.groupCount}>{(cycleCodes as any[]).length} code(s)</span>
                   <span style={{ flex: 1, height: 1, background: '#f3f4f6' }} />
