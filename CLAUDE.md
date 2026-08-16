@@ -108,7 +108,7 @@ After any schema change, check deploy logs for `Migration DDL failed`.
 
 **Counting tables:** `Base.metadata` reports 35, and that is wrong. Six tables
 (`em_*`, `practice_*`) exist only in raw DDL and are invisible to the ORM. The
-real schema is **41 tables / 596 columns**. Count by building it —
+real schema is **46 tables / 645 columns**. Count by building it —
 `init_db()` against a throwaway SQLite file, then `inspect(engine)`.
 
 ---
@@ -126,13 +126,36 @@ frontend/src/
   api/        one module per backend area
   pages/      practicelab/ · assessment/ · auditor/ · top-level screens
   components/ hooks/ types/ theme.ts
-scripts/      the two contract checkers
+scripts/      the two contract checkers, and the CMS code-set ingest
 docs/         IT handover documents
 ```
 
 Shared logic belongs in `services/`. `draw_for_person` in
 `services/allocation.py` is drawn on by both the coder and auditor allocators —
 prefer extending a shared function over copying it.
+
+---
+
+## Reference code sets are loaded by hand
+
+`scripts/ingest_code_sets.py --write` loads ICD-10-CM, ICD-10-PCS, HCPCS
+Level II and the MS-DRG CC/MCC list — about 186,000 rows. **Nothing calls it**,
+deliberately: it downloads several megabytes, and hanging that off `init_db()`
+would make every deploy slow and a CMS outage a failed startup.
+
+Everything that reads it degrades to silence rather than erroring, so an
+environment where it was never run looks like one where the features do not
+exist. `GET /codes/status` says what is loaded. `--from-dir` reads files from
+disk for environments with no route to cms.gov.
+
+One consequence is not cosmetic: the auditor's PCS mutation draws its
+replacement from the real tables. Without them, two-thirds of planted PCS
+errors are strings that are not codes — which changes what auditors are scored
+on, not just what they see.
+
+**CPT is absent and stays absent.** AMA copyright, licensed per user, and this
+repository is public. CPT lines render bare and the answer-key checks decline
+to judge five-digit numeric codes rather than pretend to have checked them.
 
 ---
 

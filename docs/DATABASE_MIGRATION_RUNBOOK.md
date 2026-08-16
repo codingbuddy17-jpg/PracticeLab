@@ -404,9 +404,77 @@ curl -s "https://YOUR-INTERNAL-API/charts/search?page_size=1"
 
 ---
 
-## 8. Table inventory
+## 8. Reference code sets — a manual step nothing will remind you about
 
-**41 tables, 596 columns.** Grouped by subsystem:
+The application carries the CMS code sets: **ICD-10-CM, ICD-10-PCS and HCPCS
+Level II**, plus the CC/MCC severity list from the MS-DRG Definitions Manual.
+They are loaded by a **standalone script that nothing calls automatically**:
+
+```bash
+python scripts/ingest_code_sets.py            # report only, downloads nothing to the DB
+python scripts/ingest_code_sets.py --write    # load it
+```
+
+Roughly 186,000 rows, about two minutes. It needs `DATABASE_URL` and creates
+its own tables, so it can be run before the API has ever booted.
+
+**Read this part.** If the script is never run, the application does not fail
+and nothing in the logs says anything is missing. Every feature that depends on
+it degrades to silence, so it simply looks as though these features do not
+exist:
+
+| Without the load | What the user sees |
+|---|---|
+| Code descriptions under every code box | Nothing — the code alone |
+| Type-ahead code completion | No suggestions ever appear |
+| Answer-key upload flagging codes that do not exist | No warning |
+| Answer-key upload checking CC/MCC labels | No warning |
+| Auditor error generator constrained to real PCS codes | Two-thirds of planted PCS errors are strings that are not codes |
+
+That last row is the one with teeth: it changes what auditors are scored on,
+not just what they see.
+
+`GET /codes/status` reports what is loaded and when. It is the quickest way to
+answer "has anyone run this here?".
+
+### 8.1 No outbound route to cms.gov?
+
+Expected in an internal environment. Download the files elsewhere, put them in
+a directory, and point the script at it:
+
+```bash
+python scripts/ingest_code_sets.py --from-dir /path/to/cms/files --write
+```
+
+It matches files by name, so keep the names CMS ships them under. The four
+sources are the ICD-10-CM code descriptions, the ICD-10-PCS code tables, the
+alphanumeric HCPCS file, and the MS-DRG Definitions Manual (for `appendix_C`).
+Each is independent — a missing one is skipped with a message, and the rest
+still load.
+
+### 8.2 When to run it again
+
+- **ICD-10-CM and ICD-10-PCS** — annually, effective 1 October.
+- **HCPCS Level II** — quarterly.
+- **MS-DRG manual** — annually, and it is usually published *after* the code
+  set, so the script will tell you when the severity list is a year behind the
+  codes.
+
+Re-running replaces each code set wholesale rather than merging, because codes
+are deleted between editions as well as added — merging would leave retired
+codes looking current. It is safe to run against a live database.
+
+**CPT is not included and cannot be.** CPT is AMA copyright and licensed per
+user. CPT lines render their code without a description, and the answer-key
+checks deliberately do not judge five-digit numeric codes rather than pretend
+to have checked them. If your organisation holds an AMA licence, that is a
+separate decision and a separate data source.
+
+---
+
+## 9. Table inventory
+
+**46 tables, 645 columns.** Grouped by subsystem:
 
 **Chart Library** — `charts`, `chart_files`, `chart_sequences`, `chart_feedback`,
 `audit_logs`, `coding_resources`
@@ -438,7 +506,10 @@ curl -s "https://YOUR-INTERNAL-API/charts/search?page_size=1"
 
 ---
 
-## 9. Ongoing operations
+## 10. Ongoing operations
+
+- **Reference code sets.** Re-run `scripts/ingest_code_sets.py --write` when
+  CMS republishes (§8.2). Nothing prompts you.
 
 - **Backups.** Nothing in the application performs them. Schedule
   `pg_dump` (daily is typical) plus a bucket backup for the chart files.
@@ -452,7 +523,7 @@ curl -s "https://YOUR-INTERNAL-API/charts/search?page_size=1"
 
 ---
 
-## 10. Open items for the receiving team
+## 11. Open items for the receiving team
 
 1. Confirm the PostgreSQL major version to provision (§4.1).
 2. Decide storage: re-point at the existing bucket, or copy it (§6).
@@ -460,3 +531,5 @@ curl -s "https://YOUR-INTERNAL-API/charts/search?page_size=1"
 4. Set `CORS_ORIGINS` to the internal frontend origin — a mismatch here
    produces a frontend that loads and then fails every request.
 5. Agree the backup schedule and retention.
+6. Run the code-set ingest once after the first deploy, and decide who owns
+   re-running it each quarter (§8).

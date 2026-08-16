@@ -205,6 +205,15 @@ ever dropped or renamed — which is what makes rolling the application back
 safe. After any deploy that changed the schema, check the logs for
 `Migration DDL failed`.
 
+**One thing a deploy does not do: load the CMS code sets.**
+`scripts/ingest_code_sets.py --write` is a standalone script nothing calls, and
+it must be run once per environment (and again when CMS republishes — ICD
+annually, HCPCS quarterly). Without it the application runs normally and says
+nothing: code descriptions, type-ahead completion and the answer-key code
+checks are simply absent, and the auditor's error generator plants PCS codes
+that do not exist. `GET /codes/status` answers "has anyone run this here?".
+Full detail in §8 of the migration runbook.
+
 ---
 
 ## 6. If you are picking this up cold
