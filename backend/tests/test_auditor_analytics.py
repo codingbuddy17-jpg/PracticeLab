@@ -457,10 +457,22 @@ class TestPdfReports:
         assert _audit_headline(summary) == 94.0, "must read the blend"
 
         headline, detail, *_ = _audit_verdict(summary, pass_threshold=90)
-        assert headline == "ON TRACK"
+        assert headline == "GOOD"
         assert "94.0" in detail and "61.0" not in detail
         assert "audit accuracy" not in detail.lower()
         assert "Audit Score" in detail
+
+    def test_the_report_does_not_print_internal_sample_size_gates(self):
+        from services.pdf_report_service import _audit_verdict
+
+        summary = {"audit_score": 93.19,
+                   "verdict_withheld_reason": "9/50 review lines for verdict"}
+        headline, detail, *_ = _audit_verdict(summary, pass_threshold=90)
+
+        assert headline == "GOOD"
+        assert "9/50" not in detail
+        assert "review lines" not in detail
+        assert "INDICATIVE" not in headline
 
     def test_the_report_still_reads_results_scored_before_review_existed(self):
         """Old rows have no audit_score; they fall back rather than blanking."""

@@ -756,17 +756,21 @@ def _audit_verdict(summary: dict, pass_threshold: int = 80):
     # half, so a report could print a headline figure the PASS beside it was
     # never computed from. Falls back for rows scored before review existed.
     score = _audit_headline(summary)
-    withheld = summary.get("verdict_withheld_reason")
     if score is None:
         return ("NO SCORED AUDITS YET", "There are no submitted audit charts in this scope.",
                 GRAY, GRAY_LIGHT, BORDER)
-    if withheld:
-        return ("INDICATIVE ONLY", f"{score}% Audit Score — {withheld}.",
-                AMBER, AMBER_BG, AMBER_BORDER)
-    if score >= pass_threshold:
-        return ("ON TRACK", f"{score}% Audit Score meets the {pass_threshold}% target.",
+    excellent_at = min(100, pass_threshold + 5)
+    needs_improvement_at = round(pass_threshold * 0.78, 2)
+    if score >= excellent_at:
+        return ("EXCELLENT", f"{score}% Audit Score.",
                 GREEN, GREEN_BG, GREEN_BORDER)
-    return ("NEEDS COACHING", f"{score}% Audit Score is below the {pass_threshold}% target.",
+    if score >= pass_threshold:
+        return ("GOOD", f"{score}% Audit Score.",
+                GREEN, GREEN_BG, GREEN_BORDER)
+    if score >= needs_improvement_at:
+        return ("NEEDS IMPROVEMENT", f"{score}% Audit Score.",
+                AMBER, AMBER_BG, AMBER_BORDER)
+    return ("POOR", f"{score}% Audit Score.",
             RED, RED_BG, RED_BORDER)
 
 
