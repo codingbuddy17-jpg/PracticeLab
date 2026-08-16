@@ -22,6 +22,9 @@ export async function uploadAnswerKeys(file: File, specialty: string, enteredBy:
     // which is a different statement from "checked and all found".
     unknown_codes: { chart: string; code: string; system: string }[] | null
     codes_checked: boolean
+    // Same null convention. Only reported in the one unambiguous direction —
+    // see ccmcc_mismatches on the backend for why.
+    ccmcc_mismatches: { chart: string; code: string; claimed: string; published: string }[] | null
   }
 }
 

@@ -58,10 +58,17 @@ HCPCS_URLS = [
     "https://www.cms.gov/files/zip/october-2025-alpha-numeric-hcpcs-file.zip",
     "https://www.cms.gov/files/zip/july-2025-alpha-numeric-hcpcs-file.zip",
 ]
+# MS-DRG Definitions Manual, for Appendix C — the published CC/MCC list.
+# Newest first; the version number moves each October.
+DRG_URLS = [
+    "https://www.cms.gov/files/zip/icd-10-ms-drg-definitions-manual-files-v43.zip",
+    "https://www.cms.gov/files/zip/icd-10-ms-drg-definitions-manual-files-v42.zip",
+]
 PCS_URLS = [
     "https://www.cms.gov/files/zip/2026-icd-10-pcs-code-tables-and-index-updated-01012026.zip",
     "https://www.cms.gov/files/zip/2026-icd-10-pcs-code-tables-and-index.zip",
 ]
+
 
 def _download(urls: Iterable[str]) -> Optional[bytes]:
     import urllib.request
@@ -339,6 +346,44 @@ def parse_hcpcs(txt_bytes: bytes) -> tuple[list[dict], list[dict]]:
     return codes, modifiers
 
 
+def parse_cc_mcc(txt_bytes: bytes) -> dict:
+    """
+    Appendix C Part 1 of the MS-DRG Definitions Manual: every code that acts as
+    a CC or an MCC as a secondary diagnosis.
+
+    Returns {code: "CC" | "MCC"}.
+
+    PART 1 ONLY, and the parse stops when Part 2 begins. Part 2 codes are a
+    Major CC only for patients discharged alive and Part 3 codes are excluded
+    within particular DRGs — both are conditional on facts this application
+    does not hold, and flattening them into "MCC" would produce a list that
+    disagrees with the manual in exactly the cases a trainer would query.
+
+    Whether a CC actually counts also depends on the principal diagnosis, which
+    is why this is used to WARN on a trainer's label rather than to correct it.
+    """
+    out: dict = {}
+    started = False
+    for line in txt_bytes.decode("latin-1", "ignore").splitlines():
+        stripped = line.strip()
+        if not started:
+            if stripped.startswith("Appendix C Part 1"):
+                started = True
+            continue
+        if stripped.startswith("Appendix C Part 2") or \
+                stripped.startswith("Appendix C Part 3"):
+            break
+        parts = stripped.split()
+        if len(parts) < 2 or parts[1] not in ("CC", "MCC"):
+            continue
+        code = parts[0].upper().replace(".", "")
+        # The header row reads "I10 Dx Lev PDX ..." — "Dx" is not a severity,
+        # so it never reaches here, but a code must still look like one.
+        if len(code) >= 3 and code[0].isalpha():
+            out[code] = parts[1]
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--write", action="store_true", help="save; otherwise report only")
@@ -390,6 +435,38 @@ def main() -> int:
             print(f"  {len(unmapped)} without a chapter, e.g. {unmapped[:5]}")
     else:
         print("  no source found — skipped")
+
+    # ── CC / MCC severity, from the MS-DRG manual ────────────────────────────
+    #
+    # Stamped onto the CM rows rather than kept apart: it is a property of the
+    # diagnosis code, and every reader that wants it already has the code.
+    if cm_rows:
+        print("\nCC / MCC (MS-DRG Appendix C)")
+        if src:
+            appendix = _local(src, "appendix_c", ".txt")
+        else:
+            blob = _download(DRG_URLS)
+            appendix = _from_zip(blob, "appendix_c", ".txt") if blob else None
+        severity = parse_cc_mcc(appendix) if appendix else {}
+        if severity:
+            for row in cm_rows:
+                row["cc_mcc_status"] = severity.get(row["code"])
+            stamped = sum(1 for r in cm_rows if r.get("cc_mcc_status"))
+            mcc = sum(1 for r in cm_rows if r.get("cc_mcc_status") == "MCC")
+            print(f"  {stamped:,} codes carry a severity "
+                  f"({mcc:,} MCC, {stamped - mcc:,} CC)")
+            # The MS-DRG manual moves each October and the CM code set each
+            # October too, but they are not published together — so the
+            # appendix on hand is often a version behind. Naming the drift is
+            # better than a number that looks authoritative and is a year old.
+            known = {r["code"] for r in cm_rows}
+            orphans = [c for c in severity if c not in known]
+            if orphans:
+                print(f"  {len(orphans)} severity codes are not in this CM "
+                      f"edition, e.g. {sorted(orphans)[:4]} — the MS-DRG "
+                      f"manual is from a different year.")
+        else:
+            print("  no source found — skipped, codes load without severity")
 
     # ── ICD-10-PCS ───────────────────────────────────────────────────────────
     print("\nICD-10-PCS")

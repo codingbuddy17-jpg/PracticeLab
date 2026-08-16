@@ -9,7 +9,8 @@ saying nothing.
 import pytest
 
 from models import CodeDescription, PcsCodeAxis
-from services.code_check import entries_from_key_row, unknown_codes
+from services.code_check import (ccmcc_from_key_row, ccmcc_mismatches,
+                                 entries_from_key_row, unknown_codes)
 
 
 @pytest.fixture()
@@ -133,3 +134,79 @@ class TestFlatteningAKeyRow:
 
     def test_a_sparse_row_does_not_break_it(self):
         assert list(entries_from_key_row("IP001", {})) == [("IP001", "PDx", None)]
+
+
+class TestCcMccLabels:
+    """
+    The asymmetry is the design. Whether a secondary really acts as a CC
+    depends on the principal diagnosis, so only the unambiguous direction is
+    reported — a warning nobody can trust is worse than none.
+    """
+
+    @pytest.fixture()
+    def severities(self, db):
+        db.add_all([
+            CodeDescription(code="A419", code_system="ICD10CM",
+                            description="Sepsis", cc_mcc_status="MCC",
+                            is_billable=True),
+            CodeDescription(code="N179", code_system="ICD10CM",
+                            description="Acute kidney failure",
+                            cc_mcc_status="CC", is_billable=True),
+            CodeDescription(code="E119", code_system="ICD10CM",
+                            description="Type 2 diabetes",
+                            cc_mcc_status=None, is_billable=True),
+        ])
+        db.commit()
+        return db
+
+    def test_a_matching_label_is_not_reported(self, severities):
+        assert ccmcc_mismatches(severities, [
+            ("IP001", "A41.9", "MCC"), ("IP001", "N17.9", "CC")]) == []
+
+    def test_claiming_severity_the_manual_does_not_give_is_reported(
+            self, severities):
+        """
+        Unambiguous: exclusions only ever REMOVE severity. Nothing promotes a
+        code that has none.
+        """
+        out = ccmcc_mismatches(severities, [("IP001", "E11.9", "CC")])
+        assert out == [{"chart": "IP001", "code": "E119",
+                        "claimed": "CC", "published": "neither"}]
+
+    def test_the_wrong_level_is_reported_in_both_directions(self, severities):
+        """An exclusion downgrades to non-CC, never between CC and MCC."""
+        out = ccmcc_mismatches(severities, [("IP001", "A419", "CC"),
+                                            ("IP002", "N179", "MCC")])
+        assert {(r["code"], r["claimed"], r["published"]) for r in out} == {
+            ("A419", "CC", "MCC"), ("N179", "MCC", "CC")}
+
+    def test_claiming_nothing_where_the_manual_gives_a_cc_is_left_alone(
+            self, severities):
+        """
+        This is exactly what a PDx exclusion looks like, and it is very often
+        correct. Reporting it would bury the real findings on every IP key.
+        """
+        assert ccmcc_mismatches(severities, [
+            ("IP001", "A419", "-"), ("IP001", "N179", ""),
+            ("IP001", "N179", "None")]) == []
+
+    def test_a_code_the_tables_do_not_have_is_the_other_check_s_business(
+            self, severities):
+        assert ccmcc_mismatches(severities, [("IP001", "Z9999", "MCC")]) == []
+
+    def test_no_severities_loaded_reports_not_checked(self, loaded):
+        """
+        `loaded` carries descriptions but no MS-DRG appendix, so there is
+        nothing to compare against. Silence would read as approval.
+        """
+        assert ccmcc_mismatches(loaded, [("IP001", "J189", "MCC")]) is None
+
+    def test_nothing_loaded_at_all_reports_not_checked(self, db):
+        assert ccmcc_mismatches(db, [("IP001", "A419", "MCC")]) is None
+
+    def test_a_row_is_flattened_into_its_secondaries(self):
+        row = {"pdx_code": "J18.9",
+               "sdx": [{"code": "A41.9", "poa": "Y", "ccmcc": "MCC"},
+                       {"code": "E11.9", "poa": "Y", "ccmcc": "-"}]}
+        assert list(ccmcc_from_key_row("IP001", row)) == [
+            ("IP001", "A41.9", "MCC"), ("IP001", "E11.9", "-")]

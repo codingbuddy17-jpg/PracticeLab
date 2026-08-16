@@ -51,6 +51,8 @@ export function AnswerKeysView() {
   // toasted: it is a list a trainer has to work through, not a notification.
   const [unknownCodes, setUnknownCodes] = useState<
     { chart: string; code: string; system: string }[]>([])
+  const [ccmccIssues, setCcmccIssues] = useState<
+    { chart: string; code: string; claimed: string; published: string }[]>([])
   const [replaceMode, setReplaceMode] = useState(false)
   const [exportPassphrase, setExportPassphrase] = useState('')
   const [showExportPrompt, setShowExportPrompt] = useState(false)
@@ -80,6 +82,7 @@ export function AnswerKeysView() {
       if (res.skipped_duplicates.length) toast(`Already exist, skipped ${res.skipped_duplicates.length} (use Replace mode to overwrite)`, { icon: 'ℹ️' })
       if (res.not_found.length) setPendingCharts(res.not_found)
       setUnknownCodes(res.unknown_codes || [])
+      setCcmccIssues(res.ccmcc_mismatches || [])
       if (res.wrong_specialty?.length) {
         toast.error(`Rejected ${res.wrong_specialty.length} chart(s) — wrong specialty for ${isIP ? 'IP' : 'OP'} upload: ${res.wrong_specialty.join(', ')}`, { duration: 8000 })
       }
@@ -300,6 +303,35 @@ export function AnswerKeysView() {
             </div>
           </div>
           <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', padding: 2, flexShrink: 0 }} onClick={() => setUnknownCodes([])}>
+            <X size={16} />
+          </button>
+        </div>
+      )}
+
+      {/* CC/MCC labels that disagree with the MS-DRG manual. Only the
+          unambiguous direction is reported: a published CC can be knocked down
+          to a non-CC by the principal diagnosis, so a blank label is very
+          often right, but nothing ever promotes a code that has no severity. */}
+      {ccmccIssues.length > 0 && (
+        <div style={{ background: '#fff7ed', border: '1px solid #fdba74', borderRadius: 10, padding: '14px 16px', marginBottom: 20, display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+          <AlertTriangle size={18} color="#ea580c" style={{ flexShrink: 0, marginTop: 1 }} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: 13, color: '#9a3412', marginBottom: 4 }}>
+              {ccmccIssues.length} CC/MCC label{ccmccIssues.length !== 1 ? 's' : ''} disagree{ccmccIssues.length === 1 ? 's' : ''} with the MS-DRG manual
+            </div>
+            <div style={{ fontSize: 12, color: '#7c2d12', lineHeight: 1.6, marginBottom: 8 }}>
+              The keys were saved. These secondaries claim a severity the published
+              CC/MCC list does not give them, which affects DRG flags in grading.
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 6 }}>
+              {ccmccIssues.map((c, i) => (
+                <span key={`${c.chart}-${c.code}-${i}`} style={{ fontSize: 12, background: '#ffedd5', color: '#9a3412', border: '1px solid #fdba74', padding: '2px 10px', borderRadius: 20 }}>
+                  {c.chart} · <b style={{ fontFamily: 'monospace' }}>{c.code}</b> — key says {c.claimed}, CMS says {c.published}
+                </span>
+              ))}
+            </div>
+          </div>
+          <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', padding: 2, flexShrink: 0 }} onClick={() => setCcmccIssues([])}>
             <X size={16} />
           </button>
         </div>

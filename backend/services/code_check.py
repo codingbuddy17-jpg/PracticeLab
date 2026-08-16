@@ -142,3 +142,83 @@ def entries_from_key_row(chart_number: str, row: dict):
             yield (chart_number, "CPT", entry.get("code"))
             for mod in str(entry.get("modifier") or "").replace(",", " ").split():
                 yield (chart_number, "Modifier", mod)
+
+
+def ccmcc_mismatches(db, entries) -> Optional[list]:
+    """
+    Where a trainer's CC/MCC label disagrees with the MS-DRG manual.
+
+    `entries` is an iterable of (label, code, claimed) — claimed being whatever
+    the key says, "CC", "MCC", "-", or blank.
+
+    ONE DIRECTION ONLY, and the asymmetry is the whole design. Whether a
+    secondary actually acts as a CC depends on the principal diagnosis: the
+    manual's exclusion lists can knock a published CC down to a non-CC on a
+    particular chart. So:
+
+    - claimed CC/MCC where the manual lists NEITHER is unambiguously wrong.
+      Exclusions only ever remove severity; nothing promotes a code that has
+      none.
+    - claimed CC where the manual says MCC, or the reverse, is also wrong —
+      an exclusion downgrades to non-CC, never between the two levels.
+    - claimed nothing where the manual lists a CC or MCC is NOT reported. It
+      is very often correct: that is exactly what an exclusion looks like.
+
+    Reporting the third case would bury the first two in false positives on
+    every inpatient key, and a warning nobody can trust is worse than none.
+    """
+    if not code_sets_loaded(db):
+        return None
+
+    from models import CodeDescription
+
+    claims = {}
+    for label, code, claimed in entries:
+        bare = _bare(code)
+        stated = str(claimed or "").strip().upper()
+        if not bare or stated in ("", "-", "NONE", "N", "NON-CC", "NONCC"):
+            continue
+        if stated not in ("CC", "MCC"):
+            continue
+        claims.setdefault(bare, []).append((label, stated))
+
+    if not claims:
+        return []
+
+    # Asked ONCE against the whole table, not inferred from the codes in this
+    # file. Deriving it from the subset said "no severity data loaded" whenever
+    # every code on the key happened to be a non-CC — which is the common case
+    # for a short key, and it silently suppressed the check.
+    if db.query(CodeDescription.id).filter(
+            CodeDescription.code_system == "ICD10CM",
+            CodeDescription.cc_mcc_status.isnot(None)).first() is None:
+        return None
+
+    published = {}
+    codes = sorted(claims)
+    for i in range(0, len(codes), 500):
+        chunk = codes[i:i + 500]
+        for code, status in (db.query(CodeDescription.code,
+                                      CodeDescription.cc_mcc_status)
+                             .filter(CodeDescription.code_system == "ICD10CM",
+                                     CodeDescription.code.in_(chunk)).all()):
+            published[code] = (status or "").upper() or None
+
+    out = []
+    for code in codes:
+        if code not in published:
+            continue          # unknown codes are the other check's business
+        actual = published[code]
+        for label, stated in sorted(set(claims[code])):
+            if actual == stated:
+                continue
+            out.append({"chart": label, "code": code,
+                        "claimed": stated, "published": actual or "neither"})
+    return out[:MAX_REPORTED]
+
+
+def ccmcc_from_key_row(chart_number: str, row: dict):
+    """(label, code, claimed) for each secondary diagnosis on a key row."""
+    for entry in (row.get("sdx") or []):
+        if isinstance(entry, dict) and entry.get("code"):
+            yield (chart_number, entry.get("code"), entry.get("ccmcc"))

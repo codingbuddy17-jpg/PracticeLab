@@ -7,7 +7,8 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from database import get_db
 from models import Chart, ChartStatus, Specialty, AnswerKey, ScoringConfig, Batch, SelfPracticeSubmission
-from services.code_check import entries_from_key_row, unknown_codes
+from services.code_check import (ccmcc_from_key_row, ccmcc_mismatches,
+                                 entries_from_key_row, unknown_codes)
 from services.excel_service import (
     generate_answer_key_template, generate_coder_list_template,
     parse_answer_key_upload, parse_coder_list, export_all_answer_keys,
@@ -321,9 +322,18 @@ def upload_answer_keys(
         if (row.get("chart_number") or "") in accepted
         for triple in entries_from_key_row(row["chart_number"], row)))
 
+    # Only inpatient keys carry a CC/MCC column at all.
+    ccmcc = ccmcc_mismatches(db, (
+        triple
+        for row in rows
+        if (row.get("chart_number") or "") in accepted
+        for triple in ccmcc_from_key_row(row["chart_number"], row))
+    ) if is_ip_upload else []
+
     return {
         "stored": stored, "replaced": replaced, "skipped_duplicates": skipped,
         "not_found": not_found, "wrong_specialty": wrong_specialty,
+        "ccmcc_mismatches": ccmcc,
         # None means "not checked" — no code set is loaded. An empty list means
         # checked and every code was found. Different claims, so they are
         # reported differently rather than both rendering as "no problems".

@@ -306,3 +306,47 @@ class TestHcpcsLevelTwo:
         raw = self._rec("A4550", 1, "Tray, 45\xb0 angle", "Tray").encode("latin-1")
         codes, _mods = ingest.parse_hcpcs(raw)
         assert "45" in codes[0]["description"]
+
+
+class TestCcMccAppendix:
+    """
+    Appendix C Part 1 of the MS-DRG Definitions Manual. Parts 2 and 3 are
+    conditional on facts this app does not hold — discharge status, and the DRG
+    the chart groups to — and flattening them in would produce a list that
+    disagrees with the manual in exactly the cases a trainer would query.
+    """
+
+    TXT = b"""Appendix C is a list of all of the codes...
+
+Appendix C Part 1: List of CC and Major CC Codes
+ I10 Dx  Lev PDX Exclusions   ICD-10-CM Description
+ A000    CC  0002:3 codes     Cholera due to Vibrio cholerae
+ A021    MCC 0005:60 codes    Salmonella sepsis
+ N179    CC  0011:2 codes     Acute kidney failure
+
+Appendix C Part 2: Major CC only for patients discharged alive
+ J9601   MCC 0099:1 codes     Acute respiratory failure with hypoxia
+"""
+
+    def test_it_reads_the_severity_of_each_code(self, ingest):
+        got = ingest.parse_cc_mcc(self.TXT)
+        assert got["A000"] == "CC"
+        assert got["A021"] == "MCC"
+        assert got["N179"] == "CC"
+
+    def test_part_two_is_not_read(self, ingest):
+        """Major CC only for patients discharged alive — a fact we lack."""
+        assert "J9601" not in ingest.parse_cc_mcc(self.TXT)
+
+    def test_the_column_header_is_not_mistaken_for_a_code(self, ingest):
+        got = ingest.parse_cc_mcc(self.TXT)
+        assert "I10" not in got and "DX" not in got
+
+    def test_the_preamble_before_part_one_is_skipped(self, ingest):
+        assert ingest.parse_cc_mcc(b"CC and MCC are explained here\n") == {}
+
+    def test_codes_are_stored_the_way_they_are_looked_up(self, ingest):
+        """Bare, no decimal point — matching how the code tables store them."""
+        got = ingest.parse_cc_mcc(
+            b"Appendix C Part 1:\n N17.9   CC  0011:2 codes  Acute kidney\n")
+        assert got == {"N179": "CC"}
