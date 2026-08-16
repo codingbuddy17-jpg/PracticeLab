@@ -382,6 +382,29 @@ class TestFilters:
         names = [row[0] for row in rows if row and row[0] == "Asha R"]
         assert names == ["Asha R"]
 
+    def test_workbook_specialty_headers_match_auditor_score_terms(
+            self, client, db, library):
+        self._two_auditors(client)
+        r = client.get("/auditor/analytics/export")
+        assert r.status_code == 200, r.text
+        import io
+        wb = load_workbook(filename=io.BytesIO(r.content), read_only=True)
+
+        overview_terms = {row[0] for row in wb["Overview"].iter_rows(values_only=True)
+                          if row and row[0]}
+        specialty_headers = next(
+            [c for c in row if c]
+            for row in wb["By_Specialty"].iter_rows(values_only=True)
+            if row and row[0] == "Specialty")
+
+        assert "Audit Score" in overview_terms
+        assert "Review Score" in overview_terms
+        assert "Error Detection Rate" in overview_terms
+        assert "Audit Score" in specialty_headers
+        assert "Review Score" in specialty_headers
+        assert "Error Detection Rate" in specialty_headers
+        assert "Audit %" not in specialty_headers
+
     def test_batch_filter_is_accepted_by_by_batch(self, client, db, library):
         """by-batch took no batch_id at all, so selecting one changed nothing."""
         first = self._two_auditors(client)

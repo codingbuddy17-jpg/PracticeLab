@@ -171,11 +171,15 @@ def export_analytics(overview: dict, batches: list[dict], auditors: list[dict],
                ["Charts scored", overview.get("charts", 0), ""],
                ["Auditors", overview.get("auditors", 0), ""],
                ["Batches", overview.get("batches", 0), ""],
-               ["Audit accuracy", _na(overview.get("audit_accuracy")),
+               ["Audit Score", _na(overview.get("audit_score")),
+                "weighted score used for verdict"],
+               ["Review Score", _na(overview.get("review_score")),
+                overview.get("review_basis", "")],
+               ["Error Detection Rate", _na(overview.get("audit_accuracy")),
                 overview.get("audit_accuracy_basis", "")],
-               ["Clean accuracy", _na(overview.get("clean_accuracy")),
+               ["Clean Chart Score", _na(overview.get("clean_accuracy")),
                 f"{overview.get('clean_charts', 0)} charts — restraint"],
-               ["Opportunity accuracy", _na(overview.get("opportunity_accuracy")),
+               ["Opportunity Chart Score", _na(overview.get("opportunity_accuracy")),
                 f"{overview.get('opportunity_charts', 0)} charts — detection"],
                ["Add accuracy", _na((overview.get("add") or {}).get("accuracy")),
                 _pooled(overview.get("add"))],
@@ -192,10 +196,11 @@ def export_analytics(overview: dict, batches: list[dict], auditors: list[dict],
                 "reported, not scored"],
                ["Opportunities", overview.get("opportunities", 0), ""],
            ],
-           note="Audit accuracy averages chart scores; component accuracies pool "
-                "findings over errors introduced. The two are not interchangeable.")
+           note="Audit Score is weighted. Error Detection Rate and Review Score "
+                "are shown separately because they answer different questions.")
 
-    cols = ["Charts", "Audit %", "Clean %", "Opportunity %",
+    cols = ["Charts", "Audit Score", "Review Score", "Error Detection Rate",
+            "Clean Chart Score", "Opportunity Chart Score",
             "Add found", "Add total", "Add %",
             "Revise found", "Revise total", "Revise %",
             "Delete found", "Delete total", "Delete %",
@@ -203,7 +208,8 @@ def export_analytics(overview: dict, batches: list[dict], auditors: list[dict],
 
     def _row(r: dict) -> list:
         return [
-            r.get("charts"), _na(r.get("audit_accuracy")),
+            r.get("charts"), _na(r.get("audit_score")), _na(r.get("review_score")),
+            _na(r.get("audit_accuracy")),
             _na(r.get("clean_accuracy")), _na(r.get("opportunity_accuracy")),
             (r.get("add") or {}).get("found"), (r.get("add") or {}).get("planted"),
             _na((r.get("add") or {}).get("accuracy")),

@@ -3,7 +3,7 @@ import toast from 'react-hot-toast'
 import { AlertTriangle, Download, FileText, KeyRound, Search, X } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import {
-  Bar, BarChart, CartesianGrid, Cell, Line, LineChart,
+  Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts'
 import {
@@ -832,13 +832,16 @@ function SpecialtiesTab({ rows, threshold }: { rows: any[]; threshold: number })
   return (
     <div style={stackStyle}>
       <Panel title="Specialty Scores">
-        <ResponsiveContainer width="100%" height={Math.max(220, rows.length * 48)}>
+        <ResponsiveContainer width="100%" height={Math.max(240, rows.length * 68)}>
           <BarChart data={rows} layout="vertical" margin={{ left: 20, right: 40, top: 8, bottom: 8 }}>
             <CartesianGrid strokeDasharray="3 3" horizontal={false} />
             <XAxis type="number" domain={[0, 100]} tickFormatter={v => `${v}%`} tick={{ fontSize: 10 }} />
             <YAxis type="category" dataKey="specialty" width={120} tick={{ fontSize: 11, fontWeight: 700 }} />
-            <Tooltip formatter={(v: any) => [`${v}%`, 'Audit Score']} contentStyle={tooltipStyle} />
-            <Bar dataKey="audit_score" fill="#7c3aed" radius={[0, 5, 5, 0]} />
+            <Tooltip formatter={(v: any, name: any) => [`${v}%`, name]} contentStyle={tooltipStyle} />
+            <Legend wrapperStyle={{ fontSize: 11 }} />
+            <Bar dataKey="audit_score" name="Audit Score" fill="#7c3aed" radius={[0, 5, 5, 0]} />
+            <Bar dataKey="review_score" name="Review Score" fill="#2563eb" radius={[0, 5, 5, 0]} />
+            <Bar dataKey="audit_accuracy" name="Error Detection Rate" fill="#059669" radius={[0, 5, 5, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </Panel>
@@ -1079,25 +1082,37 @@ function ScoreTable({ rows, nameKey, threshold = 90 }: {
   rows: any[]; nameKey: string; threshold?: number
 }) {
   const { shown: visible, control } = useShowMore(rows)
+  const headerDefs: Record<string, string> = {
+    'Audit Score': 'Weighted score used for the auditor training verdict.',
+    'Review Score': 'Code-line review score: how often audited lines were judged correctly.',
+    'Error Detection Rate': 'Introduced findings caught by auditors. This is not the weighted Audit Score.',
+    'Clean Chart Score': 'Performance on charts with no introduced errors.',
+    'Opportunity Chart Score': 'Performance on charts with introduced errors.',
+    'PCS/CPT Score': 'Procedure-family score: PCS for IP-DRG, CPT for outpatient specialties.',
+    Overcalls: 'Auditor findings on lines that did not need correction.',
+  }
   return (
     <Panel title="Score Table">
       <div style={{ overflowX: 'auto' }}>
         <table style={tableStyle}>
           <thead>
-            <tr>{['', 'Charts', 'Audit Score', 'Clean', 'Opportunity', 'Procedure', 'Add', 'Revise', 'Delete', 'Overcalls'].map(h => <th key={h} style={th}>{h}</th>)}</tr>
+            <tr>{['Specialty', 'Charts', 'Auditors', 'Batches', 'Audit Score', 'Review Score', 'Error Detection Rate', 'Clean Chart Score', 'Opportunity Chart Score', 'PCS/CPT Score', 'Overcalls'].map(h => (
+              <th key={h} style={th} title={headerDefs[h]}>{h}</th>
+            ))}</tr>
           </thead>
           <tbody>
             {visible.map((r, i) => (
               <tr key={i}>
                 <td style={td}><strong>{r[nameKey]}</strong></td>
                 <td style={td}>{r.charts}</td>
+                <td style={td}>{r.auditors}</td>
+                <td style={td}>{r.batches}</td>
                 <td style={{ ...td, fontWeight: 800, color: tone(r.audit_score, threshold) }}>{pct(r.audit_score)}</td>
+                <td style={{ ...td, fontWeight: 800, color: tone(r.review_score, threshold) }}>{pct(r.review_score)}</td>
+                <td style={{ ...td, fontWeight: 800, color: tone(r.audit_accuracy, threshold) }}>{pct(r.audit_accuracy)}</td>
                 <td style={td}>{pct(r.clean_accuracy)}</td>
                 <td style={td}>{pct(r.opportunity_accuracy)}</td>
                 <td style={td}><ProcedureCell row={r} /></td>
-                <td style={td}>{cell(r.add)}</td>
-                <td style={td}>{cell(r.revise)}</td>
-                <td style={td}>{cell(r.delete)}</td>
                 <td style={td}>{r.over_calls}</td>
               </tr>
             ))}
