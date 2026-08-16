@@ -153,3 +153,36 @@ def test_a_nonsense_date_is_ignored_not_fatal(client, db):
     seed_question_pool(db)
     _make(client, db, "Recent")
     assert _overview(client, date_from="not-a-date")["total_submitted"] == 1
+
+
+def test_unsat_papers_cannot_push_scored_ones_off_the_chart(client, db):
+    """
+    The bar chart selects papers WITH results first, then the ten most recent
+    of those.
+
+    Taking the ten newest and dropping the unscored afterwards meant a run of
+    freshly generated papers nobody had sat could push every scored paper out
+    of the window — the chart drew four bars, or none, while the data existed
+    the whole time. Eleven unsat papers here is one more than the limit, which
+    is exactly the case that used to empty it.
+    """
+    seed_question_pool(db)
+    _make(client, db, "Scored paper", sit=True)
+    for i in range(11):
+        _make(client, db, f"Never sat {i}", sit=False)
+
+    rates = _overview(client)["per_assessment_pass_rates"]
+    names = [r["assessment_name"] for r in rates]
+    assert names == ["Scored paper"], (
+        f"the only scored paper must still be charted; got {names}")
+
+
+def test_the_chart_keeps_the_ten_most_recent_scored_papers(client, db):
+    seed_question_pool(db)
+    for i in range(12):
+        _make(client, db, f"Paper {i:02d}", sit=True)
+    rates = _overview(client)["per_assessment_pass_rates"]
+    assert len(rates) == 10, "still capped at ten"
+    # oldest two drop off, and the list reads oldest-to-newest for the chart
+    assert "Paper 00" not in [r["assessment_name"] for r in rates]
+    assert "Paper 11" in [r["assessment_name"] for r in rates]

@@ -1598,3 +1598,35 @@ class TestBlendWeightValidation:
         """A trainer who only cares about detection is making a real choice."""
         r = self._put(client, detection_weight=100, review_weight=0)
         assert r.status_code == 200, r.text
+
+
+class TestObservedShareIsSettable:
+    """
+    observed_share_pct governs how much of a chart's error budget goes to
+    mistakes real coders made on it. It was read by the generator but absent
+    from the config API, so the panel could not show or change it — the one
+    generation control a trainer could not reach.
+    """
+
+    def test_it_round_trips_through_the_config(self, client, db):
+        before = client.get("/auditor/config").json()
+        assert "observed_share_pct" in before
+
+        r = client.put("/auditor/config", json={
+            "observed_share_pct": 40, "updated_by": "T", "passphrase": PASS})
+        assert r.status_code == 200, r.text
+        assert r.json()["observed_share_pct"] == 40
+        assert client.get("/auditor/config").json()["observed_share_pct"] == 40
+
+    def test_zero_turns_the_observed_source_off_and_is_allowed(self, client, db):
+        """A real choice: generate everything rather than reuse coder errors."""
+        r = client.put("/auditor/config", json={
+            "observed_share_pct": 0, "updated_by": "T", "passphrase": PASS})
+        assert r.status_code == 200, r.text
+        assert r.json()["observed_share_pct"] == 0
+
+    def test_it_reaches_the_generator(self, client, db):
+        from routers.auditor_pkg.shared import mutation_config
+        client.put("/auditor/config", json={
+            "observed_share_pct": 25, "updated_by": "T", "passphrase": PASS})
+        assert mutation_config(db).observed_share_pct == 25

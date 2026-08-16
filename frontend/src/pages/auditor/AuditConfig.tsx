@@ -169,6 +169,15 @@ export function AuditConfig({ trainer }: { trainer: string }) {
             onChange={v => set('max_section_share', v)} width={110} />
           <Num label="CC/MCC preference" value={cfg.ccmcc_preference}
             onChange={v => set('ccmcc_preference', v)} width={110} />
+          <Num label="Prefer real coder errors %" value={cfg.observed_share_pct}
+            onChange={v => set('observed_share_pct', v)} width={130} />
+        </div>
+        <div style={s.note}>
+          "Prefer real coder errors" is how much of a chart's budget goes to mistakes
+          your own coders actually made on it, where any have been recorded. 100 takes
+          as many as the chart offers; generated errors still fill whatever is left, so
+          a chart with no recorded mistakes is unaffected. Setting it to 0 turns the
+          observed source off entirely.
         </div>
       </Block>
 

@@ -29,7 +29,20 @@ export function OverviewTab({ filters = NO_FILTERS }: { filters?: AFilters }) {
         <KpiCard label="Total Assessments" value={String(data.total_assessments)} icon={<BarChart2 size={14} />} />
         <KpiCard label="Coders Assessed" value={String(data.unique_coders_assessed)} icon={<User size={14} />} />
         <KpiCard label="Overall Pass Rate" value={fmt(data.overall_pass_rate)} color={rateColor(data.overall_pass_rate)} icon={<Award size={14} />} />
-        <KpiCard label="Avg Score" value={fmt(data.avg_score)} color={scoreColor(data.avg_score, data.default_pass_threshold)} icon={<TrendingUp size={14} />} />
+        {/*
+          Coloured against the pass mark only when there IS one pass mark. The
+          note below already says the bars differ per paper; colouring an
+          average against a default that governs none of them contradicts it,
+          and green-or-red is a stronger claim than a sentence. When they vary
+          the number stands on its own and the card says which marks are in
+          scope.
+        */}
+        <KpiCard label="Avg Score" value={fmt(data.avg_score)}
+          color={data.pass_thresholds_vary
+            ? undefined
+            : scoreColor(data.avg_score, data.default_pass_threshold)}
+          sub={data.pass_thresholds_vary ? 'pass marks differ by assessment' : undefined}
+          icon={<TrendingUp size={14} />} />
         <KpiCard label="Completion Rate" value={fmt(data.completion_rate)}
           sub={`${data.total_submitted} of ${data.total_sessions} sessions${data.expired_sessions ? ` · ${data.expired_sessions} lapsed unstarted` : ''}`}
           icon={<CheckCircle size={14} />} />

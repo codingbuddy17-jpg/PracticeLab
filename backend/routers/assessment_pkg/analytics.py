@@ -235,12 +235,25 @@ def analytics_overview(db: Session = Depends(get_db), f: AFilters = Depends(filt
     # Per-assessment pass rates for bar chart (last 10 assessments with results
     # IN THIS WINDOW — an unscoped list would chart papers the rest of the page
     # has filtered out).
-    recent_q = db.query(GeneratedAssessment)
+    #
+    # Papers WITH results are selected first, then the ten most recent of
+    # those. Taking the ten newest and dropping the unscored afterwards meant a
+    # run of freshly generated papers nobody had sat yet could push every
+    # scored paper off the chart — it would quietly draw four bars, or none,
+    # while the data existed the whole time.
+    scored_ids = {s.assessment_id for s in all_sessions
+                  if s.status == "submitted" and s.result}
+    recent_q = db.query(GeneratedAssessment).filter(
+        GeneratedAssessment.id.in_(scored_ids or [-1]))
     if f.active:
         recent_q = recent_q.filter(GeneratedAssessment.id.in_(assessment_ids or [-1]))
     assessments = (
         recent_q
-        .order_by(GeneratedAssessment.generated_at.desc())
+        # Id breaks the tie. Papers generated in the same second sort
+        # arbitrarily on the timestamp alone, so which ten appeared could
+        # change between two identical requests.
+        .order_by(GeneratedAssessment.generated_at.desc(),
+                  GeneratedAssessment.id.desc())
         .limit(10)
         .all()
     )
@@ -248,7 +261,7 @@ def analytics_overview(db: Session = Depends(get_db), f: AFilters = Depends(filt
     for a in reversed(assessments):
         a_sessions = [s for s in all_sessions if s.assessment_id == a.id and s.status == "submitted"]
         a_results = [s.result for s in a_sessions if s.result]
-        if not a_results:
+        if not a_results:      # belt and braces; the query already excludes these
             continue
         a_passed = sum(1 for r in a_results if r.score_pct >= marks.get(a.id, DEFAULT_PASS_THRESHOLD))
         per_assessment.append({

@@ -27,6 +27,7 @@ class ConfigUpdate(BaseModel):
     query_unnecessary_pct: Optional[int] = None
     pass_threshold: Optional[int] = None
     min_review_opportunities: Optional[int] = None
+    observed_share_pct: Optional[int] = None
     detection_weight: Optional[int] = None
     review_weight: Optional[int] = None
     max_auto_plantings: Optional[int] = None
@@ -49,6 +50,7 @@ def _serialise(cfg: AuditScoringConfig) -> dict:
         "query_unnecessary_pct": cfg.query_unnecessary_pct,
         "pass_threshold": cfg.pass_threshold,
         "min_review_opportunities": cfg.min_review_opportunities,
+        "observed_share_pct": cfg.observed_share_pct,
         "detection_weight": cfg.detection_weight,
         "review_weight": cfg.review_weight,
         "max_auto_plantings": cfg.max_auto_plantings,
@@ -117,6 +119,7 @@ def update_config(payload: ConfigUpdate, db: Session = Depends(get_db)):
     for f in ("over_call_revenue_pct", "over_call_non_revenue_pct",
               "query_missed_pct", "query_unnecessary_pct", "pass_threshold",
               "min_review_opportunities", "max_auto_plantings",
+              "observed_share_pct",
               "max_section_share", "ccmcc_preference"):
         v = getattr(payload, f)
         if v is not None:
