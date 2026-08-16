@@ -200,6 +200,32 @@ export function AuditAnalytics() {
   )
 }
 
+/**
+ * A capped list that can be grown, rather than one that silently stops.
+ *
+ * A hard cap with a "showing 40 of 300" note is honest but leaves a trainer
+ * with no way to reach row 41 except by guessing a search term. This keeps the
+ * page short by default and lets them ask for more, which is the rule the
+ * revamp note set: search, caps, pagination or show-more — never a bare cap.
+ */
+function useShowMore<T>(rows: T[], step = ROW_CAP) {
+  const [limit, setLimit] = useState(step)
+  useEffect(() => { setLimit(step) }, [rows.length, step])
+  const shown = rows.slice(0, limit)
+  const more = rows.length - shown.length
+  const control = more > 0 ? (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10 }}>
+      <button style={s.outlineBtn} onClick={() => setLimit(n => n + step)}>
+        Show {Math.min(step, more)} more
+      </button>
+      <span style={s.note}>{shown.length} of {rows.length} shown</span>
+    </div>
+  ) : rows.length > step ? (
+    <div style={s.note}>All {rows.length} shown.</div>
+  ) : null
+  return { shown, control }
+}
+
 function GlobalFilters({ draft, setDraft, apply, clear, active }: {
   draft: Filters
   setDraft: React.Dispatch<React.SetStateAction<Filters>>
@@ -700,12 +726,12 @@ function BatchesTab({ rows, query, setQuery, threshold }: {
   const q = query.trim().toLowerCase()
   const filtered = rows.filter(r => !q || (r.name || '').toLowerCase().includes(q)
     || (r.specialty || '').toLowerCase().includes(q))
-  const shown = filtered.slice(0, ROW_CAP)
+  const { shown, control } = useShowMore(filtered)
   return (
     <Panel title="Batch Performance">
       <SearchInput value={query} onChange={setQuery} placeholder="Search batch or specialty..." />
       <CompactBatchTable rows={shown} showPdf threshold={threshold} />
-      {filtered.length > shown.length && <div style={s.note}>Showing {shown.length} of {filtered.length} rows.</div>}
+      {control}
     </Panel>
   )
 }
@@ -773,7 +799,7 @@ function ChartSignalsTab({ data, query, setQuery, threshold }: {
     || (r.chart_number || '').toLowerCase().includes(q)
     || (r.category || '').toLowerCase().includes(q)
     || (r.specialty || '').toLowerCase().includes(q))
-  const shown = filtered.slice(0, ROW_CAP)
+  const { shown, control } = useShowMore(filtered)
   // These four come from the SERVER, computed over every chart in scope. They
   // used to be derived from `rows`, which is a capped page — so at any real
   // size "Charts With Signals" undercounted and "Most Missed" could name a
@@ -843,10 +869,11 @@ function ChartSignalsTab({ data, query, setQuery, threshold }: {
             </table>
           </div>
         )}
-        {(filtered.length > shown.length || capped) && (
+        {control}
+        {capped && (
           <div style={s.note}>
-            Showing {shown.length} of {filtered.length} loaded
-            {capped ? ` — ${data.charts_total} charts match in total; search to reach the rest` : ''}.
+            {data.charts_total} charts match in total; the server sends the
+            weakest {rows.length}. Search to reach the rest.
           </div>
         )}
       </Panel>
@@ -877,6 +904,7 @@ function ProcedureCell({ row }: { row: any }) {
 function ScoreTable({ rows, nameKey, threshold = 90 }: {
   rows: any[]; nameKey: string; threshold?: number
 }) {
+  const { shown: visible, control } = useShowMore(rows)
   return (
     <Panel title="Score Table">
       <div style={{ overflowX: 'auto' }}>
@@ -885,7 +913,7 @@ function ScoreTable({ rows, nameKey, threshold = 90 }: {
             <tr>{['', 'Charts', 'Audit Score', 'Clean', 'Opportunity', 'Procedure', 'Add', 'Revise', 'Delete', 'Overcalls'].map(h => <th key={h} style={th}>{h}</th>)}</tr>
           </thead>
           <tbody>
-            {rows.slice(0, ROW_CAP).map((r, i) => (
+            {visible.map((r, i) => (
               <tr key={i}>
                 <td style={td}><strong>{r[nameKey]}</strong></td>
                 <td style={td}>{r.charts}</td>
@@ -902,6 +930,7 @@ function ScoreTable({ rows, nameKey, threshold = 90 }: {
           </tbody>
         </table>
       </div>
+      {control}
     </Panel>
   )
 }
@@ -941,10 +970,11 @@ function CompactBatchTable({ rows, showPdf = false, threshold = 90 }: {
 function Bucket({ title, rows, empty, threshold = 90 }: {
   title: string; rows: any[]; empty?: string; threshold?: number
 }) {
+  const { shown, control } = useShowMore(rows || [])
   if (!rows?.length) return empty ? <Panel title={title}><div style={s.empty}>{empty}</div></Panel> : null
   return (
     <Panel title={title}>
-      {rows.slice(0, ROW_CAP).map(r => (
+      {shown.map(r => (
         <div key={r.key} style={{ marginBottom: 10 }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
             <span style={{ minWidth: 54, fontWeight: 800, color: tone(r.accuracy, threshold) }}>{pct(r.accuracy)}</span>
@@ -959,7 +989,7 @@ function Bucket({ title, rows, empty, threshold = 90 }: {
           </div>
         </div>
       ))}
-      {rows.length > ROW_CAP && <div style={s.note}>Showing {ROW_CAP} of {rows.length} rows.</div>}
+      {control}
     </Panel>
   )
 }
