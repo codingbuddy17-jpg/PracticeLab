@@ -262,6 +262,67 @@ class TestPCSMutation:
         assert len(seen) >= 3
 
 
+class TestPCSMutationStaysInsideTheTables:
+    """
+    PCS only exists in the combinations the CMS tables define. Changing one
+    character therefore usually lands on nothing: measured against FY2026,
+    66% of structural mutations produced a string that is not a code.
+
+    That is the wrong error to plant. Spotting "that is not a code" is not the
+    skill being measured — the finding is free, and detection reads higher than
+    the auditor's judgement warrants. When the tables are loaded the mutation
+    must produce a REAL code.
+    """
+
+    # A small stand-in for one PCS table: same first three characters, varying
+    # body part, approach and qualifier — the shape the real tables have.
+    REAL = {"0DTJ0ZZ", "0DTJ4ZZ", "0DTJ7ZZ", "0DTJ8ZZ",
+            "0DT80ZZ", "0DT90ZZ", "0DTE0ZZ"}
+
+    def test_every_mutation_is_a_code_that_exists(self):
+        corpus = Corpus(pcs_codes=sorted(self.REAL), valid_pcs=set(self.REAL))
+        rng = random.Random(4)
+        for _ in range(80):
+            out, _what = _mutate_pcs_code("0DTJ4ZZ", corpus, rng)
+            assert out in self.REAL
+            assert out != "0DTJ4ZZ"
+
+    def test_it_still_changes_exactly_one_character(self):
+        corpus = Corpus(pcs_codes=sorted(self.REAL), valid_pcs=set(self.REAL))
+        rng = random.Random(9)
+        for _ in range(60):
+            out, _ = _mutate_pcs_code("0DTJ4ZZ", corpus, rng)
+            diffs = [i for i in range(7) if out[i] != "0DTJ4ZZ"[i]]
+            assert len(diffs) == 1
+
+    def test_the_changed_character_is_still_named(self):
+        corpus = Corpus(pcs_codes=sorted(self.REAL), valid_pcs=set(self.REAL))
+        rng = random.Random(2)
+        seen = {_mutate_pcs_code("0DTJ4ZZ", corpus, rng)[1] for _ in range(60)}
+        assert seen and seen <= set(PCS_MUTABLE_POSITIONS.values())
+
+    def test_no_tables_loaded_falls_back_rather_than_refusing(self):
+        """
+        Reference data being absent must never stop a batch being built. With
+        an empty set the generator behaves exactly as it did before this
+        existed.
+        """
+        rng = random.Random(6)
+        out, _ = _mutate_pcs_code("0DTJ4ZZ", Corpus(valid_pcs=set()), rng)
+        assert len(out) == 7 and out != "0DTJ4ZZ"
+
+    def test_a_code_with_no_real_neighbour_still_gets_an_error(self):
+        """
+        Some codes are alone in their row. Refusing to mutate would quietly
+        leave the chart clean, which is worse than an implausible code — the
+        trainer asked for an error on it.
+        """
+        corpus = Corpus(valid_pcs={"0DTJ4ZZ"})
+        rng = random.Random(8)
+        out, _ = _mutate_pcs_code("0DTJ4ZZ", corpus, rng)
+        assert len(out) == 7 and out != "0DTJ4ZZ"
+
+
 # ── the weights behave as the observations describe ──────────────────────────
 
 class TestMix:

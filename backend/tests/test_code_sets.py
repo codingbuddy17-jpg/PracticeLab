@@ -217,3 +217,92 @@ class TestSeventhCharacterExpansion:
         </section></chapter></ICD10CM.tabular>"""
         codes = {r["code"] for r in ingest.parse_cm_xml(xml)}
         assert "E0832X1" in codes
+
+
+class TestHcpcsLevelTwo:
+    """
+    The CMS ANWEB fixed-width file: code at 1-5, sequence at 6-10, long
+    description at 12-91, short at 92-119, termination date at 285-292.
+    """
+
+    def _rec(self, code, seq, long_desc, short="", term=""):
+        # 5 code + 5 sequence + 1 record type, then the description at 12.
+        line = f"{code:>5}{seq:0>5}3{long_desc:<80}{short:<28}"
+        line = line.ljust(284) + f"{term:<8}"
+        return line
+
+    def test_it_reads_codes_and_their_descriptions(self, ingest):
+        raw = "\n".join([
+            self._rec("J1885", 1, "Injection, ketorolac tromethamine, per 15 mg",
+                      "Ketorolac tromethamine inj"),
+        ]).encode("latin-1")
+        codes, mods = ingest.parse_hcpcs(raw)
+        assert [c["code"] for c in codes] == ["J1885"]
+        assert codes[0]["description"].startswith("Injection, ketorolac")
+        assert codes[0]["short_description"] == "Ketorolac tromethamine inj"
+        assert mods == []
+
+    def test_a_description_split_across_records_is_joined_back(self, ingest):
+        """
+        CMS wraps at eighty columns and repeats the code. Keeping one record
+        per code truncated modifier TC to its seventh fragment, which reads as
+        a sentence about portable x-ray suppliers and nothing about TC.
+        """
+        raw = "\n".join([
+            self._rec("TC", 1, "Technical component; a charge may be made for",
+                      "Technical component"),
+            self._rec("TC", 2, "the technical component alone"),
+        ]).encode("latin-1")
+        _codes, mods = ingest.parse_hcpcs(raw)
+        assert mods[0]["description"] == (
+            "Technical component; a charge may be made for "
+            "the technical component alone")
+
+    def test_fragments_are_joined_in_sequence_not_file_order(self, ingest):
+        raw = "\n".join([
+            self._rec("GA", 2, "second half"),
+            self._rec("GA", 1, "first half"),
+        ]).encode("latin-1")
+        _codes, mods = ingest.parse_hcpcs(raw)
+        assert mods[0]["description"] == "first half second half"
+
+    def test_two_character_entries_are_modifiers_not_codes(self, ingest):
+        """
+        The file right-justifies both into the same column. A modifier box is
+        the least self-explanatory field on the form, so they are worth keeping
+        — but they are not codes and must not appear in code completion.
+        """
+        raw = "\n".join([
+            self._rec("A4550", 1, "Surgical trays", "Surgical trays"),
+            self._rec("LT", 1, "Left side", "Left side"),
+        ]).encode("latin-1")
+        codes, mods = ingest.parse_hcpcs(raw)
+        assert [c["code"] for c in codes] == ["A4550"]
+        assert [m["code"] for m in mods] == ["LT"]
+        assert mods[0]["code_system"] == "HCPCSMOD"
+
+    def test_a_terminated_code_keeps_its_description_but_is_not_billable(
+            self, ingest):
+        """
+        Dropping it would render as "unrecognised" against a code someone
+        typed, when the truth is "real, but retired".
+        """
+        raw = self._rec("Q4100", 1, "Skin substitute, nos", "Skin sub nos",
+                        term="20231231").encode("latin-1")
+        codes, _mods = ingest.parse_hcpcs(raw)
+        assert codes[0]["is_billable"] is False
+        assert codes[0]["description"] == "Skin substitute, nos"
+
+    def test_the_dates_are_read_from_the_first_record_only(self, ingest):
+        """Continuation records are blank past the description."""
+        raw = "\n".join([
+            self._rec("Q4100", 1, "Skin substitute", "Skin sub", term="20231231"),
+            self._rec("Q4100", 2, "of some kind"),
+        ]).encode("latin-1")
+        codes, _mods = ingest.parse_hcpcs(raw)
+        assert codes[0]["is_billable"] is False
+
+    def test_the_file_is_latin_one_not_utf_eight(self, ingest):
+        raw = self._rec("A4550", 1, "Tray, 45\xb0 angle", "Tray").encode("latin-1")
+        codes, _mods = ingest.parse_hcpcs(raw)
+        assert "45" in codes[0]["description"]

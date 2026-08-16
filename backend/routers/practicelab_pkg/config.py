@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from database import get_db
 from models import Chart, ChartStatus, Specialty, AnswerKey, ScoringConfig, Batch, SelfPracticeSubmission
+from services.code_check import entries_from_key_row, unknown_codes
 from services.excel_service import (
     generate_answer_key_template, generate_coder_list_template,
     parse_answer_key_upload, parse_coder_list, export_all_answer_keys,
@@ -306,9 +307,28 @@ def upload_answer_keys(
         stored.append(chart_num)
 
     db.commit()
+
+    # Shape validation cannot catch this. "J18.99" is a well-formed string and
+    # is not a code, and a key carrying it marks every coder wrong on that line
+    # forever — the graded session being the only place it ever shows up.
+    #
+    # A warning, never a refusal: the loaded edition may be older than the key,
+    # and a deployment may not have run the code-set ingest at all.
+    accepted = set(stored) | set(replaced)
+    unknown = unknown_codes(db, (
+        triple
+        for row in rows
+        if (row.get("chart_number") or "") in accepted
+        for triple in entries_from_key_row(row["chart_number"], row)))
+
     return {
         "stored": stored, "replaced": replaced, "skipped_duplicates": skipped,
         "not_found": not_found, "wrong_specialty": wrong_specialty,
+        # None means "not checked" — no code set is loaded. An empty list means
+        # checked and every code was found. Different claims, so they are
+        # reported differently rather than both rendering as "no problems".
+        "unknown_codes": unknown,
+        "codes_checked": unknown is not None,
     }
 
 

@@ -406,7 +406,7 @@ def run_allocation(batch_id: int, payload: AllocationRun, db: Session = Depends(
     keys = {k.chart_id: k for k in db.query(AnswerKey).filter(
         AnswerKey.chart_id.in_([c.id for c in pool])).all()}
     corpus = build_corpus(db.query(AnswerKey).filter(
-        AnswerKey.specialty == batch.specialty).all())
+        AnswerKey.specialty == batch.specialty).all(), db)
     mcfg = mutation_config(db)
     all_sets = sets_by_chart(db, [c.id for c in pool])
 
@@ -550,7 +550,7 @@ def regenerate_assignment(assignment_id: int, payload: RegeneratePayload,
         raise HTTPException(400, "This chart has no answer key")
 
     corpus = build_corpus(db.query(AnswerKey).filter(
-        AnswerKey.specialty == batch.specialty).all())
+        AnswerKey.specialty == batch.specialty).all(), db)
     # A different seed, or the reroll returns exactly what it replaced.
     a.seed = (a.seed or 0) + 7919
     from services.audit_mutation import generate

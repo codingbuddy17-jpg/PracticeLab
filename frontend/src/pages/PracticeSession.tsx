@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { checkCpt, checkDx, checkModifier, checkPcs } from '../codeFormat'
 import { useCodeDescriptions } from '../hooks/useCodeDescriptions'
+import { CodeSuggest } from '../components/CodeSuggest'
 import { useParams } from 'react-router-dom'
 import { Flag, Save, ChevronRight, CheckCircle, AlertTriangle, Circle, Send, BookOpen, Plus, X, Info, Copy, Check } from 'lucide-react'
 import {
@@ -1267,11 +1268,13 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
       <Section title={ip ? "Principal Diagnosis" : "First-Listed Diagnosis"} required type="diagnosis">
         <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
           <div style={{ flex: 1 }}>
-            <input
-              style={{ ...s.inputField, borderColor: pdxPOAMissing ? '#fca5a5' : '#e5e7eb' }}
+            <CodeSuggest
+              style={{ ...s.inputField, width: '100%', boxSizing: 'border-box',
+                       borderColor: pdxPOAMissing ? '#fca5a5' : '#e5e7eb' }}
               placeholder="e.g. J18.9"
+              section="PDx"
               value={entry.pdx_code}
-              onChange={e => onChange({ pdx_code: e.target.value.toUpperCase() })}
+              onChange={v => onChange({ pdx_code: v })}
             />
             <CodeHint check={checkDx(entry.pdx_code)} />
             <CodeSays info={describeDx(entry.pdx_code)} />
@@ -1303,11 +1306,12 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
         {entry.sdx.map((row, i) => (
           <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 8 }}>
             <div style={{ flex: 1 }}>
-              <input
+              <CodeSuggest
                 style={{ ...s.inputField, marginBottom: 0, width: '100%', boxSizing: 'border-box' }}
                 placeholder="e.g. E11.9"
+                section="SDx"
                 value={row.code}
-                onChange={e => updateSdx(i, 'code', e.target.value.toUpperCase())}
+                onChange={v => updateSdx(i, 'code', v)}
               />
               <CodeHint check={checkDx(row.code)} />
               <CodeSays info={describeDx(row.code)} />
@@ -1338,13 +1342,14 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
           {entry.pcs.map((row, i) => (
             <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginBottom: 8 }}>
               <div style={{ flex: 1 }}>
-                <input
+                <CodeSuggest
                   style={{ ...s.inputField, width: '100%', boxSizing: 'border-box',
                            marginBottom: 0, fontFamily: 'monospace',
                            borderColor: checkPcs(row.code).ok ? '#e5e7eb' : '#dc2626' }}
                   placeholder="e.g. 0BHN3BZ"
+                  section="PCS"
                   value={row.code}
-                  onChange={e => updatePcs(i, e.target.value.toUpperCase())}
+                  onChange={v => updatePcs(i, v)}
                   maxLength={10}
                 />
                 <CodeSays info={describePcs(row.code)} />

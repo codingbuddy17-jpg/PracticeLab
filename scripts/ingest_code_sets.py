@@ -40,7 +40,7 @@ for key in ("STORAGE_ENDPOINT_URL", "STORAGE_ACCESS_KEY", "STORAGE_SECRET_KEY",
             "STORAGE_BUCKET_NAME", "STORAGE_PUBLIC_URL", "MASTER_ADMIN_PASSPHRASE"):
     os.environ.setdefault(key, "x")
 
-from database import SessionLocal  # noqa: E402
+from database import Base, SessionLocal, engine  # noqa: E402
 from models import CodeDescription, CodeSetVersion, PcsCodeAxis  # noqa: E402
 
 EDITION = "FY2026"
@@ -48,6 +48,13 @@ EDITION = "FY2026"
 CM_URLS = [
     "https://www.cms.gov/files/zip/2026-code-descriptions-tabular-order-updated-01012026.zip",
     "https://www.cms.gov/files/zip/2026-code-descriptions-tabular-order.zip",
+]
+# HCPCS Level II is republished QUARTERLY, so the newest is tried first and the
+# list walks back — an internal environment mid-quarter should still find one.
+HCPCS_URLS = [
+    "https://www.cms.gov/files/zip/january-2026-alpha-numeric-hcpcs-file.zip",
+    "https://www.cms.gov/files/zip/october-2025-alpha-numeric-hcpcs-file.zip",
+    "https://www.cms.gov/files/zip/july-2025-alpha-numeric-hcpcs-file.zip",
 ]
 PCS_URLS = [
     "https://www.cms.gov/files/zip/2026-icd-10-pcs-code-tables-and-index-updated-01012026.zip",
@@ -300,6 +307,83 @@ def parse_pcs(xml_bytes: bytes) -> tuple[list[dict], list[dict]]:
 
 # ── load ─────────────────────────────────────────────────────────────────────
 
+def parse_hcpcs(txt_bytes: bytes) -> tuple[list[dict], list[dict]]:
+    """
+    HCPCS Level II, from the CMS ANWEB fixed-width file.
+
+    Per the CMS record layout: code at 1-5, long description at 12-91, short
+    description at 92-119, termination date at 285-292. The file is latin-1,
+    not UTF-8, and its line lengths vary, so every field is sliced defensively.
+
+    Two kinds of row come back, because the file holds two kinds of thing. A
+    five-character entry is a code; a two-character one is a MODIFIER, which
+    the file right-justifies into the same column. Modifiers are the reason
+    this is worth parsing beyond CPT-adjacent descriptions — a modifier box is
+    the least self-explanatory field on the form, and nothing else in this app
+    could say what 25 or 59 means.
+
+    Terminated codes are kept but not marked billable. The description is still
+    the right thing to show against a code someone typed — saying nothing would
+    read as "unrecognised" when the truth is "real, but retired".
+
+    Nothing here is CPT. Level II is the letter-prefixed set (A-V) and is
+    public domain; the five-digit numeric codes are AMA copyright and are not
+    in this file.
+    """
+    # A long description does not fit in eighty columns, so CMS SPLITS it across
+    # several records for the same code, numbered in the sequence field at 6-10.
+    # Taking one record per code silently truncates: modifier TC runs to seven
+    # of them, and reading only the last leaves "suppliers will then be used to
+    # build customary and prevailing profiles" as the whole meaning of the
+    # modifier. Fragments are joined back in sequence order.
+    grouped: dict = {}
+    order: list = []
+    for line in txt_bytes.decode("latin-1", "ignore").splitlines():
+        if len(line) < 92:
+            continue
+        code = line[0:5].strip().upper()
+        if not code:
+            continue
+        seq_raw = line[5:10].strip()
+        seq = int(seq_raw) if seq_raw.isdigit() else 0
+        if code not in grouped:
+            grouped[code] = {"parts": [], "short": "", "terminated": False}
+            order.append(code)
+        entry = grouped[code]
+        entry["parts"].append((seq, line[11:91].strip()))
+        # The short description and the dates ride on the first record; later
+        # fragments repeat the code and carry continuation text only.
+        if not entry["short"]:
+            entry["short"] = line[91:119].strip()
+            entry["terminated"] = (bool(line[284:292].strip())
+                                   if len(line) >= 292 else False)
+
+    codes: list = []
+    modifiers: list = []
+    for code in order:
+        entry = grouped[code]
+        joined = " ".join(text for _seq, text in sorted(entry["parts"]) if text)
+        joined = re.sub(r"\s+", " ", joined).strip()
+        if not joined and not entry["short"]:
+            continue
+        row = {
+            "code": code,
+            "description": joined or entry["short"],
+            "short_description": entry["short"][:120] or None,
+            "chapter": None,
+            "chapter_no": None,
+            "is_billable": not entry["terminated"],
+            "edition": EDITION,
+        }
+        if len(code) == 5 and code[0].isalpha():
+            row["code_system"] = "HCPCS"
+            codes.append(row)
+        elif len(code) == 2:
+            row["code_system"] = "HCPCSMOD"
+            modifiers.append(row)
+    return codes, modifiers
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--write", action="store_true", help="save; otherwise report only")
@@ -366,7 +450,23 @@ def main() -> int:
     else:
         print("  no source found — skipped")
 
-    if not cm_rows and not pcs_rows:
+    # ── HCPCS Level II ───────────────────────────────────────────────────────
+    print("\nHCPCS Level II")
+    if src:
+        hc_txt = _local(src, "anweb", ".txt")
+    else:
+        blob = _download(HCPCS_URLS)
+        hc_txt = _from_zip(blob, "anweb", ".txt") if blob else None
+    hcpcs_rows, mod_rows = parse_hcpcs(hc_txt) if hc_txt else ([], [])
+    if hcpcs_rows or mod_rows:
+        live = sum(1 for r in hcpcs_rows if r["is_billable"])
+        print(f"  {len(hcpcs_rows):,} codes ({live:,} current, "
+              f"{len(hcpcs_rows) - live:,} terminated) "
+              f"and {len(mod_rows):,} modifiers")
+    else:
+        print("  no source found — skipped")
+
+    if not cm_rows and not pcs_rows and not hcpcs_rows:
         print("\nnothing to load")
         return 1
 
@@ -374,9 +474,16 @@ def main() -> int:
         print("\ndry run — nothing saved. Pass --write to load.")
         return 0
 
+    # The code tables may not exist yet: nothing creates them but create_all()
+    # on app startup, and an IT team standing up a new environment will
+    # reasonably load reference data before first boot. create_all() only adds
+    # tables that are missing, so this is safe to run against a live schema.
+    Base.metadata.create_all(bind=engine)
+
     db = SessionLocal()
     try:
-        for system, rows in (("ICD10CM", cm_rows), ("ICD10PCS", pcs_rows)):
+        for system, rows in (("ICD10CM", cm_rows), ("ICD10PCS", pcs_rows),
+                             ("HCPCS", hcpcs_rows), ("HCPCSMOD", mod_rows)):
             if not rows:
                 continue
             # Replaced wholesale rather than merged: an edition is a set, and
@@ -392,7 +499,8 @@ def main() -> int:
             db.query(PcsCodeAxis).delete()
             db.bulk_insert_mappings(PcsCodeAxis, pcs_axes)
         db.commit()
-        print(f"\nloaded {len(cm_rows) + len(pcs_rows):,} codes")
+        total = len(cm_rows) + len(pcs_rows) + len(hcpcs_rows) + len(mod_rows)
+        print(f"\nloaded {total:,} codes")
         return 0
     finally:
         db.close()

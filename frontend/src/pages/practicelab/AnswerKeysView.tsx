@@ -47,6 +47,10 @@ export function AnswerKeysView() {
   const [passphrase, setPassphrase] = useState('')
   const [acting, setActing] = useState(false)
   const [pendingCharts, setPendingCharts] = useState<string[]>([])
+  // Codes that are well formed and do not exist. Kept on screen rather than
+  // toasted: it is a list a trainer has to work through, not a notification.
+  const [unknownCodes, setUnknownCodes] = useState<
+    { chart: string; code: string; system: string }[]>([])
   const [replaceMode, setReplaceMode] = useState(false)
   const [exportPassphrase, setExportPassphrase] = useState('')
   const [showExportPrompt, setShowExportPrompt] = useState(false)
@@ -75,6 +79,7 @@ export function AnswerKeysView() {
       if (res.replaced?.length) toast.success(`Replaced ${res.replaced.length} existing key${res.replaced.length !== 1 ? 's' : ''}`)
       if (res.skipped_duplicates.length) toast(`Already exist, skipped ${res.skipped_duplicates.length} (use Replace mode to overwrite)`, { icon: 'ℹ️' })
       if (res.not_found.length) setPendingCharts(res.not_found)
+      setUnknownCodes(res.unknown_codes || [])
       if (res.wrong_specialty?.length) {
         toast.error(`Rejected ${res.wrong_specialty.length} chart(s) — wrong specialty for ${isIP ? 'IP' : 'OP'} upload: ${res.wrong_specialty.join(', ')}`, { duration: 8000 })
       }
@@ -265,6 +270,36 @@ export function AnswerKeysView() {
             </div>
           </div>
           <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', padding: 2, flexShrink: 0 }} onClick={() => setPendingCharts([])}>
+            <X size={16} />
+          </button>
+        </div>
+      )}
+
+      {/* Codes that passed every shape check and are still not codes. A key
+          carrying one marks every coder wrong on that line forever, and the
+          graded session is otherwise the only place it surfaces. */}
+      {unknownCodes.length > 0 && (
+        <div style={{ background: '#fff7ed', border: '1px solid #fdba74', borderRadius: 10, padding: '14px 16px', marginBottom: 20, display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+          <AlertTriangle size={18} color="#ea580c" style={{ flexShrink: 0, marginTop: 1 }} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: 13, color: '#9a3412', marginBottom: 4 }}>
+              {unknownCodes.length} code{unknownCodes.length !== 1 ? 's' : ''} not found in the loaded CMS code sets
+            </div>
+            <div style={{ fontSize: 12, color: '#7c2d12', lineHeight: 1.6, marginBottom: 8 }}>
+              The keys were saved. These codes are correctly formed but are not in the
+              edition currently loaded — either a typo, or a code from a different year.
+              Worth checking before the charts are graded against them.
+              {' '}CPT codes are not checked.
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 6 }}>
+              {unknownCodes.map((u, i) => (
+                <span key={`${u.chart}-${u.code}-${i}`} style={{ fontSize: 12, background: '#ffedd5', color: '#9a3412', border: '1px solid #fdba74', padding: '2px 10px', borderRadius: 20 }}>
+                  {u.chart} · <b style={{ fontFamily: 'monospace' }}>{u.code}</b>
+                </span>
+              ))}
+            </div>
+          </div>
+          <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', padding: 2, flexShrink: 0 }} onClick={() => setUnknownCodes([])}>
             <X size={16} />
           </button>
         </div>

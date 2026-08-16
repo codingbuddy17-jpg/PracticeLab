@@ -12,6 +12,7 @@ import { ISSUE_COLORS } from './practicelab/shared'
 import { checkField, isBlocking } from '../codeFormat'
 import { useCodeDescriptions } from '../hooks/useCodeDescriptions'
 import { CodeInfo } from '../api/codesApi'
+import { CodeSuggest } from '../components/CodeSuggest'
 
 /**
  * The auditor's working screen.
@@ -843,6 +844,19 @@ function AddField({ field, finding, onChange, onEnter, fieldId, autoFocus, requi
           {POA_VALUES.map(v => <option key={v} value={v}>{v}</option>)}
         </select>
       ) : (
+        field === 'code' ? (
+          <CodeSuggest
+            style={{ ...s.input, width, boxSizing: 'border-box',
+                     borderColor: missing || !check.ok ? '#dc2626'
+                       : value ? ACTION_COLOR.Add + '66' : '#e5e7eb' }}
+            placeholder={FIELD_PLACEHOLDER[field] || FIELD_LABEL[field] || field}
+            section={section}
+            value={value}
+            onChange={onChange}
+            onEnter={onEnter}
+            autoFocus={autoFocus}
+          />
+        ) : (
         <input
           style={{ ...s.input, width,
                    borderColor: missing || !check.ok ? '#dc2626'
@@ -854,6 +868,7 @@ function AddField({ field, finding, onChange, onEnter, fieldId, autoFocus, requi
           data-add-field={fieldId}
           autoFocus={autoFocus}
         />
+        )
       )}
       {!check.ok && <span style={s.formatHint}>{check.hint}</span>}
       <CodeCaption describe={describe} field={field} code={value} />
@@ -880,17 +895,29 @@ function Field({ label, value, open, revision, strike, onChange, section, field,
   const check = changed
     ? checkField(section || '', field || 'code', revision?.correct_value || '')
     : { ok: true } as ReturnType<typeof checkField>
+  const boxStyle = {
+    ...s.input,
+    borderColor: !check.ok ? '#dc2626'
+      : changed ? ACTION_COLOR.Revise : '#e5e7eb',
+    background: changed ? ACTION_COLOR.Revise + '0e' : '#fff',
+    boxShadow: changed ? `0 0 0 3px ${ACTION_COLOR.Revise}1f` : 'none',
+    fontWeight: changed ? 700 : 400,
+  }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
       <span style={s.fieldLabel}>{label}</span>
       {open ? (
+        field === 'code' ? (
+          <CodeSuggest
+            style={{ ...boxStyle, width: 130, boxSizing: 'border-box' }}
+            section={section}
+            value={revision?.correct_value ?? value}
+            onChange={onChange}
+            placeholder={value || '—'}
+          />
+        ) : (
         <input
-          style={{ ...s.input, width: label === 'Code' ? 130 : 82,
-                   borderColor: !check.ok ? '#dc2626'
-                     : changed ? ACTION_COLOR.Revise : '#e5e7eb',
-                   background: changed ? ACTION_COLOR.Revise + '0e' : '#fff',
-                   boxShadow: changed ? `0 0 0 3px ${ACTION_COLOR.Revise}1f` : 'none',
-                   fontWeight: changed ? 700 : 400 }}
+          style={{ ...boxStyle, width: label === 'Code' ? 130 : 82 }}
           value={revision?.correct_value ?? value}
           onChange={e => onChange(e.target.value.toUpperCase())}
           onKeyDown={e => {
@@ -901,6 +928,7 @@ function Field({ label, value, open, revision, strike, onChange, section, field,
           }}
           placeholder={value || '—'}
         />
+        )
       ) : (
         <code style={{ ...s.codeChip, textDecoration: strike ? 'line-through' : 'none',
                        color: strike ? '#9ca3af' : '#111' }}>

@@ -117,6 +117,10 @@ class Corpus:
     pcs_codes: list[str] = field(default_factory=list)
     cpt_codes: list[str] = field(default_factory=list)
     modifiers: list[str] = field(default_factory=list)
+    # Every REAL PCS code in the tables the chart's own codes belong to, when
+    # the CMS tables have been ingested. Empty means no opinion — the generator
+    # then mutates structurally, exactly as it did before this existed.
+    valid_pcs: set = field(default_factory=set)
 
     def dx_family(self, code: str, prefix_len: int = 3) -> list[str]:
         """
@@ -331,8 +335,28 @@ def _mutate_pcs_code(code: str, corpus: Corpus, rng: random.Random) -> tuple[str
     positions = [p for p in sorted(PCS_MUTABLE_POSITIONS) if p < len(original)]
     if not positions:
         return original, "code"
-    pos = rng.choice(positions)
 
+    # PCS is only real in the combinations the CMS tables define, so changing
+    # one character usually lands on nothing: measured against the FY2026
+    # tables, 66% of structural mutations produced a string that is not a code.
+    # That is the wrong error to plant. An auditor who spots it has spotted a
+    # typo, not a coding fault — the finding is free, and detection reads
+    # higher than the auditor's judgement warrants.
+    #
+    # With the tables loaded, the replacement is drawn from real codes in the
+    # same table that differ in exactly one mutable position.
+    if corpus.valid_pcs:
+        real = [(p, c) for p in positions for c in corpus.valid_pcs
+                if len(c) == len(original) and c != original
+                and c[:p] == original[:p] and c[p + 1:] == original[p + 1:]]
+        if real:
+            pos, mutated = rng.choice(sorted(real))
+            return mutated, PCS_MUTABLE_POSITIONS[pos]
+        # No single-character neighbour exists. Falling through is right: a
+        # wrong code is still the error being planted, and refusing to mutate
+        # would quietly leave the chart clean.
+
+    pos = rng.choice(positions)
     siblings = {c.strip().upper()[pos]
                 for c in corpus.pcs_codes
                 if len(c.strip()) > pos

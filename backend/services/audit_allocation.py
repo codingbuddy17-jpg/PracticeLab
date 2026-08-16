@@ -123,7 +123,7 @@ def resolve_quotas(mode: str, want: int, clean_share: int,
     return Quotas(clean=clean, manual=None, auto=want - clean)
 
 
-def build_corpus(answer_keys) -> Corpus:
+def build_corpus(answer_keys, db=None) -> Corpus:
     """
     Every code the library already holds, indexed for plausible substitution.
 
@@ -149,7 +149,39 @@ def build_corpus(answer_keys) -> Corpus:
             if row.get("modifier"):
                 mods.add(str(row["modifier"]).strip())
     return Corpus(dx_codes=sorted(dx), pcs_codes=sorted(pcs),
-                  cpt_codes=sorted(cpt), modifiers=sorted(mods))
+                  cpt_codes=sorted(cpt), modifiers=sorted(mods),
+                  valid_pcs=_real_pcs_neighbours(db, pcs))
+
+
+def _real_pcs_neighbours(db, pcs_codes) -> set:
+    """
+    Every real PCS code in the TABLES these codes belong to.
+
+    Characters 1-3 fix the table, so this is a few hundred rows per distinct
+    prefix rather than the whole 79,000-code set — small enough to load per
+    allocation and exactly the pool a single-character mutation should draw
+    from.
+
+    Returns an empty set when the CMS tables have not been ingested, which the
+    generator reads as "no opinion" and falls back to structural mutation.
+    Reference data being absent must never stop a batch being built.
+    """
+    if db is None:
+        return set()
+    prefixes = {str(c).strip().upper().replace(" ", "")[:3]
+                for c in pcs_codes if len(str(c).strip()) >= 3}
+    if not prefixes:
+        return set()
+    try:
+        from models import PcsCodeAxis
+        found = set()
+        for prefix in sorted(prefixes):
+            found.update(
+                code for (code,) in db.query(PcsCodeAxis.code)
+                .filter(PcsCodeAxis.code.like(prefix + "%")).all())
+        return found
+    except Exception:      # table absent on an older schema
+        return set()
 
 
 def assignment_seed(chart_id: int, cycle_number: int) -> int:

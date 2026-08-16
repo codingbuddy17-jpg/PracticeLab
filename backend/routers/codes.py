@@ -22,13 +22,18 @@ from models import CodeDescription, PcsCodeAxis
 router = APIRouter(prefix="/codes", tags=["codes"])
 
 # The systems this app carries. CPT is absent on purpose: AMA copyright,
-# licensed per user, and this repository is public.
-SYSTEMS = ("ICD10CM", "ICD10PCS", "HCPCS")
+# licensed per user, and this repository is public — and so are the numeric
+# CPT modifiers, which is why HCPCSMOD holds only the alphabetic Level II ones.
+SYSTEMS = ("ICD10CM", "ICD10PCS", "HCPCS", "HCPCSMOD")
 
 # A section maps to the code system its codes belong to, so callers can ask in
 # the vocabulary the form already speaks rather than translating.
 SECTION_SYSTEM = {"PDX": "ICD10CM", "SDX": "ICD10CM",
-                  "PCS": "ICD10PCS", "CPT": "HCPCS"}
+                  "PCS": "ICD10PCS", "CPT": "HCPCS",
+                  # Not a section on any form — modifiers are a field. It is
+                  # here so a caller can name what it is asking about rather
+                  # than having to know the code system's internal name.
+                  "MODIFIER": "HCPCSMOD"}
 
 
 def _bare(code: str) -> str:
