@@ -50,8 +50,17 @@ typed once and were wrong within a month, twice.
 | `_spec_docx_build.js` | builds the architecture and migration `.docx` |
 | `figures/` | diagrams (`.png` + `.svg`), `schema.json`, and `tabledocs.json` — the one-line description of each table, which is hand-written and is the only file here you should edit by hand |
 
-Node dependencies for the two builders live in `docs/node_modules` and are not
-committed; `npm install docx` in this folder if they are missing.
+The two `.js` builders need one npm package. Install it only if you are
+actually rebuilding the documents, and delete it again afterwards:
+
+```bash
+cd docs && npm install docx      # then rebuild as above
+rm -rf docs/node_modules
+```
+
+It is deliberately not kept in the folder: ten megabytes of dependencies for a
+document you may never need to regenerate is clutter, and it is not committed,
+so a fresh clone will not have it either.
 
 ## Also worth knowing
 
