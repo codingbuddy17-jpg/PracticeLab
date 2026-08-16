@@ -27,6 +27,14 @@ const keyLinkStyle: React.CSSProperties = {
   padding: '4px 9px', borderRadius: 7, whiteSpace: 'nowrap',
 }
 const AUDITOR_MATCH_CAP = 20
+const SIGNAL_META: Record<string, { color: string; bg: string }> = {
+  'Correction Risk': { color: '#be123c', bg: '#fff1f2' },
+  'Overcall Risk': { color: '#c2410c', bg: '#fff7ed' },
+  'Detection Difficulty': { color: '#b91c1c', bg: '#fee2e2' },
+  'Monitor': { color: '#a16207', bg: '#fef9c3' },
+  'Early Signal': { color: '#6b7280', bg: '#f3f4f6' },
+  'Stable': { color: '#047857', bg: '#ecfdf5' },
+}
 
 export function AuditAnalytics() {
   const [tab, setTab] = useState<Tab>('Overview')
@@ -107,6 +115,22 @@ export function AuditAnalytics() {
     }, auditorSearch ? 250 : 0)
     return () => { cancelled = true; clearTimeout(t) }
   }, [tab, filters, auditorSearch])
+
+  useEffect(() => {
+    if (tab !== 'Chart Signals') return
+    let cancelled = false
+    const t = setTimeout(() => {
+      getAuditChartSignals({ ...filters, search: chartSearch.trim() || undefined })
+        .then(ch => {
+          if (!cancelled) {
+            setChartSignals(ch)
+            setLoaded(prev => ({ ...prev, 'Chart Signals': true }))
+          }
+        })
+        .catch(() => { if (!cancelled) toast.error('Could not search chart signals') })
+    }, chartSearch ? 250 : 0)
+    return () => { cancelled = true; clearTimeout(t) }
+  }, [tab, filters, chartSearch])
 
   useEffect(() => {
     if (!selectedAuditor) { setAuditorProfile(null); return }
@@ -826,12 +850,7 @@ function ChartSignalsTab({ data, query, setQuery, threshold }: {
   data: any; query: string; setQuery: (v: string) => void; threshold: number
 }) {
   const rows: any[] = data?.charts || []
-  const q = query.trim().toLowerCase()
-  const filtered = rows.filter(r => !q
-    || (r.chart_number || '').toLowerCase().includes(q)
-    || (r.category || '').toLowerCase().includes(q)
-    || (r.specialty || '').toLowerCase().includes(q))
-  const { shown, control } = useShowMore(filtered)
+  const { shown, control } = useShowMore(rows)
   // These four come from the SERVER, computed over every chart in scope. They
   // used to be derived from `rows`, which is a capped page — so at any real
   // size "Charts With Signals" undercounted and "Most Missed" could name a
@@ -842,23 +861,44 @@ function ChartSignalsTab({ data, query, setQuery, threshold }: {
   const highestMiss = data?.most_missed
   const highestOvercall = data?.most_over_called
   const capped = (data?.charts_total || 0) > rows.length
+  const distribution = (data?.priority_distribution || []).map((r: any) => ({
+    ...r,
+    fill: SIGNAL_META[r.label]?.color || '#6b7280',
+  }))
   return (
     <div style={stackStyle}>
       <div style={metricGridStyle}>
-        <Metric label="Charts With Signals" value={reviewNeeded} tone={reviewNeeded ? '#dc2626' : '#059669'}
+        <Metric label="Review Priority Charts" value={reviewNeeded} tone={reviewNeeded ? '#dc2626' : '#059669'}
           sub={`of ${data?.charts_total ?? 0} charts`} />
         <Metric label="Stable Charts" value={stable} tone="#059669" />
-        <Metric label="Most Missed" value={highestMiss?.chart_number || 'NA'} tone="#dc2626"
+        <Metric label="Highest Miss Risk" value={highestMiss?.chart_number || 'NA'} tone="#dc2626"
           sub={highestMiss ? `${highestMiss.count} missed` : undefined} />
-        <Metric label="Most Overcalled" value={highestOvercall?.chart_number || 'NA'} tone="#ea580c"
+        <Metric label="Highest Overcall Risk" value={highestOvercall?.chart_number || 'NA'} tone="#ea580c"
           sub={highestOvercall ? `${highestOvercall.count} overcalls` : undefined} />
       </div>
-      <Panel title="Signal Evidence">
+
+      {distribution.length > 0 && (
+        <Panel title="Signal Distribution">
+          <ResponsiveContainer width="100%" height={190}>
+            <BarChart data={distribution} margin={{ left: 8, right: 20, top: 8, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} />
+              <XAxis dataKey="label" tick={{ fontSize: 10 }} />
+              <YAxis tick={{ fontSize: 10 }} allowDecimals={false} width={34} />
+              <Tooltip contentStyle={tooltipStyle} />
+              <Bar dataKey="count" name="Charts" radius={[4, 4, 0, 0]}>
+                {distribution.map((r: any) => <Cell key={r.label} fill={r.fill} />)}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </Panel>
+      )}
+
+      <Panel title="Chart Signal Matrix">
         <SearchInput value={query} onChange={setQuery} placeholder="Search chart, category or specialty..." />
         {!shown.length ? <div style={s.empty}>No chart-level audit signals yet.</div> : (
           <div style={{ overflowX: 'auto', marginTop: 12 }}>
             <table style={tableStyle}>
-              <thead><tr>{['Chart', 'Specialty', 'Attempts', 'Detection', 'Opportunity Mix', 'Missed', 'Overcalls', 'Signal', ''].map(h => <th key={h} style={th}>{h}</th>)}</tr></thead>
+              <thead><tr>{['Chart', 'Specialty', 'Attempts', 'Error Detection Rate', 'Stability', 'Miss Risk', 'Overcall Risk', 'Correction Risk', 'Priority', ''].map(h => <th key={h} style={th}>{h}</th>)}</tr></thead>
               <tbody>
                 {shown.map(r => (
                   <tr key={r.chart_id}>
@@ -867,18 +907,36 @@ function ChartSignalsTab({ data, query, setQuery, threshold }: {
                       <div style={muted}>{r.category}</div>
                     </td>
                     <td style={td}>{r.specialty}</td>
-                    <td style={td}>{r.attempts}</td>
-                    <td style={{ ...td, fontWeight: 800, color: tone(r.audit_score, threshold) }}>{pct(r.audit_score)}</td>
                     <td style={td}>
-                      <span style={{ color: '#2563eb', fontWeight: 700 }}>{r.clean_charts || 0}</span>
-                      <span style={muted}> clean · </span>
-                      <span style={{ color: '#7c3aed', fontWeight: 700 }}>{r.opportunity_charts || 0}</span>
-                      <span style={muted}> opportunity</span>
+                      <strong>{r.attempts}</strong>
+                      <div style={muted}>{r.confidence}</div>
                     </td>
-                    <td style={{ ...td, color: r.missed ? '#dc2626' : '#6b7280', fontWeight: r.missed ? 800 : 500 }}>{r.missed}</td>
-                    <td style={{ ...td, color: r.over_calls ? '#ea580c' : '#6b7280', fontWeight: r.over_calls ? 800 : 500 }}>{r.over_calls}</td>
+                    <td style={{ ...td, fontWeight: 800, color: tone(r.detection_score, threshold) }}>{pct(r.detection_score)}</td>
+                    <td style={{ ...td, fontWeight: 800, color: tone(r.stability_score, threshold) }}>{pct(r.stability_score)}</td>
+                    <td style={{ ...td, color: r.miss_risk ? '#dc2626' : '#6b7280', fontWeight: r.miss_risk ? 800 : 500 }}>
+                      {pct(r.miss_risk)}
+                      <div style={muted}>{r.missed || 0} missed</div>
+                    </td>
+                    <td style={{ ...td, color: r.overcall_rate ? '#ea580c' : '#6b7280', fontWeight: r.overcall_rate ? 800 : 500 }}>
+                      {pct(r.overcall_rate)}
+                      <div style={muted}>{r.over_calls || 0} overcalls</div>
+                    </td>
+                    <td style={{ ...td, color: r.correction_risk ? '#be123c' : '#6b7280', fontWeight: r.correction_risk ? 800 : 500 }}>
+                      {pct(r.correction_risk)}
+                      <div style={muted}>{r.detected_not_corrected || 0} fixed wrongly</div>
+                    </td>
                     <td style={td}>
-                      <SignalChips text={r.signal} />
+                      <span style={{
+                        ...signalChipStyle,
+                        color: SIGNAL_META[r.review_priority]?.color || '#374151',
+                        background: SIGNAL_META[r.review_priority]?.bg || '#f3f4f6',
+                        border: `1px solid ${(SIGNAL_META[r.review_priority]?.color || '#9ca3af')}33`,
+                      }}>
+                        {r.review_priority || r.signal}
+                      </span>
+                      <div style={muted}>
+                        {(r.clean_charts || 0)} clean · {(r.opportunity_charts || 0)} opportunity
+                      </div>
                     </td>
                     {/*
                       A signal says a chart keeps producing misses. The next
@@ -905,7 +963,7 @@ function ChartSignalsTab({ data, query, setQuery, threshold }: {
         {capped && (
           <div style={s.note}>
             {data.charts_total} charts match in total; the server sends the
-            weakest {rows.length}. Search to reach the rest.
+            weakest {rows.length}. Refine search to narrow the list.
           </div>
         )}
       </Panel>
@@ -1328,25 +1386,6 @@ function InsightRow({ note }: { note: any }) {
                   padding: '9px 12px', fontSize: 12.5, color: m.c, lineHeight: 1.45 }}>
       {note?.text}
     </div>
-  )
-}
-
-function SignalChips({ text }: { text: string }) {
-  return (
-    <span style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-      {(text || 'stable').split(' · ').map(part => {
-        const red = part.includes('miss')
-        const orange = part.includes('over')
-        const violet = part.includes('wrong')
-        return (
-          <span key={part} style={{
-            ...signalChipStyle,
-            background: red ? '#fee2e2' : orange ? '#ffedd5' : violet ? '#f5f3ff' : '#ecfdf5',
-            color: red ? '#991b1b' : orange ? '#9a3412' : violet ? '#6d28d9' : '#047857',
-          }}>{part}</span>
-        )
-      })}
-    </span>
   )
 }
 

@@ -157,6 +157,10 @@ class TestByBatchAndAuditor:
         assert rows
         assert rows[0]["attempts"] >= 1
         assert rows[0]["missed"] >= 0
+        assert rows[0]["detection_score"] is not None
+        assert rows[0]["stability_score"] is not None
+        assert rows[0]["review_priority"]
+        assert rows[0]["confidence"] in ("Early", "Established")
         assert rows[0]["signal"]
 
 
@@ -494,6 +498,22 @@ class TestTotalsAndSearch:
         assert capped["charts_with_signals"] == full["charts_with_signals"]
         assert capped["charts_stable"] == full["charts_stable"]
         assert capped["most_missed"] == full["most_missed"]
+        assert capped["priority_distribution"]
+
+    def test_chart_signal_search_runs_on_the_server(self, client, db, library):
+        batch_id = make_batch(client, charts_per=6)
+        _run(client, batch_id, find_everything=False)
+
+        all_rows = client.get("/auditor/analytics/chart-signals",
+                              params={"limit": 1}).json()
+        target = client.get("/auditor/analytics/chart-signals").json()["charts"][-1]
+
+        searched = client.get("/auditor/analytics/chart-signals",
+                              params={"limit": 1, "search": target["chart_number"]}).json()
+
+        assert all_rows["returned"] == 1
+        assert searched["charts_total"] == 1
+        assert searched["charts"][0]["chart_number"] == target["chart_number"]
 
     def test_totals_agree_with_the_rows_when_nothing_is_capped(
             self, client, db, library):

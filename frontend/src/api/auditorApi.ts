@@ -316,7 +316,16 @@ export async function getAuditDetection(params: Record<string, unknown> = {}) {
 
 export async function getAuditChartSignals(params: Record<string, unknown> = {}) {
   const { data } = await api.get('/auditor/analytics/chart-signals', { params })
-  return data as { charts: Record<string, any>[] }
+  return data as {
+    charts: Record<string, any>[]
+    charts_total: number
+    charts_with_signals: number
+    charts_stable: number
+    most_missed?: Record<string, any> | null
+    most_over_called?: Record<string, any> | null
+    priority_distribution: { label: string; count: number }[]
+    returned: number
+  }
 }
 
 // ── exports ──────────────────────────────────────────────────────────────────

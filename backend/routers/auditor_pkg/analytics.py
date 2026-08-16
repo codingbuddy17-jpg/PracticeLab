@@ -25,7 +25,7 @@ import io
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from sqlalchemy import case, func
+from sqlalchemy import String, case, cast, func, or_
 from sqlalchemy.orm import aliased as sa_aliased
 from sqlalchemy.orm import Session
 
@@ -509,7 +509,7 @@ def by_auditor(batch_id: Optional[int] = None, specialty: Optional[str] = None,
 
 @router.get("/analytics/chart-signals")
 def chart_signals(batch_id: Optional[int] = None, specialty: Optional[str] = None,
-                  auditor: Optional[str] = None,
+                  auditor: Optional[str] = None, search: Optional[str] = None,
                   from_date: Optional[str] = None, to_date: Optional[str] = None,
                   limit: int = Query(200, le=500),
                   db: Session = Depends(get_db)):
@@ -521,7 +521,16 @@ def chart_signals(batch_id: Optional[int] = None, specialty: Optional[str] = Non
     over-calls, or key-quality conversations.
     """
     base = _base_query(db, batch_id, specialty, auditor, from_date, to_date)
-    rows = (base.join(Chart, Chart.id == AuditResult.chart_id)
+    charted = base.join(Chart, Chart.id == AuditResult.chart_id)
+    if search and search.strip():
+        needle = f"%{search.strip().lower()}%"
+        charted = charted.filter(or_(
+            func.lower(Chart.chart_number).like(needle),
+            func.lower(Chart.category).like(needle),
+            func.lower(cast(AuditResult.specialty, String)).like(needle),
+        ))
+
+    rows = (charted
             .with_entities(
                 AuditResult.chart_id,
                 Chart.chart_number,
@@ -548,8 +557,12 @@ def chart_signals(batch_id: Optional[int] = None, specialty: Optional[str] = Non
     # above. Counting the loaded rows is the defect this codebase has already
     # paid for three times: it reads correctly at a dozen charts and silently
     # understates everything past the cap.
-    grouped = (base.with_entities(
+    grouped = (charted.with_entities(
         AuditResult.chart_id.label("chart_id"),
+        func.count(AuditResult.id).label("attempts"),
+        func.sum(func.coalesce(AuditResult.add_planted, 0)
+                 + func.coalesce(AuditResult.revise_planted, 0)
+                 + func.coalesce(AuditResult.delete_planted, 0)).label("opportunities"),
         _MISSED_EXPR.label("missed"),
         func.sum(func.coalesce(AuditResult.over_calls, 0)).label("over_calls"),
         func.sum(func.coalesce(AuditResult.detected_not_corrected, 0)).label("dnc"),
@@ -570,12 +583,49 @@ def chart_signals(batch_id: Optional[int] = None, specialty: Optional[str] = Non
         return {"chart_number": chart.chart_number if chart else str(row[0]),
                 "count": int(row[1])}
 
+    def _priority(missed: int, over_calls: int, dnc: int,
+                  opportunities: int, attempts: int) -> str:
+        miss_rate = (missed / opportunities * 100) if opportunities else 0
+        overcall_rate = (over_calls / attempts * 100) if attempts else 0
+        correction_risk = (dnc / opportunities * 100) if opportunities else 0
+        if attempts < 2 and (missed or over_calls or dnc):
+            return "Early Signal"
+        if correction_risk >= 25:
+            return "Correction Risk"
+        if overcall_rate >= 25:
+            return "Overcall Risk"
+        if miss_rate >= 25:
+            return "Detection Difficulty"
+        if missed or over_calls or dnc:
+            return "Monitor"
+        return "Stable"
+
+    priority_counts: dict[str, int] = {}
+    for attempts, opportunities, missed, over_calls, dnc in db.query(
+            g.c.attempts, g.c.opportunities, g.c.missed,
+            g.c.over_calls, g.c.dnc).select_from(g).all():
+        label = _priority(int(missed or 0), int(over_calls or 0), int(dnc or 0),
+                          int(opportunities or 0), int(attempts or 0))
+        priority_counts[label] = priority_counts.get(label, 0) + 1
+    priority_order = [
+        "Correction Risk", "Overcall Risk", "Detection Difficulty",
+        "Monitor", "Early Signal", "Stable",
+    ]
+
     totals = {
         "charts_total": int(total_charts or 0),
         "charts_with_signals": int(with_signals or 0),
         "charts_stable": int((total_charts or 0) - (with_signals or 0)),
         "most_missed": _top(g.c.missed),
         "most_over_called": _top(g.c.over_calls),
+        "priority_distribution": [
+            {"label": label, "count": count}
+            for label, count in sorted(
+                priority_counts.items(),
+                key=lambda item: priority_order.index(item[0])
+                if item[0] in priority_order else len(priority_order),
+            )
+        ],
         "returned": len(rows),
     }
 
@@ -584,6 +634,15 @@ def chart_signals(batch_id: Optional[int] = None, specialty: Optional[str] = Non
         missed = int(r.missed or 0)
         over_calls = int(r.over_calls or 0)
         detected_not_corrected = int(r.detected_not_corrected or 0)
+        attempts = int(r.attempts or 0)
+        opportunities = int(r.opportunities or 0)
+        miss_rate = _rate(opportunities - missed, opportunities)
+        miss_risk = round(missed / opportunities * 100, 2) if opportunities else None
+        overcall_rate = round(over_calls / attempts * 100, 2) if attempts else None
+        correction_risk = round(detected_not_corrected / opportunities * 100, 2) if opportunities else None
+        risk_rates = [v for v in (miss_risk, overcall_rate, correction_risk) if v is not None]
+        stability_score = round(100 - (sum(risk_rates) / len(risk_rates)), 2) if risk_rates else 100.0
+        priority = _priority(missed, over_calls, detected_not_corrected, opportunities, attempts)
         signals = []
         if missed:
             signals.append("missed findings")
@@ -598,14 +657,22 @@ def chart_signals(batch_id: Optional[int] = None, specialty: Optional[str] = Non
             "chart_number": r.chart_number,
             "category": r.category,
             "specialty": r.specialty.value if hasattr(r.specialty, "value") else r.specialty,
-            "attempts": int(r.attempts or 0),
+            "attempts": attempts,
+            "confidence": "Established" if attempts >= 3 else "Early",
             "audit_accuracy": round(float(r.audit_accuracy), 2) if r.audit_accuracy is not None else None,
             "clean_charts": int(r.clean_charts or 0),
             "opportunity_charts": int(r.opportunity_charts or 0),
-            "opportunities": int(r.opportunities or 0),
+            "opportunities": opportunities,
             "missed": missed,
             "over_calls": over_calls,
             "detected_not_corrected": detected_not_corrected,
+            "detection_score": miss_rate,
+            "miss_risk": miss_risk,
+            "overcall_rate": overcall_rate,
+            "correction_risk": correction_risk,
+            "signal_load": missed + over_calls + detected_not_corrected,
+            "stability_score": stability_score,
+            "review_priority": priority,
             "signal": " · ".join(signals),
         })
     return {"charts": out, **totals}
