@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
-import { Download, FileText, KeyRound, Search, X } from 'lucide-react'
+import { AlertTriangle, Download, FileText, KeyRound, Search, X } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import {
   Bar, BarChart, CartesianGrid, Cell, Line, LineChart,
@@ -775,17 +775,40 @@ function ErrorPatternsTab({ data, threshold }: { data: any; threshold: number })
           )}
         </Panel>
       )}
+      {/*
+        The scan window, stated BEFORE the figures it governs. This sat at the
+        very bottom, under four bar lists, where a reader met every number
+        before learning it described a slice.
+      */}
+      {data.truncated && (
+        <div style={s.warnBox}>
+          <AlertTriangle size={14} color="#d97706" style={{ flexShrink: 0, marginTop: 1 }} />
+          <span>
+            Read from the most recent {data.charts_scanned} of {data.charts_available}{' '}
+            scored charts. Narrow the date filter to read an earlier period.
+          </span>
+        </div>
+      )}
       <div style={metricGridStyle}>
         <Metric label="Errors Introduced" value={data.total_plantings} tone="#7c3aed" />
         <Metric label="Charts Scored" value={data.charts_available} tone="#2563eb" />
-        <Metric label="Training Signals" value={data.weakest?.length || 0} tone="#dc2626" />
+        <Metric label="Training Signals" value={data.weakest?.length || 0} tone="#dc2626"
+          sub={`patterns seen ${data.min_for_pattern}+ times and under 60%`} />
       </div>
-      <Bucket threshold={threshold} title="What To Train Next" rows={data.weakest} empty="No repeated weak pattern has crossed the training threshold." />
-      <Bucket threshold={threshold} title="Detection by Error Type" rows={data.by_kind} />
-      <Bucket threshold={threshold} title="Real vs Generated Detection" rows={data.by_origin} />
-      <Bucket threshold={threshold} title="Detection by Section and Action" rows={data.by_section} />
-      {data.pcs_characters?.length > 0 && <Bucket threshold={threshold} title="PCS Character" rows={data.pcs_characters} />}
-      {data.truncated && <div style={s.warnBox}>Showing the most recent {data.charts_scanned} of {data.charts_available} scored charts.</div>}
+
+      <OriginComparison rows={data.by_origin} threshold={threshold} />
+
+      <Bucket threshold={threshold} minForPattern={data.min_for_pattern}
+        title="What To Train Next" rows={data.weakest}
+        empty="No repeated weak pattern has crossed the training threshold." />
+      <Bucket threshold={threshold} minForPattern={data.min_for_pattern}
+        title="Detection by Error Type" rows={data.by_kind} />
+      <Bucket threshold={threshold} minForPattern={data.min_for_pattern}
+        title="Detection by Section and Action" rows={data.by_section} />
+      {data.pcs_characters?.length > 0 && (
+        <Bucket threshold={threshold} minForPattern={data.min_for_pattern}
+          title="PCS Character" rows={data.pcs_characters} />
+      )}
     </div>
   )
 }
@@ -967,29 +990,100 @@ function CompactBatchTable({ rows, showPdf = false, threshold = 90 }: {
   )
 }
 
-function Bucket({ title, rows, empty, threshold = 90 }: {
+function Bucket({ title, rows, empty, threshold = 90, minForPattern = 0 }: {
   title: string; rows: any[]; empty?: string; threshold?: number
+  minForPattern?: number
 }) {
   const { shown, control } = useShowMore(rows || [])
   if (!rows?.length) return empty ? <Panel title={title}><div style={s.empty}>{empty}</div></Panel> : null
   return (
     <Panel title={title}>
-      {shown.map(r => (
-        <div key={r.key} style={{ marginBottom: 10 }}>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
-            <span style={{ minWidth: 54, fontWeight: 800, color: tone(r.accuracy, threshold) }}>{pct(r.accuracy)}</span>
-            <span style={{ fontSize: 12.5 }}>{r.label}</span>
-            <span style={{ fontSize: 11, color: '#9ca3af', marginLeft: 'auto' }}>
-              {r.found} caught · {r.missed} missed · {r.planted} introduced
-            </span>
+      {shown.map(r => {
+        const planted = r.planted || 0
+        // Below the pattern threshold this is an anecdote, not a curriculum.
+        // Shown, because hiding it would misrepresent the total, but dimmed so
+        // a 3-sample row cannot be mistaken for a 300-sample one.
+        const thin = minForPattern > 0 && planted < minForPattern
+        const wrongFix = r.detected_not_corrected || 0
+        const found = r.found || 0
+        const missed = Math.max(0, planted - found - wrongFix)
+        const pctOf = (n: number) => planted ? (n / planted) * 100 : 0
+        return (
+          <div key={r.key} style={{ marginBottom: 12, opacity: thin ? 0.55 : 1 }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+              <span style={{ minWidth: 54, fontWeight: 800, color: tone(r.accuracy, threshold) }}>
+                {pct(r.accuracy)}
+              </span>
+              <span style={{ fontSize: 12.5 }}>{r.label}</span>
+              {thin && <span style={{ ...s.tag, background: '#f3f4f6', color: '#6b7280' }}>
+                too few to teach from
+              </span>}
+              <span style={{ fontSize: 11, color: '#9ca3af', marginLeft: 'auto' }}>
+                {found} caught
+                {wrongFix > 0 && <> · <strong style={{ color: ACTION_TONE.wrongFix }}>
+                  {wrongFix} fixed wrongly</strong></>}
+                {' '}· {missed} missed · {planted} introduced
+              </span>
+            </div>
+            {/*
+              Three segments, not one accuracy bar. "40% caught" hides the
+              difference between an auditor who cannot SEE the error and one
+              who sees it and gets the fix wrong — the same 40%, and entirely
+              different coaching. The split was already in the payload and only
+              the total was drawn.
+            */}
+            <div style={{ display: 'flex', height: 7, borderRadius: 4, overflow: 'hidden',
+                          marginTop: 5, background: '#f3f4f6' }}>
+              <div style={{ width: `${pctOf(found)}%`, background: '#059669' }} />
+              <div style={{ width: `${pctOf(wrongFix)}%`, background: ACTION_TONE.wrongFix }} />
+              <div style={{ width: `${pctOf(missed)}%`, background: '#dc2626' }} />
+            </div>
           </div>
-          <div style={{ height: 5, background: '#f3f4f6', borderRadius: 3, overflow: 'hidden', marginTop: 4 }}>
-            <div style={{ height: '100%', width: `${Math.max(0, Math.min(100, r.accuracy || 0))}%`,
-                          background: tone(r.accuracy, threshold), borderRadius: 3 }} />
-          </div>
-        </div>
-      ))}
+        )
+      })}
       {control}
+    </Panel>
+  )
+}
+
+const ACTION_TONE = { wrongFix: '#7c3aed' }
+
+/**
+ * The comparison this module exists to make, given its own panel.
+ *
+ * Auditors tend to do better on errors the system invented than on the ones
+ * their own coders actually made, and only the second number describes the
+ * job. It was the third of four identical bar lists, which read as no more
+ * important than PCS character breakdowns.
+ */
+function OriginComparison({ rows, threshold }: { rows: any[]; threshold: number }) {
+  if (!rows?.length) return null
+  const find = (k: string) => rows.find(r => r.key === k)
+  const observed = find('observed')
+  const synthetic = find('synthetic')
+  if (!observed || !synthetic) return null
+  const gap = Math.round(((synthetic.accuracy || 0) - (observed.accuracy || 0)) * 10) / 10
+  return (
+    <Panel title="Real coder errors vs generated">
+      <div style={{ display: 'flex', gap: 26, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+        <Metric label="Errors your coders really made" value={pct(observed.accuracy)}
+          tone={tone(observed.accuracy, threshold)}
+          sub={`${observed.found} of ${observed.planted} caught`} />
+        <Metric label="System-generated errors" value={pct(synthetic.accuracy)}
+          tone={tone(synthetic.accuracy, threshold)}
+          sub={`${synthetic.found} of ${synthetic.planted} caught`} />
+      </div>
+      <div style={s.note}>
+        {gap > 3
+          ? `Auditors are ${gap} points worse on the mistakes your own coders make. `
+            + 'That gap is the one worth closing — the generated set is practice, '
+            + 'the observed set is the job.'
+          : gap < -3
+            ? `Auditors are ${Math.abs(gap)} points better on real coder errors than `
+              + 'on generated ones, which is the right way round.'
+            : 'Auditors perform about the same on both, so the generated set is a '
+              + 'fair proxy for the real work.'}
+      </div>
     </Panel>
   )
 }

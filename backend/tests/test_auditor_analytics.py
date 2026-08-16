@@ -830,3 +830,60 @@ class TestWeakestFirstOrdering:
         assert scores["Sharp"] < scores["Steady"]
         assert order == ["Sharp", "Steady"], (
             f"ordered {order}; by detection alone this would be Steady first")
+
+
+class TestErrorPatternComposition:
+    """
+    Each pattern row draws three segments — caught, fixed wrongly, missed —
+    rather than one accuracy bar.
+
+    "40% caught" hides the difference between an auditor who cannot SEE the
+    error and one who sees it and gets the fix wrong. Same number, entirely
+    different coaching. detected_not_corrected was already counted per kind and
+    only the total was ever drawn.
+    """
+
+    def _partly_wrong(self, client, batch_id):
+        """Finds everything, but corrects half the Revises wrongly."""
+        token = allocate(client, batch_id)["access_codes"][0]["token"]
+        payload = client.get(f"/auditor/sessions/by-token/{token}").json()
+        work = perfect_work(payload, truth_map(client, batch_id))
+        n = 0
+        for chart in work["charts"]:
+            for f in chart["findings"]:
+                # Revise is the only action that can be matched and still
+                # wrong: an Add is matched BY its code, so a bad value there is
+                # simply a different finding.
+                if f.get("action") == "Revise":
+                    if n % 2 == 0:
+                        f["correct_value"] = "WRONGFIX"
+                    n += 1
+        r = client.post(f"/auditor/sessions/{payload['session_id']}/submit", json=work)
+        assert r.status_code == 200, r.text[:300]
+
+    def test_the_three_segments_reconcile_with_the_total(self, client, db, library):
+        batch_id = make_batch(client, charts_per=8)
+        self._partly_wrong(client, batch_id)
+        body = client.get("/auditor/analytics/detection").json()
+
+        assert any(r["detected_not_corrected"] > 0 for r in body["by_kind"]), (
+            "the fixture produced no fixed-wrongly row, so this proves nothing")
+        for bucket in ("by_kind", "by_section", "by_origin"):
+            for row in body[bucket]:
+                missed = row["planted"] - row["found"] - row["detected_not_corrected"]
+                assert missed >= 0, f"{bucket}/{row['key']}: segments exceed the total"
+                assert row["found"] + row["detected_not_corrected"] + missed \
+                    == row["planted"]
+
+    def test_the_pattern_threshold_is_shipped_so_thin_rows_can_be_marked(
+            self, client, db, library):
+        """
+        A pattern seen three times is an anecdote. The UI dims those rather
+        than hiding them — hiding would misstate the totals beside them — and
+        needs the threshold to know which.
+        """
+        batch_id = make_batch(client, charts_per=8)
+        self._partly_wrong(client, batch_id)
+        body = client.get("/auditor/analytics/detection").json()
+        assert body["min_for_pattern"] == 5
+        assert any(r["planted"] < body["min_for_pattern"] for r in body["by_kind"])
