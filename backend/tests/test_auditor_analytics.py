@@ -435,6 +435,35 @@ class TestPdfReports:
         assert r.status_code == 200, r.text
         assert r.content[:4] == b"%PDF"
 
+    def test_the_report_verdict_names_the_score_it_was_made_on(self):
+        """
+        The report read audit_accuracy and called it "Audit Accuracy" — which
+        is now only the detection half — so it could print a headline figure
+        the PASS beside it was never computed from, and a sentence naming a
+        metric that no longer decides anything.
+
+        Tested against the function rather than the rendered PDF: the bug is in
+        which field is read and what it is called, and asserting a PDF merely
+        starts with %PDF proves only that it did not crash.
+        """
+        from services.pdf_report_service import _audit_headline, _audit_verdict
+
+        summary = {"audit_score": 94.0, "audit_accuracy": 61.0,
+                   "review_score": 99.0}
+        assert _audit_headline(summary) == 94.0, "must read the blend"
+
+        headline, detail, *_ = _audit_verdict(summary, pass_threshold=90)
+        assert headline == "ON TRACK"
+        assert "94.0" in detail and "61.0" not in detail
+        assert "audit accuracy" not in detail.lower()
+        assert "Audit Score" in detail
+
+    def test_the_report_still_reads_results_scored_before_review_existed(self):
+        """Old rows have no audit_score; they fall back rather than blanking."""
+        from services.pdf_report_service import _audit_headline
+        assert _audit_headline({"audit_accuracy": 72.0}) == 72.0
+        assert _audit_headline({"audit_score": None, "audit_accuracy": 72.0}) == 72.0
+
     def test_batch_report_pdf_404s_without_scored_results(self, client, db, library):
         batch_id = make_batch(client, charts_per=6)
         r = client.get(f"/auditor/batches/{batch_id}/report.pdf")

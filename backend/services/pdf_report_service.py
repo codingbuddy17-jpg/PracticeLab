@@ -739,19 +739,34 @@ def _audit_data_table(header: list, rows: list, col_fracs: list, width=CONTENT_W
     )
 
 
+
+def _audit_headline(row: dict):
+    """
+    The Audit Score for a row, falling back to detection for results scored
+    before review existed. Every table that judges a row against the pass
+    threshold reads this, so a report cannot show one figure and colour it by
+    another.
+    """
+    score = row.get("audit_score")
+    return score if score is not None else row.get("audit_accuracy")
+
 def _audit_verdict(summary: dict, pass_threshold: int = 80):
-    score = summary.get("audit_accuracy")
+    # The Audit Score — detection and review blended — is what the verdict is
+    # decided on. This read audit_accuracy, which is now only the detection
+    # half, so a report could print a headline figure the PASS beside it was
+    # never computed from. Falls back for rows scored before review existed.
+    score = _audit_headline(summary)
     withheld = summary.get("verdict_withheld_reason")
     if score is None:
         return ("NO SCORED AUDITS YET", "There are no submitted audit charts in this scope.",
                 GRAY, GRAY_LIGHT, BORDER)
     if withheld:
-        return ("INDICATIVE ONLY", f"{score}% audit accuracy — {withheld}.",
+        return ("INDICATIVE ONLY", f"{score}% Audit Score — {withheld}.",
                 AMBER, AMBER_BG, AMBER_BORDER)
     if score >= pass_threshold:
-        return ("ON TRACK", f"{score}% audit accuracy meets the {pass_threshold}% target.",
+        return ("ON TRACK", f"{score}% Audit Score meets the {pass_threshold}% target.",
                 GREEN, GREEN_BG, GREEN_BORDER)
-    return ("NEEDS COACHING", f"{score}% audit accuracy is below the {pass_threshold}% target.",
+    return ("NEEDS COACHING", f"{score}% Audit Score is below the {pass_threshold}% target.",
             RED, RED_BG, RED_BORDER)
 
 
@@ -789,9 +804,11 @@ def generate_audit_auditor_report_pdf(data: dict) -> bytes:
     elements.append(Spacer(1, 12))
     elements.append(_audit_stat_row([
         (str(summary.get("charts", 0)), "Charts Audited"),
-        (_pct(summary.get("audit_accuracy")), "Audit Accuracy"),
-        (_pct(summary.get("clean_accuracy")), "Clean Accuracy"),
-        (_pct(summary.get("opportunity_accuracy")), "Opportunity Accuracy"),
+        (_pct(_audit_headline(summary)), "Audit Score"),
+        (_pct(summary.get("audit_accuracy")), "Error Detection Rate"),
+        (_pct(summary.get("review_score")), "Review Score"),
+        (_pct(summary.get("clean_accuracy")), "Clean Chart Score"),
+        (_pct(summary.get("opportunity_accuracy")), "Opportunity Chart Score"),
         (str(summary.get("over_calls", 0)), "Over-calls"),
         (str(summary.get("detected_not_corrected", 0)), "Found, Corrected Wrongly"),
     ]))
@@ -816,10 +833,10 @@ def generate_audit_auditor_report_pdf(data: dict) -> bytes:
         rows = [[Paragraph(b.get("name", "—"), NORMAL),
                  Paragraph(b.get("specialty") or "—", NORMAL),
                  Paragraph(str(b.get("charts", 0)), NORMAL),
-                 _score_cell(b.get("audit_accuracy"), pass_threshold=pt),
+                 _score_cell(_audit_headline(b), pass_threshold=pt),
                  Paragraph(str(b.get("over_calls", 0)), NORMAL)]
                 for b in batches[:40]]
-        elements.append(_audit_data_table(["Batch", "Specialty", "Charts", "Audit Accuracy", "Over-calls"],
+        elements.append(_audit_data_table(["Batch", "Specialty", "Charts", "Audit Score", "Over-calls"],
                                           rows, [2.4, 1.2, 0.8, 1, 0.8]))
 
     _footer_note(elements)
@@ -846,10 +863,11 @@ def generate_audit_batch_report_pdf(data: dict) -> bytes:
     elements.append(_audit_stat_row([
         (str(summary.get("auditors", 0)), "Auditors"),
         (str(summary.get("charts", 0)), "Charts Audited"),
-        (_pct(summary.get("audit_accuracy")), "Audit Accuracy"),
-        (_pct(summary.get("clean_accuracy")), "Clean Accuracy"),
-        (_pct(summary.get("opportunity_accuracy")), "Opportunity Accuracy"),
-        (str(summary.get("opportunities", 0)), "Opportunities"),
+        (_pct(_audit_headline(summary)), "Audit Score"),
+        (_pct(summary.get("audit_accuracy")), "Error Detection Rate"),
+        (_pct(summary.get("review_score")), "Review Score"),
+        (_pct(summary.get("clean_accuracy")), "Clean Chart Score"),
+        (_pct(summary.get("opportunity_accuracy")), "Opportunity Chart Score"),
     ]))
 
     _audit_section_heading(elements, "Component Accuracy")
@@ -862,7 +880,7 @@ def generate_audit_batch_report_pdf(data: dict) -> bytes:
         rows = [[Paragraph(a.get("auditor_name", "—"), NORMAL),
                  Paragraph(a.get("emp_id") or "—", NORMAL),
                  Paragraph(str(a.get("charts", 0)), NORMAL),
-                 _score_cell(a.get("audit_accuracy"), pass_threshold=pt),
+                 _score_cell(_audit_headline(a), pass_threshold=pt),
                  _score_cell(a.get("opportunity_accuracy"), pass_threshold=pt),
                  Paragraph(str(a.get("over_calls", 0)), NORMAL)]
                 for a in auditors[:60]]

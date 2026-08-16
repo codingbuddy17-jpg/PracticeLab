@@ -98,10 +98,25 @@ def update_config(payload: ConfigUpdate, db: Session = Depends(get_db)):
                 400, f"Add, Revise and Delete weights must total 100 — they total {a + r + d}")
         cfg.add_weight, cfg.revise_weight, cfg.delete_weight = a, r, d
 
+    # The Audit Score blend, validated the same way the component weights are.
+    # Zero on both is not merely nonsense: the blend becomes None, the verdict
+    # compares (None or 0) against the threshold, and EVERY auditor silently
+    # fails. The labels say %, so they have to total 100.
+    if payload.detection_weight is not None or payload.review_weight is not None:
+        d = (payload.detection_weight if payload.detection_weight is not None
+             else cfg.detection_weight)
+        r = (payload.review_weight if payload.review_weight is not None
+             else cfg.review_weight)
+        if d < 0 or r < 0:
+            raise HTTPException(400, "Detection and Review weights cannot be negative")
+        if d + r != 100:
+            raise HTTPException(
+                400, f"Detection and Review weights must total 100 — they total {d + r}")
+        cfg.detection_weight, cfg.review_weight = d, r
+
     for f in ("over_call_revenue_pct", "over_call_non_revenue_pct",
               "query_missed_pct", "query_unnecessary_pct", "pass_threshold",
-              "min_review_opportunities",
-              "detection_weight", "review_weight", "max_auto_plantings",
+              "min_review_opportunities", "max_auto_plantings",
               "max_section_share", "ccmcc_preference"):
         v = getattr(payload, f)
         if v is not None:

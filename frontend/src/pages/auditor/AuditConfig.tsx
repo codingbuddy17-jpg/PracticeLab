@@ -61,7 +61,11 @@ export function AuditConfig({ trainer }: { trainer: string }) {
     setBusy(true)
     try {
       setCfg(await updateAuditConfig({ ...cfg, updated_by: trainer, passphrase }))
-      toast.success('Saved — applies to audits scored from now on')
+      // Not "future audits only". Chart-level detection and review counts are
+      // frozen at submission, but the Audit Score, the verdict and every pass
+      // rate are recomputed from the CURRENT config whenever analytics is
+      // opened — so moving the weights or the threshold restates history too.
+      toast.success('Saved — applies to new audits, and restates existing scores')
     } catch (e) {
       const err = e as { response?: { data?: { detail?: string } } }
       toast.error(err?.response?.data?.detail || 'Could not save')

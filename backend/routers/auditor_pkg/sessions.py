@@ -402,6 +402,17 @@ def _session_summary(s) -> dict:
         "over_calls": s.over_calls,
         "detected_not_corrected": s.detected_not_corrected,
         "opportunities": s.opportunities,
+        # The blended figure the verdict is decided on, and the half the
+        # dashboard leads with. Both were computed and then dropped here, so
+        # the auditor's own results and the trainer review screen showed only
+        # the detection metrics this module has moved past.
+        "audit_score": s.audit_score,
+        "review_score": s.review_score,
+        "review_total": s.review_total,
+        "review_correct": s.review_correct,
+        "review_basis": "pooled code lines judged correctly",
+        "sections": s.review_sections,
+        "attributes": s.review_attributes,
         "pass_fail": s.pass_fail,
         "verdict_withheld_reason": s.verdict_withheld_reason,
     }
@@ -517,4 +528,13 @@ def _score_from_row(r: AuditResult):
     s.drg_impacting_planted = r.drg_impacting_planted
     s.drg_impacting_found = r.drg_impacting_found
     s.audit_accuracy = r.audit_accuracy
+    # Review scoring, restored from the columns it was stored in. Leaving these
+    # out did not just lose the Review Score — score_session gates the verdict
+    # on review_total, so a rebuilt session reported "nothing reviewed" and
+    # withheld the verdict on every chart a trainer opened.
+    s.review_total = r.review_total or 0
+    s.review_correct = r.review_correct or 0
+    s.review_score = r.review_score
+    s.review_sections = r.review_sections or {}
+    s.review_attributes = r.review_attributes or {}
     return s

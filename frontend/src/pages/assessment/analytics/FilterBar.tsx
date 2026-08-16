@@ -41,8 +41,13 @@ export function FilterBar({ value, onChange }: {
   }, [])
 
   const active = !!(value.dateFrom || value.dateTo || value.batchName)
+  // A preset owns BOTH ends of the range. Matching on dateFrom alone left
+  // "30 days" lit after someone typed a custom end date, so the chip and the
+  // data disagreed.
   const activePreset = PRESETS.find(p =>
-    p.days === null ? !value.dateFrom : value.dateFrom === daysAgo(p.days)
+    p.days === null
+      ? !value.dateFrom && !value.dateTo
+      : value.dateFrom === daysAgo(p.days) && !value.dateTo
   )
 
   const set = (patch: Partial<AFilters>) => onChange({ ...value, ...patch })

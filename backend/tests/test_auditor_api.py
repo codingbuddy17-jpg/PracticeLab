@@ -1517,3 +1517,84 @@ class TestAuditableChartPicker:
         r = client.get("/auditor/charts",
                        params={"specialty": "IP-DRG", "q": library[0].chart_number})
         assert [c["chart_number"] for c in r.json()["charts"]] == [library[0].chart_number]
+
+
+class TestScoresSurviveTheRebuild:
+    """
+    A session score is produced twice: once at submit from ChartScore objects,
+    and once rebuilt from stored rows for the trainer review and the exports.
+    The two must agree.
+
+    They did not. _score_from_row restored none of the review fields, and
+    score_session gates the verdict on review_total — so every rebuilt session
+    reported "nothing reviewed" and withheld its verdict. _session_summary
+    separately never exposed audit_score or review_score at all, so both paths
+    showed only the detection metrics the module has moved past.
+    """
+
+    def _submit(self, client, charts=8, perfect=True):
+        batch_id = make_batch(client, charts_per=charts)
+        token = allocate(client, batch_id)["access_codes"][0]["token"]
+        payload = client.get(f"/auditor/sessions/by-token/{token}").json()
+        work = perfect_work(payload, truth_map(client, batch_id),
+                            verdicts_only=not perfect)
+        r = client.post(f"/auditor/sessions/{payload['session_id']}/submit", json=work)
+        assert r.status_code == 200, r.text
+        return payload["session_id"], r.json()["summary"]
+
+    def test_the_submit_summary_carries_the_new_scores(self, client, db, library):
+        _sid, summary = self._submit(client)
+        assert summary["audit_score"] is not None
+        assert summary["review_score"] is not None
+        assert summary["review_total"] > 0
+        assert summary["review_basis"] == "pooled code lines judged correctly"
+        assert summary["sections"]
+
+    def test_the_rebuilt_summary_matches_the_one_from_submit(
+            self, client, db, library):
+        session_id, at_submit = self._submit(client, perfect=False)
+        rebuilt = client.get(f"/auditor/sessions/{session_id}/review").json()["summary"]
+        for field in ("audit_score", "review_score", "review_total",
+                      "review_correct", "audit_accuracy", "pass_fail"):
+            assert rebuilt[field] == at_submit[field], (
+                f"{field}: submit said {at_submit[field]}, rebuild said {rebuilt[field]}")
+
+    def test_a_rebuilt_session_does_not_withhold_a_verdict_it_earned(
+            self, client, db, library):
+        """The symptom that made this visible."""
+        session_id, _ = self._submit(client, charts=8)
+        rebuilt = client.get(f"/auditor/sessions/{session_id}/review").json()["summary"]
+        assert rebuilt["pass_fail"] is not None
+        assert rebuilt["verdict_withheld_reason"] is None
+
+
+class TestBlendWeightValidation:
+    """
+    Zero on both weights is not merely nonsense. The blend becomes None, the
+    verdict compares (None or 0) against the threshold, and every auditor
+    silently FAILS — a wrong verdict rather than an absent one.
+    """
+
+    def _put(self, client, **kw):
+        return client.put("/auditor/config",
+                          json={"updated_by": "T", "passphrase": PASS, **kw})
+
+    def test_zero_on_both_is_refused(self, client, db):
+        r = self._put(client, detection_weight=0, review_weight=0)
+        assert r.status_code == 400
+        assert "total 100" in r.json()["detail"]
+
+    def test_weights_that_do_not_total_100_are_refused(self, client, db):
+        assert self._put(client, detection_weight=60, review_weight=60).status_code == 400
+        assert self._put(client, detection_weight=10, review_weight=10).status_code == 400
+
+    def test_a_valid_split_is_accepted(self, client, db):
+        r = self._put(client, detection_weight=70, review_weight=30)
+        assert r.status_code == 200, r.text
+        assert r.json()["detection_weight"] == 70
+        assert r.json()["review_weight"] == 30
+
+    def test_all_weight_on_one_half_is_allowed(self, client, db):
+        """A trainer who only cares about detection is making a real choice."""
+        r = self._put(client, detection_weight=100, review_weight=0)
+        assert r.status_code == 200, r.text
