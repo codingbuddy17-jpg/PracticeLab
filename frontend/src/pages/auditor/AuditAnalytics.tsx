@@ -35,6 +35,28 @@ const SIGNAL_META: Record<string, { color: string; bg: string }> = {
   'Early Signal': { color: '#6b7280', bg: '#f3f4f6' },
   'Stable': { color: '#047857', bg: '#ecfdf5' },
 }
+const SIGNAL_DEFINITION: Record<string, string> = {
+  'Review Priority Charts': 'Charts with missed findings, over-calls, or corrections that were found but fixed incorrectly.',
+  'Stable Charts': 'Charts without chart-level audit signals in the selected scope.',
+  'Highest Miss Risk': 'The chart with the highest count of introduced findings that auditors did not catch.',
+  'Highest Overcall Risk': 'The chart with the highest count of auditor findings on lines that did not need correction.',
+  'Signal Distribution': 'How charts in the selected scope are classified for trainer review.',
+  'Chart Signal Matrix': 'Chart-level evidence showing where auditors miss, over-call, or correct findings incorrectly.',
+  'Error Detection Rate': 'Introduced findings caught by auditors. This is not the weighted Audit Score.',
+  'Stability': 'A chart-level steadiness score based on low miss, overcall, and correction-risk rates.',
+  'Miss Risk': 'Introduced findings missed divided by total introduced findings.',
+  'Overcall Risk': 'Auditor over-calls divided by chart attempts.',
+  'Correction Risk': 'Findings detected but corrected incorrectly divided by total introduced findings.',
+  'Priority': 'The strongest chart-level signal for trainer review.',
+  'Correction Risk status': 'Auditors often find the issue but enter the wrong correction.',
+  'Overcall Risk status': 'Auditors often flag codes or fields that should have been left alone.',
+  'Detection Difficulty': 'Auditors are missing a meaningful share of introduced findings.',
+  'Monitor': 'A signal exists, but it is not yet strong enough for a higher-risk label.',
+  'Early Signal': 'A signal exists, but there are too few attempts to treat it as established.',
+  'Stable': 'No chart-level audit signal is currently present.',
+  'Established': 'Three or more attempts are available for this chart.',
+  'Early': 'Fewer than three attempts are available for this chart.',
+}
 
 export function AuditAnalytics() {
   const [tab, setTab] = useState<Tab>('Overview')
@@ -869,16 +891,20 @@ function ChartSignalsTab({ data, query, setQuery, threshold }: {
     <div style={stackStyle}>
       <div style={metricGridStyle}>
         <Metric label="Review Priority Charts" value={reviewNeeded} tone={reviewNeeded ? '#dc2626' : '#059669'}
+          title={SIGNAL_DEFINITION['Review Priority Charts']}
           sub={`of ${data?.charts_total ?? 0} charts`} />
-        <Metric label="Stable Charts" value={stable} tone="#059669" />
+        <Metric label="Stable Charts" value={stable} tone="#059669"
+          title={SIGNAL_DEFINITION['Stable Charts']} />
         <Metric label="Highest Miss Risk" value={highestMiss?.chart_number || 'NA'} tone="#dc2626"
+          title={SIGNAL_DEFINITION['Highest Miss Risk']}
           sub={highestMiss ? `${highestMiss.count} missed` : undefined} />
         <Metric label="Highest Overcall Risk" value={highestOvercall?.chart_number || 'NA'} tone="#ea580c"
+          title={SIGNAL_DEFINITION['Highest Overcall Risk']}
           sub={highestOvercall ? `${highestOvercall.count} overcalls` : undefined} />
       </div>
 
       {distribution.length > 0 && (
-        <Panel title="Signal Distribution">
+        <Panel title="Signal Distribution" titleText={SIGNAL_DEFINITION['Signal Distribution']}>
           <ResponsiveContainer width="100%" height={190}>
             <BarChart data={distribution} margin={{ left: 8, right: 20, top: 8, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} />
@@ -893,12 +919,16 @@ function ChartSignalsTab({ data, query, setQuery, threshold }: {
         </Panel>
       )}
 
-      <Panel title="Chart Signal Matrix">
+      <Panel title="Chart Signal Matrix" titleText={SIGNAL_DEFINITION['Chart Signal Matrix']}>
         <SearchInput value={query} onChange={setQuery} placeholder="Search chart, category or specialty..." />
         {!shown.length ? <div style={s.empty}>No chart-level audit signals yet.</div> : (
           <div style={{ overflowX: 'auto', marginTop: 12 }}>
             <table style={tableStyle}>
-              <thead><tr>{['Chart', 'Specialty', 'Attempts', 'Error Detection Rate', 'Stability', 'Miss Risk', 'Overcall Risk', 'Correction Risk', 'Priority', ''].map(h => <th key={h} style={th}>{h}</th>)}</tr></thead>
+              <thead><tr>{['Chart', 'Specialty', 'Attempts', 'Error Detection Rate', 'Stability', 'Miss Risk', 'Overcall Risk', 'Correction Risk', 'Priority', ''].map(h => (
+                <th key={h} style={th} title={SIGNAL_DEFINITION[h]}>
+                  {h}
+                </th>
+              ))}</tr></thead>
               <tbody>
                 {shown.map(r => (
                   <tr key={r.chart_id}>
@@ -907,7 +937,7 @@ function ChartSignalsTab({ data, query, setQuery, threshold }: {
                       <div style={muted}>{r.category}</div>
                     </td>
                     <td style={td}>{r.specialty}</td>
-                    <td style={td}>
+                    <td style={td} title={SIGNAL_DEFINITION[r.confidence]}>
                       <strong>{r.attempts}</strong>
                       <div style={muted}>{r.confidence}</div>
                     </td>
@@ -931,7 +961,7 @@ function ChartSignalsTab({ data, query, setQuery, threshold }: {
                         color: SIGNAL_META[r.review_priority]?.color || '#374151',
                         background: SIGNAL_META[r.review_priority]?.bg || '#f3f4f6',
                         border: `1px solid ${(SIGNAL_META[r.review_priority]?.color || '#9ca3af')}33`,
-                      }}>
+                      }} title={SIGNAL_DEFINITION[`${r.review_priority} status`] || SIGNAL_DEFINITION[r.review_priority] || SIGNAL_DEFINITION.Priority}>
                         {r.review_priority || r.signal}
                       </span>
                       <div style={muted}>
@@ -1338,11 +1368,13 @@ function OriginComparison({ rows, threshold }: { rows: any[]; threshold: number 
   )
 }
 
-function Panel({ title, right, children }: { title: string; right?: React.ReactNode; children: React.ReactNode }) {
+function Panel({ title, titleText, right, children }: {
+  title: string; titleText?: string; right?: React.ReactNode; children: React.ReactNode
+}) {
   return (
     <div style={s.panel}>
       <div style={s.panelHead}>
-        <span style={{ fontWeight: 800, fontSize: 13 }}>{title}</span>
+        <span title={titleText} style={{ fontWeight: 800, fontSize: 13 }}>{title}</span>
         {right && <span style={{ marginLeft: 'auto' }}>{right}</span>}
       </div>
       <div style={{ padding: 16 }}>{children}</div>
@@ -1350,11 +1382,11 @@ function Panel({ title, right, children }: { title: string; right?: React.ReactN
   )
 }
 
-function Metric({ label, value, tone: color, sub }: {
-  label: string; value: any; tone?: string; sub?: React.ReactNode
+function Metric({ label, value, tone: color, sub, title }: {
+  label: string; value: any; tone?: string; sub?: React.ReactNode; title?: string
 }) {
   return (
-    <div style={metricStyle}>
+    <div style={metricStyle} title={title}>
       <div style={{ fontSize: 24, fontWeight: 900, color: color || '#111827', lineHeight: 1 }}>{value}</div>
       <div style={{ marginTop: 5, fontSize: 11, fontWeight: 800, color: '#6b7280' }}>{label}</div>
       {sub && <div style={muted}>{sub}</div>}
