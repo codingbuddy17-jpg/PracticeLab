@@ -672,6 +672,22 @@ def _run_migrations():
     _add_col("practice_results", "profee_level_submitted", "TEXT", "TEXT")
     _add_col("practice_results", "profee_level_answer_key", "TEXT", "TEXT")
 
+    # ── PCS axis titles: widen to TEXT ───────────────────────────────────────
+    #
+    # They were VARCHAR(60)/(90) and CMS's own prose exceeds both: the longest
+    # approach is 75 characters and the longest device 98. SQLite ignores
+    # VARCHAR lengths, so every local run and the entire test suite passed
+    # while the first PostgreSQL load failed on "value too long for type
+    # character varying(60)".
+    #
+    # PostgreSQL treats varchar -> text as a metadata-only change, so this is
+    # cheap on a populated table as well as an empty one. SQLite has no ALTER
+    # COLUMN TYPE and does not need one; _run logs and continues there.
+    if not is_sqlite:
+        for col in ("section", "body_system", "root_operation", "body_part",
+                    "approach", "device", "qualifier"):
+            _run(f"ALTER TABLE pcs_code_axes ALTER COLUMN {col} TYPE TEXT")
+
 
     # ── E/M MDM answer keys ───────────────────────────────────────────────────
     #

@@ -433,6 +433,38 @@ def parse_cc_mcc(txt_bytes: bytes) -> dict:
     return out
 
 
+def _insert_many(db, model, rows: list) -> None:
+    """
+    Insert rows as multi-row INSERT statements.
+
+    Not `bulk_insert_mappings`, which issues an executemany — and psycopg2's
+    executemany is one round trip PER ROW. Against a local SQLite file that is
+    invisible; against a managed database in another region it is fatal. The
+    first production run sat for sixteen minutes without writing a row, with
+    the server idle-in-transaction waiting on the client: 98,000 sequential
+    round trips at Oregon latency is hours, not minutes.
+
+    Batching into one statement per few hundred rows turns that into a few
+    hundred round trips.
+    """
+    if not rows:
+        return
+    table = model.__table__
+    columns = [c.name for c in table.columns if c.name != "id"]
+    # Rows are dicts built by the parsers and do not all carry every key —
+    # cc_mcc_status is only set when the MS-DRG appendix was loaded. A
+    # multi-row VALUES takes its column list from the first row, so they are
+    # squared off first rather than silently misaligning.
+    shaped = [{c: row.get(c) for c in columns} for row in rows]
+    # Bound-parameter ceilings: SQLite's is 999 on older builds, PostgreSQL's
+    # is 65535. Sized to stay under the lower one wherever this runs.
+    per_row = max(1, len(columns))
+    chunk = max(1, (900 if db.get_bind().dialect.name == "sqlite" else 30000)
+                // per_row)
+    for i in range(0, len(shaped), chunk):
+        db.execute(table.insert().values(shaped[i:i + chunk]))
+
+
 def _write(db, system: str, rows: list, edition_note: str, loaded_by: str,
            source_url) -> None:
     """
@@ -443,7 +475,7 @@ def _write(db, system: str, rows: list, edition_note: str, loaded_by: str,
     """
     db.query(CodeDescription).filter(
         CodeDescription.code_system == system).delete()
-    db.bulk_insert_mappings(CodeDescription, rows)
+    _insert_many(db, CodeDescription, rows)
     db.add(CodeSetVersion(code_system=system, edition=edition_note,
                           row_count=len(rows), loaded_by=loaded_by,
                           source_url=source_url))
@@ -579,7 +611,7 @@ def main() -> int:
             if db:
                 _write(db, "ICD10PCS", pcs_rows, EDITION, args.loaded_by, source_url)
                 db.query(PcsCodeAxis).delete()
-                db.bulk_insert_mappings(PcsCodeAxis, pcs_axes)
+                _insert_many(db, PcsCodeAxis, pcs_axes)
                 db.commit()
         else:
             print("  no source found — skipped")

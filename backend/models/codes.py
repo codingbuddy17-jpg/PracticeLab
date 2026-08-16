@@ -104,13 +104,20 @@ class PcsCodeAxis(Base):
     id = Column(Integer, primary_key=True, index=True)
     code = Column(String(7), nullable=False, unique=True, index=True)
 
-    section = Column(String(60), nullable=True)          # char 1
-    body_system = Column(String(90), nullable=True)      # char 2
-    root_operation = Column(String(60), nullable=True)   # char 3
-    body_part = Column(String(90), nullable=True)        # char 4
-    approach = Column(String(60), nullable=True)         # char 5
-    device = Column(String(90), nullable=True)           # char 6
-    qualifier = Column(String(90), nullable=True)        # char 7
+    # Text, not a bounded String. These are CMS's own prose and they are longer
+    # than they look: "Nonautologous Tissue Substitute" is a device and runs to
+    # 98 characters in its longest form, against a 90-character column. SQLite
+    # ignores VARCHAR lengths entirely, so a local run and the whole test suite
+    # pass while PostgreSQL rejects the insert — and CMS may lengthen any of
+    # these in any annual edition, so a bigger number would only move the day
+    # it happens.
+    section = Column(Text, nullable=True)          # char 1
+    body_system = Column(Text, nullable=True)      # char 2
+    root_operation = Column(Text, nullable=True)   # char 3
+    body_part = Column(Text, nullable=True)        # char 4
+    approach = Column(Text, nullable=True)         # char 5
+    device = Column(Text, nullable=True)           # char 6
+    qualifier = Column(Text, nullable=True)        # char 7
 
     edition = Column(String(20), nullable=True)
 
