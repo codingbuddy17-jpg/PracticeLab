@@ -23,14 +23,20 @@ const OK: Check = { ok: true }
 const bad = (hint: string): Check => ({ ok: false, hint })
 
 /**
- * ICD-10-CM: a letter, a digit, one alphanumeric, then up to four more after
- * an optional decimal point. `J18.9`, `S72.001A`, `Z3A.01`.
+ * ICD-10-CM: a letter, a digit, one alphanumeric, then up to four more, with
+ * or without the decimal point. `J18.9`, `J189`, `S72.001A`, `Z3A.01`.
+ *
+ * The dot really is optional, which it was not until a coder took a code from
+ * the suggestion list and was told it looked wrong. Grading has always
+ * stripped the point before comparing (norm_dx), and the form has always said
+ * "dot optional" — the check was the only thing that disagreed, which is the
+ * copy-describes-behaviour-the-code-lost trap in a third guise.
  *
  * Seven characters is the ceiling ignoring the dot — the dot is punctuation,
  * not a character of the code, which is why a length check alone gets this
  * wrong in both directions.
  */
-const DX = /^[A-TV-Z][0-9][0-9A-Z](\.[0-9A-Z]{1,4})?$/
+const DX = /^[A-TV-Z][0-9][0-9A-Z](\.?[0-9A-Z]{1,4})?$/
 
 /**
  * ICD-10-PCS: exactly seven characters, each a digit or a letter — NOT seven
@@ -131,4 +137,23 @@ export function checkField(section: string, field: string, value: string): Check
 export function isBlocking(field: string): boolean {
   const f = (field || '').toLowerCase()
   return f === 'units' || f === 'pointers' || f === 'dx_pointers'
+}
+
+
+/**
+ * The dotted form of a code, for putting into a box a person will read.
+ *
+ * Codes are stored and compared without the point, so a suggestion list built
+ * from the code tables offers `M180`. That is a legal thing to type — grading
+ * strips the point — but it is not how anyone writes a diagnosis, and it is
+ * not how it appears on the answer key. Inserting `M18.0` matches both.
+ *
+ * ICD-10-CM only. PCS and HCPCS codes have no decimal point, and adding one
+ * would produce something that is not a code at all.
+ */
+export function withDot(code: string, system?: string): string {
+  const bare = (code || '').trim().toUpperCase().replace(/\./g, '')
+  if (system && system !== 'ICD10CM') return bare
+  if (bare.length <= 3 || !/^[A-TV-Z][0-9][0-9A-Z]/.test(bare)) return bare
+  return bare.slice(0, 3) + '.' + bare.slice(3)
 }

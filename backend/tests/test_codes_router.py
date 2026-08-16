@@ -191,3 +191,60 @@ class TestEveryCodeRowIsWiredForDescriptions:
                / "pages" / "PracticeSession.tsx").read_text()
         assert src.count("<CodeSays") >= 3, \
             "PDx, secondary diagnoses and PCS each need a description line"
+
+
+class TestSuggestionsAreOfferedInTheFormPeopleType:
+    """
+    The suggestion list is built from the code tables, which store codes
+    without the decimal point. Offering `M180` was legal — grading strips the
+    point before comparing — but taking it with Tab then drew a format warning,
+    because the shape check required the dot on anything longer than three
+    characters while the form said "dot optional".
+
+    Two things were wrong and both are fixed: the check now means what the form
+    says, and the list offers `M18.0`, which is how the answer key writes it.
+
+    Static assertions, since the frontend has no test runner and adding one
+    would be a new dependency. They pin intent, not behaviour.
+    """
+
+    import pathlib
+    SRC = pathlib.Path(__file__).resolve().parents[2] / "frontend" / "src"
+
+    def test_the_dot_really_is_optional_in_the_shape_check(self):
+        src = (self.SRC / "codeFormat.ts").read_text()
+        assert r"const DX = /^[A-TV-Z][0-9][0-9A-Z](\.?[0-9A-Z]{1,4})?$/" in src, \
+            "the diagnosis pattern must accept J189 as well as J18.9"
+
+    def test_the_suggestion_list_dots_the_code_before_offering_it(self):
+        src = (self.SRC / "CodeSuggest.tsx".join(["components/", ""])).read_text()
+        # Displayed, clicked and keyboard-selected all go through the same
+        # formatting — one of the three being missed is the whole bug.
+        assert src.count("withDot(") >= 3
+
+    def test_only_diagnoses_get_a_dot(self):
+        """PCS and HCPCS have no decimal point; adding one makes a non-code."""
+        src = (self.SRC / "codeFormat.ts").read_text()
+        assert "if (system && system !== 'ICD10CM') return bare" in src
+
+
+class TestRowsWithADescriptionAlignToTheInput:
+    """
+    The description line made the code column the tallest thing in its row, so
+    a row that centred its children pushed the POA select and the remove button
+    down against it. Anything sharing a row with a description aligns to the
+    top instead.
+    """
+
+    import pathlib
+    SRC = (pathlib.Path(__file__).resolve().parents[2] / "frontend" / "src"
+           / "pages" / "PracticeSession.tsx")
+
+    def test_no_row_carrying_a_description_is_centre_aligned(self):
+        import re
+        src = self.SRC.read_text()
+        for m in re.finditer(r"<div key=\{i\} style=\{\{ display: 'flex'[^}]*\}\}>", src):
+            row = src[m.start():m.start() + 1400]
+            if "CodeSays" in row:
+                assert "alignItems: 'center'" not in m.group(0), \
+                    "a row with a description line must align to the top"

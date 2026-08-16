@@ -1304,7 +1304,7 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
       {/* Secondary Diagnoses */}
       <Section title={ip ? "Secondary Diagnoses" : "Additional Diagnoses"} type="diagnosis">
         {entry.sdx.map((row, i) => (
-          <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 8 }}>
+          <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginBottom: 8 }}>
             <div style={{ flex: 1 }}>
               <CodeSuggest
                 style={{ ...s.inputField, marginBottom: 0, width: '100%', boxSizing: 'border-box' }}

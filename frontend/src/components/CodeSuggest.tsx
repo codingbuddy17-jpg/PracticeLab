@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { CodeInfo, searchCodes } from '../api/codesApi'
+import { withDot } from '../codeFormat'
 
 /**
  * A code box that finishes the code you have started typing.
@@ -95,7 +96,7 @@ export function CodeSuggest({ value, onChange, section, style, placeholder,
       // Enter takes the highlighted code. Tab does too, then carries on to the
       // next field — the same thing every other autocomplete does.
       e.preventDefault()
-      take(matches[cursor].code)
+      take(withDot(matches[cursor].code, matches[cursor].system))
     } else if (e.key === 'Escape') {
       e.preventDefault(); setOpen(false)
     }
@@ -120,11 +121,11 @@ export function CodeSuggest({ value, onChange, section, style, placeholder,
           {matches.map((m, i) => (
             <li
               key={m.code}
-              onMouseDown={e => { e.preventDefault(); take(m.code) }}
+              onMouseDown={e => { e.preventDefault(); take(withDot(m.code, m.system)) }}
               onMouseEnter={() => setCursor(i)}
               style={{ ...sg.item, background: i === cursor ? '#eef2ff' : '#fff' }}
             >
-              <span style={sg.code}>{m.code}</span>
+              <span style={sg.code}>{withDot(m.code, m.system)}</span>
               <span style={sg.desc}>{m.description}</span>
               {/* A category heading is a real row but not something anyone
                   codes to, so it is offered and marked rather than hidden. */}
