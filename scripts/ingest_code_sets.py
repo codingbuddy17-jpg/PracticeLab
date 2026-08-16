@@ -24,6 +24,7 @@ downloaded order file: every code the order file carries is present and every
 billable flag agrees.
 """
 import argparse
+import datetime
 import io
 import os
 import pathlib
@@ -45,29 +46,77 @@ from database import Base, SessionLocal, engine  # noqa: E402
 from services.icd_chapters import CHAPTERS, chapter_for  # noqa: E402,F401
 from models import CodeDescription, CodeSetVersion, PcsCodeAxis  # noqa: E402
 
-EDITION = "FY2026"
+# ── where the files live ─────────────────────────────────────────────────────
+#
+# Built from TODAY'S DATE rather than written down. A hardcoded list is right
+# on the day it is written and silently wrong afterwards: a scheduled run would
+# keep fetching the same edition forever while reporting success, which is the
+# worst failure available — stale data that looks loaded.
+#
+# Each list is tried in order and the first that answers wins, so the newest
+# edition is preferred and the previous one is the fallback. That also covers
+# the window each autumn when the next year exists as a date but not yet as a
+# published file.
 
-CM_URLS = [
-    "https://www.cms.gov/files/zip/2026-code-descriptions-tabular-order-updated-01012026.zip",
-    "https://www.cms.gov/files/zip/2026-code-descriptions-tabular-order.zip",
-]
-# HCPCS Level II is republished QUARTERLY, so the newest is tried first and the
-# list walks back — an internal environment mid-quarter should still find one.
-HCPCS_URLS = [
-    "https://www.cms.gov/files/zip/january-2026-alpha-numeric-hcpcs-file.zip",
-    "https://www.cms.gov/files/zip/october-2025-alpha-numeric-hcpcs-file.zip",
-    "https://www.cms.gov/files/zip/july-2025-alpha-numeric-hcpcs-file.zip",
-]
-# MS-DRG Definitions Manual, for Appendix C — the published CC/MCC list.
-# Newest first; the version number moves each October.
-DRG_URLS = [
-    "https://www.cms.gov/files/zip/icd-10-ms-drg-definitions-manual-files-v43.zip",
-    "https://www.cms.gov/files/zip/icd-10-ms-drg-definitions-manual-files-v42.zip",
-]
-PCS_URLS = [
-    "https://www.cms.gov/files/zip/2026-icd-10-pcs-code-tables-and-index-updated-01012026.zip",
-    "https://www.cms.gov/files/zip/2026-icd-10-pcs-code-tables-and-index.zip",
-]
+def fiscal_year(today=None) -> int:
+    """CMS code sets run October to September. October 2025 is FY2026."""
+    today = today or datetime.date.today()
+    return today.year + 1 if today.month >= 10 else today.year
+
+
+def cm_urls(today=None) -> list:
+    out = []
+    fy = fiscal_year(today)
+    for year in (fy, fy - 1):
+        out.append(f"https://www.cms.gov/files/zip/{year}-code-descriptions-"
+                   f"tabular-order-updated-0101{year}.zip")
+        out.append(f"https://www.cms.gov/files/zip/{year}-code-descriptions-"
+                   f"tabular-order.zip")
+    return out
+
+
+def pcs_urls(today=None) -> list:
+    out = []
+    fy = fiscal_year(today)
+    for year in (fy, fy - 1):
+        out.append(f"https://www.cms.gov/files/zip/{year}-icd-10-pcs-code-"
+                   f"tables-and-index-updated-0101{year}.zip")
+        out.append(f"https://www.cms.gov/files/zip/{year}-icd-10-pcs-code-"
+                   f"tables-and-index.zip")
+    return out
+
+
+def hcpcs_urls(today=None) -> list:
+    """
+    HCPCS is republished QUARTERLY and named for the quarter's first month, so
+    the candidates walk back through five quarters — enough that a run early in
+    a new quarter still finds the previous one.
+    """
+    today = today or datetime.date.today()
+    quarters = ["january", "april", "july", "october"]
+    q = (today.month - 1) // 3
+    year = today.year
+    out = []
+    for _ in range(5):
+        out.append(f"https://www.cms.gov/files/zip/{quarters[q]}-{year}-"
+                   f"alpha-numeric-hcpcs-file.zip")
+        q -= 1
+        if q < 0:
+            q, year = 3, year - 1
+    return out
+
+
+def drg_urls(today=None) -> list:
+    """
+    MS-DRG Definitions Manual, for Appendix C — the published CC/MCC list.
+    The version number tracks the fiscal year: FY2026 is v43.
+    """
+    fy = fiscal_year(today)
+    return [f"https://www.cms.gov/files/zip/icd-10-ms-drg-definitions-manual-"
+            f"files-v{year - 1983}.zip" for year in (fy, fy - 1)]
+
+
+EDITION = f"FY{fiscal_year()}"
 
 
 def _download(urls: Iterable[str]) -> Optional[bytes]:
@@ -384,6 +433,23 @@ def parse_cc_mcc(txt_bytes: bytes) -> dict:
     return out
 
 
+def _write(db, system: str, rows: list, edition_note: str, loaded_by: str,
+           source_url) -> None:
+    """
+    Replace one code set wholesale.
+
+    Not merged: an edition is a SET, and codes are deleted between editions as
+    well as added. Merging would leave retired codes behind looking current.
+    """
+    db.query(CodeDescription).filter(
+        CodeDescription.code_system == system).delete()
+    db.bulk_insert_mappings(CodeDescription, rows)
+    db.add(CodeSetVersion(code_system=system, edition=edition_note,
+                          row_count=len(rows), loaded_by=loaded_by,
+                          source_url=source_url))
+    db.commit()
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--write", action="store_true", help="save; otherwise report only")
@@ -400,142 +466,162 @@ def main() -> int:
     print(f"ICD-10-CM / ICD-10-PCS {EDITION}"
           f"{' from ' + str(src) if src else ' from cms.gov'}")
 
-    # ── ICD-10-CM ────────────────────────────────────────────────────────────
-    print("\nICD-10-CM")
-    order = codes = tabular = None
-    if src:
-        order = _local(src, "order", ".txt")
-        codes = _local(src, "codes", ".txt")
-        if not order:
-            tabular = _local(src, "tabular", ".xml")
-    else:
-        blob = _download(CM_URLS)
-        order = _from_zip(blob, "order", ".txt") if blob else None
-        codes = _from_zip(blob, "codes", ".txt") if blob else None
-    if order:
-        cm_rows = parse_cm(order, codes)
-    elif tabular:
-        print("  no order file — reading the tabular XML instead")
-        cm_rows = parse_cm_xml(tabular)
-        print("  seventh characters expanded from the XML's own definitions.\n"
-              "  Checked against the CMS order file: every code the order file\n"
-              "  carries is present, and the billable flag agrees on all of\n"
-              "  them. A downloaded edition is still preferable when there is a\n"
-              "  route to cms.gov, since a file on disk is only as current as\n"
-              "  the day it was fetched.")
-    else:
-        cm_rows = []
-    if cm_rows:
-        billable = sum(1 for r in cm_rows if r["is_billable"])
-        chapters = len({r["chapter_no"] for r in cm_rows if r["chapter_no"]})
-        print(f"  {len(cm_rows):,} codes  ({billable:,} billable, "
-              f"{len(cm_rows) - billable:,} headers) across {chapters} chapters")
-        unmapped = [r["code"] for r in cm_rows if not r["chapter_no"]]
-        if unmapped:
-            print(f"  {len(unmapped)} without a chapter, e.g. {unmapped[:5]}")
-    else:
-        print("  no source found — skipped")
+    db = None
+    if args.write:
+        # The code tables may not exist yet: nothing creates them but
+        # create_all() on app startup, and an IT team standing up a new
+        # environment will reasonably load reference data before first boot.
+        # create_all() only adds missing tables, so this is safe against a
+        # live schema.
+        Base.metadata.create_all(bind=engine)
+        db = SessionLocal()
+    source_url = None if src else "cms.gov"
+    loaded = 0
 
-    # ── CC / MCC severity, from the MS-DRG manual ────────────────────────────
-    #
-    # Stamped onto the CM rows rather than kept apart: it is a property of the
-    # diagnosis code, and every reader that wants it already has the code.
-    if cm_rows:
-        print("\nCC / MCC (MS-DRG Appendix C)")
-        if src:
-            appendix = _local(src, "appendix_c", ".txt")
-        else:
-            blob = _download(DRG_URLS)
-            appendix = _from_zip(blob, "appendix_c", ".txt") if blob else None
-        severity = parse_cc_mcc(appendix) if appendix else {}
-        if severity:
-            for row in cm_rows:
-                row["cc_mcc_status"] = severity.get(row["code"])
-            stamped = sum(1 for r in cm_rows if r.get("cc_mcc_status"))
-            mcc = sum(1 for r in cm_rows if r.get("cc_mcc_status") == "MCC")
-            print(f"  {stamped:,} codes carry a severity "
-                  f"({mcc:,} MCC, {stamped - mcc:,} CC)")
-            # The MS-DRG manual moves each October and the CM code set each
-            # October too, but they are not published together — so the
-            # appendix on hand is often a version behind. Naming the drift is
-            # better than a number that looks authoritative and is a year old.
-            known = {r["code"] for r in cm_rows}
-            orphans = [c for c in severity if c not in known]
-            if orphans:
-                print(f"  {len(orphans)} severity codes are not in this CM "
-                      f"edition, e.g. {sorted(orphans)[:4]} — the MS-DRG "
-                      f"manual is from a different year.")
-        else:
-            print("  no source found — skipped, codes load without severity")
-
-    # ── ICD-10-PCS ───────────────────────────────────────────────────────────
-    print("\nICD-10-PCS")
-    if src:
-        pcs_xml = _local(src, "tables", ".xml")
-    else:
-        blob = _download(PCS_URLS)
-        pcs_xml = _from_zip(blob, "tables", ".xml") if blob else None
-    pcs_rows, pcs_axes = parse_pcs(pcs_xml) if pcs_xml else ([], [])
-    if pcs_rows:
-        ops = len({a["root_operation"] for a in pcs_axes if a["root_operation"]})
-        print(f"  {len(pcs_rows):,} valid codes across {ops} root operations")
-    else:
-        print("  no source found — skipped")
-
-    # ── HCPCS Level II ───────────────────────────────────────────────────────
-    print("\nHCPCS Level II")
-    if src:
-        hc_txt = _local(src, "anweb", ".txt")
-    else:
-        blob = _download(HCPCS_URLS)
-        hc_txt = _from_zip(blob, "anweb", ".txt") if blob else None
-    hcpcs_rows, mod_rows = parse_hcpcs(hc_txt) if hc_txt else ([], [])
-    if hcpcs_rows or mod_rows:
-        live = sum(1 for r in hcpcs_rows if r["is_billable"])
-        print(f"  {len(hcpcs_rows):,} codes ({live:,} current, "
-              f"{len(hcpcs_rows) - live:,} terminated) "
-              f"and {len(mod_rows):,} modifiers")
-    else:
-        print("  no source found — skipped")
-
-    if not cm_rows and not pcs_rows and not hcpcs_rows:
-        print("\nnothing to load")
-        return 1
-
-    if not args.write:
-        print("\ndry run — nothing saved. Pass --write to load.")
-        return 0
-
-    # The code tables may not exist yet: nothing creates them but create_all()
-    # on app startup, and an IT team standing up a new environment will
-    # reasonably load reference data before first boot. create_all() only adds
-    # tables that are missing, so this is safe to run against a live schema.
-    Base.metadata.create_all(bind=engine)
-
-    db = SessionLocal()
+    # Each code set is parsed, written and then RELEASED before the next one
+    # starts. Holding all four at once peaked at 522 MB, which is above the
+    # 512 MB a Render Starter instance has — so the obvious way to run this,
+    # in a shell on the API service, would have taken the API down with it.
+    # One at a time peaks at roughly the largest single set.
     try:
-        for system, rows in (("ICD10CM", cm_rows), ("ICD10PCS", pcs_rows),
-                             ("HCPCS", hcpcs_rows), ("HCPCSMOD", mod_rows)):
-            if not rows:
-                continue
-            # Replaced wholesale rather than merged: an edition is a set, and
-            # codes are DELETED between editions as well as added. Merging
-            # would leave retired codes behind looking current.
-            db.query(CodeDescription).filter(
-                CodeDescription.code_system == system).delete()
-            db.bulk_insert_mappings(CodeDescription, rows)
-            db.add(CodeSetVersion(code_system=system, edition=EDITION,
-                                  row_count=len(rows), loaded_by=args.loaded_by,
-                                  source_url=None if src else "cms.gov"))
-        if pcs_axes:
-            db.query(PcsCodeAxis).delete()
-            db.bulk_insert_mappings(PcsCodeAxis, pcs_axes)
-        db.commit()
-        total = len(cm_rows) + len(pcs_rows) + len(hcpcs_rows) + len(mod_rows)
-        print(f"\nloaded {total:,} codes")
+        # ── ICD-10-CM ────────────────────────────────────────────────────────
+        print("\nICD-10-CM")
+        order = codes = tabular = None
+        if src:
+            order = _local(src, "order", ".txt")
+            codes = _local(src, "codes", ".txt")
+            if not order:
+                tabular = _local(src, "tabular", ".xml")
+        else:
+            blob = _download(cm_urls())
+            order = _from_zip(blob, "order", ".txt") if blob else None
+            codes = _from_zip(blob, "codes", ".txt") if blob else None
+            del blob
+        if order:
+            cm_rows = parse_cm(order, codes)
+        elif tabular:
+            print("  no order file — reading the tabular XML instead")
+            cm_rows = parse_cm_xml(tabular)
+            print("  seventh characters expanded from the XML's own definitions.\n"
+                  "  Checked against the CMS order file: every code the order file\n"
+                  "  carries is present, and the billable flag agrees on all of\n"
+                  "  them. A downloaded edition is still preferable when there is a\n"
+                  "  route to cms.gov, since a file on disk is only as current as\n"
+                  "  the day it was fetched.")
+        else:
+            cm_rows = []
+        del order, codes, tabular
+
+        if cm_rows:
+            billable = sum(1 for r in cm_rows if r["is_billable"])
+            chapters = len({r["chapter_no"] for r in cm_rows if r["chapter_no"]})
+            print(f"  {len(cm_rows):,} codes  ({billable:,} billable, "
+                  f"{len(cm_rows) - billable:,} headers) across {chapters} chapters")
+            unmapped = [r["code"] for r in cm_rows if not r["chapter_no"]]
+            if unmapped:
+                print(f"  {len(unmapped)} without a chapter, e.g. {unmapped[:5]}")
+
+            # ── CC / MCC severity ────────────────────────────────────────────
+            #
+            # Stamped onto the CM rows rather than kept apart: it is a property
+            # of the diagnosis code, and every reader that wants it has the code.
+            print("\nCC / MCC (MS-DRG Appendix C)")
+            if src:
+                appendix = _local(src, "appendix_c", ".txt")
+            else:
+                blob = _download(drg_urls())
+                appendix = _from_zip(blob, "appendix_c", ".txt") if blob else None
+                del blob
+            severity = parse_cc_mcc(appendix) if appendix else {}
+            del appendix
+            if severity:
+                for row in cm_rows:
+                    row["cc_mcc_status"] = severity.get(row["code"])
+                stamped = sum(1 for r in cm_rows if r.get("cc_mcc_status"))
+                mcc = sum(1 for r in cm_rows if r.get("cc_mcc_status") == "MCC")
+                print(f"  {stamped:,} codes carry a severity "
+                      f"({mcc:,} MCC, {stamped - mcc:,} CC)")
+                # The MS-DRG manual and the CM code set both move each October
+                # but are not published together, so the appendix on hand is
+                # often a version behind. Naming the drift beats a number that
+                # looks authoritative and is a year old.
+                known = {r["code"] for r in cm_rows}
+                orphans = [c for c in severity if c not in known]
+                if orphans:
+                    print(f"  {len(orphans)} severity codes are not in this CM "
+                          f"edition, e.g. {sorted(orphans)[:4]} — the MS-DRG "
+                          f"manual is from a different year.")
+                del known, severity
+            else:
+                print("  no source found — skipped, codes load without severity")
+
+            loaded += len(cm_rows)
+            if db:
+                _write(db, "ICD10CM", cm_rows, EDITION, args.loaded_by, source_url)
+        else:
+            print("  no source found — skipped")
+        del cm_rows
+
+        # ── ICD-10-PCS ───────────────────────────────────────────────────────
+        print("\nICD-10-PCS")
+        if src:
+            pcs_xml = _local(src, "tables", ".xml")
+        else:
+            blob = _download(pcs_urls())
+            pcs_xml = _from_zip(blob, "tables", ".xml") if blob else None
+            del blob
+        pcs_rows, pcs_axes = parse_pcs(pcs_xml) if pcs_xml else ([], [])
+        del pcs_xml
+        if pcs_rows:
+            ops = len({a["root_operation"] for a in pcs_axes if a["root_operation"]})
+            print(f"  {len(pcs_rows):,} valid codes across {ops} root operations")
+            loaded += len(pcs_rows)
+            if db:
+                _write(db, "ICD10PCS", pcs_rows, EDITION, args.loaded_by, source_url)
+                db.query(PcsCodeAxis).delete()
+                db.bulk_insert_mappings(PcsCodeAxis, pcs_axes)
+                db.commit()
+        else:
+            print("  no source found — skipped")
+        del pcs_rows, pcs_axes
+
+        # ── HCPCS Level II ───────────────────────────────────────────────────
+        print("\nHCPCS Level II")
+        if src:
+            hc_txt = _local(src, "anweb", ".txt")
+        else:
+            blob = _download(hcpcs_urls())
+            hc_txt = _from_zip(blob, "anweb", ".txt") if blob else None
+            del blob
+        hcpcs_rows, mod_rows = parse_hcpcs(hc_txt) if hc_txt else ([], [])
+        del hc_txt
+        if hcpcs_rows or mod_rows:
+            live = sum(1 for r in hcpcs_rows if r["is_billable"])
+            print(f"  {len(hcpcs_rows):,} codes ({live:,} current, "
+                  f"{len(hcpcs_rows) - live:,} terminated) "
+                  f"and {len(mod_rows):,} modifiers")
+            loaded += len(hcpcs_rows) + len(mod_rows)
+            if db:
+                if hcpcs_rows:
+                    _write(db, "HCPCS", hcpcs_rows, EDITION, args.loaded_by,
+                           source_url)
+                if mod_rows:
+                    _write(db, "HCPCSMOD", mod_rows, EDITION, args.loaded_by,
+                           source_url)
+        else:
+            print("  no source found — skipped")
+
+        if not loaded:
+            print("\nnothing to load")
+            return 1
+        if not db:
+            print("\ndry run — nothing saved. Pass --write to load.")
+            return 0
+        print(f"\nloaded {loaded:,} codes")
         return 0
     finally:
-        db.close()
+        if db:
+            db.close()
 
 
 if __name__ == "__main__":

@@ -452,7 +452,37 @@ alphanumeric HCPCS file, and the MS-DRG Definitions Manual (for `appendix_C`).
 Each is independent — a missing one is skipped with a message, and the rest
 still load.
 
-### 8.2 When to run it again
+### 8.2 Where to run it — not on the API service
+
+It peaks at about **380 MB of memory**. A Render Starter instance has 512 MB,
+and the API is already using some of it, so running this from a shell on the
+API service risks killing the web service. Two safe options:
+
+1. **From a workstation, against the external database URL.** Clone the repo,
+   set `DATABASE_URL` to the *external* connection string from the Render
+   dashboard (not the internal one), and run it. Nothing else needs to be
+   configured — the script only touches the code tables.
+2. **As its own scheduled job** with its own memory allowance (§8.3).
+
+Either way it is safe against a live database: it replaces one code set at a
+time inside a transaction, and the application keeps serving throughout.
+
+### 8.3 Scheduling it instead of remembering it
+
+The source URLs are **derived from the current date**, not hardcoded, so the
+same command run in any future quarter fetches that quarter's files. That
+makes it schedulable as-is — nothing needs editing each year.
+
+On Render, that is a **Cron Job** service pointed at this repo with the command
+`python scripts/ingest_code_sets.py --write`, sharing the database. Quarterly,
+a few days into January, April, July and October — CMS publishes on the first
+and a few days' margin avoids a race. Internally, the same command on cron,
+systemd timer, or whatever the organisation uses for scheduled work.
+
+A failed run is not an outage: the previous edition stays loaded, because each
+code set is only deleted at the moment its replacement is ready to insert.
+
+### 8.4 When to run it again
 
 - **ICD-10-CM and ICD-10-PCS** — annually, effective 1 October.
 - **HCPCS Level II** — quarterly.
@@ -509,7 +539,7 @@ separate decision and a separate data source.
 ## 10. Ongoing operations
 
 - **Reference code sets.** Re-run `scripts/ingest_code_sets.py --write` when
-  CMS republishes (§8.2). Nothing prompts you.
+  CMS republishes — or schedule it, §8.3.
 
 - **Backups.** Nothing in the application performs them. Schedule
   `pg_dump` (daily is typical) plus a bucket backup for the chart files.
@@ -531,5 +561,5 @@ separate decision and a separate data source.
 4. Set `CORS_ORIGINS` to the internal frontend origin — a mismatch here
    produces a frontend that loads and then fails every request.
 5. Agree the backup schedule and retention.
-6. Run the code-set ingest once after the first deploy, and decide who owns
-   re-running it each quarter (§8).
+6. Run the code-set ingest once after the first deploy (§8.2), and either
+   schedule it quarterly (§8.3) or decide who owns re-running it.

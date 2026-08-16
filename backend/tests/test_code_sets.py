@@ -350,3 +350,58 @@ Appendix C Part 2: Major CC only for patients discharged alive
         got = ingest.parse_cc_mcc(
             b"Appendix C Part 1:\n N17.9   CC  0011:2 codes  Acute kidney\n")
         assert got == {"N179": "CC"}
+
+
+class TestSourceUrlsFollowTheCalendar:
+    """
+    The URLs are built from today's date, not written down.
+
+    A hardcoded list is right on the day it is written and silently wrong
+    afterwards — a scheduled run would fetch the same edition forever while
+    reporting success. That is the worst failure available: stale reference
+    data that looks loaded. (The list this replaced was already a quarter
+    behind when it was replaced.)
+    """
+
+    import datetime as _dt
+
+    def test_the_fiscal_year_turns_over_in_october(self, ingest):
+        assert ingest.fiscal_year(self._dt.date(2026, 9, 30)) == 2026
+        assert ingest.fiscal_year(self._dt.date(2026, 10, 1)) == 2027
+        assert ingest.fiscal_year(self._dt.date(2027, 1, 15)) == 2027
+
+    def test_the_newest_edition_is_tried_first_and_the_previous_is_a_fallback(
+            self, ingest):
+        """
+        Each autumn the next year exists as a date before it exists as a file,
+        so the fallback is what keeps the run working through that window.
+        """
+        urls = ingest.cm_urls(self._dt.date(2026, 10, 5))
+        assert "2027" in urls[0]
+        assert any("2026" in u for u in urls)
+
+    def test_hcpcs_walks_back_through_quarters(self, ingest):
+        """Republished quarterly, named for the quarter's first month."""
+        urls = ingest.hcpcs_urls(self._dt.date(2026, 8, 16))
+        assert "july-2026" in urls[0]
+        assert "april-2026" in urls[1]
+        assert "january-2026" in urls[2]
+        assert "october-2025" in urls[3]
+
+    def test_the_quarter_walk_crosses_the_year_correctly(self, ingest):
+        urls = ingest.hcpcs_urls(self._dt.date(2027, 2, 1))
+        assert "january-2027" in urls[0]
+        assert "october-2026" in urls[1]
+
+    def test_the_drg_version_tracks_the_fiscal_year(self, ingest):
+        """FY2026 is v43 — the manual has been renumbered yearly since 1983."""
+        assert "v43" in ingest.drg_urls(self._dt.date(2026, 8, 1))[0]
+        assert "v42" in ingest.drg_urls(self._dt.date(2026, 8, 1))[1]
+        assert "v44" in ingest.drg_urls(self._dt.date(2026, 11, 1))[0]
+
+    def test_every_generated_url_is_a_cms_zip(self, ingest):
+        for fn in (ingest.cm_urls, ingest.pcs_urls, ingest.hcpcs_urls,
+                   ingest.drg_urls):
+            for url in fn(self._dt.date(2026, 8, 16)):
+                assert url.startswith("https://www.cms.gov/files/zip/")
+                assert url.endswith(".zip")
