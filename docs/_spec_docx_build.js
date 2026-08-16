@@ -1,3 +1,9 @@
+// Dated when it is built, not when someone remembered to change the string.
+// A regenerated document carrying an old date is worse than an undated one:
+// the reader has no way to tell it was refreshed.
+const BUILT = new Date().toLocaleDateString('en-GB',
+  { day: 'numeric', month: 'long', year: 'numeric' });
+
 const fs = require('fs');
 const {
   Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType,
@@ -199,7 +205,7 @@ const doc = new Document({
       new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 90 },
         children: [new TextRun({ text: 'Audience: infrastructure, database and application engineers', size: 20, color: GREY })] }),
       new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 560 },
-        children: [new TextRun({ text: 'Version 1.0  ·  12 August 2026', size: 19, color: GREY })] }),
+        children: [new TextRun({ text: `Version 1.0  ·  ${BUILT}`, size: 19, color: GREY })] }),
       brk(),
 
       // ── 0. about ─────────────────────────────────────────────────────────
@@ -253,7 +259,7 @@ const doc = new Document({
         [
           ['Front end', 'React static site', 'In the browser only', 'No'],
           ['Backend API', 'FastAPI, Python 3.11', 'Yes — all application logic', 'No'],
-          ['Relational database', 'PostgreSQL', 'No', 'Yes — 41 tables'],
+          ['Relational database', 'PostgreSQL', 'No', 'Yes — 46 tables'],
           ['Object storage', 'S3-compatible bucket', 'No', 'Yes — chart page images'],
         ],
         [2300, 2900, 2280, 1880],

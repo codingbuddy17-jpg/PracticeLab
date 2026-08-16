@@ -8,6 +8,19 @@ const {
 const SCHEMA = JSON.parse(fs.readFileSync('schema.json', 'utf8'));
 const DOCS = JSON.parse(fs.readFileSync('tabledocs.json', 'utf8'));
 
+// Counted from the schema rather than typed into the prose. These were written
+// by hand and were wrong the day the Auditor module landed, then wrong again
+// when the code tables landed — a document whose own header disagrees with its
+// table list is worse than one that gives no number at all.
+// Dated when it is built, not when someone remembered to change the string.
+// A regenerated document carrying an old date is worse than an undated one:
+// the reader has no way to tell it was refreshed.
+const BUILT = new Date().toLocaleDateString('en-GB',
+  { day: 'numeric', month: 'long', year: 'numeric' });
+
+const TOTAL_COLS = Object.values(SCHEMA).reduce((n, t) => n + t.cols.length, 0);
+const TOTAL_FKS = Object.values(SCHEMA).reduce((n, t) => n + (t.fks || []).length, 0);
+
 const NAVY = '1F3864', ACCENT = '2E75B6', GREY = '595959';
 const HDR_BG = 'DCE6F1', CODE_BG = 'F2F2F2', WARN_BG = 'FFF4E5';
 const W = 9360;
@@ -197,11 +210,11 @@ const doc = new Document({
       new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 60 },
         border: { top: { style: BorderStyle.SINGLE, size: 6, color: 'BFBFBF' } }, children: [new TextRun({ text: '' })] }),
       new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 220, after: 90 },
-        children: [new TextRun({ text: '41 tables · 596 columns · 47 foreign keys', size: 21, color: GREY, italics: true })] }),
+        children: [new TextRun({ text: `${Object.keys(SCHEMA).length} tables · ${TOTAL_COLS} columns · ${TOTAL_FKS} foreign keys`, size: 21, color: GREY, italics: true })] }),
       new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 90 },
         children: [new TextRun({ text: 'Entity relationships, data dictionary and workflows', size: 20, color: GREY })] }),
       new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 560 },
-        children: [new TextRun({ text: 'Version 1.0  ·  12 August 2026', size: 19, color: GREY })] }),
+        children: [new TextRun({ text: `Version 1.0  ·  ${BUILT}`, size: 19, color: GREY })] }),
       brk(),
 
       // 0

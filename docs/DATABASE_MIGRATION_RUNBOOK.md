@@ -527,6 +527,15 @@ separate decision and a separate data source.
 `audit_assignments`, `audit_sessions`, `audit_chart_drafts`, `audit_results`,
 `audit_key_sets`, `audit_scoring_configs`
 
+**Reference code sets** — `code_descriptions`, `pcs_code_axes`,
+`code_set_versions`, `cc_exclusions`, `drg_weights`
+
+> The five reference tables hold CMS data, not application data: what each
+> code means, which PCS codes exist, and which edition is loaded. They are
+> populated by `scripts/ingest_code_sets.py` (§8) and by nothing else, so a
+> restore that omits them costs a two-minute reload rather than any user data.
+> `cc_exclusions` and `drg_weights` are ingested but not yet read by anything.
+
 > The Auditor subsystem was added after the first version of this document.
 > Its nine tables are ORM-backed, so `create_all()` builds them — but the
 > columns added to them afterwards are not, which is the trap described in

@@ -716,6 +716,13 @@
     "pk": false
    },
    {
+    "name": "emp_id",
+    "type": "VARCHAR(50)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
     "name": "chart_id",
     "type": "INTEGER",
     "notnull": true,
@@ -1446,6 +1453,41 @@
     "pk": false
    },
    {
+    "name": "review_total",
+    "type": "INTEGER",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "review_correct",
+    "type": "INTEGER",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "review_score",
+    "type": "FLOAT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "review_sections",
+    "type": "JSON",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "review_attributes",
+    "type": "JSON",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
     "name": "pass_fail",
     "type": "VARCHAR(4)",
     "notnull": false,
@@ -1572,6 +1614,27 @@
    },
    {
     "name": "min_opportunities_for_verdict",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "min_review_opportunities",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "detection_weight",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "review_weight",
     "type": "INTEGER",
     "notnull": true,
     "default": null,
@@ -2119,6 +2182,40 @@
   "fks": [],
   "uniq": []
  },
+ "cc_exclusions": {
+  "cols": [
+   {
+    "name": "id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": true
+   },
+   {
+    "name": "list_id",
+    "type": "VARCHAR(12)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "pdx_code",
+    "type": "VARCHAR(10)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "edition",
+    "type": "VARCHAR(20)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   }
+  ],
+  "fks": [],
+  "uniq": []
+ },
  "chart_feedback": {
   "cols": [
    {
@@ -2386,6 +2483,137 @@
   "fks": [],
   "uniq": []
  },
+ "code_descriptions": {
+  "cols": [
+   {
+    "name": "id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": true
+   },
+   {
+    "name": "code_system",
+    "type": "VARCHAR(12)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "code",
+    "type": "VARCHAR(10)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "description",
+    "type": "TEXT",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "short_description",
+    "type": "VARCHAR(120)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "chapter",
+    "type": "VARCHAR(90)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "chapter_no",
+    "type": "INTEGER",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "cc_mcc_status",
+    "type": "VARCHAR(4)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "is_billable",
+    "type": "BOOLEAN",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "edition",
+    "type": "VARCHAR(20)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   }
+  ],
+  "fks": [],
+  "uniq": []
+ },
+ "code_set_versions": {
+  "cols": [
+   {
+    "name": "id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": true
+   },
+   {
+    "name": "code_system",
+    "type": "VARCHAR(12)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "edition",
+    "type": "VARCHAR(20)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "source_url",
+    "type": "TEXT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "row_count",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "loaded_at",
+    "type": "DATETIME",
+    "notnull": false,
+    "default": "CURRENT_TIMESTAMP",
+    "pk": false
+   },
+   {
+    "name": "loaded_by",
+    "type": "VARCHAR(100)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   }
+  ],
+  "fks": [],
+  "uniq": []
+ },
  "coding_resources": {
   "cols": [
    {
@@ -2435,6 +2663,75 @@
     "type": "DATETIME",
     "notnull": false,
     "default": "CURRENT_TIMESTAMP",
+    "pk": false
+   }
+  ],
+  "fks": [],
+  "uniq": []
+ },
+ "drg_weights": {
+  "cols": [
+   {
+    "name": "id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": true
+   },
+   {
+    "name": "drg_code",
+    "type": "VARCHAR(5)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "title",
+    "type": "TEXT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "mdc",
+    "type": "VARCHAR(4)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "drg_type",
+    "type": "VARCHAR(12)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "relative_weight",
+    "type": "VARCHAR(12)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "geometric_los",
+    "type": "VARCHAR(12)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "arithmetic_los",
+    "type": "VARCHAR(12)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "edition",
+    "type": "VARCHAR(20)",
+    "notnull": false,
+    "default": null,
     "pk": false
    }
   ],
@@ -3719,6 +4016,82 @@
     "ref_col": "id"
    }
   ],
+  "uniq": []
+ },
+ "pcs_code_axes": {
+  "cols": [
+   {
+    "name": "id",
+    "type": "INTEGER",
+    "notnull": true,
+    "default": null,
+    "pk": true
+   },
+   {
+    "name": "code",
+    "type": "VARCHAR(7)",
+    "notnull": true,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "section",
+    "type": "TEXT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "body_system",
+    "type": "TEXT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "root_operation",
+    "type": "TEXT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "body_part",
+    "type": "TEXT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "approach",
+    "type": "TEXT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "device",
+    "type": "TEXT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "qualifier",
+    "type": "TEXT",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   },
+   {
+    "name": "edition",
+    "type": "VARCHAR(20)",
+    "notnull": false,
+    "default": null,
+    "pk": false
+   }
+  ],
+  "fks": [],
   "uniq": []
  },
  "practice_chart_drafts": {
