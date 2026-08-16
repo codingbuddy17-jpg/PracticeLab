@@ -909,6 +909,15 @@ function ErrorPatternsTab({ data, threshold, filters }: {
         <Bucket threshold={threshold} minForPattern={data.min_for_pattern}
           onDrill={drillKind} title="PCS Character" rows={data.pcs_characters} />
       )}
+      {/* The other axis: which body of knowledge, rather than which mechanic.
+          "Root operation errors are missed" says what to drill; "obstetric
+          diagnoses are missed" says who to put on which charts. Diagnosis
+          sections only — PCS and CPT have no ICD chapter. */}
+      {data.by_chapter?.length > 0 && (
+        <Bucket threshold={threshold} minForPattern={data.min_for_pattern}
+          title="Diagnosis Chapter" rows={data.by_chapter}
+          empty="No diagnosis chapter has enough introduced errors to read yet." />
+      )}
     </div>
   )
 }

@@ -952,6 +952,47 @@ class TestErrorPatternComposition:
         assert any(r["planted"] < body["min_for_pattern"] for r in body["by_kind"])
 
 
+class TestChapterAxis:
+    """
+    Which BODY of knowledge the error sat in, as opposed to which mechanic
+    produced it. "Root operation errors are missed" tells a trainer what to
+    drill; "obstetric diagnoses are missed" tells them who to put on which
+    charts. The two do not overlap, and only the second was missing.
+    """
+
+    def test_diagnosis_plantings_are_grouped_by_chapter(self, client, db,
+                                                        library):
+        batch_id = make_batch(client, charts_per=6, clean_share=0)
+        _run(client, batch_id, find_everything=False)
+        body = client.get("/auditor/analytics/detection").json()
+        rows = body["by_chapter"]
+        # The library's diagnoses are E11/M17/I50-shaped, so at least one real
+        # chapter must appear rather than an empty axis.
+        assert isinstance(rows, list)
+        for row in rows:
+            assert row["label"] and row["planted"] >= 3
+            assert row["found"] + row["missed"] + \
+                row["detected_not_corrected"] == row["planted"]
+
+    def test_a_chapter_never_counts_more_than_the_plantings(self, client, db,
+                                                            library):
+        batch_id = make_batch(client, charts_per=6, clean_share=0)
+        _run(client, batch_id, find_everything=False)
+        body = client.get("/auditor/analytics/detection").json()
+        chapter_total = sum(r["planted"] for r in body["by_chapter"])
+        assert chapter_total <= body["total_plantings"]
+
+    def test_the_axis_is_capped(self, client, db, library):
+        batch_id = make_batch(client, charts_per=4)
+        _run(client, batch_id)
+        assert len(client.get("/auditor/analytics/detection")
+                   .json()["by_chapter"]) <= 10
+
+    def test_an_empty_installation_returns_an_empty_axis(self, client, db):
+        assert client.get("/auditor/analytics/detection"
+                          ).json()["by_chapter"] == []
+
+
 class TestSectionActionMatrix:
     """
     Section down, action across.

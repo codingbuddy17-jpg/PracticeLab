@@ -31,6 +31,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from models import AuditBatch, AuditResult, Chart
+from services.icd_chapters import chapter_for
 from services.audit_scoring import blended_score
 from .shared import scoring_config
 
@@ -803,6 +804,12 @@ def detection_patterns(batch_id: Optional[int] = None,
     by_section: dict[str, dict] = {}
     by_origin: dict[str, dict] = {}
     pcs_chars: dict[str, dict] = {}
+    # Which BODY of knowledge the error sat in, not which mechanic produced it.
+    # "Root operation errors are missed" tells a trainer what to drill;
+    # "obstetric diagnoses are missed" tells them who to put on which charts,
+    # and the two do not overlap. Chapters come from the code itself, so this
+    # costs no query and works whether or not the code sets are loaded.
+    by_chapter: dict[str, dict] = {}
 
     def bump(bucket: dict, key: str, outcome: str) -> None:
         cell = bucket.setdefault(key, {"planted": 0, "found": 0, "missed": 0,
@@ -826,6 +833,12 @@ def detection_patterns(batch_id: Optional[int] = None,
             bump(by_origin, "observed" if planting.get("origin") == "observed" else "synthetic", outcome)
             if planting.get("pcs_character"):
                 bump(pcs_chars, planting["pcs_character"], outcome)
+            if (planting.get("section") or "") in ("PDx", "SDx"):
+                # correct_value is the code that SHOULD be there — the chapter
+                # of the right answer, not of whatever was planted in its place.
+                _no, title = chapter_for(str(planting.get("correct_value") or ""))
+                if title:
+                    bump(by_chapter, title, outcome)
 
     def shape(bucket: dict, label_map: Optional[dict] = None) -> list[dict]:
         out = []
@@ -916,6 +929,10 @@ def detection_patterns(batch_id: Optional[int] = None,
         "section_matrix": section_matrix,
         "by_origin": origins,
         "pcs_characters": shape(pcs_chars),
+        # Capped: 22 chapters is already a long list and the tail is single
+        # plantings, which say nothing. Worst first, so the cap keeps what
+        # matters.
+        "by_chapter": [c for c in shape(by_chapter) if c["planted"] >= 3][:10],
         "weakest": weak,
         "commentary": notes,
         "commentary_more": extra_notes,
