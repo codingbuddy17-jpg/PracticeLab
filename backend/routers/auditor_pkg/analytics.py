@@ -906,3 +906,137 @@ def auditor_report_pdf(auditor: str, batch_id: Optional[int] = None,
         headers=content_disposition(
             f"{auditor_row['auditor_name']}_Audit_Performance_Report.pdf",
             "Audit_Performance_Report.pdf"))
+
+
+@router.get("/analytics/pattern")
+def pattern_detail(kind: Optional[str] = None,
+                   section: Optional[str] = None,
+                   action: Optional[str] = None,
+                   origin: Optional[str] = None,
+                   batch_id: Optional[int] = None,
+                   specialty: Optional[str] = None,
+                   auditor: Optional[str] = None,
+                   from_date: Optional[str] = None,
+                   to_date: Optional[str] = None,
+                   scan_limit: int = Query(5000, le=20000),
+                   db: Session = Depends(get_db)):
+    """
+    One error pattern, drilled: who misses it, on which charts, and whether it
+    is getting better.
+
+    Error Patterns could tell a trainer that root-operation errors slip past
+    70% of the time and then stopped. The next two questions are always "so
+    who?" and "did last month's training work?", and neither had anywhere to
+    go — the tab was a diagnosis with no treatment plan.
+
+    Scanned rather than aggregated for the same reason the parent report is:
+    the outcome of each error lives inside a JSON array. Same window, same
+    cap, and the payload says how much it read.
+    """
+    if not any((kind, section, action, origin)):
+        raise HTTPException(400, "Name a pattern: kind, section, action or origin")
+
+    base = _base_query(db, batch_id, specialty, auditor, from_date, to_date)
+    total_results = base.with_entities(func.count(AuditResult.id)).scalar() or 0
+    rows = base.order_by(AuditResult.id.desc()).limit(scan_limit).all()
+
+    def _blank():
+        return {"planted": 0, "found": 0, "missed": 0, "detected_not_corrected": 0}
+
+    def _matches(planting: dict) -> bool:
+        if kind and (planting.get("kind") or planting.get("action")) != kind:
+            return False
+        if section and planting.get("section") != section:
+            return False
+        if action and planting.get("action") != action:
+            return False
+        if origin:
+            seen = "observed" if planting.get("origin") == "observed" else "synthetic"
+            if seen != origin:
+                return False
+        return True
+
+    by_auditor: dict = {}
+    by_chart: dict = {}
+    by_week: dict = {}
+    overall = _blank()
+
+    for r in rows:
+        key = (r.emp_id or "", r.auditor_name or "")
+        when = r.scored_at
+        monday = None
+        if when is not None:
+            d = when.date() if hasattr(when, "date") else None
+            if d is not None:
+                monday = d - timedelta(days=d.weekday())
+        for entry in (r.feedback or []):
+            planting = entry.get("planting") or {}
+            if not _matches(planting):
+                continue
+            outcome = entry.get("outcome") or "missed"
+            for bucket in (overall,
+                           by_auditor.setdefault(key, _blank()),
+                           by_chart.setdefault(r.chart_id, _blank())):
+                bucket["planted"] += 1
+                if outcome == "correct":
+                    bucket["found"] += 1
+                elif outcome == "detected_not_corrected":
+                    bucket["detected_not_corrected"] += 1
+                else:
+                    bucket["missed"] += 1
+            if monday is not None:
+                w = by_week.setdefault(monday, _blank())
+                w["planted"] += 1
+                if outcome == "correct":
+                    w["found"] += 1
+                elif outcome == "detected_not_corrected":
+                    w["detected_not_corrected"] += 1
+                else:
+                    w["missed"] += 1
+
+    charts = {c.id: c for c in db.query(Chart).filter(
+        Chart.id.in_(list(by_chart) or [-1])).all()} if by_chart else {}
+
+    auditors = [{
+        "auditor_key": f"{emp}||{name}" if emp else name,
+        "auditor_name": name,
+        "emp_id": emp or None,
+        **cell,
+        "accuracy": _rate(cell["found"], cell["planted"]),
+    } for (emp, name), cell in by_auditor.items()]
+    # Worst first: this list exists to name who needs the drill.
+    auditors.sort(key=lambda a: (a["accuracy"] if a["accuracy"] is not None else 999,
+                                 -a["planted"]))
+
+    chart_rows = [{
+        "chart_id": cid,
+        "chart_number": charts[cid].chart_number if cid in charts else str(cid),
+        **cell,
+        "accuracy": _rate(cell["found"], cell["planted"]),
+    } for cid, cell in by_chart.items()]
+    chart_rows.sort(key=lambda c: (c["accuracy"] if c["accuracy"] is not None else 999,
+                                   -c["planted"]))
+
+    # Weekly, matching the Overview trend, so the two read the same way.
+    trend = [{
+        "week_of": monday.isoformat(),
+        **by_week[monday],
+        "accuracy": _rate(by_week[monday]["found"], by_week[monday]["planted"]),
+    } for monday in sorted(by_week)[-12:]]
+
+    label = KIND_LABELS.get(kind or "", kind) if kind else None
+    if not label:
+        label = " · ".join(p for p in (section, action) if p) or (origin or "pattern")
+
+    return {
+        "label": label,
+        "kind": kind, "section": section, "action": action, "origin": origin,
+        **overall,
+        "accuracy": _rate(overall["found"], overall["planted"]),
+        "auditors": auditors[:50],
+        "charts": chart_rows[:50],
+        "trend": trend,
+        "charts_scanned": len(rows),
+        "charts_available": int(total_results),
+        "truncated": len(rows) < int(total_results),
+    }

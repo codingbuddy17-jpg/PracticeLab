@@ -9,7 +9,7 @@ import {
 import {
   downloadAuditAnalytics, downloadAuditAuditorReportPdf, downloadAuditBatchReportPdf,
   getAuditByAuditor, getAuditByBatch, getAuditBySpecialty, getAuditChartSignals,
-  getAuditDetection, getAuditOverview,
+  getAuditDetection, getAuditOverview, getAuditPattern,
 } from '../../api/auditorApi'
 import s from './styles'
 import { AUDITABLE } from './constants'
@@ -192,7 +192,7 @@ export function AuditAnalytics() {
           )}
           {tab === 'Batches' && <BatchesTab rows={batches} query={batchSearch} setQuery={setBatchSearch} threshold={threshold} />}
           {tab === 'Specialties' && <SpecialtiesTab rows={specialties} threshold={threshold} />}
-          {tab === 'Error Patterns' && <ErrorPatternsTab data={detection} threshold={threshold} />}
+          {tab === 'Error Patterns' && <ErrorPatternsTab data={detection} threshold={threshold} filters={filters} />}
           {tab === 'Chart Signals' && <ChartSignalsTab data={chartSignals} query={chartSearch} setQuery={setChartSearch} threshold={threshold} />}
         </>
       )}
@@ -756,8 +756,12 @@ function SpecialtiesTab({ rows, threshold }: { rows: any[]; threshold: number })
   )
 }
 
-function ErrorPatternsTab({ data, threshold }: { data: any; threshold: number }) {
+function ErrorPatternsTab({ data, threshold, filters }: {
+  data: any; threshold: number; filters: Filters
+}) {
   const [showAllInsights, setShowAllInsights] = useState(false)
+  const [drill, setDrill] = useState<Record<string, string> | null>(null)
+  const drillKind = (r: any) => setDrill({ kind: String(r.key) })
   if (!data || !data.total_plantings) return <div style={s.empty}>No scored error patterns yet.</div>
   const notes = [...(data.commentary || []), ...(showAllInsights ? (data.commentary_more || []) : [])]
   return (
@@ -798,16 +802,21 @@ function ErrorPatternsTab({ data, threshold }: { data: any; threshold: number })
 
       <OriginComparison rows={data.by_origin} threshold={threshold} />
 
+      {drill && (
+        <PatternDrill query={drill} filters={filters} threshold={threshold}
+          onClose={() => setDrill(null)} />
+      )}
+
       <Bucket threshold={threshold} minForPattern={data.min_for_pattern}
-        title="What To Train Next" rows={data.weakest}
+        onDrill={drillKind} title="What To Train Next" rows={data.weakest}
         empty="No repeated weak pattern has crossed the training threshold." />
       <Bucket threshold={threshold} minForPattern={data.min_for_pattern}
-        title="Detection by Error Type" rows={data.by_kind} />
+        onDrill={drillKind} title="Detection by Error Type" rows={data.by_kind} />
       <SectionActionMatrix m={data.section_matrix} threshold={threshold}
-        minForPattern={data.min_for_pattern} />
+        minForPattern={data.min_for_pattern} onDrill={setDrill} />
       {data.pcs_characters?.length > 0 && (
         <Bucket threshold={threshold} minForPattern={data.min_for_pattern}
-          title="PCS Character" rows={data.pcs_characters} />
+          onDrill={drillKind} title="PCS Character" rows={data.pcs_characters} />
       )}
     </div>
   )
@@ -1001,8 +1010,110 @@ function CompactBatchTable({ rows, showPdf = false, threshold = 90 }: {
  * Cells are coloured by detection rate and carry their volume, because a cell
  * at 50% over four errors and one at 50% over ninety are different facts.
  */
-function SectionActionMatrix({ m, threshold, minForPattern = 0 }: {
+/**
+ * One pattern, drilled: who misses it, where it lives, and whether it is
+ * improving.
+ *
+ * The tab could say a pattern slips past 70% of the time and then stopped —
+ * a diagnosis with no treatment plan. Every pattern row and every matrix cell
+ * opens this, so "so who?" is one click rather than a different tab and a
+ * guess.
+ */
+function PatternDrill({ query, filters, threshold, onClose }: {
+  query: Record<string, string>; filters: Filters; threshold: number
+  onClose: () => void
+}) {
+  const [data, setData] = useState<any>(null)
+  const key = JSON.stringify(query)
+  useEffect(() => {
+    setData(null)
+    getAuditPattern({ ...filters, ...query })
+      .then(setData)
+      .catch(() => toast.error('Could not load that pattern'))
+  }, [key, filters])
+
+  return (
+    <Panel title={data ? `${data.label} — who misses it` : 'Loading pattern...'}
+      right={<button style={miniBtn} onClick={onClose}>Close</button>}>
+      {!data ? <div style={s.empty}>Loading...</div> : !data.planted ? (
+        <div style={s.empty}>Nothing of this kind in the current scope.</div>
+      ) : (
+        <div style={stackStyle}>
+          <div style={metricGridStyle}>
+            <Metric label="Detection" value={pct(data.accuracy)}
+              tone={tone(data.accuracy, threshold)}
+              sub={`${data.found} of ${data.planted} caught`} />
+            <Metric label="Missed" value={data.missed} tone="#dc2626" />
+            <Metric label="Fixed Wrongly" value={data.detected_not_corrected}
+              tone={ACTION_TONE.wrongFix} />
+          </div>
+
+          {data.trend?.length > 1 && (
+            <div>
+              <div style={{ ...s.note, marginTop: 0 }}>Detection on this pattern, by week</div>
+              <ResponsiveContainer width="100%" height={150}>
+                <LineChart data={data.trend.map((t: any) => ({
+                  label: shortDate(t.week_of), score: t.accuracy,
+                }))} margin={{ left: 0, right: 16, top: 8, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="label" tick={{ fontSize: 10 }} />
+                  <YAxis domain={[0, 100]} tickFormatter={v => `${v}%`}
+                    tick={{ fontSize: 10 }} width={34} />
+                  <Tooltip contentStyle={tooltipStyle}
+                    formatter={(v: any) => [`${v}%`, 'Detection']}
+                    labelFormatter={(l: any) => `Week of ${l}`} />
+                  <Line type="monotone" dataKey="score" stroke="#7c3aed"
+                    strokeWidth={2.5} dot={{ r: 3 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          <div style={{ overflowX: 'auto' }}>
+            <table style={tableStyle}>
+              <thead><tr>{['Auditor', 'Detection', 'Caught', 'Missed', 'Fixed wrongly']
+                .map(h => <th key={h} style={th}>{h}</th>)}</tr></thead>
+              <tbody>
+                {data.auditors.map((a: any) => (
+                  <tr key={a.auditor_key}>
+                    <td style={td}>
+                      <strong>{a.auditor_name}</strong>
+                      {a.emp_id && <div style={muted}>{a.emp_id}</div>}
+                    </td>
+                    <td style={{ ...td, fontWeight: 800, color: tone(a.accuracy, threshold) }}>
+                      {pct(a.accuracy)}
+                    </td>
+                    <td style={td}>{a.found}/{a.planted}</td>
+                    <td style={{ ...td, color: a.missed ? '#dc2626' : '#6b7280' }}>{a.missed}</td>
+                    <td style={{ ...td, color: a.detected_not_corrected ? ACTION_TONE.wrongFix : '#6b7280' }}>
+                      {a.detected_not_corrected}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {data.charts?.length > 0 && (
+            <div style={s.note}>
+              Worst charts for this pattern:{' '}
+              {data.charts.slice(0, 6).map((c: any) => (
+                <Link key={c.chart_id} style={{ ...keyLinkStyle, marginRight: 6 }}
+                  to={`/trainer/auditor/keys?chart=${c.chart_id}`}>
+                  {c.chart_number} {pct(c.accuracy)}
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </Panel>
+  )
+}
+
+function SectionActionMatrix({ m, threshold, minForPattern = 0, onDrill }: {
   m: any; threshold: number; minForPattern?: number
+  onDrill?: (q: Record<string, string>) => void
 }) {
   if (!m?.sections?.length) return null
   const cell = (c: any, isTotal = false) => {
@@ -1036,7 +1147,11 @@ function SectionActionMatrix({ m, threshold, minForPattern = 0 }: {
               <tr key={sec}>
                 <td style={{ ...td, fontWeight: 800 }}>{sec}</td>
                 {m.actions.map((a: string) => (
-                  <td key={a} style={td}>{cell(m.cells[sec]?.[a])}</td>
+                  <td key={a} style={{ ...td, cursor: m.cells[sec]?.[a] && onDrill ? 'pointer' : 'default' }}
+                    title={m.cells[sec]?.[a] && onDrill ? 'See who misses this' : undefined}
+                    onClick={() => m.cells[sec]?.[a] && onDrill?.({ section: sec, action: a })}>
+                    {cell(m.cells[sec]?.[a])}
+                  </td>
                 ))}
                 <td style={{ ...td, borderLeft: '2px solid #e5e7eb' }}>
                   {cell(m.section_totals[sec], true)}
@@ -1064,9 +1179,9 @@ function SectionActionMatrix({ m, threshold, minForPattern = 0 }: {
   )
 }
 
-function Bucket({ title, rows, empty, threshold = 90, minForPattern = 0 }: {
+function Bucket({ title, rows, empty, threshold = 90, minForPattern = 0, onDrill }: {
   title: string; rows: any[]; empty?: string; threshold?: number
-  minForPattern?: number
+  minForPattern?: number; onDrill?: (row: any) => void
 }) {
   const { shown, control } = useShowMore(rows || [])
   if (!rows?.length) return empty ? <Panel title={title}><div style={s.empty}>{empty}</div></Panel> : null
@@ -1083,7 +1198,10 @@ function Bucket({ title, rows, empty, threshold = 90, minForPattern = 0 }: {
         const missed = Math.max(0, planted - found - wrongFix)
         const pctOf = (n: number) => planted ? (n / planted) * 100 : 0
         return (
-          <div key={r.key} style={{ marginBottom: 12, opacity: thin ? 0.55 : 1 }}>
+          <div key={r.key} onClick={() => onDrill?.(r)}
+            title={onDrill ? 'See who misses this' : undefined}
+            style={{ marginBottom: 12, opacity: thin ? 0.55 : 1,
+                     cursor: onDrill ? 'pointer' : 'default' }}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
               <span style={{ minWidth: 54, fontWeight: 800, color: tone(r.accuracy, threshold) }}>
                 {pct(r.accuracy)}

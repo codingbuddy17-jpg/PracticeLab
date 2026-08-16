@@ -304,6 +304,11 @@ export async function getAuditByAuditor(params: Record<string, unknown> = {}) {
   return data as { auditors: Record<string, any>[]; matched?: number; pass_threshold: number }
 }
 
+export async function getAuditPattern(params: Record<string, unknown>) {
+  const { data } = await api.get('/auditor/analytics/pattern', { params })
+  return data
+}
+
 export async function getAuditDetection(params: Record<string, unknown> = {}) {
   const { data } = await api.get('/auditor/analytics/detection', { params })
   return data

@@ -935,3 +935,84 @@ class TestSectionActionMatrix:
             assert m["cells"][section], f"{section} is listed with no cells"
         assert set(m["sections"]) <= {"PDx", "SDx", "PCS", "CPT"}
         assert set(m["actions"]) <= {"Add", "Revise", "Delete"}
+
+
+class TestPatternDrill:
+    """
+    One error pattern, drilled: who misses it, on which charts, and whether it
+    is improving.
+
+    Error Patterns could say root-operation errors slip past 70% of the time
+    and then stopped. The next two questions are always "so who?" and "did the
+    training work?" — a diagnosis with no treatment plan.
+    """
+
+    def _cohort(self, client, db, when=None):
+        """One auditor who finds everything, one who finds nothing."""
+        from models import AuditResult
+        batch_id = make_batch(client, auditors=("Strong", "Passive"), charts_per=8)
+        codes = allocate(client, batch_id)["access_codes"]
+        truth = truth_map(client, batch_id)
+        for i, code in enumerate(codes):
+            payload = client.get(f"/auditor/sessions/by-token/{code['token']}").json()
+            # verdicts_only is the honest way to build a passive auditor: every
+            # section reviewed and left alone. Stripping findings while leaving
+            # a "needs changes" verdict is refused at submit, and rightly.
+            work = perfect_work(payload, truth, verdicts_only=(i == 1))
+            r = client.post(f"/auditor/sessions/{payload['session_id']}/submit",
+                            json=work)
+            assert r.status_code == 200, r.text[:200]
+        if when:
+            db.query(AuditResult).update({AuditResult.scored_at: when})
+            db.commit()
+        return batch_id
+
+    def test_it_names_who_misses_the_pattern_worst_first(self, client, db, library):
+        self._cohort(client, db)
+        body = client.get("/auditor/analytics/pattern",
+                          params={"kind": "omit_sdx"}).json()
+        assert body["planted"] > 0
+        names = [a["auditor_name"] for a in body["auditors"]]
+        assert set(names) == {"Strong", "Passive"}
+        assert names[0] == "Passive", "the weakest must lead the list"
+        weak = body["auditors"][0]
+        assert weak["accuracy"] == 0.0 and weak["missed"] == weak["planted"]
+
+    def test_it_names_the_charts_the_pattern_lives_on(self, client, db, library):
+        self._cohort(client, db)
+        body = client.get("/auditor/analytics/pattern",
+                          params={"kind": "omit_sdx"}).json()
+        assert body["charts"], "a pattern must point at the charts carrying it"
+        assert all(c["chart_number"] for c in body["charts"])
+        accs = [c["accuracy"] for c in body["charts"] if c["accuracy"] is not None]
+        assert accs == sorted(accs), "charts are worst-first too"
+
+    def test_it_trends_by_week(self, client, db, library):
+        from datetime import datetime
+        self._cohort(client, db, when=datetime(2026, 8, 12, 9))
+        body = client.get("/auditor/analytics/pattern",
+                          params={"kind": "omit_sdx"}).json()
+        assert [t["week_of"] for t in body["trend"]] == ["2026-08-10"]
+        point = body["trend"][0]
+        assert point["found"] + point["missed"] + point["detected_not_corrected"] \
+            == point["planted"]
+
+    def test_a_section_and_action_can_be_drilled_too(self, client, db, library):
+        """The matrix cells drill on the same endpoint the kind rows use."""
+        self._cohort(client, db)
+        body = client.get("/auditor/analytics/pattern",
+                          params={"section": "SDx", "action": "Add"}).json()
+        assert body["label"] == "SDx · Add"
+        assert body["planted"] > 0
+
+    def test_naming_no_pattern_is_refused(self, client, db, library):
+        r = client.get("/auditor/analytics/pattern")
+        assert r.status_code == 400
+
+    def test_the_drill_honours_the_global_filters(self, client, db, library):
+        self._cohort(client, db)
+        scoped = client.get("/auditor/analytics/pattern",
+                            params={"kind": "omit_sdx",
+                                    "from_date": "2099-01-01"}).json()
+        assert scoped["planted"] == 0
+        assert scoped["auditors"] == []
