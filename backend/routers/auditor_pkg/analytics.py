@@ -626,6 +626,61 @@ KIND_LABELS = {
 }
 
 
+def _section_action_matrix(cells: dict) -> dict:
+    """
+    Section down, action across — with row and column totals.
+
+    These were flat rows keyed "SDx · Revise", which answers only the question
+    it was built for. A trainer's next two questions are "how are we on SDx
+    overall?" and "are Revises worse than Deletes everywhere?", and a list of
+    compound strings can answer neither. A matrix answers both by being read in
+    the other direction, and takes less room than the list it replaces.
+
+    Only sections and actions that actually occur appear, so an outpatient
+    cohort shows no PCS row rather than a row of dashes.
+    """
+    def _cell(c):
+        return {**c, "accuracy": _rate(c["found"], c["planted"])}
+
+    def _blank():
+        return {"planted": 0, "found": 0, "missed": 0, "detected_not_corrected": 0}
+
+    def _add(into, c):
+        for k in ("planted", "found", "missed", "detected_not_corrected"):
+            into[k] += c[k]
+        return into
+
+    order_s = ["PDx", "SDx", "PCS", "CPT"]
+    order_a = ["Add", "Revise", "Delete"]
+    sections = [s for s in order_s if any(k[0] == s for k in cells)]
+    sections += sorted({k[0] for k in cells} - set(order_s))
+    actions = [a for a in order_a if any(k[1] == a for k in cells)]
+    actions += sorted({k[1] for k in cells} - set(order_a))
+
+    rows, row_totals, col_totals = {}, {}, {a: _blank() for a in actions}
+    grand = _blank()
+    for s in sections:
+        rows[s] = {}
+        total = _blank()
+        for a in actions:
+            c = cells.get((s, a))
+            if not c:
+                continue
+            rows[s][a] = _cell(c)
+            _add(total, c)
+            _add(col_totals[a], c)
+            _add(grand, c)
+        row_totals[s] = _cell(total)
+    return {
+        "sections": sections,
+        "actions": actions,
+        "cells": rows,
+        "section_totals": row_totals,
+        "action_totals": {a: _cell(c) for a, c in col_totals.items()},
+        "total": _cell(grand),
+    }
+
+
 @router.get("/analytics/detection")
 def detection_patterns(batch_id: Optional[int] = None,
                        specialty: Optional[str] = None,
@@ -676,7 +731,8 @@ def detection_patterns(batch_id: Optional[int] = None,
             outcome = entry.get("outcome") or "missed"
             kind = planting.get("kind") or planting.get("action") or "unknown"
             bump(by_kind, kind, outcome)
-            bump(by_section, f'{planting.get("section", "?")} · {planting.get("action", "?")}', outcome)
+            bump(by_section, (planting.get("section") or "?",
+                              planting.get("action") or "?"), outcome)
             bump(by_origin, "observed" if planting.get("origin") == "observed" else "synthetic", outcome)
             if planting.get("pcs_character"):
                 bump(pcs_chars, planting["pcs_character"], outcome)
@@ -701,7 +757,7 @@ def detection_patterns(batch_id: Optional[int] = None,
     weak = [k for k in kinds if k["planted"] >= 5 and (k["accuracy"] or 0) < 60]
     origins = shape(by_origin, {"observed": "Errors your coders really made",
                                 "synthetic": "System-generated errors"})
-    sections = shape(by_section)
+    section_matrix = _section_action_matrix(by_section)
     total_plantings = sum(c["planted"] for c in by_kind.values())
 
     notes = []
@@ -729,12 +785,18 @@ def detection_patterns(batch_id: Optional[int] = None,
                     "These need coding-rule review, not just audit workflow practice.",
         })
 
-    top_section = sections[0] if sections else None
-    if top_section and total_plantings and top_section["planted"] / total_plantings >= 0.4:
+    # The heaviest SECTION, read off the matrix's row totals rather than the
+    # flat "SDx · Revise" rows this used to sort. A section carrying most of
+    # the volume is the drill area whichever action it arrives through.
+    row_totals = section_matrix["section_totals"]
+    top_section = max(row_totals.items(), key=lambda kv: kv[1]["planted"], default=None)
+    if top_section and total_plantings \
+            and top_section[1]["planted"] / total_plantings >= 0.4:
+        name, cell = top_section
         notes.append({
             "kind": "focus",
-            "text": f"{top_section['label']} carries most of the missed opportunity "
-                    f"({top_section['planted']} introduced). Treat it as the first drill area.",
+            "text": f"{name} carries most of the missed opportunity "
+                    f"({cell['planted']} introduced). Treat it as the first drill area.",
         })
 
     origin_map = {o["key"]: o for o in origins}
@@ -761,7 +823,7 @@ def detection_patterns(batch_id: Optional[int] = None,
 
     return {
         "by_kind": kinds,
-        "by_section": sections,
+        "section_matrix": section_matrix,
         "by_origin": origins,
         "pcs_characters": shape(pcs_chars),
         "weakest": weak,

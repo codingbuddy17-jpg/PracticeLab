@@ -803,8 +803,8 @@ function ErrorPatternsTab({ data, threshold }: { data: any; threshold: number })
         empty="No repeated weak pattern has crossed the training threshold." />
       <Bucket threshold={threshold} minForPattern={data.min_for_pattern}
         title="Detection by Error Type" rows={data.by_kind} />
-      <Bucket threshold={threshold} minForPattern={data.min_for_pattern}
-        title="Detection by Section and Action" rows={data.by_section} />
+      <SectionActionMatrix m={data.section_matrix} threshold={threshold}
+        minForPattern={data.min_for_pattern} />
       {data.pcs_characters?.length > 0 && (
         <Bucket threshold={threshold} minForPattern={data.min_for_pattern}
           title="PCS Character" rows={data.pcs_characters} />
@@ -987,6 +987,80 @@ function CompactBatchTable({ rows, showPdf = false, threshold = 90 }: {
         </tbody>
       </table>
     </div>
+  )
+}
+
+/**
+ * Section down, action across — read either way.
+ *
+ * This was a flat list of "SDx · Revise" rows, which answers only the question
+ * it was built for. The two a trainer asks next — how are we on SDx overall,
+ * and are Revises worse than Deletes everywhere — need the margins, and a list
+ * of compound strings has none. The matrix carries both and takes less room.
+ *
+ * Cells are coloured by detection rate and carry their volume, because a cell
+ * at 50% over four errors and one at 50% over ninety are different facts.
+ */
+function SectionActionMatrix({ m, threshold, minForPattern = 0 }: {
+  m: any; threshold: number; minForPattern?: number
+}) {
+  if (!m?.sections?.length) return null
+  const cell = (c: any, isTotal = false) => {
+    if (!c || !c.planted) return <span style={muted}>—</span>
+    const thin = !isTotal && minForPattern > 0 && c.planted < minForPattern
+    return (
+      <span style={{ opacity: thin ? 0.5 : 1 }}>
+        <strong style={{ color: tone(c.accuracy, threshold) }}>{pct(c.accuracy)}</strong>
+        <span style={{ ...muted, marginLeft: 5 }}>{c.found}/{c.planted}</span>
+        {c.detected_not_corrected > 0 && (
+          <div style={{ fontSize: 10, color: ACTION_TONE.wrongFix, fontWeight: 700 }}>
+            {c.detected_not_corrected} fixed wrongly
+          </div>
+        )}
+      </span>
+    )
+  }
+  return (
+    <Panel title="Detection by section and action">
+      <div style={{ overflowX: 'auto' }}>
+        <table style={tableStyle}>
+          <thead>
+            <tr>
+              <th style={th}></th>
+              {m.actions.map((a: string) => <th key={a} style={th}>{a}</th>)}
+              <th style={{ ...th, borderLeft: '2px solid #e5e7eb' }}>All actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {m.sections.map((sec: string) => (
+              <tr key={sec}>
+                <td style={{ ...td, fontWeight: 800 }}>{sec}</td>
+                {m.actions.map((a: string) => (
+                  <td key={a} style={td}>{cell(m.cells[sec]?.[a])}</td>
+                ))}
+                <td style={{ ...td, borderLeft: '2px solid #e5e7eb' }}>
+                  {cell(m.section_totals[sec], true)}
+                </td>
+              </tr>
+            ))}
+            <tr>
+              <td style={{ ...td, fontWeight: 800, borderTop: '2px solid #e5e7eb' }}>
+                All sections
+              </td>
+              {m.actions.map((a: string) => (
+                <td key={a} style={{ ...td, borderTop: '2px solid #e5e7eb' }}>
+                  {cell(m.action_totals[a], true)}
+                </td>
+              ))}
+              <td style={{ ...td, borderTop: '2px solid #e5e7eb',
+                           borderLeft: '2px solid #e5e7eb' }}>
+                {cell(m.total, true)}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </Panel>
   )
 }
 

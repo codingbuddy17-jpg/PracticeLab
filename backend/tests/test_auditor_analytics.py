@@ -868,12 +868,19 @@ class TestErrorPatternComposition:
 
         assert any(r["detected_not_corrected"] > 0 for r in body["by_kind"]), (
             "the fixture produced no fixed-wrongly row, so this proves nothing")
-        for bucket in ("by_kind", "by_section", "by_origin"):
+        for bucket in ("by_kind", "by_origin"):
             for row in body[bucket]:
                 missed = row["planted"] - row["found"] - row["detected_not_corrected"]
                 assert missed >= 0, f"{bucket}/{row['key']}: segments exceed the total"
                 assert row["found"] + row["detected_not_corrected"] + missed \
                     == row["planted"]
+
+        # and every cell of the section x action matrix, plus its margins
+        m = body["section_matrix"]
+        for section, row in m["cells"].items():
+            for action, cell in row.items():
+                missed = cell["planted"] - cell["found"] - cell["detected_not_corrected"]
+                assert missed >= 0, f"{section}/{action}: segments exceed the total"
 
     def test_the_pattern_threshold_is_shipped_so_thin_rows_can_be_marked(
             self, client, db, library):
@@ -887,3 +894,44 @@ class TestErrorPatternComposition:
         body = client.get("/auditor/analytics/detection").json()
         assert body["min_for_pattern"] == 5
         assert any(r["planted"] < body["min_for_pattern"] for r in body["by_kind"])
+
+
+class TestSectionActionMatrix:
+    """
+    Section down, action across.
+
+    The flat "SDx · Revise" rows answered only the question they were built
+    for. A trainer's next two are "how are we on SDx overall?" and "are Revises
+    worse than Deletes everywhere?" — neither of which a list of compound
+    strings can answer, and both of which a matrix answers by being read in the
+    other direction.
+    """
+
+    def test_the_margins_reconcile_with_the_cells(self, client, db, library):
+        batch_id = make_batch(client, charts_per=8)
+        _run(client, batch_id, find_everything=False)
+        m = client.get("/auditor/analytics/detection").json()["section_matrix"]
+
+        assert m["sections"] and m["actions"]
+        for section in m["sections"]:
+            row = m["cells"][section]
+            planted = sum(c["planted"] for c in row.values())
+            assert m["section_totals"][section]["planted"] == planted, (
+                f"{section} row total disagrees with its cells")
+        for action in m["actions"]:
+            planted = sum(m["cells"][s].get(action, {}).get("planted", 0)
+                          for s in m["sections"])
+            assert m["action_totals"][action]["planted"] == planted, (
+                f"{action} column total disagrees with its cells")
+        grand = sum(c["planted"] for row in m["cells"].values() for c in row.values())
+        assert m["total"]["planted"] == grand
+
+    def test_only_sections_and_actions_that_occur_appear(self, client, db, library):
+        """An outpatient cohort shows no PCS row rather than a row of dashes."""
+        batch_id = make_batch(client, charts_per=8)
+        _run(client, batch_id, find_everything=False)
+        m = client.get("/auditor/analytics/detection").json()["section_matrix"]
+        for section in m["sections"]:
+            assert m["cells"][section], f"{section} is listed with no cells"
+        assert set(m["sections"]) <= {"PDx", "SDx", "PCS", "CPT"}
+        assert set(m["actions"]) <= {"Add", "Revise", "Delete"}
