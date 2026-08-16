@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
-import { Download, Upload, Loader, Trash2, X, AlertTriangle, RefreshCw, Plus } from 'lucide-react'
+import { Download, Upload, Loader, Trash2, X, AlertTriangle, RefreshCw, Plus, ShieldCheck } from 'lucide-react'
 import toast from 'react-hot-toast'
 import {
   getAnswerKeyStatus, getAnswerKeyList, getChartsMissingKeys,
   downloadAnswerKeyTemplate, uploadAnswerKeys, deleteAnswerKey, purgeChart,
+  checkAnswerKeyCodes,
   downloadAnswerKeyExport,
 } from '../../api'
 import { trainerName, SPECIALTIES } from './shared'
@@ -53,6 +54,38 @@ export function AnswerKeysView() {
     { chart: string; code: string; system: string }[]>([])
   const [ccmccIssues, setCcmccIssues] = useState<
     { chart: string; code: string; claimed: string; published: string }[]>([])
+  const [checking, setChecking] = useState(false)
+
+  /**
+   * The upload check only ever saw keys passing through it, which did nothing
+   * for keys written before it existed — and those are the ones that have been
+   * grading people.
+   */
+  async function handleCheckCodes() {
+    setChecking(true)
+    try {
+      const res = await checkAnswerKeyCodes(specialty)
+      if (!res.codes_checked) {
+        toast('CMS code sets are not loaded, so nothing could be checked', { icon: 'ℹ️' })
+        return
+      }
+      setUnknownCodes(res.unknown_codes || [])
+      setCcmccIssues(res.ccmcc_mismatches || [])
+      const found = (res.unknown_codes?.length || 0) + (res.ccmcc_mismatches?.length || 0)
+      if (!found) {
+        toast.success(`Checked ${res.keys_checked} key${res.keys_checked !== 1 ? 's' : ''} — every code found`)
+      } else {
+        toast.error(`${found} issue${found !== 1 ? 's' : ''} across ${res.keys_checked} key${res.keys_checked !== 1 ? 's' : ''}`)
+      }
+      if (res.truncated) {
+        toast(`Checked the first ${res.keys_checked} of ${res.keys_total} keys`, { icon: 'ℹ️' })
+      }
+    } catch {
+      toast.error('Could not check the answer key codes')
+    } finally {
+      setChecking(false)
+    }
+  }
   const [replaceMode, setReplaceMode] = useState(false)
   const [exportPassphrase, setExportPassphrase] = useState('')
   const [showExportPrompt, setShowExportPrompt] = useState(false)
@@ -194,6 +227,10 @@ export function AnswerKeysView() {
             <button style={{ ...styles.outlineBtn, color: '#16a34a', borderColor: '#86efac' }} onClick={() => setShowExportPrompt(s => !s)}>
               <Download size={15} /> Export All Keys
             </button>
+            <button style={{ ...styles.outlineBtn, color: '#b45309', borderColor: '#fcd34d' }}
+              onClick={handleCheckCodes} disabled={checking}>
+              <ShieldCheck size={15} /> {checking ? 'Checking…' : 'Check Codes'}
+            </button>
             <span style={{ width: 1, height: 20, background: '#e5e7eb', display: 'inline-block', margin: '0 4px' }} />
             <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: replaceMode ? '#dc2626' : '#6b7280', cursor: 'pointer', userSelect: 'none' as const, fontWeight: replaceMode ? 600 : 400 }}>
               <input type="checkbox" checked={replaceMode} onChange={e => setReplaceMode(e.target.checked)} />
@@ -289,10 +326,10 @@ export function AnswerKeysView() {
               {unknownCodes.length} code{unknownCodes.length !== 1 ? 's' : ''} not found in the loaded CMS code sets
             </div>
             <div style={{ fontSize: 12, color: '#7c2d12', lineHeight: 1.6, marginBottom: 8 }}>
-              The keys were saved. These codes are correctly formed but are not in the
-              edition currently loaded — either a typo, or a code from a different year.
-              Worth checking before the charts are graded against them.
-              {' '}CPT codes are not checked.
+              These codes are correctly formed but are not in the edition currently
+              loaded — either a typo, or a code from a different year. A chart graded
+              against one marks every coder wrong on that line. CPT codes are not
+              checked.
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 6 }}>
               {unknownCodes.map((u, i) => (
@@ -320,8 +357,9 @@ export function AnswerKeysView() {
               {ccmccIssues.length} CC/MCC label{ccmccIssues.length !== 1 ? 's' : ''} disagree{ccmccIssues.length === 1 ? 's' : ''} with the MS-DRG manual
             </div>
             <div style={{ fontSize: 12, color: '#7c2d12', lineHeight: 1.6, marginBottom: 8 }}>
-              The keys were saved. These secondaries claim a severity the published
-              CC/MCC list does not give them, which affects DRG flags in grading.
+              These secondaries claim a severity the published CC/MCC list does not
+              give them, which affects DRG flags in grading. Keys are not changed by
+              this check — only the trainer knows which value was meant.
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 6 }}>
               {ccmccIssues.map((c, i) => (

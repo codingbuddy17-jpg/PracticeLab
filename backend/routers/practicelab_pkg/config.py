@@ -342,6 +342,59 @@ def upload_answer_keys(
     }
 
 
+@router.get("/answer-key/check")
+def check_answer_key_codes(specialty: Optional[str] = None,
+                           scan_limit: int = Query(2000, le=10000),
+                           db: Session = Depends(get_db)):
+    """
+    Check the answer keys ALREADY stored, not just the ones being uploaded.
+
+    The upload checks what passes through it, which does nothing for keys
+    written before the check existed — and those are the ones that have been
+    grading people. A key carrying a code that does not exist marks every coder
+    wrong on that line, every time, and the graded session is the only place it
+    ever shows. On the first run against real data this found two such codes
+    and two CC/MCC labels contradicting the published list.
+
+    Read-only. It reports; correcting a key is still a re-upload or an edit,
+    because only the trainer knows which value was meant.
+    """
+    q = db.query(AnswerKey, Chart).join(Chart, Chart.id == AnswerKey.chart_id)
+    spec = _parse_chart_specialty(specialty)
+    if spec:
+        q = q.filter(Chart.specialty == spec)
+    # Counted over the whole filtered set, not the scanned page: telling a
+    # trainer "no problems" because the bad key sat past the cap is the failure
+    # this codebase has already paid for elsewhere.
+    total = q.count()
+    rows = q.order_by(Chart.chart_number).limit(scan_limit).all()
+
+    flat = [{
+        "chart_number": chart.chart_number,
+        "pdx_code": key.pdx_code, "sdx": key.sdx,
+        "pcs": key.pcs, "cpt": key.cpt,
+        "is_ip": _is_ip(chart.specialty),
+    } for key, chart in rows]
+
+    unknown = unknown_codes(db, (
+        triple for row in flat
+        for triple in entries_from_key_row(row["chart_number"], row)))
+    ccmcc = ccmcc_mismatches(db, (
+        triple for row in flat if row["is_ip"]
+        for triple in ccmcc_from_key_row(row["chart_number"], row)))
+
+    return {
+        "keys_checked": len(flat),
+        "keys_total": int(total),
+        "truncated": len(flat) < int(total),
+        "unknown_codes": unknown,
+        "ccmcc_mismatches": ccmcc,
+        # None on either means the code sets are not loaded — "not checked",
+        # which must not render as "nothing wrong".
+        "codes_checked": unknown is not None,
+    }
+
+
 @router.get("/answer-key/export")
 def export_answer_keys(
     passphrase: str = Query(...),

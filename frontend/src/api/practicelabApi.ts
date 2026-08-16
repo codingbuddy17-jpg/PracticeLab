@@ -619,3 +619,22 @@ export async function getPLErrorCoders(f: PLFilters = {}, scope = 'formal', topN
   })
   return data as any
 }
+
+
+/**
+ * Check the answer keys already stored, rather than only those being uploaded.
+ *
+ * `unknown_codes` and `ccmcc_mismatches` are null when no CMS code set is
+ * loaded — "not checked", which must never render as "nothing wrong".
+ */
+export async function checkAnswerKeyCodes(specialty?: string) {
+  const { data } = await api.get('/practicelab/answer-key/check', {
+    params: { specialty: specialty && specialty !== 'All' ? specialty : undefined },
+  })
+  return data as {
+    keys_checked: number; keys_total: number; truncated: boolean
+    codes_checked: boolean
+    unknown_codes: { chart: string; code: string; system: string }[] | null
+    ccmcc_mismatches: { chart: string; code: string; claimed: string; published: string }[] | null
+  }
+}
