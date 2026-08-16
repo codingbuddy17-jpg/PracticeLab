@@ -119,6 +119,30 @@ class TestByBatchAndAuditor:
         assert {r["batch_id"] for r in rows} == {a, b}
         assert all(r["name"] for r in rows)
 
+    def test_batch_search_runs_on_the_server(self, client, db, library):
+        old = make_batch(client, charts_per=4, name="July audit")
+        _run(client, old)
+        target = make_batch(client, charts_per=4, name="August audit wave")
+        _run(client, target)
+
+        body = client.get("/auditor/analytics/by-batch",
+                          params={"search": "August"}).json()
+
+        assert body["matched"] == 1
+        assert [r["batch_id"] for r in body["batches"]] == [target]
+
+    def test_batches_can_sort_weakest_first(self, client, db, library):
+        strong = make_batch(client, charts_per=4, name="Strong batch")
+        _run(client, strong)
+        weak = make_batch(client, charts_per=4, name="Weak batch")
+        _run(client, weak, find_everything=False)
+
+        rows = client.get("/auditor/analytics/by-batch",
+                          params={"sort": "weakest"}).json()["batches"]
+
+        assert rows[0]["batch_id"] == weak
+        assert rows[0]["audit_score"] < rows[1]["audit_score"]
+
     def test_auditors_are_listed_weakest_first(self, client, db, library):
         """The screen exists to show who needs help, so put them at the top."""
         batch_id = make_batch(client, auditors=("Asha R", "Bo T"), charts_per=6)

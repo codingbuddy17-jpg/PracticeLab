@@ -8,6 +8,7 @@ import {
 } from 'recharts'
 import {
   downloadAuditAnalytics, downloadAuditAuditorReportPdf, downloadAuditBatchReportPdf,
+  downloadAuditBatchResults,
   getAuditByAuditor, getAuditByBatch, getAuditBySpecialty, getAuditChartSignals,
   getAuditDetection, getAuditOverview, getAuditPattern,
 } from '../../api/auditorApi'
@@ -73,6 +74,8 @@ export function AuditAnalytics() {
   const [selectedAuditor, setSelectedAuditor] = useState<any>(null)
   const [auditorProfile, setAuditorProfile] = useState<any>(null)
   const [batchSearch, setBatchSearch] = useState('')
+  const [batchSort, setBatchSort] = useState('weakest')
+  const [batchMatched, setBatchMatched] = useState(0)
   const [chartSearch, setChartSearch] = useState('')
   const [auditorMatched, setAuditorMatched] = useState(0)
 
@@ -105,10 +108,6 @@ export function AuditAnalytics() {
           const sp = await getAuditBySpecialty(filters)
           if (cancelled) return
           setSpecialties(sp.specialties)
-        } else if (t === 'Batches') {
-          const b = await getAuditByBatch(filters)
-          if (cancelled) return
-          setBatches(b.batches)
         } else if (t === 'Error Patterns') {
           const d = await getAuditDetection(filters)
           if (cancelled) return
@@ -137,6 +136,26 @@ export function AuditAnalytics() {
     }, auditorSearch ? 250 : 0)
     return () => { cancelled = true; clearTimeout(t) }
   }, [tab, filters, auditorSearch])
+
+  useEffect(() => {
+    if (tab !== 'Batches') return
+    let cancelled = false
+    const t = setTimeout(() => {
+      getAuditByBatch({
+        ...filters,
+        search: batchSearch.trim() || undefined,
+        sort: batchSort,
+        limit: 200,
+      }).then(b => {
+        if (!cancelled) {
+          setBatches(b.batches)
+          setBatchMatched(b.matched ?? b.batches.length)
+          setLoaded(prev => ({ ...prev, Batches: true }))
+        }
+      }).catch(() => { if (!cancelled) toast.error('Could not search batches') })
+    }, batchSearch ? 250 : 0)
+    return () => { cancelled = true; clearTimeout(t) }
+  }, [tab, filters, batchSearch, batchSort])
 
   useEffect(() => {
     if (tab !== 'Chart Signals') return
@@ -236,7 +255,9 @@ export function AuditAnalytics() {
               profile={auditorProfile} filters={filters} threshold={threshold}
               cohort={overview} />
           )}
-          {tab === 'Batches' && <BatchesTab rows={batches} query={batchSearch} setQuery={setBatchSearch} threshold={threshold} />}
+          {tab === 'Batches' && <BatchesTab rows={batches} matched={batchMatched}
+            query={batchSearch} setQuery={setBatchSearch}
+            sort={batchSort} setSort={setBatchSort} threshold={threshold} />}
           {tab === 'Specialties' && <SpecialtiesTab rows={specialties} threshold={threshold} />}
           {tab === 'Error Patterns' && <ErrorPatternsTab data={detection} threshold={threshold} filters={filters} />}
           {tab === 'Chart Signals' && <ChartSignalsTab data={chartSignals} query={chartSearch} setQuery={setChartSearch} threshold={threshold} />}
@@ -766,17 +787,41 @@ function AuditorsTab({ rows, matched, query, setQuery, selected, setSelected, pr
   )
 }
 
-function BatchesTab({ rows, query, setQuery, threshold }: {
-  rows: any[]; query: string; setQuery: (v: string) => void; threshold: number
+function BatchesTab({ rows, matched, query, setQuery, sort, setSort, threshold }: {
+  rows: any[]; matched: number; query: string; setQuery: (v: string) => void
+  sort: string; setSort: (v: string) => void; threshold: number
 }) {
-  const q = query.trim().toLowerCase()
-  const filtered = rows.filter(r => !q || (r.name || '').toLowerCase().includes(q)
-    || (r.specialty || '').toLowerCase().includes(q))
-  const { shown, control } = useShowMore(filtered)
+  const { shown, control } = useShowMore(rows)
+  const scored = rows.filter(r => r.audit_score !== null && r.audit_score !== undefined)
+  const avgScore = scored.length
+    ? scored.reduce((sum, r) => sum + Number(r.audit_score || 0), 0) / scored.length
+    : null
+  const lowest = scored.slice().sort((a, b) => Number(a.audit_score) - Number(b.audit_score))[0]
+  const highest = scored.slice().sort((a, b) => Number(b.audit_score) - Number(a.audit_score))[0]
+  const auditorEntries = rows.reduce((sum, r) => sum + Number(r.auditors || 0), 0)
   return (
     <Panel title="Batch Performance">
-      <SearchInput value={query} onChange={setQuery} placeholder="Search batch or specialty..." />
-      <CompactBatchTable rows={shown} showPdf threshold={threshold} />
+      <div style={metricGridStyle}>
+        <Metric label="Batches Reviewed" value={matched || rows.length} tone="#7c3aed" />
+        <Metric label="Average Audit Score" value={pct(avgScore)} tone={tone(avgScore, threshold)} />
+        <Metric label="Lowest Batch" value={lowest?.name || 'NA'} tone="#dc2626"
+          sub={lowest ? pct(lowest.audit_score) : undefined} />
+        <Metric label="Highest Batch" value={highest?.name || 'NA'} tone="#059669"
+          sub={highest ? pct(highest.audit_score) : undefined} />
+        <Metric label="Auditor Entries" value={auditorEntries} tone="#2563eb" />
+      </div>
+      <div style={filterBarStyle}>
+        <SearchInput value={query} onChange={setQuery} placeholder="Search batch or specialty..." />
+        <select value={sort} onChange={e => setSort(e.target.value)}
+          style={{ ...s.input, width: 170 }}>
+          <option value="weakest">Weakest score</option>
+          <option value="latest">Latest scored</option>
+          <option value="auditors">Most auditors</option>
+          <option value="charts">Most charts</option>
+        </select>
+        {query.trim() && <span style={s.note}>{rows.length} of {matched || rows.length} matched</span>}
+      </div>
+      <CompactBatchTable rows={shown} showActions threshold={threshold} />
       {control}
     </Panel>
   )
@@ -1055,15 +1100,15 @@ function ScoreTable({ rows, nameKey, threshold = 90 }: {
   )
 }
 
-function CompactBatchTable({ rows, showPdf = false, threshold = 90 }: {
-  rows: any[]; showPdf?: boolean; threshold?: number
+function CompactBatchTable({ rows, showActions = false, threshold = 90 }: {
+  rows: any[]; showActions?: boolean; threshold?: number
 }) {
   if (!rows?.length) return <div style={s.empty}>No batches in scope.</div>
   return (
     <div style={{ overflowX: 'auto', marginTop: 12 }}>
       <table style={tableStyle}>
         <thead>
-          <tr>{['Batch', 'Specialty', 'Auditors', 'Charts', 'Audit Score', 'Procedure', showPdf ? '' : null].filter(Boolean).map(h => <th key={String(h)} style={th}>{h}</th>)}</tr>
+          <tr>{['Batch', 'Specialty', 'Auditors', 'Charts', 'Audit Score', 'Review Score', 'Error Detection Rate', 'Clean', 'Opportunity', 'Procedure', 'Last Scored', showActions ? '' : null].filter(Boolean).map(h => <th key={String(h)} style={th}>{h}</th>)}</tr>
         </thead>
         <tbody>
           {rows.map(r => (
@@ -1073,10 +1118,18 @@ function CompactBatchTable({ rows, showPdf = false, threshold = 90 }: {
               <td style={td}>{r.auditors}</td>
               <td style={td}>{r.charts}</td>
               <td style={{ ...td, fontWeight: 800, color: tone(r.audit_score, threshold) }}>{pct(r.audit_score)}</td>
+              <td style={{ ...td, fontWeight: 800, color: tone(r.review_score, threshold) }}>{pct(r.review_score)}</td>
+              <td style={{ ...td, fontWeight: 800, color: tone(r.audit_accuracy, threshold) }}>{pct(r.audit_accuracy)}</td>
+              <td style={td}>{pct(r.clean_accuracy)}</td>
+              <td style={td}>{pct(r.opportunity_accuracy)}</td>
               <td style={td}><ProcedureCell row={r} /></td>
-              {showPdf && (
+              <td style={td}>{shortDateTime(r.scored_at)}</td>
+              {showActions && (
                 <td style={{ ...td, textAlign: 'right' }}>
-                  <button style={miniBtn} onClick={() => downloadAuditBatchReportPdf(r.batch_id)}>PDF</button>
+                  <span style={{ display: 'inline-flex', gap: 6 }}>
+                    <button style={miniBtn} onClick={() => downloadAuditBatchReportPdf(r.batch_id)}>PDF</button>
+                    <button style={miniBtn} onClick={() => downloadAuditBatchResults(r.batch_id)}>Workbook</button>
+                  </span>
                 </td>
               )}
             </tr>
@@ -1455,6 +1508,13 @@ function tone(v: number | null | undefined, threshold = 90) {
 /** "2026-08-15" -> "15 Aug", for a dense trend axis. */
 function shortDate(iso: string) {
   const d = new Date(iso + 'T00:00:00')
+  return isNaN(d.getTime()) ? iso
+    : `${d.getDate()} ${d.toLocaleString('en', { month: 'short' })}`
+}
+
+function shortDateTime(iso?: string | null) {
+  if (!iso) return 'NA'
+  const d = new Date(iso)
   return isNaN(d.getTime()) ? iso
     : `${d.getDate()} ${d.toLocaleString('en', { month: 'short' })}`
 }

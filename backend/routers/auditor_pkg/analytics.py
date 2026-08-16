@@ -419,19 +419,42 @@ def by_specialty(batch_id: Optional[int] = None, specialty: Optional[str] = None
 
 @router.get("/analytics/by-batch")
 def by_batch(batch_id: Optional[int] = None, specialty: Optional[str] = None,
-             auditor: Optional[str] = None,
+             auditor: Optional[str] = None, search: Optional[str] = None,
              from_date: Optional[str] = None, to_date: Optional[str] = None,
+             sort: str = "weakest",
              limit: int = Query(100, le=300),
              db: Session = Depends(get_db)):
     cfg = scoring_config(db)
     base = _base_query(db, batch_id, specialty, auditor, from_date, to_date)
+    if search and search.strip():
+        needle = f"%{search.strip()}%"
+        base = base.join(AuditBatch, AuditBatch.id == AuditResult.batch_id).filter(or_(
+            AuditBatch.name.ilike(needle),
+            cast(AuditBatch.specialty, String).ilike(needle),
+        ))
     # One grouped query for the batch ids that actually have results, rather
     # than loading every result and bucketing them in Python.
-    ids = [bid for bid, in base.with_entities(AuditResult.batch_id)
-           .group_by(AuditResult.batch_id)
-           .order_by(AuditResult.batch_id.desc()).limit(limit).all()]
+    grouped = base.with_entities(
+        AuditResult.batch_id,
+        func.max(AuditResult.scored_at).label("last_scored"),
+        func.count(AuditResult.id).label("charts"),
+        func.count(func.distinct(_auditor_key_expr())).label("auditors"),
+    ).group_by(AuditResult.batch_id)
+    matched = grouped.count()
+    if sort == "latest":
+        grouped = grouped.order_by(func.max(AuditResult.scored_at).desc(),
+                                   AuditResult.batch_id.desc())
+    elif sort == "charts":
+        grouped = grouped.order_by(func.count(AuditResult.id).desc(),
+                                   AuditResult.batch_id.desc())
+    elif sort == "auditors":
+        grouped = grouped.order_by(func.count(func.distinct(_auditor_key_expr())).desc(),
+                                   AuditResult.batch_id.desc())
+    else:
+        grouped = grouped.order_by(_blend_expr(cfg).asc(), AuditResult.batch_id.desc())
+    ids = [bid for bid, *_ in grouped.limit(limit).all()]
     if not ids:
-        return {"batches": []}
+        return {"batches": [], "matched": 0}
     batches = {b.id: b for b in db.query(AuditBatch).filter(AuditBatch.id.in_(ids)).all()}
 
     out = []
@@ -449,7 +472,7 @@ def by_batch(batch_id: Optional[int] = None, specialty: Optional[str] = None,
                 func.count(func.distinct(_auditor_key_expr()))).scalar() or 0,
             **_roll_sql(db, scoped, cfg),
         })
-    return {"batches": out}
+    return {"batches": out, "matched": matched}
 
 
 @router.get("/analytics/by-auditor")
