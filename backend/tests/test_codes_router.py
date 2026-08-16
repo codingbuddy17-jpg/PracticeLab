@@ -185,6 +185,21 @@ class TestEveryCodeRowIsWiredForDescriptions:
         src = self.SRC.read_text()
         assert "code={f.correct_value || ''}" in src
 
+    def test_the_results_screen_describes_both_codes_on_a_finding(self):
+        """
+        Where a coder learns they were wrong. "submitted E11.9, expected
+        E11.22" without the descriptions states the mark and withholds the
+        lesson — the difference between the two codes IS the finding.
+        """
+        import pathlib
+        src = (pathlib.Path(__file__).resolve().parents[2] / "frontend" / "src"
+               / "pages" / "PracticeSession.tsx").read_text()
+        assert "<FeedbackLine" in src
+        # Three systems, three lookups: a seven-character string is a
+        # procedure, and asking the diagnosis table for it gets nothing.
+        for name in ("describeDx", "describePcs", "describeCpt"):
+            assert name in src, "%s lookup missing on the results screen" % name
+
     def test_the_coder_form_is_wired_for_its_three_code_fields(self):
         import pathlib
         src = (pathlib.Path(__file__).resolve().parents[2] / "frontend" / "src"

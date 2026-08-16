@@ -1702,9 +1702,71 @@ function EMScoreLine({ label, pts, ak, sub, isMatch }: { label: string; pts: num
   )
 }
 
+/**
+ * One line of feedback, with what the codes on it actually say.
+ *
+ * The descriptions sit under the line rather than inside it: the line is the
+ * finding and stays scannable, and a coder comparing two long descriptions
+ * wants them one above the other, not run together on one row.
+ *
+ * A code with no description simply has no line — CPT is the common case,
+ * since those descriptions are AMA-licensed and this app does not carry them.
+ */
+function FeedbackLine({ fb, describe }: {
+  fb: { section?: string; issue?: string; coder_code?: string; ak_code?: string }
+  describe: (code: string) => { description: string } | null
+}) {
+  const submitted = fb.coder_code ? describe(fb.coder_code) : null
+  const expected = fb.ak_code ? describe(fb.ak_code) : null
+  return (
+    <div style={{ marginBottom: submitted || expected ? 6 : 0 }}>
+      <div>
+        • [{fb.section}] {fb.issue} — submitted: <code>{fb.coder_code || '—'}</code>
+        {' '}| expected: <code>{fb.ak_code || '—'}</code>
+      </div>
+      {submitted && (
+        <div style={s.feedbackSays}>
+          <code style={s.feedbackCode}>{fb.coder_code}</code> {submitted.description}
+        </div>
+      )}
+      {expected && (
+        <div style={{ ...s.feedbackSays, color: '#047857' }}>
+          <code style={s.feedbackCode}>{fb.ak_code}</code> {expected.description}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function ResultsView({ results, coderName }: { results: ReturnType<typeof _shapeResult>[]; coderName: string }) {
   const avg = results.filter(r => r.total_score !== null).reduce((a, r) => a + (r.total_score ?? 0), 0) / (results.filter(r => r.total_score !== null).length || 1)
   const isEMSession = results.some(r => r.specialty && isEM(r.specialty))
+
+  // This is where a coder finds out they were wrong, and until now it said
+  // "submitted E11.9, expected E11.22" with no indication of what either code
+  // means — which is the difference being marked, and the only thing that
+  // makes the mark teach anything.
+  //
+  // Three lookups because three code systems: a seven-character string is a
+  // procedure, not a diagnosis, and asking the wrong table gets nothing or,
+  // worse, something that happens to collide.
+  const feedbackCodes = (section: (s: string) => boolean) => {
+    const out: string[] = []
+    for (const r of results) {
+      for (const fb of (r.feedback || [])) {
+        if (!section(fb.section || '')) continue
+        if (fb.coder_code) out.push(fb.coder_code)
+        if (fb.ak_code) out.push(fb.ak_code)
+      }
+    }
+    return out
+  }
+  const describeDx = useCodeDescriptions(
+    feedbackCodes(sec => sec === 'PDx' || sec === 'SDx'), 'SDx')
+  const describePcs = useCodeDescriptions(feedbackCodes(sec => sec === 'PCS'), 'PCS')
+  const describeCpt = useCodeDescriptions(feedbackCodes(sec => sec === 'CPT'), 'CPT')
+  const describeFor = (sec: string) =>
+    sec === 'PCS' ? describePcs : sec === 'CPT' ? describeCpt : describeDx
   return (
     <div style={{ fontFamily: 'system-ui, sans-serif', maxWidth: 900, margin: '0 auto', padding: '32px 20px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
@@ -1730,7 +1792,7 @@ function ResultsView({ results, coderName }: { results: ReturnType<typeof _shape
               {r.feedback?.length > 0 && (
                 <div style={{ fontSize: 12, color: '#6b7280', display: 'flex', flexDirection: 'column', gap: 3 }}>
                   {r.feedback.map((fb, j) => (
-                    <div key={j}>• [{fb.section}] {fb.issue} — submitted: <code>{fb.coder_code || '—'}</code> | expected: <code>{fb.ak_code || '—'}</code></div>
+                    <FeedbackLine key={j} fb={fb} describe={describeFor(fb.section || '')} />
                   ))}
                 </div>
               )}
@@ -1766,6 +1828,11 @@ const s: Record<string, React.CSSProperties> = {
     padding: '3px 7px',
     whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
   } as const,
+  feedbackSays: {
+    fontSize: 11, lineHeight: 1.45, color: '#6b7280',
+    paddingLeft: 12, marginTop: 2,
+  },
+  feedbackCode: { fontFamily: 'ui-monospace, monospace', color: '#374151' },
   poaTooltip: { fontSize: 11, color: '#9ca3af', display: 'flex', alignItems: 'center', gap: 4, marginTop: 4 },
   warningLine: { display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#f59e0b', marginTop: 2, marginBottom: 4 },
   addBtn: { display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: '1.5px dashed #d1d5db', borderRadius: 8, padding: '8px 14px', cursor: 'pointer', fontSize: 13, color: '#6b7280', marginTop: 4 },
