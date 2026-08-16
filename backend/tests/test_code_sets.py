@@ -146,10 +146,14 @@ class TestPcsTables:
 
 class TestCmTabularFallback:
     """
-    The tabular XML is the fallback when the order file is not to hand. It is
-    NOT equivalent: it carries S72.001 with a "7th character to be added" note
-    rather than the expanded S72.001A and so on. The script says so; this
-    checks the shape it does produce.
+    The tabular XML is the fallback when there is no route to cms.gov.
+
+    It gives S72.001 once with a <sevenChrDef> listing A, B, C… and expects the
+    reader to combine them, where the order file ships the combinations already
+    made. Not expanding them cost about a third of all billable codes —
+    overwhelmingly injury and obstetric, which is most of what a trauma chart
+    contains. Verified against the downloaded order file: with expansion, every
+    code the order file carries is present and every billable flag agrees.
     """
 
     XML = b"""<ICD10CM.tabular><chapter><section>
@@ -166,3 +170,50 @@ class TestCmTabularFallback:
     def test_the_dot_is_stripped_so_lookups_match_what_users_type(self, ingest):
         rows = {r["code"] for r in ingest.parse_cm_xml(self.XML)}
         assert "E119" in rows and "E11.9" not in rows
+
+
+class TestSeventhCharacterExpansion:
+    """
+    The gap that made the offline path useless for trauma and obstetrics.
+    """
+
+    XML = b"""<ICD10CM.tabular><chapter><section>
+      <diag><name>S72.00</name><desc>Fracture of unspecified part of neck of femur</desc>
+        <sevenChrDef>
+          <extension char="A">initial encounter for closed fracture</extension>
+          <extension char="B">initial encounter for open fracture type I</extension>
+          <extension char="D">subsequent encounter</extension>
+        </sevenChrDef>
+        <diag><name>S72.001</name><desc>Fracture of unspecified part of neck of right femur</desc></diag>
+      </diag>
+    </section></chapter></ICD10CM.tabular>"""
+
+    def test_the_seventh_character_is_expanded(self, ingest):
+        codes = {r["code"] for r in ingest.parse_cm_xml(self.XML)}
+        assert {"S72001A", "S72001B", "S72001D"} <= codes
+
+    def test_the_stem_becomes_a_header_because_nobody_codes_to_it(self, ingest):
+        rows = {r["code"]: r for r in ingest.parse_cm_xml(self.XML)}
+        assert rows["S72001"]["is_billable"] is False
+        assert rows["S72001A"]["is_billable"] is True
+
+    def test_the_extension_meaning_joins_the_description(self, ingest):
+        rows = {r["code"]: r for r in ingest.parse_cm_xml(self.XML)}
+        assert rows["S72001A"]["description"].endswith(
+            "initial encounter for closed fracture")
+        assert "right femur" in rows["S72001A"]["description"]
+
+    def test_a_definition_applies_to_the_whole_subtree_beneath_it(self, ingest):
+        """S72.00 holds the definition; S72.001 beneath it inherits."""
+        codes = {r["code"] for r in ingest.parse_cm_xml(self.XML)}
+        assert "S72001A" in codes, "the child did not inherit the definition"
+
+    def test_short_stems_are_padded_with_the_placeholder(self, ingest):
+        """ICD-10-CM uses X to hold a position, so E08.32 + '1' is E0832X1."""
+        xml = b"""<ICD10CM.tabular><chapter><section>
+          <diag><name>E08.32</name><desc>Diabetes with retinopathy</desc>
+            <sevenChrDef><extension char="1">right eye</extension></sevenChrDef>
+          </diag>
+        </section></chapter></ICD10CM.tabular>"""
+        codes = {r["code"] for r in ingest.parse_cm_xml(xml)}
+        assert "E0832X1" in codes

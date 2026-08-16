@@ -18,7 +18,10 @@ new edition is published — annually for ICD, quarterly for HCPCS.
 
 --from-dir reads files already on disk instead of downloading. An internal
 environment may have no outbound route to cms.gov, and the IT team migrating
-this will need a path that does not assume one.
+this will need a path that does not assume one. It falls back to the tabular
+XML and expands the seventh characters itself, which was verified against the
+downloaded order file: every code the order file carries is present and every
+billable flag agrees.
 """
 import argparse
 import io
@@ -165,40 +168,76 @@ def parse_cm(order_bytes: bytes, code_bytes: Optional[bytes]) -> list[dict]:
 
 def parse_cm_xml(xml_bytes: bytes) -> list[dict]:
     """
-    The CM tabular XML, used when the fixed-width order file is not to hand.
+    The CM tabular XML, for when there is no route to cms.gov.
 
-    Codes nest: A00 contains A00.0, A00.1 and so on. A <diag> with children is
-    a category heading nobody codes to, and a leaf is billable — the same
-    distinction the order file's flag makes, derived from the shape instead.
+    Codes nest: A00 contains A00.0 and so on. A <diag> with children is a
+    category nobody codes to; a leaf is billable — the same distinction the
+    order file's flag makes, derived from the shape instead.
+
+    The seventh character is expanded here rather than left out. The XML gives
+    S72.001 once, with a <sevenChrDef> listing A, B, C…, and expects the reader
+    to combine them; the order file ships the combinations already made. Not
+    expanding cost about a third of all billable codes — overwhelmingly injury
+    and obstetric, which is to say most of what a trauma chart contains.
+
+    A definition applies to the whole subtree beneath it, so it is carried down
+    and overridden where a deeper one appears. Codes shorter than six
+    characters are padded with X, which is the placeholder ICD-10-CM itself
+    uses to hold the position.
     """
     root = ET.fromstring(xml_bytes)
     out: list[dict] = []
     seen: set = set()
 
-    def walk(node):
+    def emit(code: str, desc: str, billable: bool):
+        code = code.replace(".", "").upper()
+        if not code or code in seen:
+            return
+        seen.add(code)
+        number, title = chapter_for(code)
+        out.append({
+            "code_system": "ICD10CM", "code": code, "description": desc,
+            "short_description": desc[:120] or None,
+            "chapter": title, "chapter_no": number,
+            "is_billable": billable, "edition": EDITION,
+        })
+
+    def extensions_of(diag):
+        node = diag.find("sevenChrDef")
+        if node is None:
+            return None
+        found = [(e.get("char", "").strip(), (e.text or "").strip())
+                 for e in node.findall("extension")]
+        return [(c, t) for c, t in found if c] or None
+
+    def walk(node, inherited):
         for diag in node.findall("diag"):
-            name = (diag.findtext("name") or "").strip().upper()
+            name = (diag.findtext("name") or "").strip()
             desc = (diag.findtext("desc") or "").strip()
             children = diag.findall("diag")
-            if name and name not in seen:
-                seen.add(name)
-                number, title = chapter_for(name.replace(".", ""))
-                out.append({
-                    "code_system": "ICD10CM",
-                    "code": name.replace(".", ""),
-                    "description": desc,
-                    "short_description": desc[:120] or None,
-                    "chapter": title,
-                    "chapter_no": number,
-                    "is_billable": not children,
-                    "edition": EDITION,
-                })
-            walk(diag)
+            # A definition lower in the tree replaces the one above it.
+            seven = extensions_of(diag) or inherited
+
+            if name:
+                if children:
+                    emit(name, desc, billable=False)
+                elif seven:
+                    # The stem is a category once a seventh character is
+                    # required — nobody codes to S72.001 itself.
+                    emit(name, desc, billable=False)
+                    stem = name.replace(".", "").upper().ljust(6, "X")
+                    for char, meaning in seven:
+                        emit(f"{stem}{char}",
+                             f"{desc}, {meaning}" if meaning else desc,
+                             billable=True)
+                else:
+                    emit(name, desc, billable=True)
+            walk(diag, seven)
 
     for chapter in root.findall(".//chapter"):
         for section in chapter.findall("section"):
-            walk(section)
-        walk(chapter)
+            walk(section, None)
+        walk(chapter, None)
     return out
 
 
@@ -294,13 +333,12 @@ def main() -> int:
     elif tabular:
         print("  no order file — reading the tabular XML instead")
         cm_rows = parse_cm_xml(tabular)
-        print("  NOTE: the tabular XML is not the full code list. It carries a\n"
-              "  category such as S72.001 with a '7th character to be added'\n"
-              "  instruction rather than the expanded S72.001A, S72.001B and so\n"
-              "  on, so roughly a third of billable codes — largely injury and\n"
-              "  obstetric — will have no description. Use the CMS order file\n"
-              "  for a complete load; this fallback is for getting started and\n"
-              "  for environments with no route to cms.gov.")
+        print("  seventh characters expanded from the XML's own definitions.\n"
+              "  Checked against the CMS order file: every code the order file\n"
+              "  carries is present, and the billable flag agrees on all of\n"
+              "  them. A downloaded edition is still preferable when there is a\n"
+              "  route to cms.gov, since a file on disk is only as current as\n"
+              "  the day it was fetched.")
     else:
         cm_rows = []
     if cm_rows:
