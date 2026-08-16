@@ -153,9 +153,23 @@ replacement from the real tables. Without them, two-thirds of planted PCS
 errors are strings that are not codes — which changes what auditors are scored
 on, not just what they see.
 
+Two CMS files are easy to take from the wrong place:
+
+- **PCS descriptions come from the CODES file, not the tables file.** The
+  tables say which codes exist, axis by axis; joining those seven titles gives
+  a character-by-character breakdown rather than a procedure. Both are loaded —
+  the axis titles are what name *which character* a planted error changed.
+- **HCPCS descriptions wrap across several records** for one code, numbered in
+  a sequence field. One record per code truncates them. The same file is the
+  only source in the app that explains a **modifier**.
+
 **CPT is absent and stays absent.** AMA copyright, licensed per user, and this
 repository is public. CPT lines render bare and the answer-key checks decline
 to judge five-digit numeric codes rather than pretend to have checked them.
+
+Descriptions are wired into the **entry** screens only — coder PDx/SDx/PCS and
+the auditor's claim, revise and add rows — plus the trainer freshness note.
+Analytics, results screens and the PDF exports show codes without them.
 
 ---
 
@@ -233,7 +247,7 @@ PCS Score, Query Score. IP leads with PCS Score rather than DRG accuracy.
 
 ---
 
-## Tests: two traps specific to this suite
+## Tests: three traps specific to this suite
 
 **Seeded randomness makes tests pass by luck.** The allocator seeds on
 `batch_id:cycle:auditor`, and `batch_id` shifts whenever earlier tests create
@@ -246,6 +260,26 @@ been rewritten for this.
 columns production lacks — see the `create_all()` trap above. It is also
 SQLite, not PostgreSQL: `NOW()` in raw DDL silently fails there, which once
 left four assessment tables not existing at all under test.
+
+**SQLite is more permissive than production**, so a green suite means less than
+it looks. Two faults passed 2258 tests and appeared on the first real load:
+
+- **VARCHAR lengths are not enforced by SQLite.** `String(60)` accepted a
+  98-character value locally and was rejected outright by PostgreSQL. Use
+  `Text` for anything holding prose that CMS or a user writes; a bigger number
+  only moves the day it happens. Widening an existing column needs an
+  `ALTER ... TYPE TEXT` in `_run_migrations()` — varchar→text is metadata-only
+  in PostgreSQL, so it is cheap even on a populated table.
+- **psycopg2 `executemany` is one round trip per row**, which
+  `bulk_insert_mappings` issues. Invisible against a local file; against the
+  database in Oregon the first load sat sixteen minutes without writing a row.
+  Use multi-row `table.insert().values(chunk)`. If a bulk write hangs, look for
+  `idle in transaction` + `wait_event = ClientRead` in `pg_stat_activity` —
+  that pairing means the server is waiting on the client, so the cost is round
+  trips rather than the query.
+
+Any bulk write or new column wants **one real run against PostgreSQL** before
+it is called done.
 
 ---
 
