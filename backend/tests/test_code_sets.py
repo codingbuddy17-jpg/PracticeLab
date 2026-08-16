@@ -405,3 +405,44 @@ class TestSourceUrlsFollowTheCalendar:
             for url in fn(self._dt.date(2026, 8, 16)):
                 assert url.startswith("https://www.cms.gov/files/zip/")
                 assert url.endswith(".zip")
+
+
+class TestPcsDescriptionsComeFromTheCodesFile:
+    """
+    The tables define which codes EXIST; they do not describe them. Joining the
+    seven axis titles gives a character-by-character breakdown, not a
+    procedure — 0210083 reads "Bypass, Coronary Artery, One Artery, Heart and
+    Great Vessels, Open, Zooplastic Tissue, Coronary Artery" that way, where
+    CMS's own text is "Bypass Coronary Artery, One Artery from Coronary Artery
+    with Zooplastic Tissue, Open Approach".
+    """
+
+    TXT = (b"0016070 Bypass Cerebral Ventricle to Nasopharynx with "
+           b"Autologous Tissue Substitute, Open Approach\n"
+           b"0210083 Bypass Coronary Artery, One Artery from Coronary Artery "
+           b"with Zooplastic Tissue, Open Approach\n")
+
+    def test_it_reads_the_code_and_its_description(self, ingest):
+        got = ingest.parse_pcs_descriptions(self.TXT)
+        assert got["0210083"].startswith("Bypass Coronary Artery, One Artery")
+        assert "Zooplastic Tissue" in got["0210083"]
+
+    def test_the_description_keeps_its_internal_commas(self, ingest):
+        """Splitting on whitespace once, not on every separator."""
+        got = ingest.parse_pcs_descriptions(self.TXT)
+        assert got["0016070"].endswith("Open Approach")
+
+    def test_only_seven_character_codes_are_taken(self, ingest):
+        got = ingest.parse_pcs_descriptions(
+            b"J189 Pneumonia\n0210083 Bypass something\nSHORT x\n")
+        assert set(got) == {"0210083"}
+
+    def test_a_line_with_no_description_is_skipped(self, ingest):
+        assert ingest.parse_pcs_descriptions(b"0210083\n0210083   \n") == {}
+
+    def test_the_codes_file_url_is_distinct_from_the_tables_url(self, ingest):
+        """Two different downloads; conflating them is what caused this."""
+        import datetime
+        day = datetime.date(2026, 8, 17)
+        assert set(ingest.pcs_code_urls(day)) & set(ingest.pcs_urls(day)) == set()
+        assert all("codes-file" in u for u in ingest.pcs_code_urls(day))

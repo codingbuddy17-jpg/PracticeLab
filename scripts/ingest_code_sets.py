@@ -73,6 +73,29 @@ def cm_urls(today=None) -> list:
     return out
 
 
+def pcs_code_urls(today=None) -> list:
+    """
+    The PCS CODES file, which carries the real description of each code.
+
+    Separate from the tables file, and it has to be: the tables define which
+    codes EXIST, character by character, but joining those seven axis titles
+    together does not produce what CMS calls the code. Joined, 0210083 reads
+    "Bypass, Coronary Artery, One Artery, Heart and Great Vessels, Open,
+    Zooplastic Tissue, Coronary Artery" — a character-by-character breakdown.
+    CMS's own description is "Bypass Coronary Artery, One Artery from Coronary
+    Artery with Zooplastic Tissue, Open Approach", which is the sentence a
+    coder actually reads.
+    """
+    out = []
+    fy = fiscal_year(today)
+    for year in (fy, fy - 1):
+        out.append(f"https://www.cms.gov/files/zip/{year}-icd-10-pcs-codes-"
+                   f"file-updated-0101{year}.zip")
+        out.append(f"https://www.cms.gov/files/zip/{year}-icd-10-pcs-codes-"
+                   f"file.zip")
+    return out
+
+
 def pcs_urls(today=None) -> list:
     out = []
     fy = fiscal_year(today)
@@ -315,6 +338,22 @@ def parse_pcs(xml_bytes: bytes) -> tuple[list[dict], list[dict]]:
 
 
 # ── load ─────────────────────────────────────────────────────────────────────
+
+def parse_pcs_descriptions(txt_bytes: bytes) -> dict:
+    """
+    The PCS codes file: a seven-character code, whitespace, then its
+    description. Returns {code: description}.
+    """
+    out: dict = {}
+    for line in txt_bytes.decode("latin-1", "ignore").splitlines():
+        parts = line.strip().split(None, 1)
+        if len(parts) != 2:
+            continue
+        code = parts[0].strip().upper()
+        if len(code) == 7 and parts[1].strip():
+            out[code] = parts[1].strip()
+    return out
+
 
 def parse_hcpcs(txt_bytes: bytes) -> tuple[list[dict], list[dict]]:
     """
@@ -602,6 +641,36 @@ def main() -> int:
             del blob
         pcs_rows, pcs_axes = parse_pcs(pcs_xml) if pcs_xml else ([], [])
         del pcs_xml
+
+        # Real descriptions, where the tables only give an axis breakdown.
+        # The seven axis titles still matter — they are what names WHICH
+        # character a planted error changed — so the axes table keeps them.
+        if pcs_rows:
+            if src:
+                pcs_txt = _local(src, "pcs_codes", ".txt")
+            else:
+                blob = _download(pcs_code_urls())
+                pcs_txt = _from_zip(blob, "pcs_codes", ".txt") if blob else None
+                del blob
+            described = parse_pcs_descriptions(pcs_txt) if pcs_txt else {}
+            del pcs_txt
+            if described:
+                hit = 0
+                for row in pcs_rows:
+                    text = described.get(row["code"])
+                    if text:
+                        row["description"] = text
+                        hit += 1
+                print(f"  {hit:,} carry CMS's own description")
+                if hit < len(pcs_rows):
+                    print(f"  {len(pcs_rows) - hit:,} fall back to the axis "
+                          f"breakdown — not in the codes file")
+                del described
+            else:
+                print("  no codes file — descriptions are the axis breakdown, "
+                      "which reads as a list of characters rather than a "
+                      "procedure")
+
         if pcs_rows:
             ops = len({a["root_operation"] for a in pcs_axes if a["root_operation"]})
             print(f"  {len(pcs_rows):,} valid codes across {ops} root operations")

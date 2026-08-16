@@ -170,7 +170,7 @@ function CodeSays({ info }: { info: { description: string; short_description?: s
   if (!info) return null
   return (
     <div style={s.codeSays} title={info.description}>
-      {info.short_description || info.description}
+      {info.description}
     </div>
   )
 }
@@ -1757,10 +1757,14 @@ const s: Record<string, React.CSSProperties> = {
   inputField: { width: '100%', padding: '10px 12px', border: '1.5px solid #e5e7eb', borderRadius: 8, fontSize: 14, outline: 'none', boxSizing: 'border-box', marginBottom: 4, background: '#fafafa' },
   selectField: { width: '100%', padding: '10px 12px', border: '1.5px solid #e5e7eb', borderRadius: 8, fontSize: 13, outline: 'none', boxSizing: 'border-box', background: '#fafafa', cursor: 'pointer' },
   hint: { fontSize: 11, color: '#9ca3af', marginTop: 2 },
+  // One line. A PCS description runs to ninety characters and wrapping it
+  // pushed every row below it down; the field is full width here, so there is
+  // room for the whole thing.
   codeSays: {
     fontSize: 11, lineHeight: 1.35, color: '#4b5563', marginTop: 3,
     background: '#f8fafc', border: '1px solid #eef2f7', borderRadius: 5,
     padding: '3px 7px',
+    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
   } as const,
   poaTooltip: { fontSize: 11, color: '#9ca3af', display: 'flex', alignItems: 'center', gap: 4, marginTop: 4 },
   warningLine: { display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#f59e0b', marginTop: 2, marginBottom: 4 },

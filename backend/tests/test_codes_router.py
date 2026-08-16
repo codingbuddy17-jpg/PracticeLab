@@ -151,3 +151,43 @@ class TestStatus:
         assert got["any"] is True
         assert got["loaded"][0]["edition"] == "FY2026"
         assert got["loaded"][0]["row_count"] == 98186
+
+
+class TestEveryCodeRowIsWiredForDescriptions:
+    """
+    Every place the auditor screen renders a code row must be handed the
+    lookup, or that section silently shows no descriptions while the others do.
+
+    This is not hypothetical: the PDx row shipped without it. The edit that
+    added the prop to the other call sites did not match the PDx one, nothing
+    failed, and principal diagnoses — the single most important code on an
+    inpatient chart — were the one section with no description. A partly wired
+    screen is worse than an unwired one, because it reads as "no description
+    exists for this code".
+    """
+
+    import pathlib
+    SRC = (pathlib.Path(__file__).resolve().parents[2] / "frontend" / "src"
+           / "pages" / "AuditSession.tsx")
+
+    def test_every_row_component_receives_the_lookup(self):
+        src = self.SRC.read_text()
+        import re
+        # Each JSX element from its tag to the closing "/>", so the check sees
+        # the whole call rather than one line of it.
+        for tag in ("PdxRow", "LineRow"):
+            for call in re.findall(r"<%s\b[^>]*?/>" % tag, src, re.S):
+                assert "describe=" in call, \
+                    "<%s ...> renders codes without the description lookup" % tag
+
+    def test_the_lookup_covers_the_codes_being_added_too(self):
+        """A code the auditor types as a missing line needs it just as much."""
+        src = self.SRC.read_text()
+        assert "code={f.correct_value || ''}" in src
+
+    def test_the_coder_form_is_wired_for_its_three_code_fields(self):
+        import pathlib
+        src = (pathlib.Path(__file__).resolve().parents[2] / "frontend" / "src"
+               / "pages" / "PracticeSession.tsx").read_text()
+        assert src.count("<CodeSays") >= 3, \
+            "PDx, secondary diagnoses and PCS each need a description line"

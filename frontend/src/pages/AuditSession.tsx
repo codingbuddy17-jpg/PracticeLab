@@ -643,7 +643,7 @@ function SectionBlock({ spec, chart, state, onVerdict, onUpsert }: {
       <div style={{ padding: '12px 16px' }}>
         {isPdx ? (
           <PdxRow chart={chart} spec={spec} open={open}
-            revisionOf={revisionOf} setRevision={setRevision} />
+            revisionOf={revisionOf} setRevision={setRevision} describe={describe} />
         ) : (
           <>
             {rows.length === 0 && (
@@ -688,7 +688,6 @@ function SectionBlock({ spec, chart, state, onVerdict, onUpsert }: {
                         autoFocus={field === 'code' && !f.correct_value}
                         required={field === 'code' || field === 'poa'}
                         section={key}
-                        describe={describe}
                       />
                     ))}
                     {addComplete(f) && (
@@ -697,6 +696,7 @@ function SectionBlock({ spec, chart, state, onVerdict, onUpsert }: {
                       </span>
                     )}
                     <button onClick={() => removeAdd(i)} style={s.iconBtn}><X size={13} /></button>
+                    <CodeCaption describe={describe} code={f.correct_value || ''} />
                   </div>
                 ))}
                 <button onClick={newAdd} style={{ ...s.addBtn, color: ACTION_COLOR.Add,
@@ -740,6 +740,8 @@ function PdxRow({ chart, spec, open, revisionOf, setRevision, describe }: {
         />
       ))}
       {!open && <span style={s.lockedNote}>Reviewed as coded</span>}
+      <CodeCaption describe={describe}
+        code={revisionOf(0, 'code')?.correct_value ?? values.code} />
     </div>
   )
 }
@@ -805,12 +807,14 @@ function LineRow({ index, row, fields, open, deleted, canDelete, revisionOf, set
           {deleted ? <><X size={12} /> Undo</> : <><Trash2 size={12} /> Delete</>}
         </button>
       )}
+      <CodeCaption describe={describe}
+        code={revisionOf(index, 'code')?.correct_value ?? String(row.code ?? '')} />
     </div>
   )
 }
 
 function AddField({ field, finding, onChange, onEnter, fieldId, autoFocus, required,
-                   section, describe }: {
+                   section }: {
   field: string
   finding: Finding
   onChange: (v: string) => void
@@ -819,7 +823,6 @@ function AddField({ field, finding, onChange, onEnter, fieldId, autoFocus, requi
   autoFocus?: boolean
   required?: boolean
   section: string
-  describe?: (code: string) => CodeInfo | null
 }) {
   const value = field === 'code'
     ? finding.correct_value || ''
@@ -871,7 +874,6 @@ function AddField({ field, finding, onChange, onEnter, fieldId, autoFocus, requi
         )
       )}
       {!check.ok && <span style={s.formatHint}>{check.hint}</span>}
-      <CodeCaption describe={describe} field={field} code={value} />
     </div>
   )
 }
@@ -937,8 +939,6 @@ function Field({ label, value, open, revision, strike, onChange, section, field,
       )}
       {changed && <span style={s.wasNote}>was {value || '—'}</span>}
       {!check.ok && <span style={s.formatHint}>{check.hint}</span>}
-      <CodeCaption describe={describe} field={field}
-        code={revision?.correct_value ?? value} />
     </div>
   )
 }
@@ -954,19 +954,17 @@ function Field({ label, value, open, revision, strike, onChange, section, field,
  * CPT lines stay bare: those descriptions are AMA-licensed and this app does
  * not carry them.
  */
-function CodeCaption({ code, field, describe }: {
+function CodeCaption({ code, describe }: {
   code: string
-  field?: string
   describe?: (code: string) => CodeInfo | null
 }) {
-  if (!describe || (field && field !== 'code')) return null
+  if (!describe) return null
   const info = describe(code || '')
   if (!info) return null
-  return (
-    <span style={s.codeCaption} title={info.description}>
-      {info.short_description || info.description}
-    </span>
-  )
+  // The long description, not the short one. The short form is an abbreviated
+  // abbreviated field built for narrow print columns ("Ketorolac tromethamine inj") and
+  // there is a whole row of space here.
+  return <div style={s.codeCaption}>{info.description}</div>
 }
 
 /**
@@ -1146,8 +1144,9 @@ const s: Record<string, React.CSSProperties> = {
   // Narrow enough that a long description wraps rather than widening the row,
   // and light enough that the code stays the thing being read.
   codeCaption: {
-    fontSize: 10, lineHeight: 1.3, color: '#6b7280', maxWidth: 150,
-    display: 'block', marginTop: 1,
+    flexBasis: '100%', fontSize: 11, lineHeight: 1.4, color: '#6b7280',
+    marginTop: 4, paddingLeft: 16,
+    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
   } as const,
   eyebrow: { fontSize: 9.5, fontWeight: 800, letterSpacing: 0.9, textTransform: 'uppercase', marginBottom: 3, opacity: 0.75 },
   countPill: { fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 999, border: '1px solid', background: '#fff' },
