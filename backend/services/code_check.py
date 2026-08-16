@@ -25,8 +25,17 @@ from typing import Optional
 MAX_REPORTED = 25
 
 
+# Strings that mean "nothing here". Older answer keys carry these where a
+# field was left blank — there is a migration in database.py scrubbing the same
+# sentinels out of the JSON. Checking them would report "NONE is not a valid
+# modifier", which is true and useless, and would sit at the top of the list
+# ahead of the real findings.
+_SENTINELS = {"NONE", "NA", "N/A", "NIL", "-", "--", "NULL"}
+
+
 def _bare(code) -> str:
-    return str(code or "").strip().upper().replace(".", "").replace(" ", "")
+    text = str(code or "").strip().upper().replace(".", "").replace(" ", "")
+    return "" if text in _SENTINELS else text
 
 
 def _is_cpt(code: str) -> bool:

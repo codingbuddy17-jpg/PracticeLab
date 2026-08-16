@@ -210,3 +210,23 @@ class TestCcMccLabels:
                        {"code": "E11.9", "poa": "Y", "ccmcc": "-"}]}
         assert list(ccmcc_from_key_row("IP001", row)) == [
             ("IP001", "A41.9", "MCC"), ("IP001", "E11.9", "-")]
+
+
+class TestSentinelValues:
+    """
+    Older keys carry "NONE" and friends where a field was left blank — there is
+    a migration scrubbing the same strings out of answer-key JSON. Reporting
+    'NONE is not a valid modifier' is true and useless, and it would sort above
+    the real findings.
+    """
+
+    @pytest.mark.parametrize("sentinel", ["NONE", "None", "n/a", "NA", "-", "NULL"])
+    def test_a_blank_marker_is_not_reported_as_a_missing_code(self, loaded,
+                                                              sentinel):
+        assert unknown_codes(loaded, [("OP001", "Modifier", sentinel)]) == []
+        assert unknown_codes(loaded, [("IP001", "SDx", sentinel)]) == []
+
+    def test_a_real_code_is_still_reported(self, loaded):
+        """The guard must not swallow everything."""
+        out = unknown_codes(loaded, [("IP001", "SDx", "Z9999")])
+        assert out and out[0]["code"] == "Z9999"
