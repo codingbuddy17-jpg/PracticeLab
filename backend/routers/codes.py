@@ -155,13 +155,37 @@ def status(db: Session = Depends(get_db)):
     rather than concluding the descriptions feature is broken.
     """
     from models import CodeSetVersion
+    from services.code_editions import (ANNUAL_SYSTEMS, QUARTERLY_SYSTEMS,
+                                        SYSTEM_LABELS, current_edition,
+                                        freshness)
+
     rows = (db.query(CodeSetVersion)
             .order_by(CodeSetVersion.loaded_at.desc()).all())
     seen: dict = {}
     for r in rows:
+        # Most recent load per system wins — earlier rows are its history.
         seen.setdefault(r.code_system, {
-            "code_system": r.code_system, "edition": r.edition,
+            "code_system": r.code_system,
+            "label": SYSTEM_LABELS.get(r.code_system, r.code_system),
+            "edition": r.edition,
             "row_count": r.row_count,
             "loaded_at": r.loaded_at.isoformat() if r.loaded_at else None,
+            **freshness(r.code_system, r.edition, r.loaded_at),
         })
-    return {"loaded": list(seen.values()), "any": bool(seen)}
+
+    # Systems that were never loaded at all are reported explicitly. Listing
+    # only what IS loaded makes a half-loaded installation look complete, which
+    # is the failure this endpoint exists to prevent.
+    missing = [s for s in ANNUAL_SYSTEMS + QUARTERLY_SYSTEMS if s not in seen]
+
+    return {
+        "loaded": list(seen.values()),
+        "missing": [{"code_system": s,
+                     "label": SYSTEM_LABELS.get(s, s)} for s in missing],
+        "any": bool(seen),
+        "expected_edition": current_edition(),
+        # One flag for the screen to key on, so the rule lives here rather than
+        # being re-derived in the frontend.
+        "needs_attention": bool(missing) or any(
+            not v["current"] for v in seen.values()),
+    }

@@ -44,6 +44,10 @@ for key in ("STORAGE_ENDPOINT_URL", "STORAGE_ACCESS_KEY", "STORAGE_SECRET_KEY",
 from database import Base, SessionLocal, engine  # noqa: E402
 # Shared with the auditor analytics, which groups planted errors by chapter.
 from services.icd_chapters import CHAPTERS, chapter_for  # noqa: E402,F401
+# Shared with the trainer panel, which judges whether a load is still current
+# by these same dates. Split, the app could call something stale that the
+# ingest thinks is current.
+from services.code_editions import fiscal_year  # noqa: E402
 from models import CodeDescription, CodeSetVersion, PcsCodeAxis  # noqa: E402
 
 # ── where the files live ─────────────────────────────────────────────────────
@@ -57,12 +61,6 @@ from models import CodeDescription, CodeSetVersion, PcsCodeAxis  # noqa: E402
 # edition is preferred and the previous one is the fallback. That also covers
 # the window each autumn when the next year exists as a date but not yet as a
 # published file.
-
-def fiscal_year(today=None) -> int:
-    """CMS code sets run October to September. October 2025 is FY2026."""
-    today = today or datetime.date.today()
-    return today.year + 1 if today.month >= 10 else today.year
-
 
 def cm_urls(today=None) -> list:
     out = []

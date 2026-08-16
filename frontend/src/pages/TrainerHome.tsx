@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { FileText, BookOpen, GraduationCap, ChevronRight, ClipboardList, ClipboardCheck } from 'lucide-react'
+import { FileText, BookOpen, GraduationCap, ChevronRight, ClipboardList, ClipboardCheck, AlertTriangle, Database } from 'lucide-react'
+import { codeSetStatus } from '../api/codesApi'
 import { getPLAnalyticsOverview, getChartStats, getAssessmentStats, getAssessmentOverview, listAuditBatches, listAuditKeySets, getAuditOverview } from '../api'
 
 export function TrainerHome() {
@@ -9,6 +10,10 @@ export function TrainerHome() {
   const [assessmentStats, setAssessmentStats] = useState<{ totalActive: number; totalSpecialties: number } | null>(null)
   const [auditStats, setAuditStats] = useState<{ batches: number; open: number; scored: number; curated: number; accuracy: number | null; charts: number } | null>(null)
   const [assessOverview, setAssessOverview] = useState<any>(null)
+  // Reference data freshness. Shown to TRAINERS only: they are the ones who
+  // can act on it, and it is not something a coder or auditor mid-session
+  // should be given to wonder about.
+  const [codeSets, setCodeSets] = useState<any>(null)
 
   function load() {
     // scope=all. The default is batch work only, so this page reported three
@@ -17,6 +22,7 @@ export function TrainerHome() {
     // silently inherit one.
     getPLAnalyticsOverview({}, 'all').then(setPlStats).catch(() => {})
     getChartStats().then(setChartStats).catch(() => {})
+    codeSetStatus().then(setCodeSets).catch(() => {})
     getAssessmentOverview().then(setAssessOverview).catch(() => {})
     // Auditor tiles fail quietly — a trainer home page must render even if one
     // module's stats endpoint is unavailable.
@@ -73,6 +79,49 @@ export function TrainerHome() {
 
       <div style={styles.content}>
         <div style={styles.welcomeText}>What would you like to do?</div>
+
+        {/* Reference code sets.
+            The application cannot refresh these itself — they are loaded by a
+            script somebody runs — so the failure is silence: nothing breaks
+            when the data is a year old, and a trainer would go on seeing last
+            year's descriptions with nothing ever saying so. This is the thing
+            that says so. It is deliberately quiet when all is well. */}
+        {codeSets?.needs_attention && (
+          <div style={styles.codeSetBanner}>
+            <AlertTriangle size={16} color="#b45309" style={{ flexShrink: 0, marginTop: 1 }} />
+            <div style={{ flex: 1 }}>
+              <div style={styles.codeSetTitle}>
+                {codeSets.any ? 'Code sets need refreshing' : 'CMS code sets have not been loaded'}
+              </div>
+              <div style={styles.codeSetBody}>
+                {codeSets.any
+                  ? 'Code descriptions, code completion and answer-key checks are running on older data.'
+                  : 'Code descriptions, code completion and answer-key code checks are unavailable until these are loaded. Nothing else is affected.'}
+                {' '}Ask whoever maintains the application to run the code-set ingest
+                (documented in the migration runbook, section 8).
+              </div>
+              <div style={styles.codeSetRows}>
+                {(codeSets.loaded || []).filter((r: any) => !r.current).map((r: any) => (
+                  <div key={r.code_system} style={styles.codeSetRow}>
+                    <span style={styles.codeSetDot} /> {r.note}
+                  </div>
+                ))}
+                {(codeSets.missing || []).map((r: any) => (
+                  <div key={r.code_system} style={styles.codeSetRow}>
+                    <span style={styles.codeSetDot} /> {r.label} — never loaded
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+        {codeSets?.any && !codeSets.needs_attention && (
+          <div style={styles.codeSetOk}>
+            <Database size={13} color="#6b7280" />
+            CMS code sets current ({codeSets.expected_edition}) ·{' '}
+            {(codeSets.loaded || []).reduce((n: number, r: any) => n + (r.row_count || 0), 0).toLocaleString()} codes
+          </div>
+        )}
 
         {/* ── Chart Management divider ────────────────────────────────── */}
         <div style={styles.plDivider}>
@@ -359,6 +408,24 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 22, fontWeight: 800, color: '#fff', letterSpacing: -0.5,
   },
   bentoSubtitle: { fontSize: 12, color: 'rgba(255,255,255,0.7)', lineHeight: 1.6 },
+  codeSetBanner: {
+    display: 'flex', gap: 10, alignItems: 'flex-start',
+    background: 'rgba(255,251,235,0.9)', border: '1px solid #fcd34d',
+    borderRadius: 10, padding: '12px 14px', marginBottom: 18,
+  },
+  codeSetTitle: { fontSize: 13, fontWeight: 700, color: '#92400e', marginBottom: 3 },
+  codeSetBody: { fontSize: 12, color: '#78350f', lineHeight: 1.6 },
+  codeSetRows: { display: 'flex', flexDirection: 'column' as const, gap: 2, marginTop: 6 },
+  codeSetRow: { fontSize: 11, color: '#92400e', display: 'flex', alignItems: 'center', gap: 6 },
+  codeSetDot: {
+    width: 4, height: 4, borderRadius: 99, background: '#d97706',
+    display: 'inline-block', flexShrink: 0,
+  },
+  // When everything is current this is a footnote, not an announcement.
+  codeSetOk: {
+    display: 'inline-flex', alignItems: 'center', gap: 6,
+    fontSize: 11, color: '#6b7280', marginBottom: 16,
+  },
   bentoCta: {
     display: 'inline-flex', alignItems: 'center', gap: 4,
     alignSelf: 'flex-start', marginTop: 4,
