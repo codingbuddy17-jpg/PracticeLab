@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { checkCpt, checkDx, checkModifier, checkPcs } from '../codeFormat'
+import { useCodeDescriptions } from '../hooks/useCodeDescriptions'
 import { useParams } from 'react-router-dom'
 import { Flag, Save, ChevronRight, CheckCircle, AlertTriangle, Circle, Send, BookOpen, Plus, X, Info, Copy, Check } from 'lucide-react'
 import {
@@ -152,6 +153,27 @@ function usesUnits(specialty: string) {
  *
  * Same rules as the auditor screen — one module, so the two cannot drift.
  */
+/**
+ * What the code the coder just typed actually says.
+ *
+ * Confirmation, not lookup. It appears once a code is complete enough to
+ * resolve and says nothing otherwise, so it can tell someone they typed J18.0
+ * when they meant J18.9 without ever telling them which code to pick — a
+ * graded session measures whether they can find the code, and only prefix
+ * completion is offered on that side of the line.
+ *
+ * ICD-10-CM, ICD-10-PCS and HCPCS Level II only; CPT descriptions are AMA
+ * copyright and this app does not carry them.
+ */
+function CodeSays({ info }: { info: { description: string; short_description?: string | null } | null }) {
+  if (!info) return null
+  return (
+    <div style={s.codeSays} title={info.description}>
+      {info.short_description || info.description}
+    </div>
+  )
+}
+
 function CodeHint({ check }: { check: { ok: boolean; hint?: string } }) {
   if (check.ok) return null
   return (
@@ -684,6 +706,12 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
       return { copa: false, dr: false, risk: false, dx: false, code: false, [s]: !isOpen }
     })
   }
+  // One batched lookup for every code on the form. Dx and PCS resolve against
+  // different systems, so they are asked separately rather than letting a
+  // seven-character string match something in the wrong table.
+  const describeDx = useCodeDescriptions(
+    [entry.pdx_code, ...entry.sdx.map(r => r.code)], 'SDx')
+  const describePcs = useCodeDescriptions(entry.pcs.map(r => r.code), 'PCS')
   const emData = entry.em_data || EMPTY_EM_DATA()
   const queryOn = ip && entry.query_flag
   const queryNoteMissing = queryOn && !entry.coder_notes.trim()
@@ -1246,6 +1274,7 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
               onChange={e => onChange({ pdx_code: e.target.value.toUpperCase() })}
             />
             <CodeHint check={checkDx(entry.pdx_code)} />
+            <CodeSays info={describeDx(entry.pdx_code)} />
             <div style={s.hint}>ICD-10-CM · dot optional</div>
           </div>
           {ip && (
@@ -1281,6 +1310,7 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
                 onChange={e => updateSdx(i, 'code', e.target.value.toUpperCase())}
               />
               <CodeHint check={checkDx(row.code)} />
+              <CodeSays info={describeDx(row.code)} />
             </div>
             {ip && (
               <select
@@ -1306,15 +1336,19 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
       {ip && (
         <Section title="PCS Procedures" type="procedure">
           {entry.pcs.map((row, i) => (
-            <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 8 }}>
-              <input
-                style={{ ...s.inputField, flex: 1, marginBottom: 0, fontFamily: 'monospace',
-                         borderColor: checkPcs(row.code).ok ? '#e5e7eb' : '#dc2626' }}
-                placeholder="e.g. 0BHN3BZ"
-                value={row.code}
-                onChange={e => updatePcs(i, e.target.value.toUpperCase())}
-                maxLength={10}
-              />
+            <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginBottom: 8 }}>
+              <div style={{ flex: 1 }}>
+                <input
+                  style={{ ...s.inputField, width: '100%', boxSizing: 'border-box',
+                           marginBottom: 0, fontFamily: 'monospace',
+                           borderColor: checkPcs(row.code).ok ? '#e5e7eb' : '#dc2626' }}
+                  placeholder="e.g. 0BHN3BZ"
+                  value={row.code}
+                  onChange={e => updatePcs(i, e.target.value.toUpperCase())}
+                  maxLength={10}
+                />
+                <CodeSays info={describePcs(row.code)} />
+              </div>
               <button onClick={() => removePcs(i)} style={s.removeBtn}><X size={14} /></button>
             </div>
           ))}
@@ -1718,6 +1752,11 @@ const s: Record<string, React.CSSProperties> = {
   inputField: { width: '100%', padding: '10px 12px', border: '1.5px solid #e5e7eb', borderRadius: 8, fontSize: 14, outline: 'none', boxSizing: 'border-box', marginBottom: 4, background: '#fafafa' },
   selectField: { width: '100%', padding: '10px 12px', border: '1.5px solid #e5e7eb', borderRadius: 8, fontSize: 13, outline: 'none', boxSizing: 'border-box', background: '#fafafa', cursor: 'pointer' },
   hint: { fontSize: 11, color: '#9ca3af', marginTop: 2 },
+  codeSays: {
+    fontSize: 11, lineHeight: 1.35, color: '#4b5563', marginTop: 3,
+    background: '#f8fafc', border: '1px solid #eef2f7', borderRadius: 5,
+    padding: '3px 7px',
+  } as const,
   poaTooltip: { fontSize: 11, color: '#9ca3af', display: 'flex', alignItems: 'center', gap: 4, marginTop: 4 },
   warningLine: { display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#f59e0b', marginTop: 2, marginBottom: 4 },
   addBtn: { display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: '1.5px dashed #d1d5db', borderRadius: 8, padding: '8px 14px', cursor: 'pointer', fontSize: 13, color: '#6b7280', marginTop: 4 },

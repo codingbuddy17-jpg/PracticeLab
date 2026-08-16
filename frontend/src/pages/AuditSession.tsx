@@ -10,6 +10,8 @@ import {
 } from '../api/auditorApi'
 import { ISSUE_COLORS } from './practicelab/shared'
 import { checkField, isBlocking } from '../codeFormat'
+import { useCodeDescriptions } from '../hooks/useCodeDescriptions'
+import { CodeInfo } from '../api/codesApi'
 
 /**
  * The auditor's working screen.
@@ -587,6 +589,13 @@ function SectionBlock({ spec, chart, state, onVerdict, onUpsert }: {
   }
 
   const t = themeOf(key)
+  // One lookup for the whole section rather than one per line. What a code
+  // says is the difference between an auditor matching strings and an auditor
+  // reading a claim.
+  const describe = useCodeDescriptions(
+    [...(isPdx ? [chart.claim.pdx_code || ''] : rows.map((r: any) => String(r.code || ''))),
+     ...mine.map(f => String(f.correct_value || ''))],
+    key)
   const codeCount = isPdx ? (chart.claim.pdx_code ? 1 : 0) : rows.length
   const tally = [
     { action: 'Add' as const, n: adds.length },
@@ -652,6 +661,7 @@ function SectionBlock({ spec, chart, state, onVerdict, onUpsert }: {
                 setRevision={setRevision}
                 onToggleDelete={() => toggleDelete(i, row.code || '')}
                 section={key}
+                describe={describe}
               />
             ))}
             {open && spec.actions.includes('Add') && (
@@ -677,6 +687,7 @@ function SectionBlock({ spec, chart, state, onVerdict, onUpsert }: {
                         autoFocus={field === 'code' && !f.correct_value}
                         required={field === 'code' || field === 'poa'}
                         section={key}
+                        describe={describe}
                       />
                     ))}
                     {addComplete(f) && (
@@ -700,10 +711,11 @@ function SectionBlock({ spec, chart, state, onVerdict, onUpsert }: {
   )
 }
 
-function PdxRow({ chart, spec, open, revisionOf, setRevision }: {
+function PdxRow({ chart, spec, open, revisionOf, setRevision, describe }: {
   chart: AuditChart
   spec: SectionSpec
   open: boolean
+  describe?: (code: string) => CodeInfo | null
   revisionOf: (line: number, field: string) => Finding | undefined
   setRevision: (line: number, field: string, claimValue: string, value: string) => void
 }) {
@@ -722,6 +734,7 @@ function PdxRow({ chart, spec, open, revisionOf, setRevision }: {
           revision={revisionOf(0, field)}
           section="PDx"
           field={field}
+          describe={describe}
           onChange={v => setRevision(0, field, values[field] || '', v)}
         />
       ))}
@@ -730,9 +743,10 @@ function PdxRow({ chart, spec, open, revisionOf, setRevision }: {
   )
 }
 
-function LineRow({ index, row, fields, open, deleted, canDelete, revisionOf, setRevision, onToggleDelete, section }: {
+function LineRow({ index, row, fields, open, deleted, canDelete, revisionOf, setRevision, onToggleDelete, section, describe }: {
   index: number
   section: string
+  describe?: (code: string) => CodeInfo | null
   row: Record<string, unknown>
   fields: string[]
   open: boolean
@@ -768,6 +782,7 @@ function LineRow({ index, row, fields, open, deleted, canDelete, revisionOf, set
           revision={revisionOf(index, field)}
           section={section}
           field={field}
+          describe={describe}
           onChange={v => setRevision(index, field, String(row[field] ?? ''), v)}
         />
       ))}
@@ -794,7 +809,7 @@ function LineRow({ index, row, fields, open, deleted, canDelete, revisionOf, set
 }
 
 function AddField({ field, finding, onChange, onEnter, fieldId, autoFocus, required,
-                   section }: {
+                   section, describe }: {
   field: string
   finding: Finding
   onChange: (v: string) => void
@@ -803,6 +818,7 @@ function AddField({ field, finding, onChange, onEnter, fieldId, autoFocus, requi
   autoFocus?: boolean
   required?: boolean
   section: string
+  describe?: (code: string) => CodeInfo | null
 }) {
   const value = field === 'code'
     ? finding.correct_value || ''
@@ -840,11 +856,13 @@ function AddField({ field, finding, onChange, onEnter, fieldId, autoFocus, requi
         />
       )}
       {!check.ok && <span style={s.formatHint}>{check.hint}</span>}
+      <CodeCaption describe={describe} field={field} code={value} />
     </div>
   )
 }
 
-function Field({ label, value, open, revision, strike, onChange, section, field }: {
+function Field({ label, value, open, revision, strike, onChange, section, field,
+                describe }: {
   label: string
   value: string
   open: boolean
@@ -853,6 +871,7 @@ function Field({ label, value, open, revision, strike, onChange, section, field 
   section?: string
   field?: string
   onChange: (v: string) => void
+  describe?: (code: string) => CodeInfo | null
 }) {
   const changed = !!revision
   // Checked only once the auditor has typed a correction — the claim's own
@@ -890,7 +909,35 @@ function Field({ label, value, open, revision, strike, onChange, section, field 
       )}
       {changed && <span style={s.wasNote}>was {value || '—'}</span>}
       {!check.ok && <span style={s.formatHint}>{check.hint}</span>}
+      <CodeCaption describe={describe} field={field}
+        code={revision?.correct_value ?? value} />
     </div>
+  )
+}
+
+/**
+ * What the code above actually says.
+ *
+ * Quiet on purpose — an auditor reads the claim, not this. It sits under the
+ * box in small grey type and is absent when nothing is known, so a code the
+ * app has never heard of simply has no caption rather than an apology. Only
+ * the code field gets one; POA and units describe themselves.
+ *
+ * CPT lines stay bare: those descriptions are AMA-licensed and this app does
+ * not carry them.
+ */
+function CodeCaption({ code, field, describe }: {
+  code: string
+  field?: string
+  describe?: (code: string) => CodeInfo | null
+}) {
+  if (!describe || (field && field !== 'code')) return null
+  const info = describe(code || '')
+  if (!info) return null
+  return (
+    <span style={s.codeCaption} title={info.description}>
+      {info.short_description || info.description}
+    </span>
   )
 }
 
@@ -1068,6 +1115,12 @@ const s: Record<string, React.CSSProperties> = {
   input: { fontFamily: 'ui-monospace, monospace', fontSize: 13, padding: '6px 9px', border: '1px solid #e5e7eb', borderRadius: 6, outline: 'none', textTransform: 'uppercase' },
   formatHint: { fontSize: 10, color: '#dc2626', fontWeight: 600, maxWidth: 190, lineHeight: 1.3 },
   wasNote: { fontSize: 10, color: '#7c3aed', fontWeight: 600 },
+  // Narrow enough that a long description wraps rather than widening the row,
+  // and light enough that the code stays the thing being read.
+  codeCaption: {
+    fontSize: 10, lineHeight: 1.3, color: '#6b7280', maxWidth: 150,
+    display: 'block', marginTop: 1,
+  } as const,
   eyebrow: { fontSize: 9.5, fontWeight: 800, letterSpacing: 0.9, textTransform: 'uppercase', marginBottom: 3, opacity: 0.75 },
   countPill: { fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 999, border: '1px solid', background: '#fff' },
   actionChip: { display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, fontWeight: 800, padding: '2px 8px', borderRadius: 999, border: '1px solid' },
