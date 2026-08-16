@@ -15,6 +15,9 @@ from models.assessment import (
     GeneratedAssessmentStudent, AssessmentAuditLog, AssessmentSession,
     AssessmentResponse, AssessmentResult,
 )
+from models.codes import (
+    CcExclusion, CodeDescription, CodeSetVersion, DrgWeight, PcsCodeAxis,
+)
 from models.auditor import (
     AuditSource, AuditAction,
     AuditKeySet, AuditBatch, AuditBatchAuditor, AuditAllocationCycle,
@@ -38,4 +41,5 @@ __all__ = [
     "AuditKeySet", "AuditBatch", "AuditBatchAuditor", "AuditAllocationCycle",
     "AuditAssignment", "AuditSession", "AuditChartDraft", "AuditResult",
     "AuditScoringConfig",
+    "CodeSetVersion", "CodeDescription", "PcsCodeAxis", "CcExclusion", "DrgWeight",
 ]
