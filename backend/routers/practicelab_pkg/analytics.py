@@ -2121,6 +2121,21 @@ def analytics_specificity(
                 continue
             if not _is_unspecified(coded) or _is_unspecified(wanted):
                 continue
+            # SAME CHAPTER, or it is not a specificity story at all.
+            #
+            # Filtering to Wrong_Code was not enough. Run against real data it
+            # reported "J18.9 -> N18.6" — pneumonia coded where end stage renal
+            # disease was expected — which is a wrong code that happens to pair
+            # a vague one with a specific one. Nobody would coach that as a
+            # specificity habit.
+            #
+            # Same chapter is necessary, not sufficient: J18.9 -> J44.1 would
+            # still pass and is arguably two different conditions. Erring
+            # towards under-reporting is right here, because the whole value of
+            # this panel is that a trainer can trust every row on it.
+            if not coded.get("chapter_no") or \
+                    coded.get("chapter_no") != wanted.get("chapter_no"):
+                continue
             key = (f.coder_code, f.ak_code)
             cell = drops.setdefault(key, {
                 "coded": f.coder_code, "coded_description": coded["description"],

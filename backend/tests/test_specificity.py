@@ -170,6 +170,24 @@ class TestSpecificityDrops:
         db.commit()
         assert client.get(URL, params={"scope": "all"}).json()["drops"] == []
 
+    def test_two_unrelated_diagnoses_are_not_a_specificity_drop(self, client, db, codes):
+        """
+        Found by looking at real output. Filtering to Wrong_Code was not
+        enough: production reported "J18.9 -> N18.6", pneumonia coded where end
+        stage renal disease was expected. That is a wrong code that happens to
+        pair a vague one with a specific one, and nobody would coach it as a
+        specificity habit. The two codes must at least share a chapter.
+        """
+        _b, _c, r = _setup(db, ["J18.9"])
+        self._wrong_code(db, r, "J18.9", "N17.9")     # respiratory -> genitourinary
+        assert client.get(URL, params={"scope": "all"}).json()["drops"] == []
+
+    def test_the_same_chapter_still_counts(self, client, db, codes):
+        """J18.9 -> J13 is the classic finding and must survive the guard."""
+        _b, _c, r = _setup(db, ["J18.9"])
+        self._wrong_code(db, r, "J18.9", "J13")
+        assert len(client.get(URL, params={"scope": "all"}).json()["drops"]) == 1
+
     def test_a_drop_carries_its_spread(self, client, db, codes):
         _b, _c, r1 = _setup(db, ["J18.9"], coder="Ann", emp="E1")
         _b2, _c2, r2 = _setup(db, ["J18.9"], coder="Bob", emp="E2")
