@@ -3074,6 +3074,70 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
               </div>
             )}
 
+          {/* Which reasoning element drives the level errors.
+              Two different questions, and a trainer needs both: how often each
+              element is misread at all, and — of the charts where the LEVEL
+              was wrong — which element moved. They diverge because two of three
+              components decide the level, so an element can be misread often
+              and rarely change the answer. */}
+          {emBreakdown?.elements?.length > 0 && (
+            <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '14px 16px' }}>
+              <div style={sectionLabel}>Where The Reasoning Goes Wrong</div>
+              <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 8, marginBottom: 14 }}>
+                {emBreakdown.elements.map((e: any) => (
+                  <div key={e.key}>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, fontSize: 12 }}>
+                      <span style={{ width: 92, fontWeight: 700, color: '#111' }}>{e.element}</span>
+                      <span style={{ color: '#b45309' }}>{e.over} overstated</span>
+                      <span style={{ color: '#0f766e' }}>{e.under} understated</span>
+                      <span style={{ marginLeft: 'auto', color: '#6b7280' }}>
+                        {e.error_rate}% of {e.judged} judged
+                      </span>
+                      {/* A habit, as against erring both ways — which is a
+                          precision problem and needs a different fix. */}
+                      {e.lean && (
+                        <span style={{ fontSize: 11, fontWeight: 700, color: e.lean === 'over' ? '#b45309' : '#0f766e' }}>
+                          leans {e.lean}
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ height: 4, background: '#f1f5f9', borderRadius: 99, marginTop: 3 }}>
+                      <div style={{ height: '100%', width: `${e.error_rate}%`, background: '#7c3aed', borderRadius: 99, opacity: 0.7 }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {emBreakdown.attribution?.level_errors > 0 && (
+                <>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' as const, letterSpacing: 0.4, marginBottom: 6 }}>
+                    What drove the {emBreakdown.attribution.level_errors} wrong level{emBreakdown.attribution.level_errors !== 1 ? 's' : ''}
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 8 }}>
+                    {emBreakdown.attribution.elements.map((r: any) => (
+                      <span key={r.key} style={{ fontSize: 12, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: '4px 11px', color: '#334155' }}>
+                        {r.element} <strong>{r.share}%</strong>
+                      </span>
+                    ))}
+                    {/* All three elements right and the code still wrong: a
+                        sound case, the wrong level picked from it. A different
+                        lesson, and invisible if only attribution were shown. */}
+                    {emBreakdown.attribution.reasoning_sound > 0 && (
+                      <span style={{ fontSize: 12, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, padding: '4px 11px', color: '#92400e' }}>
+                        Reasoning sound, level still wrong <strong>{emBreakdown.attribution.reasoning_sound_share}%</strong>
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 8 }}>
+                    Shares are of the wrong-level charts and need not total 100 —
+                    two elements can be wrong on one chart, and one wrong element
+                    often moves nothing, because two of three decide the level.
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
           {/* Batch selector — all batches by default */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' as const }}>
             <span style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>E/M &amp; ED Profee:</span>

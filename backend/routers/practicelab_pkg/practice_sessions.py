@@ -1368,6 +1368,69 @@ def regrade_practice_session(session_id: int, db: Session = Depends(get_db)):
 
 # ── E/M MDM analytics for a batch ────────────────────────────────────────────
 
+_ELEMENTS = (("copa", "COPA"), ("dr", "Data Review"), ("risk", "Risk"))
+
+
+def _element_summary(charts: list) -> list:
+    """
+    How each reasoning element is judged: overstated, understated, or right.
+
+    Counted over the charts where the element could be judged at all — a chart
+    the key never levelled is not evidence either way, and putting it in the
+    denominator would make every team look better the more gaps their keys have.
+    """
+    out = []
+    for key, label in _ELEMENTS:
+        deltas = [c.get(f"{key}_delta") for c in charts]
+        judged = [d for d in deltas if d]
+        if not judged:
+            continue
+        over = sum(1 for d in judged if d == "over")
+        under = sum(1 for d in judged if d == "under")
+        out.append({
+            "element": label, "key": key,
+            "judged": len(judged), "over": over, "under": under,
+            "wrong": over + under,
+            "error_rate": round((over + under) / len(judged) * 100, 1),
+            # Which way this element is habitually misread, or None when it is
+            # misread both ways equally — a precision problem, not a habit.
+            "lean": None if over == under else ("over" if over > under else "under"),
+        })
+    out.sort(key=lambda e: -e["wrong"])
+    return out
+
+
+def _level_error_attribution(charts: list) -> dict:
+    """
+    Among the charts whose E/M LEVEL was wrong, which elements were wrong too.
+
+    This is the "COPA drives half our level errors" figure. It is a different
+    question from the element error rate: an element can be misjudged often and
+    rarely move the level, because two of three components decide it.
+    """
+    wrong_level = [c for c in charts if c.get("em_level_match") is False]
+    if not wrong_level:
+        return {"level_errors": 0, "elements": []}
+    rows = []
+    for key, label in _ELEMENTS:
+        n = sum(1 for c in wrong_level if c.get(f"{key}_delta") in ("over", "under"))
+        rows.append({
+            "element": label, "key": key, "count": n,
+            "share": round(n / len(wrong_level) * 100, 1),
+        })
+    rows.sort(key=lambda r: -r["count"])
+    # Charts where the level was wrong and every element was right: the code
+    # was picked against sound reasoning, which is a different lesson from
+    # misreading the elements.
+    none_wrong = sum(1 for c in wrong_level
+                     if all(c.get(f"{k}_delta") != "over"
+                            and c.get(f"{k}_delta") != "under"
+                            for k, _l in _ELEMENTS))
+    return {"level_errors": len(wrong_level), "elements": rows,
+            "reasoning_sound": none_wrong,
+            "reasoning_sound_share": round(none_wrong / len(wrong_level) * 100, 1)}
+
+
 def _em_breakdown(db, batch_id=None, specialty=None, from_date=None, to_date=None):
     """
     E/M MDM component scores — for one batch, or across all of them.
@@ -1472,6 +1535,34 @@ def _em_breakdown(db, batch_id=None, specialty=None, from_date=None, to_date=Non
         copa_match, dr_match, risk_match = _matched(copa_row), _matched(dr_row), _matched(risk_row)
         em_level_match = _matched(em_row)
 
+        # ── which ELEMENT was misjudged, and which way ───────────────────────
+        #
+        # A level error has a cause, and the causes are not evenly spread: COPA
+        # can drive half of them while Risk drives a fifth. Reporting "level
+        # wrong" without saying which element moved leaves a trainer to guess
+        # what to teach, and the answer differs per team.
+        #
+        # Direction matters here for the same reason it does on the code:
+        # overstating Risk and understating COPA both produce a wrong level and
+        # need opposite corrections.
+        def _delta(row):
+            if not row:
+                return None
+            ak, sub = row.get("ak_code"), row.get("coder_code")
+            if not ak or not sub:
+                return None
+            if ak == sub:
+                return "match"
+            a, b = _LEVEL_ORDER.get(sub, 0), _LEVEL_ORDER.get(ak, 0)
+            if a == b:
+                # Different words, same rank — "Extensive" and "High" both sit
+                # at the top of their scale. Not a misjudgement.
+                return "match"
+            return "over" if a > b else "under"
+
+        copa_delta, dr_delta, risk_delta = (_delta(copa_row), _delta(dr_row),
+                                            _delta(risk_row))
+
         # "Right level, wrong reasoning" = E/M code correct but RA < threshold
         # Right level, wrong reasoning: the code is correct but under half the
         # reasoning points were earned.
@@ -1517,6 +1608,7 @@ def _em_breakdown(db, batch_id=None, specialty=None, from_date=None, to_date=Non
             "coding_accuracy": round(ca_total, 1), "reasoning_accuracy": round(ra_total, 1),
             "copa_pts": round(copa_pts, 1), "dr_pts": round(dr_pts, 1), "risk_pts": round(risk_pts, 1),
             "copa_match": copa_match, "dr_match": dr_match, "risk_match": risk_match,
+            "copa_delta": copa_delta, "dr_delta": dr_delta, "risk_delta": risk_delta,
             "em_level_match": em_level_match,
             "right_code_wrong_reasoning": right_code_wrong_reasoning,
         }
@@ -1564,6 +1656,22 @@ def _em_breakdown(db, batch_id=None, specialty=None, from_date=None, to_date=Non
         "avg_total": round(sum(c["total_score"] for c in all_charts) / n_all, 1),
         "avg_coding_accuracy": round(sum(c["coding_accuracy"] for c in all_charts) / n_all, 1),
         "avg_reasoning_accuracy": round(sum(c["reasoning_accuracy"] for c in all_charts) / n_all, 1),
+        # ── where the reasoning goes wrong, and what it costs ───────────────
+        #
+        # Two different questions, and a trainer needs both:
+        #
+        #   elements     of the charts where this element could be judged, how
+        #                often it was overstated or understated. The team's
+        #                habit, whether or not the level ended up wrong.
+        #   attribution  of the charts where the LEVEL was wrong, how often
+        #                each element was also wrong. What actually drives the
+        #                errors — and the shares are rarely even.
+        #
+        # Attribution shares do not sum to 100: two elements can be wrong on
+        # one chart, and the 2-of-3 rule means one wrong element often moves
+        # nothing at all.
+        "elements": _element_summary(all_charts),
+        "attribution": _level_error_attribution(all_charts),
         "copa_pct": round(100 * sum(1 for c in all_charts if c["copa_match"]) / n_all, 1),
         "dr_pct": round(100 * sum(1 for c in all_charts if c["dr_match"]) / n_all, 1),
         "risk_pct": round(100 * sum(1 for c in all_charts if c["risk_match"]) / n_all, 1),
