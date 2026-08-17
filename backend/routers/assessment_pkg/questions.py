@@ -484,43 +484,6 @@ def export_all_questions(
     )
 
 
-@router.get("/questions/pool-preview")
-def pool_preview(
-    specialty: str = Query(...),
-    topic_filter: Optional[str] = Query(default=None),
-    db: Session = Depends(get_db),
-):
-    """Return available counts broken down by difficulty for one specialty."""
-    q = db.query(
-        AssessmentQuestion.difficulty,
-        func.count(AssessmentQuestion.id),
-    ).filter(
-        AssessmentQuestion.specialty == specialty,
-        AssessmentQuestion.status == "Active",
-    )
-    if topic_filter:
-        topics = [t.strip() for t in topic_filter.split(",") if t.strip()]
-        if len(topics) == 1:
-            q = q.filter(AssessmentQuestion.topic.ilike(f"%{topics[0]}%"))
-        elif topics:
-            from sqlalchemy import or_
-            q = q.filter(or_(*[AssessmentQuestion.topic.ilike(f"%{t}%") for t in topics]))
-    rows = q.group_by(AssessmentQuestion.difficulty).all()
-
-    counts = {"Easy": 0, "Medium": 0, "Hard": 0}
-    for diff, cnt in rows:
-        if diff in counts:
-            counts[diff] = cnt
-
-    return {
-        "specialty": specialty,
-        "active_count": sum(counts.values()),
-        "easy": counts["Easy"],
-        "medium": counts["Medium"],
-        "hard": counts["Hard"],
-    }
-
-
 @router.get("/questions")
 def list_questions(
     specialty: Optional[str] = Query(default=None),
