@@ -212,6 +212,24 @@ covers principal diagnosis, CC/MCC secondaries, PCS, CPT, modifier and units.
 API from `routers/auditor_pkg/shared.py`. A screen that assumes IP-DRG shape
 breaks the other nine.
 
+**E/M levels move along a ladder.** New-patient office, established office and
+ED are three separate ladders; critical care (99291/99292) sits outside them
+all. A level error is a near miss along one ladder — 99213 for 99214 — or the
+same level on the wrong ladder, which is the new-versus-established mistake.
+`services/em_levels.py` holds the ladders and the classifier; both modules
+import it rather than restating the rules.
+
+**The direction of a level error is the finding.** Upcoding is what payers
+audit for and what coders are trained to avoid; downcoding is revenue quietly
+left on the table with nobody watching. Same error count, opposite problems.
+
+**99285 vs 99291 is the hardest question in the ED** — whether the condition
+qualifies as critical care at all — and it is the one planting the generator
+may not invent. An answer key says which code is right, not whether the call
+was close, so it is planted only where a trainer has set
+`AnswerKey.cc_boundary = "borderline"`. The 99292 unit count is NOT where
+coders go wrong; it follows from the time.
+
 ### The Auditor module
 
 **Charts must render identically whether or not they carry errors.** A clean
