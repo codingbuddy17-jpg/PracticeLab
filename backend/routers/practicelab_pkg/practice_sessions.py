@@ -23,6 +23,7 @@ from services.grading_engine import (
     IPAnswerKey, OPAnswerKey, IPSubmission, OPSubmission,
     DEFAULT_IP_CFG, DEFAULT_OP_CFG, DEFAULT_EDSP_CFG, norm_units,
 )
+from .em_grading import _LEVEL_ORDER, derive_mdm_level, em_code_to_level
 from .shared import _is_ip, _is_ed, MASTER_PASSPHRASE, assert_batch_open
 from .chart_grading import _grade_chart_for_sp
 
@@ -1476,8 +1477,42 @@ def _em_breakdown(db, batch_id=None, specialty=None, from_date=None, to_date=Non
         # reasoning points were earned.
         right_code_wrong_reasoning = em_level_match and ra_total < ra_half
 
+        # ── does the coder's own reasoning support the level they chose? ────
+        #
+        # TRAINER-SIDE ONLY, and computed after grading. Put in front of a
+        # coder mid-session this would be self-defeating: they would nudge one
+        # element until the warning stopped, and the measurement would become
+        # "can you satisfy a validator" rather than "can you code".
+        #
+        # It costs no marks either. COPA, Data Review, Risk and the E/M level
+        # are each already scored on their own, so a coder who gets the
+        # elements right and the level wrong has already lost the level's
+        # marks. What this adds is the PATTERN across charts, and its
+        # direction: consistently coding above what the elements support is
+        # upcoding drift, consistently below is undercoding, and the two need
+        # opposite conversations.
+        implied = chosen = None
+        if copa_row and dr_row and risk_row and em_row:
+            stated = [str((r or {}).get("coder_code") or "") for r in
+                      (copa_row, dr_row, risk_row)]
+            if all(stated):
+                implied = derive_mdm_level(*stated)
+            chosen = em_code_to_level(str(em_row.get("coder_code") or ""))
+        consistency = None
+        if implied and chosen:
+            if implied == chosen:
+                consistency = "consistent"
+            else:
+                consistency = ("above" if _LEVEL_ORDER.get(chosen, 0)
+                               > _LEVEL_ORDER.get(implied, 0) else "below")
+
         chart_entry = {
             "chart_id": chart_id, "chart_number": chart_number,
+            # None where the coder did not state all three elements, or chose a
+            # code that carries no MDM level (99211 is a nurse visit). Absent
+            # is not the same as consistent and must not be counted as one.
+            "mdm_consistency": consistency,
+            "mdm_implied": implied, "mdm_chosen": chosen,
             "total_score": total_score, "pass_fail": pass_fail,
             "coding_accuracy": round(ca_total, 1), "reasoning_accuracy": round(ra_total, 1),
             "copa_pts": round(copa_pts, 1), "dr_pts": round(dr_pts, 1), "risk_pts": round(risk_pts, 1),
@@ -1508,6 +1543,12 @@ def _em_breakdown(db, batch_id=None, specialty=None, from_date=None, to_date=Non
             "avg_total": round(sum(c["total_score"] for c in charts) / n, 1),
             "avg_coding_accuracy": round(sum(c["coding_accuracy"] for c in charts) / n, 1),
             "avg_reasoning_accuracy": round(sum(c["reasoning_accuracy"] for c in charts) / n, 1),
+            # Counted over the charts where it could be judged, not over all —
+            # a coder who left elements blank must not read as consistent.
+            "mdm_judged": sum(1 for c in charts if c["mdm_consistency"]),
+            "mdm_consistent": sum(1 for c in charts if c["mdm_consistency"] == "consistent"),
+            "mdm_above": sum(1 for c in charts if c["mdm_consistency"] == "above"),
+            "mdm_below": sum(1 for c in charts if c["mdm_consistency"] == "below"),
             "copa_pct": round(100 * sum(1 for c in charts if c["copa_match"]) / n, 1),
             "dr_pct": round(100 * sum(1 for c in charts if c["dr_match"]) / n, 1),
             "risk_pct": round(100 * sum(1 for c in charts if c["risk_match"]) / n, 1),
@@ -1528,6 +1569,11 @@ def _em_breakdown(db, batch_id=None, specialty=None, from_date=None, to_date=Non
         "risk_pct": round(100 * sum(1 for c in all_charts if c["risk_match"]) / n_all, 1),
         "em_level_pct": round(100 * sum(1 for c in all_charts if c["em_level_match"]) / n_all, 1),
         "right_code_wrong_reasoning_count": sum(1 for c in all_charts if c["right_code_wrong_reasoning"]),
+        # Team-level MDM consistency, over the charts where it could be judged.
+        "mdm_judged": sum(1 for c in all_charts if c["mdm_consistency"]),
+        "mdm_consistent": sum(1 for c in all_charts if c["mdm_consistency"] == "consistent"),
+        "mdm_above": sum(1 for c in all_charts if c["mdm_consistency"] == "above"),
+        "mdm_below": sum(1 for c in all_charts if c["mdm_consistency"] == "below"),
         "pass_count": sum(1 for c in all_charts if c["pass_fail"] == "PASS"),
     }
 

@@ -1353,6 +1353,17 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
                   maxLength={10}
                 />
                 <CodeSays info={describePcs(row.code)} />
+                {/* A seven-character string that is not one of the combinations
+                    the CMS tables define. This says the code does not EXIST —
+                    a typo check, the same class as the shape check above it.
+                    It never suggests what the right code is, and never blocks:
+                    the tables may be a year old and the coder may be right. */}
+                {describePcs.knownAbsent(row.code, 'ICD10PCS')
+                  && checkPcs(row.code).ok && (
+                  <div style={s.notACode}>
+                    Not a valid PCS combination — check the characters
+                  </div>
+                )}
               </div>
               <button onClick={() => removePcs(i)} style={s.removeBtn}><X size={14} /></button>
             </div>
@@ -1822,6 +1833,11 @@ const s: Record<string, React.CSSProperties> = {
   // One line. A PCS description runs to ninety characters and wrapping it
   // pushed every row below it down; the field is full width here, so there is
   // room for the whole thing.
+  notACode: {
+    fontSize: 11, lineHeight: 1.35, color: '#b45309', marginTop: 3,
+    background: '#fffbeb', border: '1px solid #fde68a',
+    borderLeft: '3px solid #f59e0b', borderRadius: 6, padding: '4px 9px',
+  } as const,
   codeSays: {
     fontSize: 11, lineHeight: 1.35, color: '#334155', marginTop: 3,
     background: '#f8fafc', border: '1px solid #e2e8f0',

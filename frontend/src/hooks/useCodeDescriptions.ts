@@ -15,6 +15,10 @@ import { CodeInfo, describeCodes } from '../api/codesApi'
  */
 export function useCodeDescriptions(codes: string[], section?: string) {
   const cache = useRef<Record<string, CodeInfo | null>>({})
+  // Which code systems have rows. Needed to read an absent description
+  // correctly: it means "no such code" only when the table it would live in
+  // was actually loaded.
+  const loaded = useRef<Record<string, boolean>>({})
   const inFlight = useRef<Set<string>>(new Set())
   const [, bump] = useState(0)
 
@@ -28,8 +32,9 @@ export function useCodeDescriptions(codes: string[], section?: string) {
     if (!missing.length) return
     missing.forEach(c => inFlight.current.add(c))
     let cancelled = false
-    describeCodes(missing, section).then(found => {
+    describeCodes(missing, section).then(({ descriptions: found, systemsLoaded }) => {
       if (cancelled) return
+      loaded.current = { ...loaded.current, ...systemsLoaded }
       missing.forEach(c => {
         // null, not undefined: "asked and there is none" is different from
         // "not asked yet", and only the second should trigger another request.
@@ -41,8 +46,23 @@ export function useCodeDescriptions(codes: string[], section?: string) {
     return () => { cancelled = true; missing.forEach(c => inFlight.current.delete(c)) }
   }, [key, section])   // eslint-disable-line react-hooks/exhaustive-deps
 
-  return (code: string): CodeInfo | null => {
+  const describe = (code: string): CodeInfo | null => {
     const bare = (code || '').trim().toUpperCase().replace(/\./g, '')
     return bare ? (cache.current[bare] ?? null) : null
   }
+  /**
+   * Whether a system's table is loaded, so a caller can tell "this code does
+   * not exist" from "nobody ran the ingest".
+   */
+  describe.systemLoaded = (system: string) => !!loaded.current[system]
+  /**
+   * Whether a code was asked about and came back unknown — the only state in
+   * which "no such code" can honestly be said.
+   */
+  describe.knownAbsent = (code: string, system: string) => {
+    const bare = (code || '').trim().toUpperCase().replace(/\./g, '')
+    return !!loaded.current[system] && bare in cache.current
+      && cache.current[bare] === null
+  }
+  return describe
 }

@@ -22,16 +22,25 @@ export type CodeInfo = {
   billable?: boolean
 }
 
-export async function describeCodes(codes: string[], section?: string) {
+export type DescribeResult = {
+  descriptions: Record<string, CodeInfo>
+  /** Which systems have rows. Empty when nothing was loaded. */
+  systemsLoaded: Record<string, boolean>
+}
+
+export async function describeCodes(codes: string[], section?: string): Promise<DescribeResult> {
   const wanted = Array.from(new Set(codes.map(c => (c || '').trim()).filter(Boolean)))
-  if (!wanted.length) return {} as Record<string, CodeInfo>
+  if (!wanted.length) return { descriptions: {}, systemsLoaded: {} }
   try {
     const { data } = await api.get('/codes/describe', {
       params: { codes: wanted.join(','), section },
     })
-    return (data.descriptions || {}) as Record<string, CodeInfo>
+    return {
+      descriptions: (data.descriptions || {}) as Record<string, CodeInfo>,
+      systemsLoaded: (data.systems_loaded || {}) as Record<string, boolean>,
+    }
   } catch {
-    return {} as Record<string, CodeInfo>
+    return { descriptions: {}, systemsLoaded: {} }
   }
 }
 

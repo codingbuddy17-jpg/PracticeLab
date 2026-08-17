@@ -3091,6 +3091,17 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                     { label: 'Coding Accuracy', value: `${t.avg_coding_accuracy.toFixed(1)} pts`, color: '#7c3aed' },
                     { label: 'Reasoning Accuracy', value: `${t.avg_reasoning_accuracy.toFixed(1)} pts`, color: '#0891b2' },
                     { label: 'Right Code, Wrong Reasoning', value: `${t.right_code_wrong_reasoning_count}`, color: '#f59e0b', sub: 'charts' },
+                    // Does the coder's own reasoning support the level they
+                    // chose? Counted only over charts where all three elements
+                    // were stated and the code carries an MDM level — a blank
+                    // is not a consistent answer. Direction matters more than
+                    // the count: above is upcoding drift, below is undercoding.
+                    ...(emBreakdown.mdm_judged > 0 ? [{
+                      label: 'MDM Consistency',
+                      value: `${Math.round(emBreakdown.mdm_consistent / emBreakdown.mdm_judged * 100)}%`,
+                      color: '#0f766e',
+                      sub: `${emBreakdown.mdm_above} above · ${emBreakdown.mdm_below} below · of ${emBreakdown.mdm_judged}`,
+                    }] : []),
                   ].map(tile => (
                     <div key={tile.label} style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '14px 16px', textAlign: 'center' }}>
                       <div style={{ fontSize: 22, fontWeight: 800, color: tile.color }}>{tile.value}</div>

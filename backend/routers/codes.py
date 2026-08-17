@@ -47,6 +47,17 @@ def _system_for(section: Optional[str], system: Optional[str]) -> Optional[str]:
     return SECTION_SYSTEM.get((section or "").upper())
 
 
+def _systems_loaded(db) -> dict:
+    """Which code systems have rows, so absence can be read correctly."""
+    try:
+        rows = (db.query(CodeDescription.code_system)
+                .distinct().all())
+        present = {r[0] for r in rows}
+    except Exception:
+        return {}
+    return {s: (s in present) for s in SYSTEMS}
+
+
 @router.get("/describe")
 def describe(codes: str = Query(..., description="comma separated"),
              system: Optional[str] = None,
@@ -86,7 +97,12 @@ def describe(codes: str = Query(..., description="comma separated"),
             "chapter_no": row.chapter_no,
             "billable": row.is_billable,
         })
-    return {"descriptions": out, "asked": len(wanted), "found": len(out)}
+    # Which systems have ANY rows. Without this a caller cannot tell "that is
+    # not a real code" from "nobody ran the ingest" — both look like an absent
+    # description, and warning a coder about a perfectly good code because the
+    # tables are empty would be worse than saying nothing.
+    return {"descriptions": out, "asked": len(wanted), "found": len(out),
+            "systems_loaded": _systems_loaded(db)}
 
 
 @router.get("/search")

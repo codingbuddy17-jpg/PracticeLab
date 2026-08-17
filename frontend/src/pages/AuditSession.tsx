@@ -696,7 +696,8 @@ function SectionBlock({ spec, chart, state, onVerdict, onUpsert }: {
                       </span>
                     )}
                     <button onClick={() => removeAdd(i)} style={s.iconBtn}><X size={13} /></button>
-                    <CodeCaption describe={describe} code={f.correct_value || ''} />
+                    <CodeCaption describe={describe} section={key}
+                      code={f.correct_value || ''} />
                   </div>
                 ))}
                 <button onClick={newAdd} style={{ ...s.addBtn, color: ACTION_COLOR.Add,
@@ -740,7 +741,7 @@ function PdxRow({ chart, spec, open, revisionOf, setRevision, describe }: {
         />
       ))}
       {!open && <span style={s.lockedNote}>Reviewed as coded</span>}
-      <CodeCaption describe={describe}
+      <CodeCaption describe={describe} section="PDx"
         code={revisionOf(0, 'code')?.correct_value ?? values.code} />
     </div>
   )
@@ -807,7 +808,7 @@ function LineRow({ index, row, fields, open, deleted, canDelete, revisionOf, set
           {deleted ? <><X size={12} /> Undo</> : <><Trash2 size={12} /> Delete</>}
         </button>
       )}
-      <CodeCaption describe={describe}
+      <CodeCaption describe={describe} section={section}
         code={revisionOf(index, 'code')?.correct_value ?? String(row.code ?? '')} />
     </div>
   )
@@ -954,12 +955,25 @@ function Field({ label, value, open, revision, strike, onChange, section, field,
  * CPT lines stay bare: those descriptions are AMA-licensed and this app does
  * not carry them.
  */
-function CodeCaption({ code, describe }: {
+function CodeCaption({ code, describe, section }: {
   code: string
-  describe?: (code: string) => CodeInfo | null
+  section?: string
+  describe?: any
 }) {
   if (!describe) return null
   const info = describe(code || '')
+  // A seven-character PCS string that is not one of the combinations the CMS
+  // tables define. Said only when the tables were actually loaded — otherwise
+  // an absent description means nobody ran the ingest, not that the code is
+  // wrong. Never blocks: the loaded edition may be older than the claim.
+  if (!info && String(section || '').toUpperCase() === 'PCS'
+      && describe.knownAbsent?.(code, 'ICD10PCS')) {
+    return (
+      <div style={s.notACode}>
+        {code} is not a valid PCS combination
+      </div>
+    )
+  }
   if (!info) return null
   // The long description, not the short one. The short form is an abbreviated
   // abbreviated field built for narrow print columns ("Ketorolac tromethamine inj") and
@@ -1153,6 +1167,12 @@ const s: Record<string, React.CSSProperties> = {
   // text that drifted loose under the row. Slate on a tinted ground: enough
   // contrast to be read at a glance, not enough to compete with the codes,
   // which are what the auditor is actually working on.
+  notACode: {
+    flexBasis: '100%', fontSize: 11, lineHeight: 1.4, color: '#b45309',
+    marginTop: 6, marginLeft: 16, padding: '4px 9px',
+    background: '#fffbeb', border: '1px solid #fde68a',
+    borderLeft: '3px solid #f59e0b', borderRadius: 6,
+  } as const,
   codeCaption: {
     flexBasis: '100%', fontSize: 11, lineHeight: 1.4, color: '#334155',
     marginTop: 6, marginLeft: 16, padding: '4px 9px',
