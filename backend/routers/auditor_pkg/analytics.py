@@ -31,7 +31,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from models import AuditBatch, AuditResult, Chart
-from services.code_enrichment import (ccmcc_label, chapter_label,
+from services.code_enrichment import (axis_themes, ccmcc_label, chapter_label,
                                       enrich_codes, lookup)
 from services.icd_chapters import chapter_for
 from services.audit_scoring import blended_score
@@ -478,6 +478,30 @@ def by_batch(batch_id: Optional[int] = None, specialty: Optional[str] = None,
     return {"batches": out, "matched": matched}
 
 
+def _auditor_gaps(db, scoped, top: int = 3) -> list:
+    """
+    The themes among the findings one auditor MISSED.
+
+    Missed only — a planting they caught is not a gap, and mixing the two would
+    rank an auditor's strongest area alongside their weakest purely on volume.
+    """
+    pairs = []
+    for r in scoped.all():
+        for entry in (r.feedback or []):
+            planting = entry.get("planting")
+            if not planting:
+                continue
+            if (entry.get("outcome") or "missed") == "correct":
+                continue
+            code = planting.get("correct_value")
+            if code:
+                pairs.append((planting.get("section"), code))
+    if not pairs:
+        return []
+    enriched = enrich_codes(db, pairs)
+    return axis_themes(pairs, enriched, top=top) if enriched else []
+
+
 @router.get("/analytics/by-auditor")
 def by_auditor(batch_id: Optional[int] = None, specialty: Optional[str] = None,
                auditor: Optional[str] = None, search: Optional[str] = None,
@@ -528,9 +552,50 @@ def by_auditor(batch_id: Optional[int] = None, specialty: Optional[str] = None,
             "batches": scoped.with_entities(
                 func.count(func.distinct(AuditResult.batch_id))).scalar() or 0,
             **_roll_sql(db, scoped, cfg),
+            # What this auditor keeps missing, as a theme rather than a list of
+            # codes. "Missed SDx" says which box; "circulatory diagnoses, MCC
+            # secondaries" is the coaching conversation.
+            "knowledge_gaps": _auditor_gaps(db, scoped),
         })
     return {"auditors": out, "matched": matched,
             "pass_threshold": cfg.pass_threshold}
+
+
+def _chart_focus(db, chart_ids, batch_id, specialty, auditor,
+                 from_date, to_date) -> dict:
+    """
+    The dominant theme among each chart's planted errors.
+
+    A second pass: chart signals is a SQL aggregate and the plantings live in a
+    JSON column, so this reads them for the charts on the page only. Returns
+    {chart_id: {kind, label, count}} with nothing for charts whose errors share
+    no theme, which is the common answer at small volumes and a real one.
+    """
+    if not chart_ids:
+        return {}
+    rows = (_base_query(db, batch_id, specialty, auditor, from_date, to_date)
+            .filter(AuditResult.chart_id.in_(list(chart_ids))).all())
+    pairs_by_chart: dict = {}
+    for r in rows:
+        for entry in (r.feedback or []):
+            planting = entry.get("planting")
+            if not planting:
+                continue
+            code = planting.get("correct_value")
+            if code:
+                pairs_by_chart.setdefault(r.chart_id, []).append(
+                    (planting.get("section"), code))
+    if not pairs_by_chart:
+        return {}
+    enriched = enrich_codes(db, [p for ps in pairs_by_chart.values() for p in ps])
+    if not enriched:
+        return {}
+    out = {}
+    for chart_id, pairs in pairs_by_chart.items():
+        themes = axis_themes(pairs, enriched)
+        if themes:
+            out[chart_id] = themes[0]
+    return out
 
 
 @router.get("/analytics/chart-signals")
@@ -701,6 +766,14 @@ def chart_signals(batch_id: Optional[int] = None, specialty: Optional[str] = Non
             "review_priority": priority,
             "signal": " · ".join(signals),
         })
+
+    # What each chart's planted errors are ABOUT, so a trainer can tell whether
+    # it is the right chart to drill a weakness with. Same rule and same
+    # threshold as the coder module — a theme, not an incident.
+    focus = _chart_focus(db, [c["chart_id"] for c in out],
+                         batch_id, specialty, auditor, from_date, to_date)
+    for row in out:
+        row["focus"] = focus.get(row["chart_id"])
     return {"charts": out, **totals}
 
 

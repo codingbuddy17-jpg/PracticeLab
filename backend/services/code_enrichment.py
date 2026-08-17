@@ -179,3 +179,48 @@ def pcs_axis_labels(info: Optional[dict]) -> dict:
     if not info or not info.get("pcs"):
         return {}
     return {k: v for k, v in info["pcs"].items() if v}
+
+
+# A theme has to be a PATTERN, not an incident. Two errors sharing an axis is a
+# coincidence at training volumes, and a label that reads as insight and is
+# noise is worse than silence — it sends someone to study the wrong thing.
+AXIS_MIN = 3
+
+
+def axis_themes(pairs, enriched: dict, minimum: int = AXIS_MIN,
+                top: Optional[int] = None) -> list:
+    """
+    What a set of (section, code) pairs have in common, ranked.
+
+    One implementation for every caller: the coder's knowledge gaps and chart
+    teaching focus, and the auditor's equivalents. The rule for what counts as
+    a theme has been re-spelled at each call site before in this codebase, and
+    that is how two screens end up disagreeing about the same word.
+
+    Returns [] when nothing clears the bar, which is a real answer — these
+    errors do not share a theme.
+    """
+    counts: dict = {}
+
+    def bump(kind, label):
+        if label:
+            counts[(kind, label)] = counts.get((kind, label), 0) + 1
+
+    for section, code in pairs:
+        info = lookup(enriched, section, code)
+        if not info:
+            continue
+        bump("Diagnosis chapter", chapter_label(info))
+        if str(getattr(section, "value", section)).upper() == "SDX":
+            severity = ccmcc_label(info)
+            # "Neither" is the ABSENCE of a theme, not a theme.
+            if severity in ("CC", "MCC"):
+                bump("CC/MCC", severity)
+        for axis, value in pcs_axis_labels(info).items():
+            if axis in ("root_operation", "approach", "device"):
+                bump("PCS " + axis.replace("_", " "), value)
+
+    rows = [{"kind": k, "label": v, "count": n}
+            for (k, v), n in counts.items() if n >= minimum]
+    rows.sort(key=lambda x: -x["count"])
+    return rows[:top] if top else rows

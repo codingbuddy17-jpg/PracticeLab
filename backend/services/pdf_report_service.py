@@ -845,6 +845,19 @@ def generate_audit_auditor_report_pdf(data: dict) -> bytes:
                 for w in weakest[:8]]
         elements.append(_audit_data_table(["Pattern", "Caught", "Basis"], rows, [3, 1, 1.3]))
 
+    # Three lines, deliberately. "What to coach next" above names the MECHANIC
+    # — root operation, over-call — and this names the SUBJECT. A report that
+    # turns into a second workbook stops being read, so the axes get their
+    # headline and the detail stays in the export.
+    gaps = (data.get("auditor") or {}).get("knowledge_gaps") or []
+    if gaps:
+        _audit_section_heading(elements, "Knowledge Areas To Coach")
+        rows = [[Paragraph(g.get("kind", ""), NORMAL),
+                 Paragraph(f"<b>{g.get('label', '')}</b>", NORMAL),
+                 Paragraph(f"{g.get('count', 0)} missed", NORMAL)]
+                for g in gaps[:3]]
+        elements.append(_audit_data_table(["Area", "Where", "Basis"], rows, [1.2, 3, 1.1]))
+
     batches = data.get("batches") or []
     if batches:
         _audit_section_heading(elements, "Batch History")

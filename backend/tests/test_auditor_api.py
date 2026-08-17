@@ -660,9 +660,16 @@ class TestExports:
         r = client.get("/auditor/analytics/export")
         assert r.status_code == 200, r.text
         wb = self._sheets(r.content)
-        assert set(wb.sheetnames) == {
-            "Overview", "By_Specialty", "By_Batch", "By_Auditor",
-            "Detection_Patterns", "Real_vs_Generated", "Chart_Signals"}
+        core = {"Overview", "By_Specialty", "By_Batch", "By_Auditor",
+                "Detection_Patterns", "Real_vs_Generated", "Chart_Signals"}
+        assert core <= set(wb.sheetnames), "a tab lost its sheet"
+        # The clinical-axis sheets appear only when there is something to put
+        # in them — no chapter sheet when nothing was described, no PCS sheet
+        # on an outpatient batch — so they are matched by shape rather than
+        # pinned by name. Anything OUTSIDE both sets is an accident.
+        extra = set(wb.sheetnames) - core
+        assert all(name == "By_Chapter" or name.startswith("PCS_")
+                   for name in extra), f"unexpected sheets: {sorted(extra)}"
 
     def test_the_key_library_exports_one_row_per_error(self, client, db, library):
         client.post(f"/auditor/keys/chart/{library[0].id}", json={

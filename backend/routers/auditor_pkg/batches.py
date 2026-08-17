@@ -30,6 +30,8 @@ from services.audit_allocation import (
     resolve_source,
 )
 from services.audit_mutation import TYPICAL_CODE_LINES_PER_CHART
+from services.code_enrichment import (ccmcc_label, chapter_label,
+                                      enrich_codes, lookup, pcs_axis_labels)
 from .shared import (
     chart_pool, get_batch_or_404, mutation_config, parse_specialty,
     require_passphrase, scoring_config, sets_by_chart,
@@ -504,6 +506,34 @@ def review_plantings(batch_id: int, auditor: Optional[str] = None,
     total = q.count()
     rows = (q.order_by(AuditAssignment.auditor_name, Chart.chart_number)
             .limit(limit).offset(offset).all())
+
+    # What each planted code IS. This screen is the QA step before an auditor
+    # sees the chart, and judging whether "0DTJ4ZZ should be 0DTJ0ZZ" is a
+    # sensible thing to ask means knowing that it is a change of approach on a
+    # resection of the appendix. Built once for the page rather than per row.
+    described = enrich_codes(db, [
+        (p.get("section"), p.get(field))
+        for a, _c in rows for p in (a.ground_truth or [])
+        for field in ("correct_value", "claim_value")])
+
+    def _caption(planting: dict) -> dict:
+        out = {}
+        for field, name in (("correct_value", "correct"), ("claim_value", "claim")):
+            info = lookup(described, planting.get("section"), planting.get(field))
+            if not info:
+                continue
+            axes = pcs_axis_labels(info)
+            out[name] = {
+                "description": info.get("description"),
+                "chapter": chapter_label(info),
+                # A secondary's severity is the reason it was chosen to break,
+                # so it belongs on the row a trainer is judging.
+                "cc_mcc": (ccmcc_label(info)
+                           if str(planting.get("section") or "").upper() == "SDX"
+                           else None),
+                "pcs": axes or None,
+            }
+        return out
     # The claim is the heaviest thing on the row and the screen does not render
     # it — a batch of 500 assignments was shipping 500 full claims to draw a
     # list of summaries.
@@ -515,7 +545,8 @@ def review_plantings(batch_id: int, auditor: Optional[str] = None,
         "query_expected": a.query_expected,
         "opened": a.opened_at is not None,
         "locked": a.opened_at is not None,
-        "ground_truth": a.ground_truth or [],
+        "ground_truth": [{**p, "codes": _caption(p)}
+                         for p in (a.ground_truth or [])],
         **({"claim": a.claim or {}} if include_claim else {}),
     } for a, c in rows]}
 

@@ -8,8 +8,9 @@ from sqlalchemy.orm import Session, selectinload, joinedload
 from sqlalchemy import func, Integer, text
 from database import get_db
 from models import Batch, BatchCoder, BatchStatus, GradingResult, GradingFeedback, Chart, PassFail, Specialty, ScoringConfig
-from services.code_enrichment import (ccmcc_label, chapter_label, enrich_codes,
-                                      is_licensed_cpt, lookup, pcs_axis_labels)
+from services.code_enrichment import (axis_themes, ccmcc_label, chapter_label,
+                                      enrich_codes, is_licensed_cpt, lookup,
+                                      pcs_axis_labels)
 from services.pdf_report_service import generate_coder_report_pdf
 from .shared import _uses_dpo
 from services.download_headers import content_disposition
@@ -124,51 +125,17 @@ def _is_unspecified(info) -> bool:
     return "unspecified" in text_ or text_.endswith(", nos")
 
 
-# Same reasoning as the teaching focus: a gap has to be a pattern. Two errors
-# sharing a chapter is a coincidence, and a coaching note built on one is worse
-# than none because it sends someone to study the wrong thing.
-GAP_MIN = 3
-
-
 def _knowledge_gaps(db, feedback, top=4) -> list:
     """
-    The themes running through one coder's errors.
-
-    Ranked by count, thresholded, and capped. Each row says how many errors it
-    covers so a trainer can see whether it is a habit or a handful.
+    The themes running through one coder's errors — the same rule the chart
+    teaching focus uses, so the two screens cannot drift apart on what counts.
     """
     pairs = [(f.section, f.ak_code or f.coder_code) for f in feedback
              if (f.ak_code or f.coder_code)]
     if not pairs:
         return []
     enriched = enrich_codes(db, pairs)
-    if not enriched:
-        return []
-
-    axes: dict = {}
-    for section, code in pairs:
-        info = lookup(enriched, section, code)
-        if not info:
-            continue
-        for kind, label in (("Diagnosis chapter", chapter_label(info)),):
-            if label:
-                axes.setdefault((kind, label), 0)
-                axes[(kind, label)] += 1
-        if str(getattr(section, "value", section)).upper() == "SDX":
-            severity = ccmcc_label(info)
-            if severity in ("CC", "MCC"):
-                axes.setdefault(("CC/MCC", severity), 0)
-                axes[("CC/MCC", severity)] += 1
-        for axis, value in pcs_axis_labels(info).items():
-            if axis in ("root_operation", "approach", "device"):
-                key = ("PCS " + axis.replace("_", " "), value)
-                axes.setdefault(key, 0)
-                axes[key] += 1
-
-    rows = [{"kind": k, "label": v, "count": n} for (k, v), n in axes.items()
-            if n >= GAP_MIN]
-    rows.sort(key=lambda x: -x["count"])
-    return rows[:top]
+    return axis_themes(pairs, enriched, top=top) if enriched else []
 
 
 def _code_caption(info) -> dict:
@@ -1176,50 +1143,10 @@ TEACHING_YIELD_MIN_ATTEMPTS = 3
 TEACHING_FAIL_SHARE = 50           # share of attempts passing, NOT a score
 TEACHING_STRONG_SHARE = 80
 
-# A focus needs to be a PATTERN, not an incident. Two errors sharing an axis on
-# one chart is a coincidence at these volumes, and labelling a chart
-# "PCS Root Operation" off a single miss is the thin-row-as-pattern defect this
-# codebase has already paid for three times.
-TEACHING_FOCUS_MIN = 3
-
-
-def _teaching_focus(errors, enriched) -> Optional[dict]:
-    """
-    What a chart's errors have in common — a chapter, a CC/MCC class, or a PCS
-    character.
-
-    Returns the strongest axis, or None when nothing clears the bar. None means
-    "these errors do not share a theme", which is a real and common answer; the
-    alternative is a label that reads as insight and is noise.
-    """
-    axes: dict = {}
-
-    def bump(kind, label):
-        if label:
-            axes.setdefault((kind, label), 0)
-            axes[(kind, label)] += 1
-
-    for section, code in errors:
-        info = lookup(enriched, section, code)
-        if not info:
-            continue
-        bump("Diagnosis chapter", chapter_label(info))
-        if str(getattr(section, "value", section)).upper() == "SDX":
-            severity = ccmcc_label(info)
-            # "Neither" is not a teaching focus — it is the absence of one.
-            if severity in ("CC", "MCC"):
-                bump("CC/MCC", severity)
-        for axis, value in pcs_axis_labels(info).items():
-            if axis in ("root_operation", "approach", "device"):
-                bump("PCS " + axis.replace("_", " "), value)
-
-    if not axes:
-        return None
-    (kind, label), count = max(axes.items(), key=lambda kv: kv[1])
-    if count < TEACHING_FOCUS_MIN:
-        return None
-    return {"kind": kind, "label": label, "count": count}
-
+def _teaching_focus(errors, enriched):
+    """The strongest theme among one chart's errors, or None."""
+    rows = axis_themes(errors, enriched)
+    return rows[0] if rows else None
 
 
 @router.get("/analytics/chart-teaching-value")

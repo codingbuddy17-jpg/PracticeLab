@@ -250,6 +250,38 @@ def export_analytics(overview: dict, batches: list[dict], auditors: list[dict],
                 f"introduced at least {detection.get('min_for_pattern', 5)} times "
                 "are worth acting on.")
 
+    # ── clinical axes, one sheet each ────────────────────────────────────────
+    #
+    # In a workbook these are worth a sheet apiece: a trainer slicing by
+    # chapter or root operation gets a pivot table for free, with none of it
+    # built into the app. Absent rather than empty when nothing was described —
+    # the code sets may not be loaded, and outpatient procedures are CPT.
+    _axis_cols = ["Group", "Introduced", "Caught", "Missed",
+                  "Corrected wrongly", "Caught %"]
+
+    def _axis_rows(rows):
+        return [[r.get("label"), r.get("planted"), r.get("found"),
+                 r.get("missed"), r.get("detected_not_corrected"),
+                 _na(r.get("accuracy"))] for r in (rows or [])]
+
+    if detection.get("by_chapter"):
+        _sheet(wb, "By_Chapter", _axis_cols, _axis_rows(detection["by_chapter"]),
+               note="Diagnosis errors by ICD-10-CM chapter — which body of "
+                    "knowledge the misses sit in, rather than which mechanic "
+                    "produced them.")
+    if detection.get("pcs_confusions"):
+        _sheet(wb, "PCS_Confusions", _axis_cols,
+               _axis_rows(detection["pcs_confusions"]),
+               note="The specific swap, from comparing the planted code with "
+                    "the correct one. Both are real codes, so the difference "
+                    "can be named rather than implied.")
+    for axis, rows in (detection.get("pcs_axes") or {}).items():
+        if rows:
+            _sheet(wb, "PCS_" + axis.replace("_", " ").title().replace(" ", "_"),
+                   _axis_cols, _axis_rows(rows),
+                   note="Read off the CORRECT code — what the procedure "
+                        "actually was.")
+
     _sheet(wb, "Real_vs_Generated",
            ["Source", "Introduced", "Caught", "Missed", "Caught %"],
            [[o.get("label"), o.get("planted"), o.get("found"), o.get("missed"),
