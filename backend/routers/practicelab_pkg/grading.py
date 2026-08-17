@@ -13,6 +13,7 @@ from models import (
     Submission, GradingResult, GradingFeedback, PassFail, ScoringConfig,
 )
 from services.excel_service import export_batch_results
+from services.grading_engine import finalize_ip_score
 from services.pdf_report_service import generate_batch_report_pdf
 from .shared import _is_ip, _uses_dpo
 from services.download_headers import content_disposition

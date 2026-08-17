@@ -102,6 +102,27 @@ class TestOpenBatchesAreUnaffected:
         r = client.post(f"/practicelab/practice-sessions/{sid}/regrade")
         assert r.status_code == 200, r.text
 
+    def test_standalone_drg_review_records_decision(self, client, db):
+        b, c = _batch(db, "Open DRG", status=BatchStatus.OPEN), _chart(db, "IP811")
+        gr = GradingResult(
+            batch_id=b.id, coder_name="Asha R", chart_id=c.id,
+            specialty=Specialty.IP_DRG, pdx_score=20, sdx_score=20,
+            pcs_score=20, total_score=60, pass_fail=PassFail.FAIL,
+            drg_flag=True, drg_reviewed=False,
+        )
+        db.add(gr); db.commit()
+
+        r = client.post(f"/practicelab/results/{gr.id}/drg-decision",
+                        json={"drg_error": False, "reviewer": "Trainer"})
+
+        assert r.status_code == 200, r.text
+        assert r.json()["total_score"] == 100
+        db.expire_all()
+        saved = db.query(GradingResult).filter(GradingResult.id == gr.id).first()
+        assert saved.drg_reviewed is True
+        assert saved.drg_reviewed_by == "Trainer"
+        assert saved.pass_fail == PassFail.PASS
+
 
 class TestReopen:
     """force-close can close a batch with work outstanding — without a way back
