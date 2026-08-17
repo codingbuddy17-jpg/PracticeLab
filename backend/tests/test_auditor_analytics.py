@@ -254,6 +254,44 @@ class TestDetectionPatterns:
         assert body["total_plantings"] == 0
         assert body["by_kind"] == [] and body["weakest"] == []
 
+    def test_mdm_patterns_are_split_by_field_and_level_impact(self, client, db):
+        """
+        MDM is scored as an ordinary planted Revise, but analytics must still
+        say which E/M judgement was involved and whether it moved the code.
+        """
+        from datetime import datetime
+        from models import AuditResult
+        from models.charts import Specialty
+
+        db.add(AuditResult(
+            session_id=1, assignment_id=1, chart_id=1, batch_id=1,
+            auditor_name="Asha", emp_id="E1", specialty=Specialty.EM,
+            is_clean=False, audit_accuracy=0.0,
+            revise_planted=2, revise_found=1, revise_accuracy=50.0,
+            review_total=1, review_correct=1, review_score=100.0,
+            feedback=[
+                {"outcome": "missed", "planting": {
+                    "kind": "mdm_shift", "section": "MDM", "action": "Revise",
+                    "field": "risk", "claim_value": "Low",
+                    "correct_value": "High", "moves_em_level": True}},
+                {"outcome": "correct", "planting": {
+                    "kind": "mdm_shift", "section": "MDM", "action": "Revise",
+                    "field": "copa", "claim_value": "Low",
+                    "correct_value": "Moderate", "moves_em_level": False}},
+            ],
+            scored_at=datetime(2026, 8, 10, 9),
+        ))
+        db.commit()
+
+        body = client.get("/auditor/analytics/detection").json()
+        fields = {r["label"]: r for r in body["by_mdm_field"]}
+        impact = {r["label"]: r for r in body["by_mdm_level_impact"]}
+
+        assert fields["Risk"]["missed"] == 1
+        assert fields["COPA"]["found"] == 1
+        assert impact["Moved E/M level"]["missed"] == 1
+        assert impact["Reasoning only"]["found"] == 1
+
 
 class TestScale:
     """

@@ -334,7 +334,7 @@ const SECTION_TONE: Record<string, string> = {
 }
 
 /**
- * POA and modifiers — reported, never in the denominator.
+ * POA, modifiers and E/M MDM — reported, never in the denominator.
  *
  * Each is an attribute OF a code line rather than a line of its own. Counting
  * them as opportunities doubled the denominator with judgements that are
@@ -342,7 +342,7 @@ const SECTION_TONE: Record<string, string> = {
  * and pass. They still get a percentage where they are real gradeable work.
  */
 function AttributeMetrics({ attributes }: { attributes: any }) {
-  const order = ['POA', 'Modifier']
+  const order = ['POA', 'Modifier', 'MDM', 'COPA', 'Data Review', 'Risk']
   return (
     <>
       {order.filter(k => attributes?.[k]?.total).map(k => (
@@ -591,7 +591,7 @@ function sectionMetricRows(row: any) {
 }
 
 function attributeMetricRows(row: any) {
-  const rows = ['POA', 'Modifier']
+  const rows = ['POA', 'Modifier', 'MDM', 'COPA', 'Data Review', 'Risk']
     .filter(k => row?.attributes?.[k]?.total)
     .map(k => ({
       kind: 'attribute', key: k, label: `${k} Score`,
@@ -898,6 +898,14 @@ function ErrorPatternsTab({ data, threshold, filters }: {
         <Bucket threshold={threshold} minForPattern={data.min_for_pattern}
           onDrill={drillKind} title="E/M Level Errors by Direction"
           rows={data.by_level_direction} />
+      )}
+      {data.by_mdm_field?.length > 0 && (
+        <Bucket threshold={threshold} minForPattern={data.min_for_pattern}
+          title="MDM Reasoning Area" rows={data.by_mdm_field} />
+      )}
+      {data.by_mdm_level_impact?.length > 0 && (
+        <Bucket threshold={threshold} minForPattern={data.min_for_pattern}
+          title="MDM Impact on E/M Level" rows={data.by_mdm_level_impact} />
       )}
       {data.pcs_characters?.length > 0 && (
         <Bucket threshold={threshold} minForPattern={data.min_for_pattern}

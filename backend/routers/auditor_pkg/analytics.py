@@ -941,6 +941,8 @@ def detection_patterns(batch_id: Optional[int] = None,
     pcs_axes: dict = {}
     pcs_confusions: dict = {}
     by_direction: dict = {}
+    by_mdm_field: dict = {}
+    by_mdm_level_impact: dict = {}
     # Which BODY of knowledge the error sat in, not which mechanic produced it.
     # "Root operation errors are missed" tells a trainer what to drill;
     # "obstetric diagnoses are missed" tells them who to put on which charts,
@@ -986,6 +988,16 @@ def detection_patterns(batch_id: Optional[int] = None,
                 bump(by_direction,
                      "Coded above the truth" if planting["level_direction"] == "up"
                      else "Coded below the truth", outcome)
+            if (planting.get("section") or "").upper() == "MDM":
+                field_label = {
+                    "copa": "COPA",
+                    "dr": "Data Review",
+                    "risk": "Risk",
+                }.get(str(planting.get("field") or "").lower(), "MDM")
+                bump(by_mdm_field, field_label, outcome)
+                bump(by_mdm_level_impact,
+                     "Moved E/M level" if planting.get("moves_em_level")
+                     else "Reasoning only", outcome)
             if planting.get("pcs_character"):
                 bump(pcs_chars, planting["pcs_character"], outcome)
             _bump_pcs_axes(pcs_axes, pcs_confusions, planting, outcome,
@@ -1088,6 +1100,12 @@ def detection_patterns(batch_id: Optional[int] = None,
         "pcs_characters": shape(pcs_chars),
         # Detection by direction of the level error.
         "by_level_direction": shape(by_direction),
+        # E/M and ED Profee reasoning errors. These are not separate scoring
+        # machinery — they are ordinary planted findings — but the analytics
+        # need to say which MDM judgement they sat in and whether they moved
+        # the final E/M level.
+        "by_mdm_field": shape(by_mdm_field),
+        "by_mdm_level_impact": shape(by_mdm_level_impact),
         # Grouped by the value of each axis on the CORRECT code — what the
         # procedure actually was — so a trainer can see which body systems and
         # root operations the misses cluster in.

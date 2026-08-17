@@ -125,6 +125,8 @@ def _element_of(finding: dict) -> str:
     """Which config element a finding touches, for the over-call tier."""
     section = (finding.get("section") or "").upper()
     fld = (finding.get("field") or "code").lower()
+    if section == "MDM":
+        return "mdm"
     if fld == "modifier":
         return fld
     if fld == "units":
@@ -142,6 +144,26 @@ def _element_of(finding: dict) -> str:
         cc = str(finding.get("ccmcc") or "").upper()
         return "ccmcc_sdx" if cc in ("CC", "MCC") else "sdx"
     return "sdx"
+
+
+def _over_call_tier(over: list[dict], cfg: ScoringConfig) -> tuple[Optional[str], float]:
+    """
+    The worst kind of invented finding on this chart.
+
+    MDM gets its own tier. It is not revenue in the DRG/CPT sense, but on E/M
+    charts it is the clearest signal that the auditor is inventing reasoning
+    defects. Keeping it out of the SDx/non-revenue bucket lets analytics name
+    that behaviour directly.
+    """
+    if not over:
+        return None, 0.0
+    elements = {_element_of(f) for f in over}
+    revenue = set(cfg.revenue_elements or REVENUE_ELEMENTS_DEFAULT)
+    if elements & revenue:
+        return "revenue", float(cfg.over_call_revenue_pct)
+    if "mdm" in elements:
+        return "mdm", float(cfg.over_call_non_revenue_pct)
+    return "non_revenue", float(cfg.over_call_non_revenue_pct)
 
 
 # ── the chart score ──────────────────────────────────────────────────────────
@@ -269,11 +291,7 @@ def score_chart(ground_truth: list[dict], findings: list[dict],
     # One deduction per chart, sized by the worst category over-called — not
     # per finding. Identical on clean and opportunity charts.
     if over:
-        revenue = set(cfg.revenue_elements or REVENUE_ELEMENTS_DEFAULT)
-        tier = "revenue" if any(_element_of(f) in revenue for f in over) else "non_revenue"
-        score.over_call_tier = tier
-        score.over_call_deduction = float(
-            cfg.over_call_revenue_pct if tier == "revenue" else cfg.over_call_non_revenue_pct)
+        score.over_call_tier, score.over_call_deduction = _over_call_tier(over, cfg)
 
     # Query is binary per chart, so a fixed deduction rather than a fourth
     # weighted component — folding a 0-or-100 value into the weighted mean
@@ -360,6 +378,7 @@ LINE_SECTIONS = ("PDx", "SDx", "PCS", "CPT")
 # roughly doubled the denominator with judgements that are almost never wrong,
 # which pushed a passive auditor who flagged nothing to 94% and let them pass.
 ATTRIBUTE_SCORES = {"poa": "POA", "modifier": "Modifier"}
+MDM_FIELD_LABELS = {"copa": "COPA", "dr": "Data Review", "risk": "Risk"}
 
 
 def _line_key(entry: dict) -> tuple:
@@ -418,17 +437,38 @@ def _attribute_scores(claim: dict, matched: list, over: list,
     dx_lines = (1 if str(claim.get("pdx_code") or "").strip() else 0) \
         + _codes_in(claim.get("sdx"))
     cpt_lines = _codes_in(claim.get("cpt"))
+    mdm = claim.get("mdm") or {}
+    mdm_fields = [f for f in ("copa", "dr", "risk") if str(mdm.get(f) or "").strip()]
     totals = {"POA": dx_lines if poa_applies else 0,
-              "Modifier": cpt_lines}
-    defects = {"POA": 0, "Modifier": 0}
+              "Modifier": cpt_lines,
+              "MDM": len(mdm_fields)}
+    defects = {"POA": 0, "Modifier": 0, "MDM": 0}
+    mdm_breakdown = {MDM_FIELD_LABELS[f]: {"total": 1, "correct": 1}
+                     for f in mdm_fields}
+
+    def mark_mdm(field: str) -> None:
+        if field not in mdm_fields:
+            return
+        label = MDM_FIELD_LABELS[field]
+        if mdm_breakdown[label]["correct"]:
+            defects["MDM"] += 1
+        mdm_breakdown[label]["correct"] = 0
+
     for entry in matched or []:
         if entry.get("outcome") == "correct":
             continue
+        planting = entry.get("planting") or {}
+        if (planting.get("section") or "").upper() == "MDM":
+            mark_mdm((planting.get("field") or "").lower())
+            continue
         name = ATTRIBUTE_SCORES.get(
-            ((entry.get("planting") or {}).get("field") or "").lower())
+            (planting.get("field") or "").lower())
         if name:
             defects[name] += 1
     for finding in over or []:
+        if (finding.get("section") or "").upper() == "MDM":
+            mark_mdm((finding.get("field") or "").lower())
+            continue
         name = ATTRIBUTE_SCORES.get((finding.get("field") or "").lower())
         if name:
             defects[name] += 1
@@ -439,6 +479,8 @@ def _attribute_scores(claim: dict, matched: list, over: list,
         correct = max(0, total - defects[name])
         out[name] = {"total": total, "correct": correct,
                      "score": round(correct / total * 100, 2)}
+    for label, body in mdm_breakdown.items():
+        out[label] = {**body, "score": round(body["correct"] / body["total"] * 100, 2)}
     return out
 
 

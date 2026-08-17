@@ -434,6 +434,14 @@ class TestScope:
         assert sections["MDM"]["fields"] == ["copa", "dr", "risk"]
         assert sections["MDM"]["actions"] == ["Revise"]
 
+    def test_mdm_revision_does_not_need_a_code_line_number(self):
+        from routers.auditor_pkg.sessions import Finding, _finding_gap
+
+        finding = Finding(section="MDM", action="Revise", field="risk",
+                          correct_value="High")
+
+        assert _finding_gap(finding, Specialty.EM) is None
+
     def test_a_chart_with_no_answer_key_is_never_allocated(self, client, db, library):
         """
         There is no truth to plant errors in, so the auditor could only ever be

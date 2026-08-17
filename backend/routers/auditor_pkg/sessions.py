@@ -307,7 +307,7 @@ def _finding_gap(f: Finding, specialty: Optional[Specialty] = None) -> Optional[
         if f.line is None and not (f.claim_value or "").strip():
             return "nothing identified to delete"
     elif f.action == "Revise":
-        if f.line is None and f.section != "PDx":
+        if f.line is None and f.section not in {"PDx", "MDM"}:
             return "no line identified to revise"
         if not (f.correct_value or "").strip():
             return "no corrected value given"

@@ -35,6 +35,12 @@ def delete(line, code):
             "claim_value": code, "drg_impacting": False}
 
 
+def mdm(field, was, now, moves=False):
+    return {"section": "MDM", "action": "Revise", "field": field,
+            "claim_value": was, "correct_value": now,
+            "moves_em_level": moves, "drg_impacting": False}
+
+
 # ── the weighted mean ────────────────────────────────────────────────────────
 
 class TestWeighting:
@@ -179,6 +185,16 @@ class TestOverCalls:
                               "line": 0, "correct_value": "E11.22", "ccmcc": "MCC"}])
         assert s.over_call_tier == "revenue"
 
+    def test_an_mdm_over_call_gets_its_own_tier(self):
+        claim = {"mdm": {"copa": "Moderate", "dr": "Low", "risk": "High"}}
+        s = score_chart([], [{"section": "MDM", "action": "Revise",
+                              "field": "risk", "correct_value": "Moderate"}],
+                        claim=claim)
+        assert s.over_call_tier == "mdm"
+        assert s.audit_accuracy == 95.0
+        assert s.review_attributes["MDM"]["score"] == 66.67
+        assert s.review_attributes["Risk"]["score"] == 0.0
+
     def test_the_deduction_applies_on_opportunity_charts_too(self):
         s = score_chart([add("A1"), add("A2")],
                         [{"section": "SDx", "action": "Add", "correct_value": "A1"},
@@ -261,6 +277,38 @@ class TestCorrectionRequired:
                         [{"section": "SDx", "action": "Revise", "field": "code",
                           "line": 0, "correct_value": " e11.22 "}])
         assert s.revise_accuracy == 100.0
+
+    def test_mdm_revisions_match_on_field_without_a_line_number(self):
+        s = score_chart(
+            [mdm("risk", "Low", "High")],
+            [{"section": "MDM", "action": "Revise", "field": "risk",
+              "correct_value": "High"}],
+            claim={"mdm": {"copa": "Moderate", "dr": "Moderate", "risk": "Low"}},
+        )
+        assert s.revise_accuracy == 100.0
+        assert s.over_calls == 0
+        assert s.review_attributes["MDM"]["score"] == 100.0
+
+    def test_a_missed_mdm_finding_is_visible_in_the_mdm_review_score(self):
+        """
+        MDM stays outside the code-line denominator, but it cannot disappear.
+        A chart whose only planted error is Risk should show a Risk miss even
+        if every code line on the claim was otherwise left alone.
+        """
+        s = score_chart(
+            [mdm("risk", "Low", "High", moves=True)],
+            [],
+            claim={
+                "pdx_code": "J18.9",
+                "cpt": [{"code": "99214"}],
+                "mdm": {"copa": "Moderate", "dr": "Moderate", "risk": "Low"},
+            },
+        )
+        assert s.audit_accuracy == 0.0
+        assert s.review_score == 100.0
+        assert s.review_attributes["MDM"] == {
+            "total": 3, "correct": 2, "score": 66.67}
+        assert s.review_attributes["Risk"]["score"] == 0.0
 
 
 # ── matching rules ───────────────────────────────────────────────────────────
@@ -488,6 +536,23 @@ class TestSession:
         assert s.query_charts == 2
         assert s.query_correct == 1
         assert s.query_accuracy == 50.0
+
+    def test_mdm_review_attributes_pool_across_a_session(self):
+        one = score_chart(
+            [mdm("risk", "Low", "High")], [],
+            claim={"mdm": {"copa": "Moderate", "dr": "Moderate", "risk": "Low"}},
+        )
+        two = score_chart(
+            [mdm("copa", "Low", "Moderate")],
+            [{"section": "MDM", "action": "Revise", "field": "copa",
+              "correct_value": "Moderate"}],
+            claim={"mdm": {"copa": "Low", "dr": "Moderate", "risk": "Moderate"}},
+        )
+        s = score_session([one, two])
+        assert s.review_attributes["MDM"] == {
+            "total": 6, "correct": 5, "score": 83.33}
+        assert s.review_attributes["COPA"]["score"] == 100.0
+        assert s.review_attributes["Risk"]["score"] == 50.0
 
     def test_a_session_with_no_queries_reports_NA(self):
         s = score_session([_clean(), _clean()])
