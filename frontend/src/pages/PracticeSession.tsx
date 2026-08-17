@@ -1823,9 +1823,10 @@ const s: Record<string, React.CSSProperties> = {
   // pushed every row below it down; the field is full width here, so there is
   // room for the whole thing.
   codeSays: {
-    fontSize: 11, lineHeight: 1.35, color: '#4b5563', marginTop: 3,
-    background: '#f8fafc', border: '1px solid #eef2f7', borderRadius: 5,
-    padding: '3px 7px',
+    fontSize: 11, lineHeight: 1.35, color: '#334155', marginTop: 3,
+    background: '#f8fafc', border: '1px solid #e2e8f0',
+    borderLeft: '3px solid #cbd5e1', borderRadius: 6,
+    padding: '4px 9px',
     whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
   } as const,
   feedbackSays: {

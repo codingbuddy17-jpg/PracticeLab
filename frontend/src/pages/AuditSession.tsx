@@ -1134,8 +1134,14 @@ const s: Record<string, React.CSSProperties> = {
   section: { border: '1px solid #e5e7eb', borderRadius: 14, background: '#fff', marginBottom: 16, overflow: 'hidden', boxShadow: '0 1px 2px rgba(16,24,40,0.04), 0 1px 3px rgba(16,24,40,0.06)' },
   sectionHead: { display: 'flex', alignItems: 'center', gap: 12, padding: '11px 16px', borderBottom: '1px solid', flexWrap: 'wrap' },
   sectionName: { fontSize: 14.5, fontWeight: 750, letterSpacing: -0.2 },
-  line: { display: 'flex', alignItems: 'flex-end', gap: 12, padding: '9px 10px', borderBottom: '1px solid #f3f4f6', flexWrap: 'wrap', borderRadius: 8, transition: 'background 120ms ease' },
-  lineNo: { fontSize: 11, color: '#9ca3af', width: 16, paddingBottom: 6 },
+  // TOP-aligned, not bottom. Every column starts with a label of the same
+  // height, so the inputs line up — and anything a column grows underneath
+  // it (the "was …" note on a revision, a format hint) hangs below without
+  // dragging its neighbours down. Bottom alignment made a revised code push
+  // its own POA box out of line.
+  line: { display: 'flex', alignItems: 'flex-start', gap: 12, padding: '9px 10px', borderBottom: '1px solid #f3f4f6', flexWrap: 'wrap', borderRadius: 8, transition: 'background 120ms ease' },
+  // Sits level with the inputs rather than the labels.
+  lineNo: { fontSize: 11, color: '#9ca3af', width: 16, paddingTop: 20 },
   fieldLabel: { fontSize: 10, color: '#9ca3af', fontWeight: 700, letterSpacing: 0.3, textTransform: 'uppercase' },
   codeChip: { fontFamily: 'ui-monospace, monospace', fontSize: 13, padding: '6px 10px', background: '#f9fafb', borderRadius: 6, display: 'inline-block', minWidth: 60 },
   input: { fontFamily: 'ui-monospace, monospace', fontSize: 13, padding: '6px 9px', border: '1px solid #e5e7eb', borderRadius: 6, outline: 'none', textTransform: 'uppercase' },
@@ -1143,19 +1149,25 @@ const s: Record<string, React.CSSProperties> = {
   wasNote: { fontSize: 10, color: '#7c3aed', fontWeight: 600 },
   // Narrow enough that a long description wraps rather than widening the row,
   // and light enough that the code stays the thing being read.
+  // Its own line, and given an edge so it reads as one object rather than
+  // text that drifted loose under the row. Slate on a tinted ground: enough
+  // contrast to be read at a glance, not enough to compete with the codes,
+  // which are what the auditor is actually working on.
   codeCaption: {
-    flexBasis: '100%', fontSize: 11, lineHeight: 1.4, color: '#6b7280',
-    marginTop: 4, paddingLeft: 16,
+    flexBasis: '100%', fontSize: 11, lineHeight: 1.4, color: '#334155',
+    marginTop: 6, marginLeft: 16, padding: '4px 9px',
+    background: '#f8fafc', border: '1px solid #e2e8f0',
+    borderLeft: '3px solid #cbd5e1', borderRadius: 6,
     whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
   } as const,
   eyebrow: { fontSize: 9.5, fontWeight: 800, letterSpacing: 0.9, textTransform: 'uppercase', marginBottom: 3, opacity: 0.75 },
   countPill: { fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 999, border: '1px solid', background: '#fff' },
   actionChip: { display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, fontWeight: 800, padding: '2px 8px', borderRadius: 999, border: '1px solid' },
-  tagChip: { display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 800, padding: '3px 8px', borderRadius: 999 },
-  rowAction: { display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, padding: '5px 10px', borderRadius: 8, border: '1px solid', cursor: 'pointer', transition: 'opacity 120ms ease' },
+  tagChip: { display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 800, padding: '3px 8px', borderRadius: 999, marginTop: 17 },
+  rowAction: { display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, padding: '5px 10px', borderRadius: 8, border: '1px solid', cursor: 'pointer', transition: 'opacity 120ms ease', marginTop: 15 },
   segment: { display: 'inline-flex', gap: 3, padding: 3, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10 },
   segmentBtn: { display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 12px', fontSize: 12, fontWeight: 700, border: 'none', borderRadius: 8, cursor: 'pointer', transition: 'all 130ms ease' },
-  lockedNote: { fontSize: 12, color: '#9ca3af', marginLeft: 'auto' },
+  lockedNote: { fontSize: 12, color: '#9ca3af', marginLeft: 'auto', marginTop: 18 },
   emptyRow: { fontSize: 12.5, color: '#9ca3af', padding: '6px 0' },
   addRow: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, padding: '8px 10px', borderRadius: 8 },
   addBtn: { display: 'flex', alignItems: 'center', gap: 6, padding: '7px 13px', fontSize: 12, fontWeight: 700, border: '1px dashed', borderRadius: 9, background: '#fff', cursor: 'pointer' },
