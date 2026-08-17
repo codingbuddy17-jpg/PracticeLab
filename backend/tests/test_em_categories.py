@@ -18,6 +18,7 @@ import json
 
 import pytest
 
+from conftest import make_chart
 from routers.practicelab_pkg.em_grading import (
     CRITICAL_CARE, EMERGENCY, INPATIENT_OBSERVATION, OFFICE, OTHER, PREVENTIVE,
     applicable_weights, category_uses_mdm, critical_care_units, em_category,
@@ -357,6 +358,73 @@ def test_the_units_columns_did_not_move_when_the_category_columns_landed():
         _em_key_workbook(AR="99292", BG=3, BK="Critical Care", BL=105))[0]
     assert row["procedure_cpts"][0] == {"code": "99292", "modifier": "", "pointers": [], "units": 3}
     assert row["critical_care_minutes"] == 105
+
+
+def test_the_interface_can_save_an_em_answer_key(client, db):
+    """
+    The hand-entry screen posts a different shape from the Excel upload path.
+    It needs its own guard because trainers can create keys from the UI without
+    ever touching the workbook.
+    """
+    chart = make_chart(db, specialty="E/M")
+    db.commit()
+
+    r = client.post("/practicelab/em/answer-key", json={
+        "chart_id": chart.id,
+        "copa_self_limited": 0,
+        "copa_stable_acute": 0,
+        "copa_stable_chronic": 2,
+        "copa_acute_uncomplicated": 0,
+        "copa_chronic_exacerbation": 0,
+        "copa_undiagnosed_new": 0,
+        "copa_acute_systemic": 0,
+        "copa_acute_complicated_injury": 0,
+        "copa_chronic_severe": 0,
+        "copa_threat_to_life": 0,
+        "copa_level_overridden": False,
+        "copa_level_override": "",
+        "dr_prior_external_notes": 1,
+        "dr_review_test_results": 1,
+        "dr_order_tests": 1,
+        "dr_independent_historian": False,
+        "dr_independent_interpretation": False,
+        "dr_external_discussion": False,
+        "dr_level_overridden": False,
+        "dr_level_override": "",
+        "risk_low": False,
+        "risk_prescription_drug_mgmt": True,
+        "risk_minor_surgery_with_factors": False,
+        "risk_elective_major_no_factors": False,
+        "risk_hospitalization": False,
+        "risk_sdoh": False,
+        "risk_drug_intensive_monitoring": False,
+        "risk_elective_major_with_factors": False,
+        "risk_emergency_major_surgery": False,
+        "risk_hospitalization_escalation": False,
+        "risk_dnr_deescalate": False,
+        "risk_parenteral_controlled": False,
+        "risk_level_overridden": False,
+        "risk_level_override": "",
+        "em_code": "99214",
+        "em_modifier": "",
+        "patient_type": "ESTABLISHED",
+        "level_method": "MDM",
+        "total_time": None,
+        "em_category": "office",
+        "critical_care_minutes": None,
+        "dx_codes": ["E11.9", "I10"],
+        "procedure_cpts": [{"code": "93000", "modifier": "", "pointers": ["A"]}],
+        "entered_by": "Trainer",
+    })
+
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "ok"
+
+    stored = client.get(f"/practicelab/em/answer-key/{chart.id}")
+    assert stored.status_code == 200
+    body = stored.json()
+    assert json.loads(body["dx_codes"]) == ["E11.9", "I10"]
+    assert json.loads(body["procedure_cpts"])[0]["code"] == "93000"
 
 
 def test_the_feedback_names_both_clocks(db):

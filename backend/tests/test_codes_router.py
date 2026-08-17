@@ -91,6 +91,22 @@ class TestSearch:
         assert "J189" in codes and "J1889" in codes
         assert "J1885" not in codes          # HCPCS, wrong section
 
+    def test_pcs_suggestions_use_the_code_description_not_axis_labels(self,
+                                                                      client,
+                                                                      loaded):
+        """
+        Axis labels are useful analysis dimensions, not a procedure title.
+        The key editor must show the PCS description from the codes file, not
+        a joined seven-character breakdown from the tables file.
+        """
+        matches = client.get("/codes/search",
+                             params={"prefix": "0DTJ4", "section": "PCS"}
+                             ).json()["matches"]
+        row = next(m for m in matches if m["code"] == "0DTJ4ZZ")
+        assert row["description"] == \
+            "Resection of Appendix, Percutaneous Endoscopic Approach"
+        assert "Gastrointestinal System" not in row["description"]
+
     def test_billable_codes_come_first(self, client, loaded):
         """A category heading is not something anyone codes to."""
         matches = client.get("/codes/search",

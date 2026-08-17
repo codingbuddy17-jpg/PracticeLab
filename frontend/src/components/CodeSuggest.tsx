@@ -102,8 +102,16 @@ export function CodeSuggest({ value, onChange, section, style, placeholder,
     }
   }
 
+  const wrapperStyle = {
+    position: 'relative',
+    flex: style?.flex,
+    width: style?.width,
+    minWidth: style?.minWidth,
+    maxWidth: style?.maxWidth,
+  } as React.CSSProperties
+
   return (
-    <div ref={box} style={{ position: 'relative' }}>
+    <div ref={box} style={wrapperStyle}>
       <input
         style={style}
         value={value}

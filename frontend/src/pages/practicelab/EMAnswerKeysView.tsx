@@ -3,6 +3,8 @@ import { Download, Plus, Trash2, ChevronDown, ChevronUp, CheckCircle, Upload } f
 import toast from 'react-hot-toast'
 import { listEMAnswerKeys, upsertEMAnswerKey, deleteEMAnswerKey, downloadEMAnswerKeyTemplate, uploadEMAnswerKeys } from '../../api'
 import { searchCharts, getAnswerKeyStatus, getChartsMissingKeys } from '../../api'
+import { CodeSuggest } from '../../components/CodeSuggest'
+import { errorMessage } from '../../api/errors'
 import { trainerName } from './shared'
 import styles from './styles'
 
@@ -224,7 +226,7 @@ export function EMAnswerKeysView() {
       setChartSearch('')
       setChartResults([])
       loadList()
-    } catch { toast.error('Save failed') }
+    } catch (e) { toast.error(errorMessage(e, 'Save failed')) }
     finally { setSaving(false) }
   }
 
@@ -580,9 +582,10 @@ export function EMAnswerKeysView() {
               <div style={{ fontSize: 13, fontWeight: 700, color: '#1e3a5f', marginBottom: 12 }}>Diagnosis Coding (ICD-10-CM)</div>
               {form.dx_codes.map((code: string, i: number) => (
                 <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-                  <input style={{ ...styles.input, flex: 1 }}
+                  <CodeSuggest style={{ ...styles.input, flex: 1 }}
+                    section={i === 0 ? 'PDx' : 'SDx'}
                     placeholder={i === 0 ? 'Primary Dx (e.g. E11.9)' : `Additional Dx ${i + 1}`}
-                    value={code} onChange={e => setDx(i, e.target.value.toUpperCase())} />
+                    value={code} onChange={v => setDx(i, v)} />
                   {form.dx_codes.length > 1 && (
                     <button style={{ ...styles.outlineBtn, color: '#dc2626', borderColor: '#fca5a5', padding: '6px 10px' }}
                       onClick={() => removeDx(i)}><Trash2 size={13} /></button>

@@ -5,6 +5,8 @@ import {
   getAnswerKeyDetail, getAnswerKeyImpact, saveAnswerKeyInline,
   type AnswerKeyDetail, type AnswerKeyImpact,
 } from '../../api'
+import { CodeSuggest } from '../../components/CodeSuggest'
+import { errorMessage } from '../../api/errors'
 import { trainerName } from './shared'
 import styles from './styles'
 
@@ -95,7 +97,7 @@ export function AnswerKeyEditor({ chartId, onClose, onSaved }: {
         toast(msg + '  Tick the closed-batch box and save again if you intend to.',
               { duration: 10000, icon: '⚠️' })
       } else {
-        toast.error(msg)
+        toast.error(errorMessage(e, msg))
       }
     } finally {
       setSaving(false)
@@ -183,8 +185,8 @@ export function AnswerKeyEditor({ chartId, onClose, onSaved }: {
         {/* PDx */}
         <div style={styles.label}>{detail.is_ip ? 'Principal Diagnosis' : 'First-Listed Diagnosis'}</div>
         <div style={{ ...rowStyle, marginBottom: 12 }}>
-          <input style={{ ...inp, flex: 1 }} placeholder="e.g. J18.9" value={pdx}
-            onChange={e => setPdx(e.target.value)} />
+          <CodeSuggest style={{ ...inp, flex: 1 }} section="PDx"
+            placeholder="e.g. J18.9" value={pdx} onChange={setPdx} />
           {detail.is_ip && (
             <select style={{ ...styles.select, marginBottom: 0, width: 110 }} value={pdxPoa}
               onChange={e => setPdxPoa(e.target.value)}>
@@ -197,8 +199,9 @@ export function AnswerKeyEditor({ chartId, onClose, onSaved }: {
         <div style={styles.label}>Secondary Diagnoses</div>
         {sdx.map((s, i) => (
           <div key={i} style={rowStyle}>
-            <input style={{ ...inp, flex: 1 }} placeholder="e.g. E11.9" value={s.code}
-              onChange={e => setSdx(sdx.map((x, j) => j === i ? { ...x, code: e.target.value } : x))} />
+            <CodeSuggest style={{ ...inp, flex: 1 }} section="SDx"
+              placeholder="e.g. E11.9" value={s.code}
+              onChange={v => setSdx(sdx.map((x, j) => j === i ? { ...x, code: v } : x))} />
             {detail.is_ip && (
               <>
                 <select style={{ ...styles.select, marginBottom: 0, width: 90 }} value={s.poa || ''}
@@ -226,8 +229,9 @@ export function AnswerKeyEditor({ chartId, onClose, onSaved }: {
             <div style={styles.label}>PCS Procedures</div>
             {pcs.map((p, i) => (
               <div key={i} style={rowStyle}>
-                <input style={{ ...inp, flex: 1 }} placeholder="e.g. 0BHN3BZ" value={p.code}
-                  onChange={e => setPcs(pcs.map((x, j) => j === i ? { code: e.target.value } : x))} />
+                <CodeSuggest style={{ ...inp, flex: 1 }} section="PCS"
+                  placeholder="e.g. 0BHN3BZ" value={p.code}
+                  onChange={v => setPcs(pcs.map((x, j) => j === i ? { code: v } : x))} />
                 <button onClick={() => setPcs(pcs.filter((_, j) => j !== i))}
                   style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af' }}><X size={14} /></button>
               </div>
