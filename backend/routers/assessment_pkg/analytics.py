@@ -1,7 +1,7 @@
 """Analytics endpoints for the Assessment module."""
 import json
 from typing import Optional, List, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from datetime import timedelta
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -141,6 +141,22 @@ def coder_key(session) -> str:
     as two coders.
     """
     return (session.employee_id or "").strip() or session.coder_name.strip()
+
+
+def batch_label(batch_name: Optional[str]) -> str:
+    """
+    Display label for free-text assessment batches.
+
+    "Ungrouped" is kept for old screens, but an actual batch typed as
+    "Ungrouped" must not merge with null batch names internally. Callers that
+    need to query the ungrouped bucket use batch_key instead.
+    """
+    return batch_name if batch_name else "Ungrouped"
+
+
+def batch_key_value(batch_name: Optional[str]) -> str:
+    """Stable key that cannot collide with a real batch named Ungrouped."""
+    return f"name:{batch_name}" if batch_name else "__ungrouped__"
 
 
 def _parse_questions(questions_json: Any) -> List[Dict]:
@@ -898,14 +914,27 @@ def analytics_by_batch(db: Session = Depends(get_db)):
     for aid, status, n in pending_rows:
         status_by_assessment.setdefault(aid, {})[status] = n
 
+    issued_rows = db.query(
+        AssessmentSession.assessment_id,
+        AssessmentSession.employee_id,
+        AssessmentSession.coder_name,
+    ).all()
+    issued_by_assessment: Dict[int, set] = {}
+    for sess in issued_rows:
+        issued_by_assessment.setdefault(sess.assessment_id, set()).add(coder_key(sess))
+
     marks = _thresholds(db)
     batch_map: Dict[str, Dict] = {}
     for a in assessments:
-        batch_key = a.batch_name or "Ungrouped"
-        if batch_key not in batch_map:
-            batch_map[batch_key] = {"assessments": [], "all_scores": [], "all_passes": [],
-                                    "coders": set(), "pending": 0, "in_progress": 0,
-                                    "expired": 0}
+        bkey = batch_key_value(a.batch_name)
+        if bkey not in batch_map:
+            batch_map[bkey] = {
+                "batch_name": batch_label(a.batch_name),
+                "batch_key": bkey,
+                "assessments": [], "all_scores": [], "all_passes": [],
+                "submitted_coders": set(), "issued_coders": set(),
+                "issued_count": 0, "pending": 0, "in_progress": 0, "expired": 0,
+            }
 
         a_mark = marks.get(a.id, DEFAULT_PASS_THRESHOLD)
         a_scores, a_passes = [], []
@@ -915,17 +944,20 @@ def analytics_by_batch(db: Session = Depends(get_db)):
             # flag has to travel with the score — a bare list of numbers
             # cannot be re-judged later against one mark without lying.
             a_passes.append(r.score_pct >= a_mark)
-            batch_map[batch_key]["coders"].add(coder_key(s))
+            batch_map[bkey]["submitted_coders"].add(coder_key(s))
+
+        batch_map[bkey]["issued_coders"].update(issued_by_assessment.get(a.id, set()))
 
         counts = status_by_assessment.get(a.id, {})
+        batch_map[bkey]["issued_count"] += sum(counts.values())
         for st in ("pending", "in_progress", "expired"):
-            batch_map[batch_key][st] += counts.get(st, 0)
+            batch_map[bkey][st] += counts.get(st, 0)
 
         a_pass_rate = round(sum(a_passes) / len(a_passes) * 100, 1) if a_passes else None
         a_avg = round(sum(a_scores) / len(a_scores), 1) if a_scores else None
-        batch_map[batch_key]["all_scores"].extend(a_scores)
-        batch_map[batch_key].setdefault("all_passes", []).extend(a_passes)
-        batch_map[batch_key]["assessments"].append({
+        batch_map[bkey]["all_scores"].extend(a_scores)
+        batch_map[bkey].setdefault("all_passes", []).extend(a_passes)
+        batch_map[bkey]["assessments"].append({
             "assessment_id": a.id,
             "assessment_name": a.assessment_name,
             "generated_at": a.generated_at.isoformat() if a.generated_at else None,
@@ -937,33 +969,53 @@ def analytics_by_batch(db: Session = Depends(get_db)):
     batches = []
     for batch_name, d in batch_map.items():
         scores = d["all_scores"]
+        issued = len(d["issued_coders"])
+        issued_count = d["issued_count"]
+        submitted = len(scores)
         batches.append({
-            "batch_name": batch_name,
+            "batch_name": d["batch_name"],
+            "batch_key": d["batch_key"],
             "assessment_count": len(d["assessments"]),
-            "total_coders": len(d["coders"]),
-            "submitted_count": len(scores),
+            "total_coders": issued,
+            "submitted_coders": len(d["submitted_coders"]),
+            "issued_count": issued_count,
+            "submitted_count": submitted,
             # 5 of 50 must not read like 5 of 5. The counts sit beside the
             # submitted figure rather than being inferred from it.
             "pending_count": d["pending"],
             "in_progress_count": d["in_progress"],
             "expired_count": d["expired"],
+            "completion_rate": round(submitted / issued_count * 100, 1)
+            if issued_count else None,
             "avg_score": round(sum(scores) / len(scores), 1) if scores else None,
             "pass_rate": (round(sum(d.get("all_passes", [])) / len(d["all_passes"]) * 100, 1)
                           if d.get("all_passes") else None),
             "assessments": d["assessments"],
         })
 
-    batches.sort(key=lambda b: b["batch_name"] == "Ungrouped")  # Ungrouped last
+    batches.sort(key=lambda b: b["batch_key"] == "__ungrouped__")  # null batch last
     return {"batches": batches}
 
 
-@router.get("/analytics/batch-drill/{batch_name}")
-def analytics_batch_drill(batch_name: str, db: Session = Depends(get_db)):
-    actual_batch = None if batch_name == "Ungrouped" else batch_name
-    if actual_batch:
-        assessments = db.query(GeneratedAssessment).filter(GeneratedAssessment.batch_name == actual_batch).all()
+@router.get("/analytics/batch-drill")
+def analytics_batch_drill(
+    batch_name: Optional[str] = Query(default=None),
+    batch_key: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    if batch_key == "__ungrouped__" or (batch_key is None and batch_name == "Ungrouped"):
+        assessments = db.query(GeneratedAssessment).filter(
+            GeneratedAssessment.batch_name.is_(None)).all()
+        out_name = "Ungrouped"
     else:
-        assessments = db.query(GeneratedAssessment).filter(GeneratedAssessment.batch_name.is_(None)).all()
+        actual_batch = batch_name
+        if batch_key and batch_key.startswith("name:"):
+            actual_batch = batch_key[5:]
+        if actual_batch is None:
+            raise HTTPException(status_code=400, detail="batch_name or batch_key is required")
+        assessments = db.query(GeneratedAssessment).filter(
+            GeneratedAssessment.batch_name == actual_batch).all()
+        out_name = actual_batch
 
     if not assessments:
         raise HTTPException(status_code=404, detail="Batch not found")
@@ -1103,7 +1155,7 @@ def analytics_batch_drill(batch_name: str, db: Session = Depends(get_db)):
                   for s in sessions if s.id in result_map]
 
     return {
-        "batch_name": batch_name,
+        "batch_name": out_name,
         "assessment_count": len(assessments),
         "total_coders": len(coder_topic),
         "submitted_count": len(session_ids),
@@ -1122,6 +1174,11 @@ def analytics_batch_drill(batch_name: str, db: Session = Depends(get_db)):
         "strong_at": STRONG_AT,
         "assessments": [{"id": a.id, "name": a.assessment_name, "generated_at": a.generated_at.isoformat() if a.generated_at else None} for a in assessments],
     }
+
+
+@router.get("/analytics/batch-drill/{batch_name}")
+def analytics_batch_drill_legacy(batch_name: str, db: Session = Depends(get_db)):
+    return analytics_batch_drill(batch_name=batch_name, db=db)
 
 
 @router.get("/analytics/coder-matrix.xlsx")
@@ -1191,10 +1248,14 @@ def assessment_coder_report_pdf(
 
 
 @router.get("/analytics/batch-report.pdf")
-def assessment_batch_report_pdf(batch_name: str, db: Session = Depends(get_db)):
+def assessment_batch_report_pdf(
+    batch_name: str,
+    batch_key: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
     from fastapi.responses import StreamingResponse
     import io
-    data = analytics_batch_drill(batch_name=batch_name, db=db)
+    data = analytics_batch_drill(batch_name=batch_name, batch_key=batch_key, db=db)
     from services.pdf_report_service import generate_assessment_batch_report_pdf
     pdf_bytes = generate_assessment_batch_report_pdf(data)
     safe_name = batch_name.replace(" ", "_")
@@ -1206,7 +1267,11 @@ def assessment_batch_report_pdf(batch_name: str, db: Session = Depends(get_db)):
 
 
 @router.get("/analytics/batch-coder-reports.zip")
-def assessment_batch_coder_reports_zip(batch_name: str, db: Session = Depends(get_db)):
+def assessment_batch_coder_reports_zip(
+    batch_name: str,
+    batch_key: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
     """Download a ZIP of individual coder PDF reports for every coder in a batch."""
     import io
     import zipfile
@@ -1214,8 +1279,15 @@ def assessment_batch_coder_reports_zip(batch_name: str, db: Session = Depends(ge
     from services.pdf_report_service import generate_assessment_coder_report_pdf
 
     # Resolve batch to assessment IDs (mirrors analytics_batch_drill logic)
-    actual_batch = None if batch_name == "Ungrouped" else batch_name
-    if actual_batch:
+    actual_batch = None
+    if batch_key and batch_key.startswith("name:"):
+        actual_batch = batch_key[5:]
+    elif batch_key == "__ungrouped__" or (batch_key is None and batch_name == "Ungrouped"):
+        actual_batch = None
+    else:
+        actual_batch = batch_name
+
+    if actual_batch is not None:
         assessments = db.query(GeneratedAssessment).filter(
             GeneratedAssessment.batch_name == actual_batch
         ).all()
@@ -1248,7 +1320,7 @@ def assessment_batch_coder_reports_zip(batch_name: str, db: Session = Depends(ge
             data = analytics_coder(
                 coder_name=coder_name,
                 employee_id=employee_id,
-                batch_name=batch_name,
+                batch_name="Ungrouped" if actual_batch is None else actual_batch,
                 db=db,
             )
             if not data:

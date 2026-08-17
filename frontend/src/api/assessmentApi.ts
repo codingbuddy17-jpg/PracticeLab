@@ -391,8 +391,10 @@ export async function getAssessmentAnalyticsByBatch() {
   return data
 }
 
-export async function getAssessmentAnalyticsBatchDrill(batchName: string) {
-  const { data } = await api.get(`/assessment/analytics/batch-drill/${encodeURIComponent(batchName)}`)
+export async function getAssessmentAnalyticsBatchDrill(batchName: string, batchKey?: string) {
+  const { data } = await api.get('/assessment/analytics/batch-drill', {
+    params: { batch_name: batchName, batch_key: batchKey || undefined },
+  })
   return data
 }
 
@@ -455,19 +457,19 @@ export function downloadAssessmentCoderReport(
   )
 }
 
-export function downloadAssessmentBatchReport(batchName: string) {
+export function downloadAssessmentBatchReport(batchName: string, batchKey?: string) {
   return downloadFile(
     '/assessment/analytics/batch-report.pdf',
     `${batchName.replace(/\s+/g, '_')}_Batch_Report.pdf`,
-    { batch_name: batchName },
+    { batch_name: batchName, batch_key: batchKey || undefined },
   )
 }
 
-export function downloadAssessmentBatchCoderReportsZip(batchName: string) {
+export function downloadAssessmentBatchCoderReportsZip(batchName: string, batchKey?: string) {
   return downloadFile(
     '/assessment/analytics/batch-coder-reports.zip',
     `${batchName.replace(/\s+/g, '_')}_Coder_Reports.zip`,
-    { batch_name: batchName },
+    { batch_name: batchName, batch_key: batchKey || undefined },
   )
 }
 

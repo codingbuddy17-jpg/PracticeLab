@@ -18,13 +18,14 @@ export function BatchAnalysisTab() {
       .finally(() => setLoading(false))
   }, [])
 
-  function toggleBatch(batchName: string) {
-    if (expanded === batchName) { setExpanded(null); return }
-    setExpanded(batchName)
-    if (!drillData[batchName]) {
-      setDrillLoading(batchName)
-      getAssessmentAnalyticsBatchDrill(batchName)
-        .then((d: any) => setDrillData(prev => ({ ...prev, [batchName]: d })))
+  function toggleBatch(batch: any) {
+    const key = batch.batch_key || batch.batch_name
+    if (expanded === key) { setExpanded(null); return }
+    setExpanded(key)
+    if (!drillData[key]) {
+      setDrillLoading(key)
+      getAssessmentAnalyticsBatchDrill(batch.batch_name, batch.batch_key)
+        .then((d: any) => setDrillData(prev => ({ ...prev, [key]: d })))
         .catch(() => toast.error('Failed to load batch detail'))
         .finally(() => setDrillLoading(null))
     }
@@ -33,17 +34,24 @@ export function BatchAnalysisTab() {
   if (loading) return <LoadingSpinner />
   if (!batches.length) return <EmptyState message="No batches yet. Add a Batch / Cohort Name when generating assessments." />
 
-  return <BatchList batches={batches} expanded={expanded} setExpanded={setExpanded} drillData={drillData} drillLoading={drillLoading} toggleBatch={toggleBatch} />
+  return <BatchList batches={batches} expanded={expanded} drillData={drillData} drillLoading={drillLoading} toggleBatch={toggleBatch} />
 }
 
-function BatchList({ batches, expanded, setExpanded, drillData, drillLoading, toggleBatch }: {
-  batches: any[]; expanded: string | null; setExpanded: (v: string | null) => void;
-  drillData: Record<string, any>; drillLoading: string | null; toggleBatch: (name: string) => void;
+function BatchList({ batches, expanded, drillData, drillLoading, toggleBatch }: {
+  batches: any[]; expanded: string | null;
+  drillData: Record<string, any>; drillLoading: string | null; toggleBatch: (batch: any) => void;
 }) {
   // Sort before search: at ten batches you want the worst one first, at fifty
   // you want to find one by name. Sorting earns its place sooner.
   const [sortBy, setSortBy] = useState<'recent' | 'pass_rate' | 'avg_score' | 'coders'>('recent')
-  const sorted = [...batches].sort((a, b) => {
+  const [search, setSearch] = useState('')
+  const q = search.trim().toLowerCase()
+  const filtered = q
+    ? batches.filter((b: any) =>
+        `${b.batch_name || ''} ${(b.assessments || []).map((a: any) => a.assessment_name).join(' ')}`
+          .toLowerCase().includes(q))
+    : batches
+  const sorted = [...filtered].sort((a, b) => {
     // A batch with nothing submitted has no rate to rank on. Sorting it to the
     // top as "worst" would put the emptiest batches in front of the weakest.
     const nullLast = (x: number | null) => (x == null ? Infinity : x)
@@ -72,6 +80,18 @@ function BatchList({ batches, expanded, setExpanded, drillData, drillLoading, to
   return (
     <>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' as const }}>
+        <input
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Escape') setSearch('') }}
+          placeholder="Find a batch…"
+          style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 12, minWidth: 180 }}
+        />
+        {q && (
+          <span style={{ fontSize: 11, color: '#6b7280', fontWeight: 600 }}>
+            {filtered.length} of {batches.length}
+          </span>
+        )}
         <span style={{ fontSize: 11, color: '#6b7280', fontWeight: 600 }}>Sort by</span>
         {([['recent', 'Most recent'], ['pass_rate', 'Lowest pass rate'],
            ['avg_score', 'Lowest avg score'], ['coders', 'Most coders']] as const).map(([k, label]) => (
@@ -87,21 +107,27 @@ function BatchList({ batches, expanded, setExpanded, drillData, drillLoading, to
           </button>
         ))}
       </div>
+    {sorted.length === 0 ? (
+      <div style={{ fontSize: 12, color: '#6b7280', padding: '16px 0' }}>
+        No batch matches “{search}”.
+      </div>
+    ) : (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       {pageData.map((batch: any) => {
-        const isOpen = expanded === batch.batch_name
-        const drill = drillData[batch.batch_name]
-        const isDrillLoading = drillLoading === batch.batch_name
+        const key = batch.batch_key || batch.batch_name
+        const isOpen = expanded === key
+        const drill = drillData[key]
+        const isDrillLoading = drillLoading === key
 
         return (
-          <div key={batch.batch_name} style={{ background: 'rgba(255,255,255,0.68)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', borderRadius: 16, border: isOpen ? '1px solid rgba(124,58,237,0.3)' : '1px solid rgba(255,255,255,0.55)', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', overflow: 'hidden' }}>
+          <div key={key} style={{ background: 'rgba(255,255,255,0.68)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', borderRadius: 16, border: isOpen ? '1px solid rgba(124,58,237,0.3)' : '1px solid rgba(255,255,255,0.55)', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', overflow: 'hidden' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 24px' }}>
-              <button onClick={() => toggleBatch(batch.batch_name)} style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0 }}>
+              <button onClick={() => toggleBatch(batch)} style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0 }}>
                 <span style={{ color: '#7c3aed' }}>{isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}</span>
                 <div>
                   <div style={{ fontSize: 15, fontWeight: 800, color: '#111' }}>{batch.batch_name}</div>
                   <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
-                    {batch.assessment_count} assessment{batch.assessment_count !== 1 ? 's' : ''} · {batch.total_coders} coder{batch.total_coders !== 1 ? 's' : ''}
+                    {batch.assessment_count} assessment{batch.assessment_count !== 1 ? 's' : ''} · {batch.total_coders} issued coder{batch.total_coders !== 1 ? 's' : ''}
                   </div>
                 </div>
               </button>
@@ -116,8 +142,15 @@ function BatchList({ batches, expanded, setExpanded, drillData, drillLoading, to
                 </div>
                 {/* 5 of 50 must not read like 5 of 5. */}
                 <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: 20, fontWeight: 800, color: '#374151' }}>{batch.submitted_count}</div>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: '#374151' }}>
+                    {batch.submitted_count}/{batch.issued_count ?? batch.submitted_count}
+                  </div>
                   <div style={{ fontSize: 11, color: '#9ca3af' }}>Submitted</div>
+                  {batch.completion_rate != null && (
+                    <div style={{ fontSize: 10, color: '#6b7280', fontWeight: 700, marginTop: 2 }}>
+                      {batch.completion_rate}% complete
+                    </div>
+                  )}
                   {(batch.pending_count > 0 || batch.in_progress_count > 0 || batch.expired_count > 0) && (
                     <div style={{ fontSize: 10, color: '#b45309', fontWeight: 600, marginTop: 2, whiteSpace: 'nowrap' as const }}>
                       {[batch.pending_count && `${batch.pending_count} waiting`,
@@ -131,16 +164,16 @@ function BatchList({ batches, expanded, setExpanded, drillData, drillLoading, to
                   <ReportButton
                     label="Batch Report (.pdf)"
                     icon={<FileDown size={12} />}
-                    busy={dlBusy === `pdf:${batch.batch_name}`}
-                    onClick={() => runDownload(`pdf:${batch.batch_name}`, () => downloadAssessmentBatchReport(batch.batch_name))}
+                    busy={dlBusy === `pdf:${key}`}
+                    onClick={() => runDownload(`pdf:${key}`, () => downloadAssessmentBatchReport(batch.batch_name, batch.batch_key))}
                   />
                   <ReportButton
                     tone="secondary"
                     label="All Coder Reports (.zip)"
                     icon={<FileDown size={12} />}
-                    busy={dlBusy === `zip:${batch.batch_name}`}
+                    busy={dlBusy === `zip:${key}`}
                     title={`One PDF per coder for all ${batch.total_coders} coders, zipped`}
-                    onClick={() => runDownload(`zip:${batch.batch_name}`, () => downloadAssessmentBatchCoderReportsZip(batch.batch_name))}
+                    onClick={() => runDownload(`zip:${key}`, () => downloadAssessmentBatchCoderReportsZip(batch.batch_name, batch.batch_key))}
                   />
                 </div>
               </div>
@@ -213,6 +246,7 @@ function BatchList({ batches, expanded, setExpanded, drillData, drillLoading, to
         )
       })}
     </div>
+    )}
     <Paginator />
     </>
   )

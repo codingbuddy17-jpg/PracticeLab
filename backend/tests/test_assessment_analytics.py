@@ -99,6 +99,19 @@ class TestCoderIdentity:
         june = next(r for r in rows if r["batch_name"] == "June")
         assert june["total_coders"] == 1
 
+    def test_batch_view_counts_issued_coders_not_only_submitters(self, client, db):
+        a = _assessment(db, "A", batch="June")
+        _session(db, a, "Asha R", "E1", token="BI1", score=90)
+        _session(db, a, "Ben K", "E2", token="BI2", status="pending")
+
+        rows = client.get("/assessment/analytics/by-batch").json()["batches"]
+        june = next(r for r in rows if r["batch_name"] == "June")
+        assert june["total_coders"] == 2
+        assert june["submitted_count"] == 1
+        assert june["issued_count"] == 2
+        assert june["completion_rate"] == 50.0
+        assert june["pending_count"] == 1
+
 
 class TestMixedBarsInAggregates:
     def test_a_batch_spanning_two_bars_judges_each_paper_correctly(self, client, db):
@@ -113,3 +126,22 @@ class TestMixedBarsInAggregates:
         rows = client.get("/assessment/analytics/by-batch").json()["batches"]
         mixed = next(r for r in rows if r["batch_name"] == "Mixed")
         assert mixed["pass_rate"] == 50.0
+
+
+class TestBatchKeys:
+    def test_a_real_batch_named_ungrouped_does_not_merge_with_null_batch(self, client, db):
+        real = _assessment(db, "Named", batch="Ungrouped")
+        loose = _assessment(db, "Loose", batch=None)
+        _session(db, real, "Named Coder", "E1", token="UG1", score=90)
+        _session(db, loose, "Loose Coder", "E2", token="UG2", score=50)
+
+        rows = client.get("/assessment/analytics/by-batch").json()["batches"]
+        assert len([r for r in rows if r["batch_name"] == "Ungrouped"]) == 2
+        named = next(r for r in rows if r["batch_key"] == "name:Ungrouped")
+        null = next(r for r in rows if r["batch_key"] == "__ungrouped__")
+        assert named["avg_score"] == 90.0
+        assert null["avg_score"] == 50.0
+
+        drill = client.get("/assessment/analytics/batch-drill",
+                           params={"batch_key": "name:Ungrouped"}).json()
+        assert drill["avg_score"] == 90.0
