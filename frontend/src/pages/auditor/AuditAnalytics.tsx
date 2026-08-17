@@ -909,6 +909,15 @@ function ErrorPatternsTab({ data, threshold, filters }: {
         onDrill={drillKind} title="Detection by Error Type" rows={data.by_kind} />
       <SectionActionMatrix m={data.section_matrix} threshold={threshold}
         minForPattern={data.min_for_pattern} onDrill={setDrill} />
+      {/* Detection by which way the level error went.
+          Auditors are trained to look for upcoding, because that is what
+          payers audit for. Downcoding is revenue quietly left on the table
+          with nobody watching — so if detection is lopsided, it shows here. */}
+      {data.by_level_direction?.length > 0 && (
+        <Bucket threshold={threshold} minForPattern={data.min_for_pattern}
+          onDrill={drillKind} title="E/M Level Errors by Direction"
+          rows={data.by_level_direction} />
+      )}
       {data.pcs_characters?.length > 0 && (
         <Bucket threshold={threshold} minForPattern={data.min_for_pattern}
           onDrill={drillKind} title="PCS Character" rows={data.pcs_characters} />

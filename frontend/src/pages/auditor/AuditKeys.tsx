@@ -7,7 +7,7 @@ import {
 import {
   createAuditKeySet, deleteAuditKeySet, downloadAuditKeys, getAuditKeyStatus,
   getAuditKeysForChart, getUncuratedCharts, listAuditKeySets, previewAuditKeySet,
-  updateAuditKeySet, Finding,
+  setAuditCcBoundary, updateAuditKeySet, Finding,
 } from '../../api/auditorApi'
 import { ISSUE_COLORS } from '../practicelab/shared'
 import s from './styles'
@@ -236,9 +236,37 @@ function ChartKeyEditor({ chartId, trainer, onBack }: {
   const [passphrase, setPassphrase] = useState('')
   const [preview, setPreview] = useState<any>(null)
   const [busy, setBusy] = useState(false)
+  const [ccBoundary, setCcBoundary] = useState<string | null>(null)
+
+  /**
+   * Mark, or unmark, this chart as a close call on critical care.
+   *
+   * Passphrase-gated like everything else that changes what auditors will be
+   * asked. The checkbox reflects what the server accepted rather than what was
+   * clicked — a refusal must not leave the box looking set.
+   */
+  async function saveCcBoundary(value: string) {
+    if (!passphrase.trim()) {
+      toast.error('Passphrase required to change what auditors are asked')
+      return
+    }
+    try {
+      const res = await setAuditCcBoundary(chartId, value, passphrase)
+      setCcBoundary(res.cc_boundary)
+      toast.success(res.cc_boundary
+        ? 'Marked as a close call — the 99285 vs 99291 question can now be asked'
+        : 'Mark removed')
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || 'Could not save')
+    }
+  }
 
   const load = useCallback(async () => {
-    try { setData(await getAuditKeysForChart(chartId)) }
+    try {
+      const fresh = await getAuditKeysForChart(chartId)
+      setData(fresh)
+      setCcBoundary(fresh.cc_boundary ?? null)
+    }
     catch { toast.error('Could not load this chart') }
   }, [chartId])
   useEffect(() => { load() }, [load])
@@ -310,6 +338,11 @@ function ChartKeyEditor({ chartId, trainer, onBack }: {
     : data.sets
   const key = data.answer_key
   const sections: string[] = (data.form?.sections || []).map((x: any) => x.key)
+  // Only ED charts can carry the 99285/99291 question, so the control only
+  // appears where it means something.
+  const edCodes = new Set(['99281', '99282', '99283', '99284', '99285', '99291', '99292'])
+  const isEdChart = (key?.cpt || []).some((c: any) =>
+    edCodes.has(String(c?.code || '').trim().toUpperCase()))
 
   return (
     <div style={{ maxWidth: 900 }}>
@@ -318,6 +351,25 @@ function ChartKeyEditor({ chartId, trainer, onBack }: {
         <div>
           <div style={s.h1}>{data.chart_number}</div>
           <div style={s.sub}>{data.specialty}</div>
+          {/* Whether the generator may ask the hardest question in the ED on
+              this chart. Only a trainer who has read it can say — an answer
+              key states the right code, not whether the call was a close one.
+              Left unmarked, the swap is never planted. */}
+          {isEdChart && (
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 7, marginTop: 8, fontSize: 12, color: '#374151', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={ccBoundary === 'borderline'}
+                onChange={e => saveCcBoundary(e.target.checked ? 'borderline' : '')}
+              />
+              <span>
+                Critical care is a close call on this chart
+                <span style={{ color: '#9ca3af' }}>
+                  {' '}— lets the generator ask 99285 vs 99291
+                </span>
+              </span>
+            </label>
+          )}
         </div>
         {!editing && data.has_answer_key && data.auditable && (
           atCap ? (

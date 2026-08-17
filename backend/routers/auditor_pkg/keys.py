@@ -18,6 +18,8 @@ from database import get_db
 from models import AnswerKey, AuditKeySet, Chart
 from services.audit_allocation import apply_manual_set
 from services.code_check import ccmcc_mismatches
+from services.em_levels import CRITICAL_CARE as EM_CRITICAL_CARE
+from services.em_levels import EMERGENCY as EM_EMERGENCY
 from .shared import (
     AUDITABLE_SPECIALTIES, QUERY_SPECIALTIES, form_spec, require_passphrase,
 )
@@ -158,11 +160,62 @@ def list_sets_for_chart(chart_id: int, db: Session = Depends(get_db)):
         # to break by it. A wrong label therefore changes both what gets
         # planted and how the result is reported, and neither shows up as an
         # error anywhere.
+        "cc_boundary": getattr(key, "cc_boundary", None) if key else None,
         "ccmcc_conflicts": ccmcc_mismatches(db, (
             (chart.chart_number, e.get("code"), e.get("ccmcc"))
             for e in ((key.sdx if key else None) or [])
             if isinstance(e, dict) and e.get("code"))),
     }
+
+
+class BoundaryPayload(BaseModel):
+    # "borderline" or empty. Deliberately not a free-text field: the generator
+    # keys on one value, and a typo would silently mean "never plant this".
+    cc_boundary: Optional[str] = None
+    passphrase: str
+
+
+@router.post("/keys/chart/{chart_id}/cc-boundary")
+def set_cc_boundary(chart_id: int, payload: BoundaryPayload,
+                    db: Session = Depends(get_db)):
+    """
+    Mark whether this chart sits on the critical care boundary.
+
+    The 99285-versus-99291 planting is only generated where this says
+    "borderline", because an answer key says which code is right and cannot say
+    whether the question is a fair one to ask. Only someone who has read the
+    chart knows that, and this is where they say so.
+
+    Passphrase-gated like the rest of key authoring: it changes what auditors
+    will be asked.
+    """
+    require_passphrase(payload.passphrase, "mark a chart's critical care boundary")
+    key = db.query(AnswerKey).filter(AnswerKey.chart_id == chart_id).first()
+    if not key:
+        raise HTTPException(
+            400, "This chart has no answer key — there is nothing to mark yet")
+
+    value = (payload.cc_boundary or "").strip().lower() or None
+    if value not in (None, "borderline"):
+        raise HTTPException(400, "cc_boundary must be 'borderline' or empty")
+
+    chart = db.query(Chart).filter(Chart.id == chart_id).first()
+    # Only ED charts carry this question. Marking a Surgery chart borderline
+    # would be a no-op the trainer could not see, which is worse than a
+    # refusal.
+    cpt_codes = {str((c or {}).get("code") or "").strip().upper()
+                 for c in (key.cpt or []) if isinstance(c, dict)}
+    if value and not (cpt_codes & (set(EM_EMERGENCY) | set(EM_CRITICAL_CARE))):
+        raise HTTPException(
+            400,
+            "This chart's key has no ED level or critical care line, so the "
+            "99285/99291 question does not arise on it")
+
+    key.cc_boundary = value
+    db.commit()
+    return {"chart_id": chart_id,
+            "chart_number": chart.chart_number if chart else None,
+            "cc_boundary": key.cc_boundary}
 
 
 @router.get("/keys/status")

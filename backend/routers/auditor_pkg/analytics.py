@@ -951,6 +951,7 @@ def detection_patterns(batch_id: Optional[int] = None,
     # thing to teach.
     pcs_axes: dict = {}
     pcs_confusions: dict = {}
+    by_direction: dict = {}
     # Which BODY of knowledge the error sat in, not which mechanic produced it.
     # "Root operation errors are missed" tells a trainer what to drill;
     # "obstetric diagnoses are missed" tells them who to put on which charts,
@@ -987,6 +988,15 @@ def detection_patterns(batch_id: Optional[int] = None,
             bump(by_section, (planting.get("section") or "?",
                               planting.get("action") or "?"), outcome)
             bump(by_origin, "observed" if planting.get("origin") == "observed" else "synthetic", outcome)
+            # Which way a planted level error went. The question this exists
+            # to answer: auditors are trained to look for upcoding, because
+            # that is what payers audit for. Downcoding is revenue quietly
+            # left on the table and nobody is watching — so if detection is
+            # lopsided, this is where it shows.
+            if planting.get("level_direction"):
+                bump(by_direction,
+                     "Coded above the truth" if planting["level_direction"] == "up"
+                     else "Coded below the truth", outcome)
             if planting.get("pcs_character"):
                 bump(pcs_chars, planting["pcs_character"], outcome)
             _bump_pcs_axes(pcs_axes, pcs_confusions, planting, outcome,
@@ -1087,6 +1097,8 @@ def detection_patterns(batch_id: Optional[int] = None,
         "section_matrix": section_matrix,
         "by_origin": origins,
         "pcs_characters": shape(pcs_chars),
+        # Detection by direction of the level error.
+        "by_level_direction": shape(by_direction),
         # Grouped by the value of each axis on the CORRECT code — what the
         # procedure actually was — so a trainer can see which body systems and
         # root operations the misses cluster in.

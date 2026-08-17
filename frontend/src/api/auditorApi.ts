@@ -375,3 +375,18 @@ export function downloadAuditKeys(passphrase: string, specialty?: string) {
   if (specialty) q.set('specialty', specialty)
   window.open(base + '?' + q.toString(), '_blank')
 }
+
+
+/**
+ * Mark whether a chart sits on the critical care boundary.
+ *
+ * The 99285/99291 planting is generated only where this says "borderline":
+ * an answer key says which code is right, not whether the question is a fair
+ * one to ask of this chart. Pass an empty string to take the mark off.
+ */
+export async function setAuditCcBoundary(chartId: number, value: string,
+                                         passphrase: string) {
+  const { data } = await api.post(`/auditor/keys/chart/${chartId}/cc-boundary`,
+    { cc_boundary: value, passphrase })
+  return data as { chart_id: number; cc_boundary: string | null }
+}
