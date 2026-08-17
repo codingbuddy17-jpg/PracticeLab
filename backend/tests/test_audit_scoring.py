@@ -162,15 +162,17 @@ class TestOverCalls:
         assert s.over_call_tier == "revenue"
         assert s.audit_accuracy == 80.0
 
-    def test_modifier_and_units_count_as_revenue_impacting(self):
-        """
-        Inferred rather than stated by the user: a wrong modifier drives
-        denials and wrong units are overbilling. Configurable if that changes.
-        """
-        for fld in ("modifier", "units"):
-            s = score_chart([], [{"section": "CPT", "action": "Revise",
-                                  "field": fld, "line": 0, "correct_value": "51"}])
-            assert s.over_call_tier == "revenue", fld
+    def test_modifier_counts_as_revenue_impacting(self):
+        s = score_chart([], [{"section": "CPT", "action": "Revise",
+                              "field": "modifier", "line": 0,
+                              "correct_value": "51"}])
+        assert s.over_call_tier == "revenue"
+
+    def test_units_are_not_part_of_auditor_revenue_scope(self):
+        s = score_chart([], [{"section": "CPT", "action": "Revise",
+                              "field": "units", "line": 0,
+                              "correct_value": "2"}])
+        assert s.over_call_tier == "non_revenue"
 
     def test_a_cc_mcc_secondary_over_call_is_revenue_impacting(self):
         s = score_chart([], [{"section": "SDx", "action": "Revise", "field": "code",

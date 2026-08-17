@@ -39,13 +39,19 @@ class ConfigUpdate(BaseModel):
 
 
 def _serialise(cfg: AuditScoringConfig) -> dict:
+    mix = {f: getattr(cfg, f) for f in MIX_FIELDS}
+    if hasattr(cfg, "mix_units") and int(getattr(cfg, "mix_units") or 0):
+        mix["mix_spurious"] = int(mix.get("mix_spurious") or 0) \
+            + int(getattr(cfg, "mix_units") or 0)
     return {
         "add_weight": cfg.add_weight,
         "revise_weight": cfg.revise_weight,
         "delete_weight": cfg.delete_weight,
         "over_call_revenue_pct": cfg.over_call_revenue_pct,
         "over_call_non_revenue_pct": cfg.over_call_non_revenue_pct,
-        "revenue_elements": cfg.revenue_elements or [],
+        "revenue_elements": [
+            e for e in (cfg.revenue_elements or []) if e != "units"
+        ],
         "query_missed_pct": cfg.query_missed_pct,
         "query_unnecessary_pct": cfg.query_unnecessary_pct,
         "pass_threshold": cfg.pass_threshold,
@@ -56,8 +62,8 @@ def _serialise(cfg: AuditScoringConfig) -> dict:
         "max_auto_plantings": cfg.max_auto_plantings,
         "max_section_share": cfg.max_section_share,
         "ccmcc_preference": cfg.ccmcc_preference,
-        "mix": {f: getattr(cfg, f) for f in MIX_FIELDS},
-        "mix_total": sum(getattr(cfg, f) or 0 for f in MIX_FIELDS),
+        "mix": mix,
+        "mix_total": sum(mix.values()),
         "updated_by": cfg.updated_by,
         "updated_at": cfg.updated_at.isoformat() if cfg.updated_at else None,
     }
@@ -79,16 +85,19 @@ def update_config(payload: ConfigUpdate, db: Session = Depends(get_db)):
     cfg = load_config(db)
 
     if payload.mix is not None:
-        unknown = set(payload.mix) - set(MIX_FIELDS)
+        incoming = {k: v for k, v in payload.mix.items() if k != "mix_units"}
+        unknown = set(incoming) - set(MIX_FIELDS)
         if unknown:
             raise HTTPException(400, f"Unknown mutation weights: {sorted(unknown)}")
-        merged = {f: payload.mix.get(f, getattr(cfg, f)) for f in MIX_FIELDS}
+        merged = {f: incoming.get(f, getattr(cfg, f)) for f in MIX_FIELDS}
         total = sum(int(v or 0) for v in merged.values())
         if total != 100:
             raise HTTPException(
                 400, f"Mutation weights must total 100 — they currently total {total}")
         for f, v in merged.items():
             setattr(cfg, f, int(v or 0))
+        if hasattr(cfg, "mix_units"):
+            cfg.mix_units = 0
 
     weights = [payload.add_weight, payload.revise_weight, payload.delete_weight]
     if any(w is not None for w in weights):
@@ -128,7 +137,7 @@ def update_config(payload: ConfigUpdate, db: Session = Depends(get_db)):
             setattr(cfg, f, v)
 
     if payload.revenue_elements is not None:
-        cfg.revenue_elements = payload.revenue_elements
+        cfg.revenue_elements = [e for e in payload.revenue_elements if e != "units"]
 
     cfg.updated_by = payload.updated_by
     db.commit()

@@ -25,7 +25,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-REVENUE_ELEMENTS_DEFAULT = ["pdx", "ccmcc_sdx", "pcs", "cpt", "modifier", "units"]
+REVENUE_ELEMENTS_DEFAULT = ["pdx", "ccmcc_sdx", "pcs", "cpt", "modifier"]
 
 
 @dataclass
@@ -77,7 +77,6 @@ def _norm(value: Any) -> str:
     """
     Compare corrected values without punishing formatting. A modifier entered
     as "51" and one stored as "51 " are the same answer; so are E11.9 and E119.
-    Units are compared as text because the form yields strings.
     """
     return str(value if value is not None else "").strip().upper().replace(".", "")
 
@@ -129,8 +128,10 @@ def _element_of(finding: dict) -> str:
     """Which config element a finding touches, for the over-call tier."""
     section = (finding.get("section") or "").upper()
     fld = (finding.get("field") or "code").lower()
-    if fld in ("modifier", "units"):
+    if fld == "modifier":
         return fld
+    if fld == "units":
+        return "units"
     if section == "PDX":
         return "pdx"
     if section == "PCS":
@@ -173,6 +174,11 @@ class ChartScore:
     base_accuracy: float = 100.0
     audit_accuracy: float = 100.0
     matched: list = field(default_factory=list)
+    # The auditor's findings that matched nothing planted. Kept, not just
+    # counted: over-calling is the restraint half of what this module measures,
+    # and "7 over-calls" cannot answer WHICH codes get wrongly flagged. Only
+    # the count was ever stored, so that question had no answer at all.
+    over_called: list = field(default_factory=list)
     # Review scoring — every judgement the chart asked for, not just the
     # planted ones. Raw counts so a cohort pools rather than averaging.
     review_total: int = 0
@@ -251,6 +257,7 @@ def score_chart(ground_truth: list[dict], findings: list[dict],
         detected_not_corrected=detected_not_corrected,
         drg_impacting_planted=drg_planted, drg_impacting_found=drg_found,
         over_calls=len(over),
+        over_called=list(over),
     )
 
     # Component accuracies — None where nothing of that type was planted.
@@ -350,12 +357,12 @@ def _weighted_base(score: ChartScore, cfg: ScoringConfig) -> float:
 LINE_SECTIONS = ("PDx", "SDx", "PCS", "CPT")
 
 # Reported with their own percentage, never added to the denominator. POA is
-# judged on every diagnosis and modifiers and units on every CPT, but they are
+# judged on every diagnosis and modifiers on every CPT, but they are
 # attributes OF a line, not lines of their own — and they carry a tiny share of
 # the introduced errors (POA is 2% of the mix). Counting them as opportunities
 # roughly doubled the denominator with judgements that are almost never wrong,
 # which pushed a passive auditor who flagged nothing to 94% and let them pass.
-ATTRIBUTE_SCORES = {"poa": "POA", "modifier": "Modifier", "units": "Units"}
+ATTRIBUTE_SCORES = {"poa": "POA", "modifier": "Modifier"}
 
 
 def _line_key(entry: dict) -> tuple:
@@ -404,7 +411,7 @@ def review_opportunities(claim: dict, ground_truth: list) -> dict:
 def _attribute_scores(claim: dict, matched: list, over: list,
                       poa_applies: bool) -> dict:
     """
-    POA, Modifier and Units as percentages in their own right.
+    POA and Modifier as percentages in their own right.
 
     Reported because they are real, gradeable work — POA is mandatory on
     inpatient diagnoses — but kept out of the chart denominator so they cannot
@@ -415,8 +422,8 @@ def _attribute_scores(claim: dict, matched: list, over: list,
         + _codes_in(claim.get("sdx"))
     cpt_lines = _codes_in(claim.get("cpt"))
     totals = {"POA": dx_lines if poa_applies else 0,
-              "Modifier": cpt_lines, "Units": cpt_lines}
-    defects = {"POA": 0, "Modifier": 0, "Units": 0}
+              "Modifier": cpt_lines}
+    defects = {"POA": 0, "Modifier": 0}
     for entry in matched or []:
         if entry.get("outcome") == "correct":
             continue

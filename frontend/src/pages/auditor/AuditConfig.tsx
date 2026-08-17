@@ -12,7 +12,6 @@ const MIX_LABELS: Record<string, string> = {
   mix_substitute: 'Substitute a diagnosis (prefix family)',
   mix_substitute_pcs: 'Change one PCS character',
   mix_swap_pdx: 'Swap principal with a secondary',
-  mix_units: 'Wrong units',
   mix_poa: 'Flip a POA indicator',
   mix_spurious: 'Add a spurious code',
 }
@@ -23,7 +22,6 @@ const REVENUE_ELEMENTS = [
   { key: 'pcs', label: 'PCS' },
   { key: 'cpt', label: 'CPT' },
   { key: 'modifier', label: 'Modifier' },
-  { key: 'units', label: 'Units' },
 ]
 
 export function AuditConfig({ trainer }: { trainer: string }) {

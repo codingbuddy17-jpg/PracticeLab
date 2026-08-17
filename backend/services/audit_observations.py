@@ -161,17 +161,14 @@ def observations_for_chart(submissions: list[dict], key) -> list[Observation]:
 
 def _compare_fields(note, section: str, key_row: dict, sub_row: dict) -> None:
     """
-    Right code, wrong detail. POA, modifier and units are fields on a line
+    Right code, wrong detail. POA and modifier are fields on a line
     rather than sections of their own, so getting one wrong is a Revise on
     that line — the same shape the auditor's own finding takes.
     """
-    for fld in ("poa", "modifier", "units"):
+    for fld in ("poa", "modifier"):
         expected = str(key_row.get(fld) or "").strip().upper()
         actual = str(sub_row.get(fld) or "").strip().upper()
         if not expected and not actual:
-            continue
-        # Units default to 1 when unstated, so a blank and a 1 agree.
-        if fld == "units" and (expected or "1") == (actual or "1"):
             continue
         if expected != actual:
             note(section, "Revise", fld=fld, code=key_row.get("code"),

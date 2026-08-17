@@ -102,11 +102,11 @@ class TestHarvest:
         r = find(obs, "Revise", "27447", "modifier")
         assert r and (r[0].claim_value, r[0].correct_value) == ("LT", "RT")
 
-    def test_a_blank_unit_and_a_unit_of_one_agree(self):
-        """Units default to 1 when unstated, so this is not a mistake."""
+    def test_units_are_not_observed_for_auditor_planting(self):
+        """Units are not part of auditor planting scope."""
         key = key_of(sdx_codes=["E11.9"], cpt=[{"code": "27447", "modifier": "", "units": 1}])
         obs = observations_for_chart(
-            [submission(sdx=["E11.9"], cpt=[{"code": "27447", "modifier": ""}])], key)
+            [submission(sdx=["E11.9"], cpt=[{"code": "27447", "modifier": "", "units": 3}])], key)
         assert not find(obs, "Revise", field="units")
 
     def test_a_correct_submission_yields_nothing(self):

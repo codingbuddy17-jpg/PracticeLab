@@ -381,11 +381,10 @@ class AuditScoringConfig(Base):
     # per finding. Identical on clean and opportunity charts.
     over_call_revenue_pct = Column(Integer, nullable=False, default=20)
     over_call_non_revenue_pct = Column(Integer, nullable=False, default=5)
-    # Which elements count as revenue-impacting. Modifier and units are in by
-    # default: a wrong modifier drives denials and wrong units are overbilling.
+    # Which elements count as revenue-impacting.
     revenue_elements = Column(JSON, nullable=False,
                               default=lambda: ["pdx", "ccmcc_sdx", "pcs", "cpt",
-                                               "modifier", "units"])
+                                               "modifier"])
 
     # Query is binary per chart, so it is a fixed deduction rather than a
     # fourth weighted component — folding a 0-or-100 value into the weighted
@@ -425,9 +424,11 @@ class AuditScoringConfig(Base):
     # substitution. As a fallback inside it, this never fired.
     mix_substitute_pcs = Column(Integer, nullable=False, default=5)
     mix_swap_pdx = Column(Integer, nullable=False, default=5)
-    mix_units = Column(Integer, nullable=False, default=3)
+    # Retained for older databases/results only. New auditor plantings do not
+    # use units as a coding-training metric.
+    mix_units = Column(Integer, nullable=False, default=0)
     mix_poa = Column(Integer, nullable=False, default=2)
-    mix_spurious = Column(Integer, nullable=False, default=10)
+    mix_spurious = Column(Integer, nullable=False, default=13)
 
     # No ceiling applies to manual plantings — a trainer authoring a set has
     # read the chart and has a reason. This caps generation only.

@@ -47,7 +47,7 @@ ACTIONS_BY_SECTION = {
     "CPT": ["Add", "Revise", "Delete"],
 }
 
-# Which line fields a Revise may touch, per section. Modifiers, units, POA and
+# Which line fields a Revise may touch, per section. Modifiers, POA and
 # pointers are FIELDS ON A LINE, not sections of their own — revising one is a
 # Revise on that line, which keeps the section list short while still recording
 # exactly what was wrong.
@@ -57,7 +57,7 @@ FIELDS_BY_SECTION = {
     Specialty.ANCILLARY: {"PDx": ["code"], "SDx": ["code"]},
 }
 _DEFAULT_FIELDS = {"PDx": ["code"], "SDx": ["code"],
-                   "CPT": ["code", "modifier", "units"]}
+                   "CPT": ["code", "modifier"]}
 
 QUERY_SPECIALTIES = {Specialty.IP_DRG}
 

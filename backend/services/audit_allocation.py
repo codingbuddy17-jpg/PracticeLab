@@ -148,12 +148,46 @@ def build_corpus(answer_keys, db=None) -> Corpus:
                 cpt.add(str(row["code"]).strip())
             if row.get("modifier"):
                 mods.add(str(row["modifier"]).strip())
+    dx_candidates = _icd_specificity_candidates(db, dx)
+    valid_pcs, pcs_axes = _real_pcs_neighbours(db, pcs)
     return Corpus(dx_codes=sorted(dx), pcs_codes=sorted(pcs),
                   cpt_codes=sorted(cpt), modifiers=sorted(mods),
-                  valid_pcs=_real_pcs_neighbours(db, pcs))
+                  valid_pcs=valid_pcs,
+                  dx_candidates_by_prefix=dx_candidates,
+                  pcs_axes=pcs_axes)
 
 
-def _real_pcs_neighbours(db, pcs_codes) -> set:
+def _icd_specificity_candidates(db, dx_codes) -> dict[str, list[str]]:
+    """
+    Billable ICD-10-CM neighbours by prefix.
+
+    The generator uses this to create specificity errors, not random diagnosis
+    swaps: E11.19 should become a nearby E11.2x-style alternative where CMS has
+    one, and fall back to the existing library-local prefix family otherwise.
+    """
+    if db is None:
+        return {}
+    prefixes = {str(c).strip().upper().replace(".", "")[:n]
+                for c in dx_codes for n in (3, 4, 5)
+                if len(str(c).strip().replace(".", "")) >= n}
+    if not prefixes:
+        return {}
+    try:
+        from models import CodeDescription
+        out: dict[str, set[str]] = {p: set() for p in prefixes}
+        for prefix in sorted(prefixes):
+            rows = (db.query(CodeDescription.code)
+                    .filter(CodeDescription.code_system == "ICD10CM",
+                            CodeDescription.is_billable.is_(True),
+                            CodeDescription.code.like(prefix + "%"))
+                    .limit(80).all())
+            out[prefix].update(code for (code,) in rows)
+        return {p: sorted(codes) for p, codes in out.items() if codes}
+    except Exception:
+        return {}
+
+
+def _real_pcs_neighbours(db, pcs_codes) -> tuple[set, dict]:
     """
     Every real PCS code in the TABLES these codes belong to.
 
@@ -162,26 +196,36 @@ def _real_pcs_neighbours(db, pcs_codes) -> set:
     allocation and exactly the pool a single-character mutation should draw
     from.
 
-    Returns an empty set when the CMS tables have not been ingested, which the
+    Returns empty structures when the CMS tables have not been ingested, which the
     generator reads as "no opinion" and falls back to structural mutation.
     Reference data being absent must never stop a batch being built.
     """
     if db is None:
-        return set()
+        return set(), {}
     prefixes = {str(c).strip().upper().replace(" ", "")[:3]
                 for c in pcs_codes if len(str(c).strip()) >= 3}
     if not prefixes:
-        return set()
+        return set(), {}
     try:
         from models import PcsCodeAxis
         found = set()
+        axes = {}
         for prefix in sorted(prefixes):
-            found.update(
-                code for (code,) in db.query(PcsCodeAxis.code)
-                .filter(PcsCodeAxis.code.like(prefix + "%")).all())
-        return found
+            for row in (db.query(PcsCodeAxis)
+                        .filter(PcsCodeAxis.code.like(prefix + "%")).all()):
+                found.add(row.code)
+                axes[row.code] = {
+                    "section": row.section,
+                    "body_system": row.body_system,
+                    "root_operation": row.root_operation,
+                    "body_part": row.body_part,
+                    "approach": row.approach,
+                    "device": row.device,
+                    "qualifier": row.qualifier,
+                }
+        return found, axes
     except Exception:      # table absent on an older schema
-        return set()
+        return set(), {}
 
 
 def assignment_seed(chart_id: int, cycle_number: int) -> int:

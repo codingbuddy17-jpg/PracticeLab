@@ -12,7 +12,7 @@ import pytest
 from models.charts import Specialty
 from services.audit_mutation import (
     Corpus, MutationConfig, claim_from_key, generate, planting_budget,
-    total_codes, _mutate_pcs_code, PCS_MUTABLE_POSITIONS,
+    total_codes, _mutate_pcs_code, _substitute_dx, PCS_MUTABLE_POSITIONS,
 )
 
 
@@ -322,10 +322,39 @@ class TestPCSMutationStaysInsideTheTables:
         out, _ = _mutate_pcs_code("0DTJ4ZZ", corpus, rng)
         assert len(out) == 7 and out != "0DTJ4ZZ"
 
+    def test_axis_data_prefers_nearby_root_operation_confusions(self):
+        corpus = Corpus(
+            valid_pcs={"0DBJ4ZZ", "0DTJ4ZZ", "0DWJ4ZZ"},
+            pcs_axes={
+                "0DTJ4ZZ": {"body_system": "Gastrointestinal System",
+                            "root_operation": "Resection",
+                            "body_part": "Appendix", "approach": "Percutaneous Endoscopic"},
+                "0DBJ4ZZ": {"body_system": "Gastrointestinal System",
+                            "root_operation": "Excision",
+                            "body_part": "Appendix", "approach": "Percutaneous Endoscopic"},
+                "0DWJ4ZZ": {"body_system": "Gastrointestinal System",
+                            "root_operation": "Revision",
+                            "body_part": "Appendix", "approach": "Percutaneous Endoscopic"},
+            },
+        )
+        rng = random.Random(1)
+        seen = {_mutate_pcs_code("0DTJ4ZZ", corpus, rng)[0] for _ in range(20)}
+        assert seen == {"0DBJ4ZZ"}
+
 
 # ── the weights behave as the observations describe ──────────────────────────
 
 class TestMix:
+
+    def test_diagnosis_substitution_prefers_cms_specificity_neighbours(self):
+        corpus = Corpus(
+            dx_codes=["E11.19", "I10"],
+            dx_candidates_by_prefix={
+                "E111": ["E11.19", "E11.11"],
+                "E11": ["E11.19", "E11.22", "E11.29"],
+            },
+        )
+        assert _substitute_dx("E11.19", corpus, random.Random(4)) == "E11.11"
 
     def test_omissions_dominate(self):
         """
@@ -443,11 +472,12 @@ class TestFeasibility:
             _, gt = generate(key, Specialty.ANCILLARY, seed=seed, corpus=CORPUS)
             assert all(r["section"] in ("SDx", "PDx") for r in gt)
 
-    def test_ip_drg_never_draws_a_units_mutation(self):
-        """Units are not coded on an inpatient claim."""
-        for seed in range(60):
-            _, gt = generate(ip_key(), Specialty.IP_DRG, seed=seed, corpus=CORPUS)
-            assert all(r.get("field") != "units" for r in gt)
+    def test_auto_planting_never_draws_a_units_mutation(self):
+        """Units are not part of the auditor coding-practice planting scope."""
+        for spec, key in ((Specialty.IP_DRG, ip_key()), (Specialty.SURGERY, op_key())):
+            for seed in range(60):
+                _, gt = generate(key, spec, seed=seed, corpus=CORPUS)
+                assert all(r.get("field") != "units" for r in gt)
 
     def test_a_chart_with_no_modifiers_never_draws_a_modifier_mutation(self):
         key = FakeKey(sdx=[{"code": "M17.1", "poa": "", "ccmcc": ""},
@@ -458,12 +488,11 @@ class TestFeasibility:
             _, gt = generate(key, Specialty.SURGERY, seed=seed, corpus=CORPUS)
             assert all(r.get("field") != "modifier" for r in gt)
 
-    def test_an_outpatient_chart_can_draw_units_and_modifiers(self):
+    def test_an_outpatient_chart_can_draw_modifiers(self):
         fields = set()
         for seed in range(80):
             _, gt = generate(op_key(), Specialty.SURGERY, seed=seed, corpus=CORPUS)
             fields |= {r.get("field") for r in gt}
-        assert "units" in fields
         assert "modifier" in fields
 
     def test_an_empty_key_yields_an_empty_claim_and_no_findings(self):
@@ -535,16 +564,16 @@ class TestDRGImpactIsInpatientOnly:
                     seen = True
         assert seen
 
-    def test_outpatient_cpt_errors_are_still_revenue_impacting(self):
+    def test_outpatient_cpt_modifier_errors_are_still_revenue_impacting(self):
         """
         The distinction the fix draws: no DRG to move, but a wrong modifier
-        still drives a denial and wrong units are still overbilling.
+        still drives a denial.
         """
         seen = False
         for seed in range(80):
             _claim, gt = generate(op_key(), Specialty.SURGERY, seed=seed, corpus=CORPUS)
             for r in gt:
-                if r.get("field") in ("modifier", "units"):
+                if r.get("field") == "modifier":
                     assert r["revenue_impacting"] is True
                     seen = True
         assert seen

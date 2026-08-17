@@ -33,8 +33,6 @@ from models.charts import Specialty
 # ── what counts as a procedure section, per specialty ────────────────────────
 
 _IP_SPECIALTIES = {Specialty.IP_DRG}
-_NO_UNITS = {Specialty.IP_DRG}
-
 # ICD-10-PCS uses digits and a restricted letter set — vowels are excluded so a
 # code can never spell a word.
 PCS_ALPHABET = "0123456789BCDFGHJKLMNPQRSTVWXYZ"
@@ -50,6 +48,14 @@ PCS_MUTABLE_POSITIONS = {
     6: "qualifier",
 }
 
+ROOT_OPERATION_CONFUSIONS = [
+    {"Excision", "Resection", "Extraction", "Drainage"},
+    {"Replacement", "Reposition", "Supplement", "Insertion"},
+    {"Bypass", "Dilation", "Occlusion", "Restriction"},
+    {"Repair", "Revision", "Supplement"},
+    {"Inspection", "Map", "Measurement", "Monitoring"},
+]
+
 # Every mutation kind the generator can draw, with the config field holding its
 # weight. Order is fixed so a seed reproduces the same draw across releases.
 MUTATION_KINDS = [
@@ -60,7 +66,6 @@ MUTATION_KINDS = [
     ("substitute",       "mix_substitute"),
     ("substitute_pcs",   "mix_substitute_pcs"),
     ("swap_pdx",         "mix_swap_pdx"),
-    ("units",            "mix_units"),
     ("poa",              "mix_poa"),
     ("spurious",         "mix_spurious"),
 ]
@@ -87,9 +92,11 @@ class MutationConfig:
     mix_substitute: int = 7
     mix_substitute_pcs: int = 5
     mix_swap_pdx: int = 5
-    mix_units: int = 3
+    # Deprecated compatibility field. Accepted from old callers/rows, but no
+    # longer present in MUTATION_KINDS, so it cannot plant future unit errors.
+    mix_units: int = 0
     mix_poa: int = 2
-    mix_spurious: int = 10
+    mix_spurious: int = 13
     max_auto_plantings: int = 10
     # How much of a chart's budget prefers real coder mistakes over
     # synthetic ones, where any have been observed. 100 means take as
@@ -102,8 +109,15 @@ class MutationConfig:
     def from_db(cls, row) -> "MutationConfig":
         if row is None:
             return cls()
-        return cls(**{f: getattr(row, f, getattr(cls, f))
-                      for f in cls.__dataclass_fields__})
+        vals = {f: getattr(row, f, getattr(cls, f))
+                for f in cls.__dataclass_fields__
+                if f not in ("dx_candidates_by_prefix", "pcs_axes")}
+        # Older databases have a mix_units value. Auditor training no longer
+        # plants units, so preserve the trainer's total mix by moving that
+        # weight into spurious diagnosis over-coding for generation.
+        vals["mix_spurious"] = int(vals.get("mix_spurious") or 0) \
+            + int(getattr(row, "mix_units", 0) or 0)
+        return cls(**vals)
 
 
 @dataclass
@@ -121,6 +135,8 @@ class Corpus:
     # the CMS tables have been ingested. Empty means no opinion — the generator
     # then mutates structurally, exactly as it did before this existed.
     valid_pcs: set = field(default_factory=set)
+    dx_candidates_by_prefix: dict[str, list[str]] = field(default_factory=dict)
+    pcs_axes: dict[str, dict] = field(default_factory=dict)
 
     def dx_family(self, code: str, prefix_len: int = 3) -> list[str]:
         """
@@ -134,6 +150,26 @@ class Corpus:
         return [c for c in self.dx_codes
                 if _bare(c).startswith(head) and _bare(c) != _bare(code)]
 
+    def dx_specificity_family(self, code: str) -> list[str]:
+        """
+        CMS-backed same-family alternatives.
+
+        Library siblings are useful, but a thin chart set may have no E11.2x
+        neighbour yet. When the ICD table is loaded, allocation prebuilds a
+        small prefix index so the generator can plant specificity errors such
+        as E11.19 -> E11.22 without guessing from string shape alone.
+        """
+        bare = _bare(code)
+        out: list[str] = []
+        for prefix_len in (5, 4, 3):
+            prefix = bare[:prefix_len]
+            for c in self.dx_candidates_by_prefix.get(prefix, []):
+                if _bare(c) != bare and c not in out:
+                    out.append(c)
+            if out:
+                return out
+        return []
+
 
 def _bare(code: Optional[str]) -> str:
     return (code or "").strip().upper().replace(".", "")
@@ -141,10 +177,6 @@ def _bare(code: Optional[str]) -> str:
 
 def _is_ip(specialty: Specialty) -> bool:
     return specialty in _IP_SPECIALTIES
-
-
-def _uses_units(specialty: Specialty) -> bool:
-    return specialty not in _NO_UNITS
 
 
 def _is_drg_impacting(section: str, entry: Optional[dict],
@@ -171,12 +203,15 @@ def _is_drg_impacting(section: str, entry: Optional[dict],
 def _is_revenue_impacting(section: str, field: Optional[str] = None) -> bool:
     """
     The wider notion, and the one that applies on every specialty: anything
-    that changes what is billed. Wrong modifiers drive denials and wrong units
-    are overbilling, whether or not a DRG exists.
+    that changes what is billed. Units used to be included here, but auditor
+    planting no longer treats units as a coding-training metric.
     """
-    if section in ("PDx", "PCS", "CPT"):
+    field = (field or "code").lower()
+    if section == "CPT":
+        return field in ("code", "modifier")
+    if section in ("PDx", "PCS"):
         return True
-    return (field or "") in ("modifier", "units")
+    return field == "modifier"
 
 
 # ── the claim ────────────────────────────────────────────────────────────────
@@ -273,8 +308,6 @@ def _feasible(kind: str, claim: dict, specialty: Specialty, corpus: Corpus) -> b
         # Gated on a healthy SDx list, and the swap draws from the first few —
         # that is where a plausible principal candidate actually sits.
         return bool(claim.get("pdx_code")) and len(sdx) >= 3
-    if kind == "units":
-        return _uses_units(specialty) and bool(cpt)
     if kind == "poa":
         return _is_ip(specialty) and bool(claim.get("pdx_poa") or
                                           any(s.get("poa") for s in sdx))
@@ -350,7 +383,7 @@ def _mutate_pcs_code(code: str, corpus: Corpus, rng: random.Random) -> tuple[str
                 if len(c) == len(original) and c != original
                 and c[:p] == original[:p] and c[p + 1:] == original[p + 1:]]
         if real:
-            pos, mutated = rng.choice(sorted(real))
+            pos, mutated = _pick_pcs_neighbour(original, real, corpus, rng)
             return mutated, PCS_MUTABLE_POSITIONS[pos]
         # No single-character neighbour exists. Falling through is right: a
         # wrong code is still the error being planted, and refusing to mutate
@@ -370,8 +403,46 @@ def _mutate_pcs_code(code: str, corpus: Corpus, rng: random.Random) -> tuple[str
 
 def _substitute_dx(code: str, corpus: Corpus, rng: random.Random) -> Optional[str]:
     """A sibling from the same ICD-10 prefix family, if the corpus has one."""
-    family = corpus.dx_family(code, 4) or corpus.dx_family(code, 3)
+    family = corpus.dx_specificity_family(code) or corpus.dx_family(code, 4) \
+        or corpus.dx_family(code, 3)
     return rng.choice(sorted(set(family))) if family else None
+
+
+def _pick_pcs_neighbour(original: str, real: list[tuple[int, str]],
+                        corpus: Corpus, rng: random.Random) -> tuple[int, str]:
+    """
+    Prefer a real neighbouring PCS code that represents a coding judgement.
+
+    With axis data, a same-table root-operation neighbour such as Excision vs
+    Resection is a better training error than a random qualifier flip. The
+    fallback is still any real one-character neighbour so reference gaps never
+    block allocation.
+    """
+    axes = corpus.pcs_axes or {}
+    base = axes.get(_bare(original))
+    if not base:
+        return rng.choice(sorted(real))
+
+    def same(*fields: str):
+        return [item for item in real
+                if all((axes.get(_bare(item[1])) or {}).get(f) == base.get(f)
+                       for f in fields)]
+
+    root = base.get("root_operation")
+    if root:
+        peers = {v for group in ROOT_OPERATION_CONFUSIONS if root in group
+                 for v in group if v != root}
+        rooted = [item for item in same("body_system", "body_part", "approach")
+                  if item[0] == 2
+                  and (axes.get(_bare(item[1])) or {}).get("root_operation") in peers]
+        if rooted:
+            return rng.choice(sorted(rooted))
+
+    close = same("body_system", "body_part", "approach")
+    if close:
+        return rng.choice(sorted(close))
+    close = same("body_system", "body_part")
+    return rng.choice(sorted(close or real))
 
 
 def _spurious_dx(claim: dict, corpus: Corpus, rng: random.Random) -> Optional[str]:
@@ -688,27 +759,6 @@ def _apply(kind: str, claim: dict, specialty: Specialty, corpus: Corpus,
             "line": 0, "swapped_with_line": i,
             "claim_value": claim["pdx_code"], "correct_value": old_pdx,
             "drg_impacting": _is_drg_impacting("PDx", None, specialty),
-            "revenue_impacting": True,
-        }
-
-    if kind == "units":
-        candidates = [i for i in range(len(cpt)) if ("CPT", i) not in used]
-        if not candidates:
-            return None
-        i = rng.choice(candidates)
-        current = str(cpt[i].get("units") or 1)
-        try:
-            base = max(1, int(current))
-        except (TypeError, ValueError):
-            base = 1
-        new = base + rng.choice([1, 1, 2]) if base < 3 else max(1, base - 1)
-        cpt[i] = dict(cpt[i], units=new)
-        used.add(("CPT", i))
-        return {
-            "kind": kind, "section": "CPT", "action": "Revise", "field": "units",
-            "line": i, "code": cpt[i].get("code"),
-            "claim_value": str(new), "correct_value": current,
-            "drg_impacting": False,   # units exist only where there is no DRG
             "revenue_impacting": True,
         }
 
