@@ -776,6 +776,7 @@ KIND_LABELS = {
     "spurious": "Spurious code",
     "level_shift": "Wrong E/M level",
     "cc_boundary": "Critical care boundary (99285 vs 99291)",
+    "mdm_shift": "Wrong MDM level (COPA, data, risk)",
     "observed": "Real coder mistake",
 }
 

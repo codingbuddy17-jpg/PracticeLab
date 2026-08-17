@@ -1172,3 +1172,19 @@ class TestPatternDrill:
                                     "from_date": "2099-01-01"}).json()
         assert scoped["planted"] == 0
         assert scoped["auditors"] == []
+
+def test_every_mutation_kind_has_a_label():
+    """
+    A kind with no label renders as its raw key — mdm_shift instead of a
+    sentence. It degrades rather than crashes, so nothing catches it until a
+    trainer is looking at an unfamiliar screen for an unfamiliar specialty,
+    where snake_case reads as a broken module rather than a missing string.
+
+    Keyed off MUTATION_KINDS so a kind added later fails here rather than in
+    front of a trainer.
+    """
+    from routers.auditor_pkg.analytics import KIND_LABELS
+    from services.audit_mutation import MUTATION_KINDS
+
+    missing = [kind for kind, _field in MUTATION_KINDS if kind not in KIND_LABELS]
+    assert missing == [], "unlabelled mutation kinds: %s" % missing
