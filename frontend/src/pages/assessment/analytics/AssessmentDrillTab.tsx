@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import toast from 'react-hot-toast'
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell } from 'recharts'
 import { getAssessmentAnalyticsByAssessment, listAssessmentHistory } from '../../../api'
-import { scoreColor, bandColor, fmt, fmtTime, KpiCard, Panel, DiffBadge, PassBadge, LoadingSpinner, EmptyState, rateColor } from './helpers'
+import { scoreColor, bandColor, fmt, fmtTime, KpiCard, Panel, DiffBadge, PassBadge, LoadingSpinner, EmptyState, rateColor, inputStyle } from './helpers'
 import { usePagination } from '../../../components/Paginator'
 
 export function AssessmentDrillTab() {
@@ -11,6 +11,21 @@ export function AssessmentDrillTab() {
   const [data, setData] = useState<any>(null)
   const [loading, setLoading] = useState(false)
   const [listLoading, setListLoading] = useState(true)
+  const [assessmentQuery, setAssessmentQuery] = useState('')
+
+  const filteredAssessments = useMemo(() => {
+    const q = assessmentQuery.trim().toLowerCase()
+    if (!q) return assessments.slice(0, 150)
+    return assessments
+      .filter((a: any) => [
+        a.assessment_name,
+        a.batch_name,
+        a.config_name,
+        a.generated_by,
+        a.generated_at ? new Date(a.generated_at).toLocaleDateString() : '',
+      ].some(v => String(v || '').toLowerCase().includes(q)))
+      .slice(0, 150)
+  }, [assessments, assessmentQuery])
 
   useEffect(() => {
     listAssessmentHistory()
@@ -34,6 +49,12 @@ export function AssessmentDrillTab() {
       <Panel>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
           <label style={{ fontSize: 13, fontWeight: 700, color: '#374151' }}>Select Assessment:</label>
+          <input
+            style={{ ...inputStyle, minWidth: 240 }}
+            placeholder="Search assessment, batch, trainer"
+            value={assessmentQuery}
+            onChange={(e) => setAssessmentQuery(e.target.value)}
+          />
           {listLoading ? (
             <span style={{ fontSize: 13, color: '#9ca3af' }}>Loading…</span>
           ) : (
@@ -43,12 +64,15 @@ export function AssessmentDrillTab() {
               onChange={(e) => setSelectedId(e.target.value ? Number(e.target.value) : null)}
             >
               <option value="">— Choose an assessment —</option>
-              {assessments.map((a: any) => (
+              {filteredAssessments.map((a: any) => (
                 <option key={a.id} value={a.id}>
-                  {a.assessment_name} ({a.generated_at ? new Date(a.generated_at).toLocaleDateString() : '—'})
+                  {a.assessment_name} · {a.batch_name || 'Ungrouped'} · {a.generated_at ? new Date(a.generated_at).toLocaleDateString() : '—'}
                 </option>
               ))}
             </select>
+          )}
+          {!listLoading && assessments.length > filteredAssessments.length && (
+            <span style={{ fontSize: 12, color: '#9ca3af' }}>Showing {filteredAssessments.length} of {assessments.length}</span>
           )}
         </div>
       </Panel>
@@ -62,9 +86,42 @@ export function AssessmentDrillTab() {
 }
 
 function CoderResultsTable({ rows, passThreshold }: { rows: any[]; passThreshold?: number }) {
-  const { pageData, Paginator } = usePagination(rows, 15)
+  const [query, setQuery] = useState('')
+  const [sortBy, setSortBy] = useState<'score' | 'name' | 'emp' | 'time'>('score')
+  const filteredRows = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    const visible = q
+      ? rows.filter((row: any) => [row.coder_name, row.employee_id].some(v => String(v || '').toLowerCase().includes(q)))
+      : rows
+    return [...visible].sort((a: any, b: any) => {
+      if (sortBy === 'name') return String(a.coder_name || '').localeCompare(String(b.coder_name || ''))
+      if (sortBy === 'emp') return String(a.employee_id || '').localeCompare(String(b.employee_id || ''))
+      if (sortBy === 'time') return (a.time_taken_seconds ?? Number.MAX_SAFE_INTEGER) - (b.time_taken_seconds ?? Number.MAX_SAFE_INTEGER)
+      return (b.score_pct ?? -1) - (a.score_pct ?? -1)
+    })
+  }, [rows, query, sortBy])
+  const { pageData, Paginator } = usePagination(filteredRows, 15)
   return (
     <>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
+        <input
+          style={{ ...inputStyle, minWidth: 240 }}
+          placeholder="Search coder or employee ID"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        <select
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value as any)}
+          style={{ ...inputStyle, minWidth: 150 }}
+        >
+          <option value="score">Sort by score</option>
+          <option value="name">Sort by coder</option>
+          <option value="emp">Sort by emp ID</option>
+          <option value="time">Sort by time</option>
+        </select>
+        <span style={{ fontSize: 12, color: '#9ca3af' }}>{filteredRows.length} coders</span>
+      </div>
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
@@ -92,6 +149,7 @@ function CoderResultsTable({ rows, passThreshold }: { rows: any[]; passThreshold
             ))}
           </tbody>
         </table>
+        {filteredRows.length === 0 && <EmptyState message="No coders match the current search." />}
       </div>
       <Paginator />
     </>
@@ -99,9 +157,46 @@ function CoderResultsTable({ rows, passThreshold }: { rows: any[]; passThreshold
 }
 
 function QuestionAccuracyTable({ rows }: { rows: any[] }) {
-  const { pageData, Paginator } = usePagination(rows, 20)
+  const [query, setQuery] = useState('')
+  const [topic, setTopic] = useState('')
+  const [difficulty, setDifficulty] = useState('')
+  const [missedOnly, setMissedOnly] = useState(false)
+  const topics = useMemo(() => Array.from(new Set(rows.map((r: any) => r.topic || 'Unknown'))).sort(), [rows])
+  const difficulties = useMemo(() => Array.from(new Set(rows.map((r: any) => r.difficulty || 'Unknown'))).sort(), [rows])
+  const filteredRows = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    return rows.filter((row: any) => {
+      const searchMatch = !q || [row.question_id, row.question_text, row.topic].some(v => String(v || '').toLowerCase().includes(q))
+      const topicMatch = !topic || (row.topic || 'Unknown') === topic
+      const diffMatch = !difficulty || (row.difficulty || 'Unknown') === difficulty
+      const missedMatch = !missedOnly || row.accuracy_pct == null || row.accuracy_pct < 100
+      return searchMatch && topicMatch && diffMatch && missedMatch
+    })
+  }, [rows, query, topic, difficulty, missedOnly])
+  const { pageData, Paginator } = usePagination(filteredRows, 20)
   return (
     <>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
+        <input
+          style={{ ...inputStyle, minWidth: 260 }}
+          placeholder="Search question, text, topic"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        <select value={topic} onChange={(e) => setTopic(e.target.value)} style={{ ...inputStyle, minWidth: 160 }}>
+          <option value="">All topics</option>
+          {topics.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+        <select value={difficulty} onChange={(e) => setDifficulty(e.target.value)} style={{ ...inputStyle, minWidth: 150 }}>
+          <option value="">All difficulty</option>
+          {difficulties.map(d => <option key={d} value={d}>{d}</option>)}
+        </select>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#374151', fontWeight: 700 }}>
+          <input type="checkbox" checked={missedOnly} onChange={(e) => setMissedOnly(e.target.checked)} />
+          Missed only
+        </label>
+        <span style={{ fontSize: 12, color: '#9ca3af' }}>{filteredRows.length} questions</span>
+      </div>
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
@@ -137,6 +232,7 @@ function QuestionAccuracyTable({ rows }: { rows: any[] }) {
             ))}
           </tbody>
         </table>
+        {filteredRows.length === 0 && <EmptyState message="No questions match the current filters." />}
       </div>
       <Paginator />
     </>
@@ -144,6 +240,7 @@ function QuestionAccuracyTable({ rows }: { rows: any[] }) {
 }
 
 function AssessmentDrillContent({ data }: { data: any }) {
+  const statusCounts = data.status_counts || {}
   return (
     <div>
       <Panel>
@@ -160,17 +257,24 @@ function AssessmentDrillContent({ data }: { data: any }) {
             <div style={{ fontSize: 12, background: 'rgba(124,58,237,0.1)', borderRadius: 8, padding: '6px 12px', color: '#7c3aed', fontWeight: 700 }}>
               {data.total_submitted}/{data.total_sessions} submitted
             </div>
+            {['pending', 'in_progress', 'expired'].map((status) => (
+              statusCounts[status] ? (
+                <div key={status} style={{ fontSize: 12, background: '#f9fafb', borderRadius: 8, padding: '6px 12px', color: '#6b7280', fontWeight: 700 }}>
+                  {status.replace('_', ' ')}: {statusCounts[status]}
+                </div>
+              ) : null
+            ))}
           </div>
         </div>
       </Panel>
 
       <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginBottom: 22 }}>
         <KpiCard label="Avg Score" value={fmt(data.avg_score)} color={scoreColor(data.avg_score, data.pass_threshold)} />
-        <KpiCard label="Pass Rate" value={fmt(data.pass_rate)} color={rateColor(data.pass_rate)} />
+        <KpiCard label="Pass Rate" value={fmt(data.pass_rate)} color={rateColor(data.pass_rate)} sub={`${data.passed_count ?? '—'}/${data.total_submitted ?? 0} passed`} />
         <KpiCard label="Min Score" value={fmt(data.min_score)} color={scoreColor(data.min_score, data.pass_threshold)} />
         <KpiCard label="Max Score" value={fmt(data.max_score)} color={scoreColor(data.max_score, data.pass_threshold)} />
-        <KpiCard label="Completion" value={fmt(data.completion_rate)} />
-        <KpiCard label="Auto-submits" value={fmt(data.auto_submit_rate)} color={data.auto_submit_rate > 20 ? '#d97706' : undefined} />
+        <KpiCard label="Completion" value={fmt(data.completion_rate)} sub={`${data.total_submitted}/${data.total_sessions} submitted`} />
+        <KpiCard label="Auto-submits" value={fmt(data.auto_submit_rate)} color={data.auto_submit_rate > 20 ? '#d97706' : undefined} sub={`${data.auto_submitted_count ?? 0}/${data.total_submitted ?? 0}`} />
       </div>
 
       {data.score_distribution && (
@@ -206,7 +310,7 @@ function AssessmentDrillContent({ data }: { data: any }) {
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 3 }}>
                     <span style={{ fontWeight: 600, color: '#374151' }}>{t.topic}</span>
                     <span style={{ color: scoreColor(t.avg_accuracy), fontWeight: 700 }}>
-                      {t.avg_accuracy != null ? `${t.avg_accuracy}%` : '—'} ({t.question_count}q)
+                      {t.avg_accuracy != null ? `${t.avg_accuracy}%` : '—'} ({t.correct ?? 0}/{t.total ?? 0})
                     </span>
                   </div>
                   <div style={{ height: 7, background: '#f3f4f6', borderRadius: 4 }}>

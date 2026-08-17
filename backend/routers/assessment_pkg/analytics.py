@@ -339,6 +339,12 @@ def analytics_by_assessment(assessment_id: int, db: Session = Depends(get_db)):
     submitted_sessions = [s for s in sessions if s.status == "submitted"]
     total_sessions = len(sessions)
     total_submitted = len(submitted_sessions)
+    status_counts = {
+        "pending": sum(1 for s in sessions if s.status == "pending"),
+        "in_progress": sum(1 for s in sessions if s.status == "in_progress"),
+        "submitted": total_submitted,
+        "expired": sum(1 for s in sessions if s.status == "expired"),
+    }
 
     # Completion / auto-submit
     completion_rate = round(total_submitted / total_sessions * 100, 1) if total_sessions else 0.0
@@ -446,35 +452,47 @@ def analytics_by_assessment(assessment_id: int, db: Session = Depends(get_db)):
     for q in question_accuracy:
         t = q["topic"]
         if t not in topic_map:
-            topic_map[t] = {"accuracies": [], "count": 0}
+            topic_map[t] = {"accuracies": [], "count": 0, "correct": 0, "total": 0}
         topic_map[t]["count"] += 1
+        topic_map[t]["correct"] += q["correct"]
+        topic_map[t]["total"] += q["total"]
         if q["accuracy_pct"] is not None:
             topic_map[t]["accuracies"].append(q["accuracy_pct"])
     topic_breakdown = sorted([
         {
             "topic": t,
             "question_count": d["count"],
-            "avg_accuracy": round(sum(d["accuracies"]) / len(d["accuracies"]), 1) if d["accuracies"] else None,
+            "avg_accuracy": round(d["correct"] / d["total"] * 100, 1) if d["total"] else None,
+            "question_avg_accuracy": round(sum(d["accuracies"]) / len(d["accuracies"]), 1) if d["accuracies"] else None,
+            "correct": d["correct"],
+            "total": d["total"],
         }
         for t, d in topic_map.items()
     ], key=lambda x: (x["avg_accuracy"] is None, x["avg_accuracy"] if x["avg_accuracy"] is not None else 999))
 
     # Difficulty calibration
     difficulty_expected = {"Easy": 85.0, "Medium": 70.0, "Hard": 55.0}
-    diff_map: Dict[str, List[float]] = {}
+    diff_map: Dict[str, Dict] = {}
     for q in question_accuracy:
         d = q["difficulty"]
+        diff_map.setdefault(d, {"accuracies": [], "count": 0, "correct": 0, "total": 0})
+        diff_map[d]["count"] += 1
+        diff_map[d]["correct"] += q["correct"]
+        diff_map[d]["total"] += q["total"]
         if q["accuracy_pct"] is not None:
-            diff_map.setdefault(d, []).append(q["accuracy_pct"])
+            diff_map[d]["accuracies"].append(q["accuracy_pct"])
     difficulty_calibration = []
     for diff, expected in difficulty_expected.items():
-        accs = diff_map.get(diff, [])
-        actual = round(sum(accs) / len(accs), 1) if accs else None
+        d = diff_map.get(diff, {"accuracies": [], "count": 0, "correct": 0, "total": 0})
+        actual = round(d["correct"] / d["total"] * 100, 1) if d["total"] else None
         difficulty_calibration.append({
             "difficulty": diff,
             "expected_accuracy": expected,
             "actual_accuracy": actual,
-            "question_count": len(accs),
+            "question_avg_accuracy": round(sum(d["accuracies"]) / len(d["accuracies"]), 1) if d["accuracies"] else None,
+            "question_count": d["count"],
+            "correct": d["correct"],
+            "total": d["total"],
         })
 
     # Duration from sessions
@@ -489,9 +507,12 @@ def analytics_by_assessment(assessment_id: int, db: Session = Depends(get_db)):
         "duration_minutes": duration_minutes,
         "total_sessions": total_sessions,
         "total_submitted": total_submitted,
+        "status_counts": status_counts,
+        "auto_submitted_count": auto_submitted_count,
         "completion_rate": completion_rate,
         "auto_submit_rate": auto_submit_rate,
         "pass_rate": pass_rate,
+        "passed_count": passed_count,
         # The bar this paper was judged against. A pass rate cannot be read
         # without it, and the UI was assuming a fixed 90.
         "pass_threshold": mark,
@@ -1178,7 +1199,7 @@ def analytics_batch_drill(
 
 @router.get("/analytics/batch-drill/{batch_name}")
 def analytics_batch_drill_legacy(batch_name: str, db: Session = Depends(get_db)):
-    return analytics_batch_drill(batch_name=batch_name, db=db)
+    return analytics_batch_drill(batch_name=batch_name, batch_key=None, db=db)
 
 
 @router.get("/analytics/coder-matrix.xlsx")

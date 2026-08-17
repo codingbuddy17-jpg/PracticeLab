@@ -5,10 +5,12 @@ Both were the same class of fault the PracticeLab review kept turning up — a
 threshold hardcoded where it could not be seen or changed, and an identity
 grouped by a typed name when the id was sitting in the row.
 """
+from datetime import datetime, timedelta, timezone
+
 import pytest
 
 from models import (GeneratedAssessment, GeneratedAssessmentStudent,
-                    AssessmentSession, AssessmentResult)
+                    AssessmentSession, AssessmentResult, AssessmentResponse)
 
 
 def _assessment(db, name="A", threshold=None, batch=None):
@@ -145,3 +147,57 @@ class TestBatchKeys:
         drill = client.get("/assessment/analytics/batch-drill",
                            params={"batch_key": "name:Ungrouped"}).json()
         assert drill["avg_score"] == 90.0
+
+
+class TestAssessmentDrilldown:
+    def test_topic_and_difficulty_use_pooled_response_accuracy(self, client, db):
+        """
+        Randomised papers can give each question a different response count.
+        The drilldown should report pooled accuracy, not an average of question
+        percentages that gives low-exposure questions the same weight.
+        """
+        a = _assessment(db, "Uneven drill")
+        questions = [
+            {"question_id": "Q1", "question_text": "Common question", "topic": "Diabetes", "difficulty": "Easy"},
+            {"question_id": "Q2", "question_text": "Less seen question", "topic": "Diabetes", "difficulty": "Easy"},
+        ]
+        slots = [
+            GeneratedAssessmentStudent(assessment_id=a.id, student_label="Asha", questions_json=questions),
+            GeneratedAssessmentStudent(assessment_id=a.id, student_label="Ben", questions_json=questions[:1]),
+        ]
+        db.add_all(slots)
+        db.commit()
+
+        expires = datetime.now(timezone.utc) + timedelta(hours=8)
+        sessions = [
+            AssessmentSession(session_token="DRILL1", assessment_id=a.id, student_slot_id=slots[0].id,
+                              coder_name="Asha", employee_id="E1", duration_minutes=30,
+                              expires_at=expires, status="submitted"),
+            AssessmentSession(session_token="DRILL2", assessment_id=a.id, student_slot_id=slots[1].id,
+                              coder_name="Ben", employee_id="E2", duration_minutes=30,
+                              expires_at=expires, status="submitted"),
+        ]
+        db.add_all(sessions)
+        db.commit()
+        db.add_all([
+            AssessmentResult(session_id=sessions[0].id, total_questions=2, correct_count=1, score_pct=50),
+            AssessmentResult(session_id=sessions[1].id, total_questions=1, correct_count=1, score_pct=100),
+            AssessmentResponse(session_id=sessions[0].id, question_index=0, question_id="Q1",
+                               selected_answer="A", is_correct=True),
+            AssessmentResponse(session_id=sessions[0].id, question_index=1, question_id="Q2",
+                               selected_answer="B", is_correct=False),
+            AssessmentResponse(session_id=sessions[1].id, question_index=0, question_id="Q1",
+                               selected_answer="A", is_correct=True),
+        ])
+        db.commit()
+
+        body = client.get(f"/assessment/analytics/assessment/{a.id}").json()
+        topic = body["topic_breakdown"][0]
+        difficulty = next(d for d in body["difficulty_calibration"] if d["difficulty"] == "Easy")
+
+        assert topic["avg_accuracy"] == 66.7
+        assert topic["question_avg_accuracy"] == 50.0
+        assert topic["correct"] == 2
+        assert topic["total"] == 3
+        assert difficulty["actual_accuracy"] == 66.7
+        assert difficulty["question_count"] == 2
