@@ -3,10 +3,13 @@ The Coder Matrix identifies people the way the rest of the module does, and
 exports the whole grid rather than the page on screen.
 """
 import io
+from datetime import datetime, timedelta, timezone
 
 from openpyxl import load_workbook
 
 from conftest import seed_question_pool
+from models import (AssessmentResponse, AssessmentResult, AssessmentSession,
+                    GeneratedAssessment, GeneratedAssessmentStudent)
 
 
 def _payload(name, coders):
@@ -52,6 +55,46 @@ def test_matrix_publishes_the_bar_for_below_threshold(client, db):
     _run(client, db, [{"coder_name": "Alice", "employee_id": "E001"}])
     d = client.get("/assessment/analytics/coder-matrix").json()
     assert d["default_pass_threshold"] == 90.0
+
+
+def test_matrix_cells_carry_counts_and_gap_summary(client, db):
+    a = GeneratedAssessment(assessment_name="Matrix detail", student_count=1, generated_by="trainer")
+    db.add(a)
+    db.commit()
+    questions = [
+        {"question_id": "M1", "question_text": "IP question", "specialty": "IP-DRG", "topic": "DRG"},
+        {"question_id": "M2", "question_text": "E/M question", "specialty": "E&M", "topic": "MDM"},
+    ]
+    slot = GeneratedAssessmentStudent(assessment_id=a.id, student_label="Alice", questions_json=questions)
+    db.add(slot)
+    db.commit()
+    s = AssessmentSession(
+        session_token="MATRIX1",
+        assessment_id=a.id,
+        student_slot_id=slot.id,
+        coder_name="Alice",
+        employee_id="E001",
+        duration_minutes=30,
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=8),
+        status="submitted",
+    )
+    db.add(s)
+    db.commit()
+    db.add_all([
+        AssessmentResult(session_id=s.id, total_questions=2, correct_count=1, score_pct=50),
+        AssessmentResponse(session_id=s.id, question_index=0, question_id="M1",
+                           selected_answer="A", is_correct=False),
+        AssessmentResponse(session_id=s.id, question_index=1, question_id="M2",
+                           selected_answer="A", is_correct=True),
+    ])
+    db.commit()
+
+    row = client.get("/assessment/analytics/coder-matrix").json()["coders"][0]
+
+    assert row["specialty_counts"]["IP-DRG"] == {"correct": 0, "total": 1}
+    assert row["specialty_counts"]["E&M"] == {"correct": 1, "total": 1}
+    assert row["gap_count"] == 1
+    assert row["weakest_specialty"]["specialty"] == "IP-DRG"
 
 
 def test_export_returns_a_readable_workbook(client, db):

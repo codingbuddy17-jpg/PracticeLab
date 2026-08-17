@@ -1614,16 +1614,29 @@ def analytics_coder_matrix(db: Session = Depends(get_db), f: AFilters = Depends(
             "coder_name": label["coder_name"],
             "employee_id": label["employee_id"],
             "specialties": {},
+            "specialty_counts": {},
         }
         for sp in all_specialties:
             d = spec_data.get(sp)
             row["specialties"][sp] = round(d["correct"] / d["total"] * 100, 1) if d and d["total"] else None
+            row["specialty_counts"][sp] = (
+                {"correct": d["correct"], "total": d["total"]} if d and d["total"] else None
+            )
         scores = coder_overall.get(coder, [])
         row["avg_score"] = round(sum(scores) / len(scores), 1) if scores else None
         row["assessments_taken"] = len(scores)
+        gaps = [
+            {"specialty": sp, "accuracy_pct": acc, "correct": row["specialty_counts"][sp]["correct"],
+             "total": row["specialty_counts"][sp]["total"]}
+            for sp, acc in row["specialties"].items()
+            if acc is not None and acc < DEFAULT_PASS_THRESHOLD and row["specialty_counts"].get(sp)
+        ]
+        gaps.sort(key=lambda x: (x["accuracy_pct"], -x["total"], x["specialty"]))
+        row["gap_count"] = len(gaps)
+        row["weakest_specialty"] = gaps[0] if gaps else None
         coders.append(row)
 
-    coders.sort(key=lambda x: -(x["avg_score"] or 0))
+    coders.sort(key=lambda x: (-(x["gap_count"] or 0), x["avg_score"] if x["avg_score"] is not None else 999))
     return {
         "coders": coders,
         "specialties": all_specialties,
