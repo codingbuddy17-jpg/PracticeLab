@@ -14,6 +14,8 @@ graded. The coder states one too, on their own form — but theirs is ungraded:
 it shapes what their form asks for and warns them when it disagrees with the
 code they typed. Scoring both would charge them twice for one misreading.
 """
+import json
+
 import pytest
 
 from routers.practicelab_pkg.em_grading import (
@@ -399,3 +401,97 @@ def test_a_coders_critical_care_time_is_ignored_off_a_non_critical_care_key():
         ak, _sub(sub_em_category="critical_care", sub_critical_care_minutes=75), CFG)
     without = grade_em_chart(ak, _sub(), CFG)
     assert with_time["total_score"] == without["total_score"]
+
+
+# ── critical care: the add-on units ───────────────────────────────────────────
+#
+# 99292 is billed once per further half hour, so the units and the clock are two
+# statements of the same quantity. Until now only the clock was checked: a coder
+# could state 105 minutes correctly and claim one add-on unit where two were due.
+
+def _cc_rows(units):
+    """The key's own CPT lines for a critical care encounter."""
+    return json.dumps([{"code": "99292", "units": units, "modifier": ""}]) if units \
+        else "[]"
+
+
+def test_the_add_on_units_are_graded_against_the_key():
+    got = grade_em_chart(
+        _cc_key(105, procedure_cpts=_cc_rows(2)),
+        _sub(sub_em_code="99291", sub_critical_care_minutes=105,
+             sub_procedure_cpts=[{"code": "99292", "units": 2, "modifier": ""}]),
+        CFG)
+    assert got["critical_care_units_ok"] is True
+    assert got["total_score"] == 100.0
+
+
+def test_the_right_clock_with_the_wrong_units_still_costs_half():
+    """
+    The case the minutes check could never see: the total is read correctly and
+    the add-on is then under-claimed.
+    """
+    right = grade_em_chart(
+        _cc_key(105, procedure_cpts=_cc_rows(2)),
+        _sub(sub_em_code="99291", sub_critical_care_minutes=105,
+             sub_procedure_cpts=[{"code": "99292", "units": 2, "modifier": ""}]),
+        CFG)
+    wrong = grade_em_chart(
+        _cc_key(105, procedure_cpts=_cc_rows(2)),
+        _sub(sub_em_code="99291", sub_critical_care_minutes=105,
+             sub_procedure_cpts=[{"code": "99292", "units": 1, "modifier": ""}]),
+        CFG)
+    assert wrong["critical_care_minutes_ok"] is True
+    assert wrong["critical_care_units_ok"] is False
+    assert wrong["em_level_score"] == pytest.approx(right["em_level_score"] / 2, abs=0.02)
+
+
+def test_getting_both_wrong_is_deducted_once_not_twice():
+    """
+    The trap in adding this check. Minutes and units say the same thing, so
+    halving for each would cost a coder twice for one misread of the clock.
+    """
+    right = grade_em_chart(
+        _cc_key(105, procedure_cpts=_cc_rows(2)),
+        _sub(sub_em_code="99291", sub_critical_care_minutes=105,
+             sub_procedure_cpts=[{"code": "99292", "units": 2, "modifier": ""}]),
+        CFG)
+    both_wrong = grade_em_chart(
+        _cc_key(105, procedure_cpts=_cc_rows(2)),
+        _sub(sub_em_code="99291", sub_critical_care_minutes=40,
+             sub_procedure_cpts=[{"code": "99292", "units": 1, "modifier": ""}]),
+        CFG)
+    assert both_wrong["critical_care_minutes_ok"] is False
+    assert both_wrong["critical_care_units_ok"] is False
+    assert both_wrong["em_level_score"] == pytest.approx(
+        right["em_level_score"] / 2, abs=0.02), "deducted twice for one mistake"
+
+
+def test_a_key_with_no_cpt_lines_does_not_grade_units():
+    """
+    An empty key cannot tell "no add-on was due" from "nobody wrote it down",
+    and marking a coder down for a gap in the key is the mistake the minutes
+    rule already avoids.
+    """
+    got = grade_em_chart(
+        _cc_key(75),
+        _sub(sub_em_code="99291", sub_critical_care_minutes=75,
+             sub_procedure_cpts=[{"code": "99292", "units": 3, "modifier": ""}]),
+        CFG)
+    assert got["critical_care_units_ok"] is None
+    assert got["total_score"] == 100.0
+
+
+def test_repeated_lines_and_a_units_column_count_the_same():
+    """Both are how a claim says "two add-on units"."""
+    stacked = grade_em_chart(
+        _cc_key(105, procedure_cpts=_cc_rows(2)),
+        _sub(sub_em_code="99291", sub_critical_care_minutes=105,
+             sub_procedure_cpts=[{"code": "99292", "units": 1, "modifier": ""},
+                                 {"code": "99292", "units": 1, "modifier": ""}]),
+        CFG)
+    assert stacked["critical_care_units_ok"] is True
+
+
+def test_units_are_not_graded_outside_critical_care():
+    got = grade_em_chart(_key(), _sub(), CFG)
+    assert got.get("critical_care_units_ok") is None

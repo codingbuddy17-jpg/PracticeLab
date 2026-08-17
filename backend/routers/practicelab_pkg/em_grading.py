@@ -504,6 +504,7 @@ def grade_em_chart(ak: dict, sub: dict, cfg: dict, overcoding_penalty: bool = Tr
     # than being scored as separate reasoning. Coder against key, with no
     # threshold table applied in either direction.
     cc_minutes_ok = None
+    cc_units_ok = None
     if category == CRITICAL_CARE:
         ak_cc = _minutes(ak.get("critical_care_minutes"))
         sub_cc = _minutes(sub.get("sub_critical_care_minutes"))
@@ -513,11 +514,30 @@ def grade_em_chart(ak: dict, sub: dict, cfg: dict, overcoding_penalty: bool = Tr
             cc_minutes_ok = None
         else:
             cc_minutes_ok = (sub_cc == ak_cc)
-            if not cc_minutes_ok:
-                # Half the component, the same rule a wrong Dx pointer or a
-                # wrong unit count gets: the service was identified, the
-                # quantity behind it was not.
-                em_level_score = em_level_score / 2
+
+        # The add-on units say the same thing the clock says: 99292 is billed
+        # once per further half hour. A coder can state the right total and
+        # then claim the wrong number of units, or the reverse, and until now
+        # only the clock was checked.
+        #
+        # Graded only when the key records its own CPT lines. An empty key
+        # cannot distinguish "no add-on was due" from "nobody wrote it down",
+        # and marking a coder down for a gap in the key is the same mistake
+        # the minutes rule above already avoids.
+        ak_cc_rows = normalise_cpts(ak.get("procedure_cpts", "[]"))
+        if ak_cc_rows:
+            ak_units = critical_care_units(ak_cc_rows, ak_code_n)
+            sub_units = critical_care_units(
+                normalise_cpts(sub.get("sub_procedure_cpts", "[]")), sub_code_n)
+            cc_units_ok = (sub_units == ak_units)
+
+        # ONE deduction, not two. Minutes and units are two statements of the
+        # same quantity, so halving for each would cost a coder twice for a
+        # single misread of the clock. Half the component, the same rule a
+        # wrong Dx pointer or a wrong unit count gets: the service was
+        # identified, the quantity behind it was not.
+        if cc_minutes_ok is False or cc_units_ok is False:
+            em_level_score = em_level_score / 2
     # Only flagged when everything else was right — so the feedback can say the
     # modifier alone was what cost the points.
     modifier_mismatch = (level_match or code_match) and patient_type_ok and not modifier_ok
@@ -686,6 +706,7 @@ def grade_em_chart(ak: dict, sub: dict, cfg: dict, overcoding_penalty: bool = Tr
         "uses_mdm": uses_mdm,
         "applied_weights": weights,
         "critical_care_minutes_ok": cc_minutes_ok,
+        "critical_care_units_ok": cc_units_ok,
         "ak_critical_care_minutes": _minutes(ak.get("critical_care_minutes")),
         "sub_critical_care_minutes": _minutes(sub.get("sub_critical_care_minutes")),
         "pointer_errors": pointer_errors,
