@@ -27,12 +27,28 @@ never the `.docx` — a hand edit is lost on the next build.
 
 ## Regenerating them
 
+**Read this first: the build inputs are not in the working tree.** The
+`figures/` directory — the eight diagrams, `schema.json`, and the hand-written
+`tabledocs.json` — was deliberately removed to keep this folder to the
+documents themselves. It is still in git history, and a rebuild needs it back:
+
+```bash
+cd <repo root>
+git checkout "$(git rev-list -1 HEAD -- docs/figures)^" -- docs/figures
+```
+
+Then:
+
 ```bash
 cd docs
-python _schema_json_build.py          # figures/schema.json, from the real schema
+python _schema_json_build.py          # refresh figures/schema.json
 cd figures && node ../_schema_docx_build.js && node ../_spec_docx_build.js
 mv *.docx ..
 ```
+
+Note that only `schema.json` and three of the eight diagrams can be rebuilt
+from source; the rest exist solely in history, so restore rather than
+recreate them.
 
 `_schema_json_build.py` builds the schema the way the application does —
 `create_all()` plus the raw migration DDL against a throwaway SQLite file — then
@@ -45,10 +61,13 @@ typed once and were wrong within a month, twice.
 | File | Role |
 |---|---|
 | `_schema_json_build.py` | regenerates `figures/schema.json` from the live schema |
-| `_schema_figures_build.py` | regenerates the ERD and architecture diagrams |
+| `_schema_figures_build.py` | regenerates three of the ERDs as SVG |
 | `_schema_docx_build.js` | builds the schema reference `.docx` |
 | `_spec_docx_build.js` | builds the architecture and migration `.docx` |
-| `figures/` | diagrams (`.png` + `.svg`), `schema.json`, and `tabledocs.json` — the one-line description of each table, which is hand-written and is the only file here you should edit by hand |
+
+`tabledocs.json` — the one-line description of each table — is hand-written and
+is the one input worth editing by hand. It lives in the restored `figures/`
+directory.
 
 The two `.js` builders need one npm package. Install it only if you are
 actually rebuilding the documents, and delete it again afterwards:
