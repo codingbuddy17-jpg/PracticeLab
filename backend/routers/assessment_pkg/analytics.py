@@ -1415,6 +1415,17 @@ def _question_signal(acc: Optional[float], misleading: bool, blank: int, attempt
     return "healthy"
 
 
+def _question_signal_key(assessment_id: int, question_id: str) -> tuple:
+    """
+    Bank questions aggregate by their global id; standalone paper questions do
+    not. Standalone generation deliberately assigns SA-0001, SA-0002, etc. per
+    assessment, so those ids only mean anything inside one generated paper.
+    """
+    if question_id.startswith("SA-"):
+        return ("standalone", assessment_id, question_id)
+    return ("bank", question_id)
+
+
 @router.get("/analytics/question-signals")
 def analytics_question_signals(
     db: Session = Depends(get_db),
@@ -1452,7 +1463,7 @@ def analytics_question_signals(
              .filter(GeneratedAssessmentStudent.id.in_(slot_ids)).all()
              if slot_ids else [])
     slot_questions: Dict[int, Dict[str, Dict]] = {}
-    meta: Dict[str, Dict] = {}
+    meta: Dict[tuple, Dict] = {}
     for slot in slots:
         by_qid = {}
         for q in _parse_questions(slot.questions_json):
@@ -1460,7 +1471,7 @@ def analytics_question_signals(
             if not qid:
                 continue
             by_qid[qid] = q
-            meta.setdefault(qid, {
+            meta.setdefault(_question_signal_key(slot.assessment_id, qid), {
                 "question_text": q.get("question_text", ""),
                 "topic": q.get("topic") or "Unknown",
                 "specialty": q.get("specialty") or "Unknown",
@@ -1469,11 +1480,13 @@ def analytics_question_signals(
         slot_questions[slot.id] = by_qid
 
     session_slot = {s.id: s.student_slot_id for s in sessions}
+    session_assessment = {s.id: s.assessment_id for s in sessions}
 
-    stats: Dict[str, Dict] = {}
+    stats: Dict[tuple, Dict] = {}
     for r in responses:
         qid = r.question_id
-        d = stats.setdefault(qid, {"attempts": 0, "correct": 0, "blank": 0,
+        key = _question_signal_key(session_assessment.get(r.session_id), qid)
+        d = stats.setdefault(key, {"question_id": qid, "attempts": 0, "correct": 0, "blank": 0,
                                    "options": {}, "coders": set()})
         d["attempts"] += 1
         if effective_correct(r):
@@ -1494,10 +1507,11 @@ def analytics_question_signals(
             opt["correct"] = True
 
     questions = []
-    for qid, d in stats.items():
+    for key, d in stats.items():
         if d["attempts"] < min_attempts:
             continue
-        m = meta.get(qid, {})
+        qid = d["question_id"]
+        m = meta.get(key, {})
         acc = round(d["correct"] / d["attempts"] * 100, 1) if d["attempts"] else None
         opts = sorted(d["options"].values(), key=lambda o: -o["count"])
         for o in opts:
@@ -1513,6 +1527,7 @@ def analytics_question_signals(
         ) or bool(top_wrong and not chosen_answer)
 
         questions.append({
+            "question_key": "|".join(str(part) for part in key),
             "question_id": qid,
             "question_text": m.get("question_text", ""),
             "topic": m.get("topic", "Unknown"),

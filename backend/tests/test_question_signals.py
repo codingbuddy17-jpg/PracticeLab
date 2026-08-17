@@ -13,7 +13,8 @@ from sqlalchemy import text as sql_text
 
 from conftest import make_question, seed_question_pool
 
-from models import AssessmentSession, GeneratedAssessmentStudent
+from models import (AssessmentResponse, AssessmentResult, AssessmentSession,
+                    GeneratedAssessment, GeneratedAssessmentStudent)
 
 
 def _payload(name, coders, n=1):
@@ -160,3 +161,67 @@ def test_signals_honour_the_window(client, db):
     narrow = _signals(client, min_attempts=1, batch_name="Wave 1")["summary"]["scored"]
     assert narrow <= wide
     assert narrow > 0
+
+
+def test_standalone_question_ids_do_not_merge_across_assessments(client, db):
+    """
+    Standalone papers number their local questions SA-0001, SA-0002, etc. That
+    is correct for scoring, but analytics must not treat SA-0001 from two
+    unrelated papers as the same question-bank item.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    expires = datetime.now(timezone.utc) + timedelta(hours=8)
+    for idx, text in enumerate(("Standalone first", "Standalone second"), start=1):
+        assessment = GeneratedAssessment(
+            assessment_name=f"Standalone {idx}",
+            student_count=1,
+            generated_by="trainer",
+            is_standalone=True,
+        )
+        db.add(assessment)
+        db.commit()
+
+        slot = GeneratedAssessmentStudent(
+            assessment_id=assessment.id,
+            student_label=f"Coder {idx}",
+            questions_json=[{
+                "question_id": "SA-0001",
+                "question_text": text,
+                "option_a": "Right",
+                "option_b": "Wrong",
+                "option_c": "Other",
+                "option_d": "None",
+                "correct_answer": "A",
+                "topic": f"Standalone topic {idx}",
+                "difficulty": "Medium",
+            }],
+        )
+        db.add(slot)
+        db.commit()
+
+        session = AssessmentSession(
+            session_token=f"STAND{idx}",
+            assessment_id=assessment.id,
+            student_slot_id=slot.id,
+            coder_name=f"Coder {idx}",
+            employee_id=f"E{idx}",
+            duration_minutes=30,
+            expires_at=expires,
+            status="submitted",
+        )
+        db.add(session)
+        db.commit()
+        db.add_all([
+            AssessmentResult(session_id=session.id, total_questions=1, correct_count=idx % 2, score_pct=100 if idx % 2 else 0),
+            AssessmentResponse(session_id=session.id, question_index=0, question_id="SA-0001",
+                               selected_answer="A" if idx % 2 else "B",
+                               is_correct=bool(idx % 2)),
+        ])
+        db.commit()
+
+    d = _signals(client, min_attempts=1)
+    texts = sorted(q["question_text"] for q in d["questions"])
+
+    assert texts == ["Standalone first", "Standalone second"]
+    assert d["summary"]["scored"] == 2

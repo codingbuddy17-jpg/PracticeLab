@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { AlertTriangle, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { getAssessmentQuestionSignals } from '../../../api'
@@ -31,44 +31,46 @@ export function QuestionSignalsTab({ filters = NO_FILTERS }: { filters?: AFilter
   const [loading, setLoading] = useState(true)
   const [signal, setSignal] = useState<string | null>(null)
   const [search, setSearch] = useState('')
+  const [minAttempts, setMinAttempts] = useState(5)
+  const [topic, setTopic] = useState('')
+  const [specialty, setSpecialty] = useState('')
 
   useEffect(() => {
     setLoading(true)
-    getAssessmentQuestionSignals(filters)
+    getAssessmentQuestionSignals(filters, minAttempts)
       .then(setData)
       .catch(() => toast.error('Failed to load question signals'))
       .finally(() => setLoading(false))
-  }, [filters])
+  }, [filters, minAttempts])
 
   if (loading) return <LoadingSpinner />
   if (!data) return <EmptyState message="No question data available yet." />
 
   const all: any[] = data.questions || []
   const summary = data.summary || {}
+  const topics = useMemo(() => Array.from(new Set(all.map((row: any) => row.topic || 'Unknown'))).sort(), [all])
+  const specialties = useMemo(() => Array.from(new Set(all.map((row: any) => row.specialty || 'Unknown'))).sort(), [all])
 
   const q = search.trim().toLowerCase()
   const questions = all.filter((row: any) => {
     if (signal && row.signal !== signal) return false
+    if (topic && (row.topic || 'Unknown') !== topic) return false
+    if (specialty && (row.specialty || 'Unknown') !== specialty) return false
     if (q && !`${row.question_text} ${row.topic} ${row.question_id}`.toLowerCase().includes(q)) return false
     return true
   })
 
-  if (all.length === 0) {
-    return (
-      <EmptyState message={
-        summary.too_few_attempts
-          ? `No question has been answered ${data.min_attempts} times yet — ${summary.too_few_attempts} are waiting for more attempts before they can be judged.`
-          : 'No submitted answers yet.'
-      } />
-    )
-  }
+  const emptyMessage = all.length === 0 && summary.too_few_attempts
+    ? `No question has been answered ${data.min_attempts} times yet — ${summary.too_few_attempts} are waiting for more attempts before they can be judged.`
+    : all.length === 0
+      ? 'No submitted answers yet.'
+      : 'No question matches these filters.'
 
   return (
     <div>
       <Panel>
         <div style={{ fontSize: 13, color: '#6b7280' }}>
-          Every other tab measures coders. This one measures the questions: which are teaching,
-          which are merely hard, and which are pointing the wrong way. Only questions answered
+          Question quality signals based on submitted answers. Only questions answered
           at least <strong>{data.min_attempts}</strong> times are ranked
           {summary.too_few_attempts > 0 && <> — {summary.too_few_attempts} more are still too thin to judge</>}.
         </div>
@@ -77,6 +79,20 @@ export function QuestionSignalsTab({ filters = NO_FILTERS }: { filters?: AFilter
       {/* Filters above the list: a chip that matches nothing must not remove
           the chip that would undo it. */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+        <select value={minAttempts} onChange={e => setMinAttempts(Number(e.target.value))}
+          style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 12, color: '#374151', background: '#fff' }}>
+          {[3, 5, 10, 20, 50].map(n => <option key={n} value={n}>Min {n} attempts</option>)}
+        </select>
+        <select value={specialty} onChange={e => setSpecialty(e.target.value)}
+          style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 12, color: '#374151', background: '#fff', maxWidth: 180 }}>
+          <option value="">All specialties</option>
+          {specialties.map(sp => <option key={sp} value={sp}>{sp}</option>)}
+        </select>
+        <select value={topic} onChange={e => setTopic(e.target.value)}
+          style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 12, color: '#374151', background: '#fff', maxWidth: 220 }}>
+          <option value="">All topics</option>
+          {topics.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
         {SIGNALS.map(s => {
           const n = summary.by_signal?.[s.id] || 0
           const on = signal === s.id
@@ -111,7 +127,7 @@ export function QuestionSignalsTab({ filters = NO_FILTERS }: { filters?: AFilter
       </div>
 
       {questions.length === 0
-        ? <EmptyState message="No question matches these filters." />
+        ? <EmptyState message={emptyMessage} />
         : <QuestionList questions={questions} />}
     </div>
   )
@@ -122,7 +138,7 @@ function QuestionList({ questions }: { questions: any[] }) {
   return (
     <>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {pageData.map((row: any) => <QuestionCard key={row.question_id} row={row} />)}
+        {pageData.map((row: any) => <QuestionCard key={row.question_key || row.question_id} row={row} />)}
       </div>
       <Paginator />
     </>
@@ -174,7 +190,7 @@ function QuestionCard({ row }: { row: any }) {
         {row.options.map((o: any, i: number) => (
           <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
             <div style={{ width: 150, fontSize: 11, color: o.correct ? '#15803d' : '#6b7280', fontWeight: o.correct ? 800 : 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={o.text}>
-              {o.correct ? '✓ ' : ''}{o.text}
+              {o.correct ? 'Correct: ' : ''}{o.text}
             </div>
             <div style={{ flex: 1, height: 8, background: '#f3f4f6', borderRadius: 4, overflow: 'hidden' }}>
               <div style={{ height: '100%', width: `${o.pct}%`, background: o.correct ? '#16a34a' : '#dc2626', opacity: o.correct ? 1 : 0.55, borderRadius: 4 }} />
