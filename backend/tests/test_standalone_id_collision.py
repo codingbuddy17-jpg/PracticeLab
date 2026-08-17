@@ -23,12 +23,16 @@ import pytest
 from models import AssessmentSession, GeneratedAssessmentStudent
 
 
-def _standalone(client, db, name, topic, batch="Wave 1", answer="A"):
+def _standalone(client, db, name, topic, batch="Wave 1", answer="A",
+                coder_name=None, employee_id=None):
     """A one-question standalone assessment. Its question will be SA-0001."""
     gen = client.post("/assessment/generate", json={
         "assessment_name": name,
         "batch_name": batch,
-        "coders": [{"coder_name": f"Coder {name}", "employee_id": f"E{name[-1]}"}],
+        "coders": [{
+            "coder_name": coder_name or f"Coder {name}",
+            "employee_id": employee_id or f"E{name[-1]}",
+        }],
         "duration_minutes": 30,
         "total_questions": 1,
         "specialty_mix": [],
@@ -114,6 +118,24 @@ def test_the_batch_drill_agrees_with_the_topic_tab(client, db, two_standalone_pa
 
     assert set(drill["all_topics"]) == set(topics), \
         "the drill and the topic tab do not even agree on which topics exist"
+
+
+def test_coder_history_keeps_standalone_topics_separate(client, db):
+    """
+    A single coder can sit two standalone papers. Both contain SA-0001, so the
+    coder profile must use the assessment with the id when building topics.
+    """
+    _standalone(client, db, "Paper A", "Sepsis", answer="A",
+                coder_name="Alice", employee_id="E001")
+    _standalone(client, db, "Paper B", "Fractures", answer="B",
+                coder_name="Alice", employee_id="E001")
+
+    rows = client.get("/assessment/analytics/coder",
+                      params={"employee_id": "E001"}).json()["topic_strength"]
+    by_name = {r["topic"]: r for r in rows}
+
+    assert by_name["Sepsis"]["accuracy_pct"] == 100.0
+    assert by_name["Fractures"]["accuracy_pct"] == 0.0
 
 
 def test_specialty_totals_still_count_every_response(client, db, two_standalone_papers):

@@ -58,6 +58,27 @@ def test_coder_analytics_can_be_scoped_to_one_batch(client, db):
     assert wave1["total_assessments_taken"] == 1
 
 
+def test_coder_analytics_can_search_by_employee_id_only(client, db):
+    seed_question_pool(db)
+    gen = client.post("/assessment/generate", json=_payload(
+        "Wave 1 paper", "Wave 1",
+        [{"coder_name": "Alice", "employee_id": "E001"},
+         {"coder_name": "Alice", "employee_id": "E002"}],
+    )).json()
+    for s in gen["sessions"]:
+        _sit(client, db, s["session_token"])
+
+    by_id = client.get("/assessment/analytics/coder",
+                       params={"employee_id": "E001"}).json()
+    by_name = client.get("/assessment/analytics/coder",
+                         params={"coder_name": "Alice"}).json()
+
+    assert by_id["total_assessments_taken"] == 1
+    assert by_id["employee_id"] == "E001"
+    assert by_name["total_assessments_taken"] == 2
+    assert by_name["ambiguous_identity"] is True
+
+
 def test_batch_zip_contains_one_pdf_per_coder(client, db):
     seed_question_pool(db)
     gen = client.post("/assessment/generate", json=_payload(

@@ -17,7 +17,7 @@ export function CoderHistoryTab() {
   const [searched, setSearched] = useState(false)
 
   function handleSearch() {
-    if (!coderName.trim()) { toast.error('Please enter a coder name'); return }
+    if (!coderName.trim() && !employeeId.trim()) { toast.error('Please enter a coder name or employee ID'); return }
     setLoading(true)
     setData(null)
     setSearched(true)
@@ -31,8 +31,8 @@ export function CoderHistoryTab() {
     <div>
       <Panel>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <input style={inputStyle} placeholder="Coder name (required)" value={coderName} onChange={(e) => setCoderName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSearch()} />
-          <input style={{ ...inputStyle, maxWidth: 180 }} placeholder="Employee ID (optional)" value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSearch()} />
+          <input style={inputStyle} placeholder="Coder name" value={coderName} onChange={(e) => setCoderName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSearch()} />
+          <input style={{ ...inputStyle, maxWidth: 180 }} placeholder="Employee ID" value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSearch()} />
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{ fontSize: 12, color: '#6b7280', fontWeight: 600, whiteSpace: 'nowrap' }}>From</span>
             <input type="date" style={{ ...inputStyle, maxWidth: 150, cursor: 'pointer' }} value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
@@ -50,13 +50,13 @@ export function CoderHistoryTab() {
 
       {loading && <LoadingSpinner />}
       {!loading && searched && !data && <EmptyState message="No assessment history found for this coder." />}
-      {!loading && !searched && <EmptyState message="Enter a coder name above to view their assessment history." />}
-      {data && !loading && <CoderHistoryContent data={data} />}
+      {!loading && !searched && <EmptyState message="Enter a coder name or employee ID above to view assessment history." />}
+      {data && !loading && <CoderHistoryContent data={data} dateFrom={dateFrom} dateTo={dateTo} />}
     </div>
   )
 }
 
-function CoderHistoryContent({ data }: { data: any }) {
+function CoderHistoryContent({ data, dateFrom, dateTo }: { data: any; dateFrom?: string; dateTo?: string }) {
   const allSessionIds: number[] = (data.session_history || []).map((sh: any) => sh.session_id)
   const [excludedIds, setExcludedIds] = useState<Set<number>>(new Set())
   const [showFilter, setShowFilter] = useState(false)
@@ -84,7 +84,7 @@ function CoderHistoryContent({ data }: { data: any }) {
     setDownloadError('')
     setDownloading(true)
     try {
-      await downloadAssessmentCoderReport(data.coder_name, data.employee_id || undefined, undefined, undefined, excludedIds.size > 0 ? Array.from(excludedIds) : undefined)
+      await downloadAssessmentCoderReport(data.coder_name, data.employee_id || undefined, dateFrom || undefined, dateTo || undefined, excludedIds.size > 0 ? Array.from(excludedIds) : undefined)
     } catch (e: any) {
       setDownloadError(e.message || 'Could not download the report.')
     } finally {
@@ -105,6 +105,11 @@ function CoderHistoryContent({ data }: { data: any }) {
             <div>
               <div style={{ fontSize: 18, fontWeight: 800, color: '#111' }}>{data.coder_name}</div>
               {data.employee_id && <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>ID: {data.employee_id}</div>}
+              {data.ambiguous_identity && (
+                <div style={{ fontSize: 11, color: '#b45309', marginTop: 3, fontWeight: 700 }}>
+                  Multiple employee IDs matched this name. Search by employee ID for one coder.
+                </div>
+              )}
             </div>
           </div>
           <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -115,6 +120,7 @@ function CoderHistoryContent({ data }: { data: any }) {
             <div style={{ textAlign: 'center' }}>
               <div style={{ fontSize: 28, fontWeight: 900, color: rateColor(data.pass_rate) }}>{fmt(data.pass_rate)}</div>
               <div style={{ fontSize: 11, color: '#6b7280', fontWeight: 600 }}>Pass Rate</div>
+              <div style={{ fontSize: 10, color: '#9ca3af', fontWeight: 600 }}>{data.passed_count ?? 0}/{data.total_assessments_taken ?? 0} passed</div>
             </div>
             <div style={{ textAlign: 'center' }}>
               <div style={{ fontSize: 28, fontWeight: 900, color: '#111' }}>{data.total_assessments_taken}</div>
@@ -165,6 +171,7 @@ function CoderHistoryContent({ data }: { data: any }) {
           <div style={{ fontSize: 13, color: '#374151' }}>Best: <strong style={{ color: '#16a34a' }}>{fmt(data.best_score)}</strong></div>
           <div style={{ fontSize: 13, color: '#374151' }}>Worst: <strong style={{ color: scoreColor(data.worst_score, data.default_pass_threshold) }}>{fmt(data.worst_score)}</strong></div>
           {data.avg_time_seconds && <div style={{ fontSize: 13, color: '#374151' }}>Avg Time: <strong>{fmtTime(data.avg_time_seconds)}</strong></div>}
+          {(dateFrom || dateTo) && <div style={{ fontSize: 13, color: '#374151' }}>Period: <strong>{dateFrom || 'Start'} to {dateTo || 'Today'}</strong></div>}
         </div>
       </Panel>
 
@@ -234,7 +241,7 @@ function CoderHistoryContent({ data }: { data: any }) {
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
         {data.topic_strength && data.topic_strength.length > 0 && (
-          <Panel title="Topic Strength / Weakness">
+          <Panel title="Weakest Topics">
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {(data.topic_strength as any[]).map((t: any, i: number) => (
                 <div key={i}>

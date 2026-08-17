@@ -367,7 +367,7 @@ export async function getAssessmentAnalyticsCoder(
 ) {
   const { data } = await api.get('/assessment/analytics/coder', {
     params: {
-      coder_name: coderName,
+      ...(coderName ? { coder_name: coderName } : {}),
       ...(employeeId ? { employee_id: employeeId } : {}),
       ...(dateFrom ? { date_from: dateFrom } : {}),
       ...(dateTo ? { date_to: dateTo } : {}),

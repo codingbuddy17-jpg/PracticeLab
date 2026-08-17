@@ -529,7 +529,7 @@ def analytics_by_assessment(assessment_id: int, db: Session = Depends(get_db)):
 
 @router.get("/analytics/coder")
 def analytics_coder(
-    coder_name: str,
+    coder_name: Optional[str] = None,
     employee_id: Optional[str] = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
@@ -547,10 +547,12 @@ def analytics_coder(
         result. Pass "Ungrouped" for assessments with no batch.
     """
     from datetime import date as date_cls
-    q = db.query(AssessmentSession).filter(
-        AssessmentSession.coder_name == coder_name,
-        AssessmentSession.status == "submitted",
-    )
+    if not coder_name and not employee_id:
+        raise HTTPException(status_code=400, detail="coder_name or employee_id is required")
+
+    q = db.query(AssessmentSession).filter(AssessmentSession.status == "submitted")
+    if coder_name:
+        q = q.filter(AssessmentSession.coder_name == coder_name)
     if employee_id:
         q = q.filter(AssessmentSession.employee_id == employee_id)
     if batch_name:
@@ -586,6 +588,9 @@ def analytics_coder(
 
     if not sessions:
         return None
+
+    employee_ids = sorted({s.employee_id for s in sessions if s.employee_id})
+    coder_names = sorted({s.coder_name for s in sessions if s.coder_name})
 
     # Per-session history. A coder's assessments can carry different bars, so
     # each row is judged against its own paper rather than one global mark.
@@ -630,6 +635,7 @@ def analytics_coder(
 
     # Topic strength/weakness
     session_ids = [s.id for s in sessions]
+    session_map = {s.id: s for s in sessions}
     responses = (
         db.query(AssessmentResponse)
         .filter(AssessmentResponse.session_id.in_(session_ids))
@@ -637,8 +643,8 @@ def analytics_coder(
     )
 
     # Build topic map from question metadata
-    q_topic: Dict[str, str] = {}
-    q_difficulty: Dict[str, str] = {}
+    q_topic: Dict[tuple, str] = {}
+    q_difficulty: Dict[tuple, str] = {}
     assessment_ids = list(set(s.assessment_id for s in sessions))
     for aid in assessment_ids:
         slots = db.query(GeneratedAssessmentStudent).filter(
@@ -649,17 +655,19 @@ def analytics_coder(
             for q_item in qs:
                 qid = q_item.get("question_id", "")
                 if qid:
-                    q_topic[qid] = q_item.get("topic", "Unknown")
-                    q_difficulty[qid] = q_item.get("difficulty", "Unknown")
+                    key = _qkey(aid, qid)
+                    q_topic[key] = q_item.get("topic", "Unknown")
+                    q_difficulty[key] = q_item.get("difficulty", "Unknown")
 
     topic_acc: Dict[str, Dict] = {}
     diff_acc: Dict[str, Dict] = {}
     for resp in responses:
         if not answered(resp):
             continue
-        qid = resp.question_id
-        topic = q_topic.get(qid, "Unknown")
-        diff = q_difficulty.get(qid, "Unknown")
+        sess = session_map.get(resp.session_id)
+        key = _qkey(sess.assessment_id, resp.question_id) if sess else (None, resp.question_id)
+        topic = q_topic.get(key, "Unknown")
+        diff = q_difficulty.get(key, "Unknown")
 
         topic_acc.setdefault(topic, {"correct": 0, "total": 0})
         topic_acc[topic]["total"] += 1
@@ -679,7 +687,7 @@ def analytics_coder(
             "total": d["total"],
         }
         for t, d in topic_acc.items()
-    ], key=lambda x: -(x["accuracy_pct"] or 0))
+    ], key=lambda x: (x["accuracy_pct"] if x["accuracy_pct"] is not None else 999, -x["total"]))
 
     difficulty_breakdown = []
     for diff in ["Easy", "Medium", "Hard"]:
@@ -703,11 +711,15 @@ def analytics_coder(
     ]
 
     return {
-        "coder_name": coder_name,
-        "employee_id": sessions[0].employee_id if sessions else None,
+        "coder_name": coder_name or (coder_names[0] if len(coder_names) == 1 else "Multiple coders"),
+        "employee_id": employee_ids[0] if len(employee_ids) == 1 else None,
+        "employee_ids": employee_ids,
+        "coder_names": coder_names,
+        "ambiguous_identity": bool(not employee_id and len(employee_ids) > 1),
         "total_assessments_taken": total_taken,
         "avg_score": avg_score,
         "pass_rate": pass_rate,
+        "passed_count": passed_count,
         "best_score": best_score,
         "worst_score": worst_score,
         "avg_time_seconds": avg_time,
@@ -1273,11 +1285,12 @@ def coder_matrix_export(db: Session = Depends(get_db), f: AFilters = Depends(fil
 
 @router.get("/analytics/coder-report.pdf")
 def assessment_coder_report_pdf(
-    coder_name: str,
+    coder_name: Optional[str] = None,
     employee_id: Optional[str] = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     exclude_session_ids: Optional[str] = None,
+    batch_name: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
     from fastapi.responses import StreamingResponse
@@ -1288,13 +1301,15 @@ def assessment_coder_report_pdf(
         date_from=date_from,
         date_to=date_to,
         exclude_session_ids=exclude_session_ids,
+        batch_name=batch_name,
         db=db,
     )
     if not data:
         raise HTTPException(status_code=404, detail="No assessment history found for this coder.")
     from services.pdf_report_service import generate_assessment_coder_report_pdf
-    pdf_bytes = generate_assessment_coder_report_pdf(coder_name, data)
-    safe_name = coder_name.replace(" ", "_")
+    display_name = data.get("coder_name") or coder_name or employee_id or "Coder"
+    pdf_bytes = generate_assessment_coder_report_pdf(display_name, data)
+    safe_name = display_name.replace(" ", "_")
     return StreamingResponse(
         io.BytesIO(pdf_bytes),
         media_type="application/pdf",
