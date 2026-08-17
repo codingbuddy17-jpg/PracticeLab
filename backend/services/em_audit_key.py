@@ -26,7 +26,8 @@ from sqlalchemy import text
 
 # The columns an audit needs. The other ~26 element ticks are what the COACHING
 # module grades; an auditor reviews the levels those ticks produced.
-_COLUMNS = ("chart_id", "em_code", "em_modifier", "dx_codes", "procedure_cpts",
+_COLUMNS = ("chart_id", "em_code", "em_modifier", "level_method",
+            "em_category", "dx_codes", "procedure_cpts",
             "copa_level", "dr_level", "risk_level",
             "copa_level_overridden", "dr_level_overridden",
             "risk_level_overridden")
@@ -42,6 +43,9 @@ class EmAuditKey:
 
     def __init__(self, row: dict):
         self._row = row
+        self.em_code = (row.get("em_code") or "").strip()
+        self.level_method = (row.get("level_method") or "MDM").strip().upper()
+        self.em_category = (row.get("em_category") or "").strip().lower()
         codes = _as_list(row.get("dx_codes"))
         # First diagnosis is the principal; the rest are secondaries. E/M keys
         # store one ordered list, and the order IS the sequencing.

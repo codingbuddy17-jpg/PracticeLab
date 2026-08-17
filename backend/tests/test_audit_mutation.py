@@ -18,7 +18,9 @@ from services.audit_mutation import (
 
 
 class FakeKey:
-    def __init__(self, pdx_code="J18.9", pdx_poa="Y", sdx=None, pcs=None, cpt=None):
+    def __init__(self, pdx_code="J18.9", pdx_poa="Y", sdx=None, pcs=None, cpt=None,
+                 mdm=None, em_category=None, level_method="MDM", em_code=None,
+                 mdm_overridden=None):
         self.pdx_code = pdx_code
         self.pdx_poa = pdx_poa
         self.sdx = sdx if sdx is not None else []
@@ -26,6 +28,11 @@ class FakeKey:
         self.cpt = cpt if cpt is not None else []
         self.facility_level = None
         self.profee_level = None
+        self.mdm = mdm or {}
+        self.em_category = em_category
+        self.level_method = level_method
+        self.em_code = em_code or ((self.cpt[0] or {}).get("code") if self.cpt else "")
+        self.mdm_overridden = mdm_overridden or {}
 
 
 def ip_key(n_sdx=8, n_pcs=3):
@@ -603,6 +610,19 @@ def _ed_key(cpt=None):
     )
 
 
+def _em_key(code="99214", category="office", level_method="MDM", mdm=None):
+    return FakeKey(
+        pdx_code="R07.9", pdx_poa="",
+        sdx=[{"code": "I10", "poa": "", "ccmcc": ""}],
+        pcs=[],
+        cpt=[{"code": code, "modifier": "", "units": 1}],
+        mdm=mdm or {"copa": "Moderate", "dr": "Moderate", "risk": "Low"},
+        em_category=category,
+        level_method=level_method,
+        em_code=code,
+    )
+
+
 def _only(kind, **over):
     """A config that can draw exactly one kind, so the test is deterministic."""
     zeros = {f: 0 for _k, f in MUTATION_KINDS}
@@ -659,6 +679,45 @@ class TestLevelShift:
                            {"code": "20610", "modifier": "", "units": 1}])
         _claim, gt = generate(key, Specialty.SDS, seed=3,
                               cfg=_only("level_shift"), corpus=CORPUS, budget=1)
+        assert gt == []
+
+
+class TestMDMShift:
+    """
+    MDM reasoning errors are fair only where the encounter is actually
+    levelled by MDM. Preventive and time-based E/M charts may carry legacy MDM
+    columns, but those values are not the work being audited.
+    """
+
+    def test_mdm_levelled_em_can_draw_a_reasoning_shift(self):
+        claim, gt = generate(_em_key(), Specialty.EM, seed=2,
+                             cfg=_only("mdm_shift"), corpus=CORPUS, budget=1)
+
+        assert gt and gt[0]["kind"] == "mdm_shift"
+        assert gt[0]["section"] == "MDM"
+        assert gt[0]["field"] in {"copa", "dr", "risk"}
+        assert claim["mdm"][gt[0]["field"]] == gt[0]["claim_value"]
+
+    def test_preventive_chart_does_not_get_fake_mdm_reasoning(self):
+        _claim, gt = generate(_em_key(code="99396", category="preventive"),
+                              Specialty.EM, seed=2, cfg=_only("mdm_shift"),
+                              corpus=CORPUS, budget=1)
+
+        assert gt == []
+
+    def test_time_levelled_office_chart_does_not_get_mdm_reasoning(self):
+        _claim, gt = generate(_em_key(code="99214", category="office",
+                                      level_method="TIME"),
+                              Specialty.EM, seed=2, cfg=_only("mdm_shift"),
+                              corpus=CORPUS, budget=1)
+
+        assert gt == []
+
+    def test_unknown_em_category_abstains_even_with_mdm_columns(self):
+        _claim, gt = generate(_em_key(code="99495", category="other"),
+                              Specialty.EM, seed=2, cfg=_only("mdm_shift"),
+                              corpus=CORPUS, budget=1)
+
         assert gt == []
 
 
@@ -737,13 +796,14 @@ class TestTheLevelLineIsNotDeleted:
 
 
 class TestNothingChangesUntilTurnedOn:
-    def test_both_new_kinds_default_to_zero_weight(self):
+    def test_em_specific_kinds_default_to_zero_weight(self):
         """
         Batches already in use must plant exactly what they planted before.
         """
         cfg = MutationConfig()
         assert cfg.mix_level_shift == 0
         assert cfg.mix_cc_boundary == 0
+        assert cfg.mix_mdm_shift == 0
 
     def test_a_default_config_never_plants_a_level_error(self):
         kinds = set()
@@ -751,4 +811,4 @@ class TestNothingChangesUntilTurnedOn:
             _claim, gt = generate(_ed_key(), Specialty.ED_FACILITY, seed=seed,
                                   cfg=MutationConfig(), corpus=CORPUS, budget=2)
             kinds.update(g["kind"] for g in gt)
-        assert "level_shift" not in kinds and "cc_boundary" not in kinds
+        assert not {"level_shift", "cc_boundary", "mdm_shift"} & kinds

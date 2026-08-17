@@ -314,8 +314,43 @@ def planting_budget(claim: dict, cfg: MutationConfig, rng: random.Random) -> int
 
 # ── feasibility ──────────────────────────────────────────────────────────────
 
+def _em_level_code(claim: dict, key=None) -> str:
+    """The E/M service line, when the key/claim has one."""
+    code = getattr(key, "em_code", None)
+    if code:
+        return _norm_code(code)
+    for row in claim.get("cpt") or []:
+        c = _norm_code((row or {}).get("code"))
+        if c:
+            return c
+    return ""
+
+
+def _key_uses_mdm_for_planting(claim: dict, key=None) -> bool:
+    """
+    Whether an MDM reasoning shift is fair for this E/M key.
+
+    The category is the trainer's declaration where present; older keys fall
+    back to the code-derived category, and simple test doubles with MDM levels
+    but no category keep their old behaviour.
+    """
+    has_declared_context = any(
+        hasattr(key, attr) for attr in ("em_category", "level_method", "em_code")
+    )
+    if not has_declared_context:
+        return True
+    try:
+        from routers.practicelab_pkg.em_grading import category_uses_mdm, resolve_category
+        category = resolve_category(getattr(key, "em_category", None),
+                                    _em_level_code(claim, key))
+        method = (getattr(key, "level_method", "MDM") or "MDM").upper().strip()
+        return category_uses_mdm(category) and method == "MDM"
+    except Exception:
+        return False
+
+
 def _feasible(kind: str, claim: dict, specialty: Specialty, corpus: Corpus,
-              cc_boundary: Optional[str] = None) -> bool:
+              cc_boundary: Optional[str] = None, key=None) -> bool:
     """
     Whether a chart can carry this mutation at all. A kind that is not feasible
     surrenders its weight to the kinds that are — the same renormalisation the
@@ -367,7 +402,8 @@ def _feasible(kind: str, claim: dict, specialty: Specialty, corpus: Corpus,
         # Needs levels to move. A chart whose key never levelled the reasoning
         # cannot carry this, and saying so lets the weight redistribute rather
         # than the draw repeatedly picking a kind that always fails.
-        return any((claim.get("mdm") or {}).get(f) for f in ("copa", "dr", "risk"))
+        return _key_uses_mdm_for_planting(claim, key) and any(
+            (claim.get("mdm") or {}).get(f) for f in ("copa", "dr", "risk"))
     if kind == "level_shift":
         # Needs an E/M level on the claim to move.
         return any(em_ladder_of(c.get("code")) for c in cpt)
@@ -385,11 +421,11 @@ def _feasible(kind: str, claim: dict, specialty: Specialty, corpus: Corpus,
 
 def _weights(claim: dict, specialty: Specialty, corpus: Corpus,
              cfg: MutationConfig, tier: Optional[str],
-             cc_boundary: Optional[str] = None) -> dict[str, float]:
+             cc_boundary: Optional[str] = None, key=None) -> dict[str, float]:
     mult = TIER_MULTIPLIERS.get((tier or "").lower(), {})
     out: dict[str, float] = {}
     for kind, field_name in MUTATION_KINDS:
-        if not _feasible(kind, claim, specialty, corpus, cc_boundary):
+        if not _feasible(kind, claim, specialty, corpus, cc_boundary, key):
             continue
         w = float(getattr(cfg, field_name, 0)) * mult.get(kind, 1.0)
         if w > 0:
@@ -569,7 +605,7 @@ def generate(key, specialty: Specialty, seed: int,
     attempts = 0
     while len(ground_truth) < want and attempts < want * 8:
         attempts += 1
-        weights = _weights(claim, specialty, corpus, cfg, tier, cc_boundary)
+        weights = _weights(claim, specialty, corpus, cfg, tier, cc_boundary, key)
         if not weights:
             break
         kinds = sorted(weights)
@@ -796,6 +832,8 @@ def _apply(kind: str, claim: dict, specialty: Specialty, corpus: Corpus,
         # Move one reasoning level. The auditor's job is to disagree with a
         # judgement, which is what an E/M audit actually consists of — not to
         # re-tick twenty-six elements.
+        if not _key_uses_mdm_for_planting(claim, key):
+            return None
         #
         # Charts where the TRAINER overrode the derived level are preferred:
         # they read the record and disagreed with the table, so the level is a

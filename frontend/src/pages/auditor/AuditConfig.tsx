@@ -28,7 +28,7 @@ const MIX_LABELS: Record<string, string> = {
 const MIX_NOTES: Record<string, string> = {
   mix_level_shift: 'E/M levels only — ED Facility, E/M, ED Profee',
   mix_cc_boundary: 'Only on charts marked a close call on the audit-key screen',
-  mix_mdm_shift: 'E/M and ED Profee only, where the key carries MDM levels',
+  mix_mdm_shift: 'E/M and ED Profee only, where the declared category is MDM-levelled',
 }
 
 const REVENUE_ELEMENTS = [
