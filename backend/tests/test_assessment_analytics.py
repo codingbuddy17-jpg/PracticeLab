@@ -249,3 +249,51 @@ class TestSpecialtyAnalytics:
         assert row["total_responses"] == 2
         assert row["accuracy_pct"] == 50.0
         assert body["overall_accuracy"] == 50.0
+
+
+class TestTopicAnalytics:
+    def test_topic_counts_unique_coders_not_sessions(self, client, db):
+        a = _assessment(db, "Topic identity")
+        questions = [{
+            "question_id": "T1",
+            "question_text": "Topic question",
+            "specialty": "IP-DRG",
+            "topic": "Pdx selection",
+            "difficulty": "Medium",
+        }]
+        slots = [
+            GeneratedAssessmentStudent(assessment_id=a.id, student_label="Asha 1", questions_json=questions),
+            GeneratedAssessmentStudent(assessment_id=a.id, student_label="Asha 2", questions_json=questions),
+        ]
+        db.add_all(slots)
+        db.commit()
+
+        expires = datetime.now(timezone.utc) + timedelta(hours=8)
+        sessions = [
+            AssessmentSession(session_token="TOPIC1", assessment_id=a.id, student_slot_id=slots[0].id,
+                              coder_name="Asha R", employee_id="E1", duration_minutes=30,
+                              expires_at=expires, status="submitted"),
+            AssessmentSession(session_token="TOPIC2", assessment_id=a.id, student_slot_id=slots[1].id,
+                              coder_name="asha  r", employee_id="E1", duration_minutes=30,
+                              expires_at=expires, status="submitted"),
+        ]
+        db.add_all(sessions)
+        db.commit()
+        db.add_all([
+            AssessmentResult(session_id=sessions[0].id, total_questions=1, correct_count=1, score_pct=100),
+            AssessmentResult(session_id=sessions[1].id, total_questions=1, correct_count=0, score_pct=0),
+            AssessmentResponse(session_id=sessions[0].id, question_index=0, question_id="T1",
+                               selected_answer="A", is_correct=True),
+            AssessmentResponse(session_id=sessions[1].id, question_index=0, question_id="T1",
+                               selected_answer="B", is_correct=False),
+        ])
+        db.commit()
+
+        body = client.get("/assessment/analytics/by-topic").json()
+        row = body["topics"][0]
+
+        assert row["topic"] == "Pdx selection"
+        assert row["coder_count"] == 1
+        assert row["total_responses"] == 2
+        assert row["accuracy_pct"] == 50.0
+        assert body["overall_accuracy"] == 50.0

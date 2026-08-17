@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react'
-import { Tag } from 'lucide-react'
+import { AlertCircle, CheckCircle, Tag, TrendingUp } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell } from 'recharts'
 import { getAssessmentAnalyticsByTopic } from '../../../api'
 import type { AFilters } from '../../../api'
 
 const NO_FILTERS: AFilters = {}
-import { scoreColor, Panel, LoadingSpinner, EmptyState, inputStyle } from './helpers'
+import { scoreColor, fmt, KpiCard, Panel, LoadingSpinner, EmptyState, inputStyle } from './helpers'
 import { usePagination } from '../../../components/Paginator'
 
 const PAGE_SIZE = 20
@@ -36,14 +36,19 @@ export function ByTopicTab({ filters = NO_FILTERS }: { filters?: AFilters }) {
   const strong = filtered.filter((t: any) => (t.accuracy_pct ?? 0) >= 90).length
   const mid = filtered.filter((t: any) => (t.accuracy_pct ?? 0) >= 80 && (t.accuracy_pct ?? 0) < 90).length
   const weak = filtered.filter((t: any) => (t.accuracy_pct ?? 0) < 80).length
-  const chartData = [...filtered].sort((a, b) => (b.accuracy_pct ?? 0) - (a.accuracy_pct ?? 0)).slice(0, 20)
+  const weakest = [...filtered].sort((a, b) => (a.accuracy_pct ?? 101) - (b.accuracy_pct ?? 101))[0]
+  const overallAccuracy = data.overall_accuracy ?? (
+    data.total_responses ? Math.round((data.total_correct / data.total_responses) * 1000) / 10 : null
+  )
+  const chartData = [...filtered].sort((a, b) => (a.accuracy_pct ?? 101) - (b.accuracy_pct ?? 101)).slice(0, 20)
 
   return (
     <div>
       <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
-        <div style={{ background: '#dcfce7', border: '1px solid #bbf7d0', borderRadius: 10, padding: '10px 18px', fontSize: 13, fontWeight: 700, color: '#166534' }}>✓ {strong} Strong topics (≥90%)</div>
-        <div style={{ background: '#fef9c3', border: '1px solid #fde68a', borderRadius: 10, padding: '10px 18px', fontSize: 13, fontWeight: 700, color: '#854d0e' }}>~ {mid} Mid topics (80–89%)</div>
-        <div style={{ background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 10, padding: '10px 18px', fontSize: 13, fontWeight: 700, color: '#991b1b' }}>✗ {weak} Weak topics (&lt;80%)</div>
+        <KpiCard label="Overall Topic Accuracy" value={fmt(overallAccuracy)} color={scoreColor(overallAccuracy)} icon={<TrendingUp size={14} />} sub={`${data.total_correct ?? 0}/${data.total_responses ?? 0} responses`} />
+        <KpiCard label="Weakest Topic" value={fmt(weakest?.accuracy_pct)} color={scoreColor(weakest?.accuracy_pct)} icon={<AlertCircle size={14} />} sub={`${weakest?.topic || '—'} · ${weakest?.correct ?? 0}/${weakest?.total_responses ?? 0}`} />
+        <KpiCard label="Strong Topics" value={String(strong)} color="#16a34a" icon={<CheckCircle size={14} />} sub="90% and above" />
+        <KpiCard label="Needs Review" value={String(weak)} color="#dc2626" icon={<AlertCircle size={14} />} sub={`${mid} mid topics`} />
       </div>
 
       <Panel>
@@ -56,7 +61,7 @@ export function ByTopicTab({ filters = NO_FILTERS }: { filters?: AFilters }) {
       </Panel>
 
       {chartData.length > 0 && (
-        <Panel title={`Topic Accuracy${filtered.length > 20 ? ' (Top 20 shown)' : ''}`}>
+        <Panel title={`Weakest Topic Accuracy${filtered.length > 20 ? ' (20 shown)' : ''}`}>
           <ResponsiveContainer width="100%" height={Math.max(300, chartData.length * 38)}>
             <BarChart data={chartData} layout="vertical" margin={{ top: 5, right: 60, left: 180, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" horizontal={false} />

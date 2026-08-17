@@ -885,6 +885,12 @@ def analytics_by_topic(db: Session = Depends(get_db), f: AFilters = Depends(filt
         .filter(AssessmentResponse.session_id.in_(submitted_session_ids))
         .all()
     )
+    sessions = (
+        db.query(AssessmentSession)
+        .filter(AssessmentSession.id.in_(submitted_session_ids))
+        .all()
+    )
+    session_map = {s.id: s for s in sessions}
 
     # Per-topic accumulators (also track specialty for context)
     topic_map: Dict[str, Dict] = {}
@@ -898,12 +904,18 @@ def analytics_by_topic(db: Session = Depends(get_db), f: AFilters = Depends(filt
         topic_map[tp]["total"] += 1
         if effective_correct(resp):
             topic_map[tp]["correct"] += 1
-        topic_map[tp]["coders"].add(resp.session_id)
+        sess = session_map.get(resp.session_id)
+        if sess:
+            topic_map[tp]["coders"].add(coder_key(sess))
         topic_map[tp]["specialties"].add(sp)
 
     topics = []
+    total_correct = 0
+    total_responses = 0
     for tp, d in topic_map.items():
         acc = round(d["correct"] / d["total"] * 100, 1) if d["total"] else None
+        total_correct += d["correct"]
+        total_responses += d["total"]
         topics.append({
             "topic": tp,
             "accuracy_pct": acc,
@@ -914,7 +926,12 @@ def analytics_by_topic(db: Session = Depends(get_db), f: AFilters = Depends(filt
         })
 
     topics.sort(key=lambda x: -(x["accuracy_pct"] or 0))
-    return {"topics": topics}
+    return {
+        "topics": topics,
+        "total_correct": total_correct,
+        "total_responses": total_responses,
+        "overall_accuracy": round(total_correct / total_responses * 100, 1) if total_responses else None,
+    }
 
 
 @router.get("/analytics/by-batch")
