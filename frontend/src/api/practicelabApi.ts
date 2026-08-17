@@ -638,3 +638,24 @@ export async function checkAnswerKeyCodes(specialty?: string) {
     ccmcc_mismatches: { chart: string; code: string; claimed: string; published: string }[] | null
   }
 }
+
+
+/**
+ * Unspecified-code usage and specificity drops.
+ *
+ * The one figure in this module computed over everything a coder SUBMITTED
+ * rather than over their errors, so it is a rate rather than a share. Returns
+ * available:false with a reason when it cannot be computed — no code sets, or
+ * work from the removed Excel workflow which never recorded submitted codes.
+ */
+export async function getPLSpecificity(f: PLFilters = {}, scope = 'formal') {
+  const { data } = await api.get('/practicelab/analytics/specificity',
+    { params: { ...f, scope } })
+  return data as {
+    available: boolean; reason?: string
+    team: { submitted: number; resolved: number; unspecified: number
+            rate: number | null; codes: { code: string; count: number }[] } | null
+    by_coder: any[]; drops: any[]
+    charts_in_scope?: number; charts_with_submissions?: number
+  }
+}

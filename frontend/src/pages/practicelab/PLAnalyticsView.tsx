@@ -11,6 +11,7 @@ import {
   downloadCoderPerformanceXlsx, downloadBatchReportPdf, downloadBatchAnalyticsXlsx,
   downloadCoderMatrixXlsx, downloadTopicHeatmapXlsx, downloadChartSignalsXlsx,
   getPLErrorAnalysis, getPLErrorDetail, downloadErrorAnalysisXlsx, getPLErrorCoders,
+  getPLSpecificity,
   getPLAnalyticsByCategory, getPLChartTeachingValue, getPLCoderMatrix, getPLChartDetail,
   getBatchEMBreakdown, getEMMdmCumulative, getPLSpecialtyProfile,
   type PLFilters,
@@ -384,6 +385,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
   const [showScattered, setShowScattered] = useState(false)
   const [showAllInsights, setShowAllInsights] = useState(false)
   const [errorCoders, setErrorCoders] = useState<any>(null)
+  const [specificity, setSpecificity] = useState<any>(null)
   const [expandedErrCoder, setExpandedErrCoder] = useState<string | null>(null)
   const [expandedCode, setExpandedCode] = useState<string | null>(null)
   const [codeDetail, setCodeDetail] = useState<Record<string, any>>({})
@@ -509,6 +511,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
     if (tab === 'errors') {
       loadErrors()
       getPLErrorCoders(filters, scope).then(setErrorCoders).catch(() => {})
+      getPLSpecificity(filters, scope).then(setSpecificity).catch(() => {})
     }
   }, [scope, tab, filterVersion, matrixGroupBy])
 
@@ -1172,13 +1175,35 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                       )}
                     </div>
 
+                    {profile.knowledge_gaps?.length > 0 && (
+                      <div>
+                        <div style={sectionLabel}>
+                          Knowledge Gaps
+                          <span style={{ fontWeight: 600, textTransform: 'none' as const, letterSpacing: 0, color: '#9ca3af', marginLeft: 8 }}>
+                            — themes running through this coder's errors, not individual codes
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 8 }}>
+                          {profile.knowledge_gaps.map((g: any) => (
+                            <span key={g.kind + g.label} style={{ fontSize: 12, background: '#f0fdfa', color: '#0f766e', border: '1px solid #99f6e4', padding: '4px 11px', borderRadius: 10 }}>
+                              <span style={{ color: '#5eead4' }}>{g.kind}</span>{' '}
+                              <strong>{g.label}</strong> · {g.count} error{g.count !== 1 ? 's' : ''}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     {profile.top_missed_codes.length > 0 && (
                       <div>
                         <div style={sectionLabel}>Most Missed Codes</div>
                         <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 8 }}>
                           {profile.top_missed_codes.map((m: any) => (
-                            <span key={m.code} style={{ fontSize: 11, background: '#eef2ff', color: '#3730a3', border: '1px solid #c7d2fe', padding: '3px 10px', borderRadius: 10 }}>
-                              <strong>{m.code}</strong> · missed {m.count}×
+                            <span key={m.code} title={m.description || undefined}
+                              style={{ fontSize: 11, background: '#eef2ff', color: '#3730a3', border: '1px solid #c7d2fe', padding: '3px 10px', borderRadius: 10 }}>
+                              <strong>{m.code}</strong>
+                              {m.description && <span style={{ color: '#6366f1' }}> {m.description}</span>}
+                              {' '}· missed {m.count}×
                             </span>
                           ))}
                         </div>
@@ -1624,6 +1649,59 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                       {d.enrichment.described} of {d.enrichment.described + d.enrichment.licensed_cpt + d.enrichment.not_in_edition} errors described
                       {d.enrichment.licensed_cpt > 0 && <> · {d.enrichment.licensed_cpt} CPT (not carried — AMA licence)</>}
                       {d.enrichment.not_in_edition > 0 && <> · {d.enrichment.not_in_edition} not in the loaded edition</>}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Unspecified-code usage.
+                  The only figure on this tab with a real denominator: it is
+                  computed over every diagnosis SUBMITTED, not over the errors,
+                  so it is a rate rather than a share. Usage is a habit —
+                  sometimes unspecified is the right code — and the drops below
+                  are where it was not. */}
+              {specificity?.available && specificity.team?.rate !== null && (
+                <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '14px 16px' }}>
+                  <div style={sectionLabel}>
+                    Unspecified Code Usage
+                    <span style={{ fontWeight: 600, textTransform: 'none' as const, letterSpacing: 0, color: '#9ca3af', marginLeft: 8 }}>
+                      — of {specificity.team.resolved} diagnoses submitted, not of the errors
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, marginBottom: 10 }}>
+                    <span style={{ fontSize: 30, fontWeight: 800, color: '#b45309', letterSpacing: -1 }}>
+                      {specificity.team.rate}%
+                    </span>
+                    <span style={{ fontSize: 12, color: '#6b7280' }}>
+                      {specificity.team.unspecified} of {specificity.team.resolved} submitted diagnoses were unspecified codes.
+                      Not an error in itself — sometimes unspecified is what the documentation supports.
+                    </span>
+                  </div>
+                  {specificity.drops?.length > 0 && (
+                    <>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' as const, letterSpacing: 0.4, margin: '10px 0 6px' }}>
+                        Where it was wrong — a specific code was expected
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 6 }}>
+                        {specificity.drops.slice(0, 6).map((dr: any) => (
+                          <div key={dr.coded + dr.expected} style={{ fontSize: 12, display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' as const }}>
+                            <code style={{ fontWeight: 700, color: '#b45309' }}>{dr.coded}</code>
+                            <span style={{ color: '#9ca3af' }}>{dr.coded_description}</span>
+                            <span style={{ color: '#9ca3af' }}>→</span>
+                            <code style={{ fontWeight: 700, color: '#047857' }}>{dr.expected}</code>
+                            <span style={{ color: '#9ca3af' }}>{dr.expected_description}</span>
+                            <span style={{ color: '#6b7280', marginLeft: 'auto' }}>
+                              {dr.count}× · {dr.coders_affected} coder{dr.coders_affected !== 1 ? 's' : ''}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                  {specificity.charts_with_submissions < specificity.charts_in_scope && (
+                    <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 10 }}>
+                      Read from {specificity.charts_with_submissions} of {specificity.charts_in_scope} charts in scope —
+                      the rest predate the in-browser workflow and have no submitted codes stored.
                     </div>
                   )}
                 </div>
@@ -2591,6 +2669,15 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                               <span><b style={{ color: rc(c.pass_rate) }}>{c.pass_rate}%</b> pass</span>
                             </div>
                             {c.error_variety > 0 && <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>{c.error_variety} distinct error type{c.error_variety > 1 ? 's' : ''}</div>}
+                            {/* What the chart teaches, not just that it is
+                                worth teaching with. Absent when the errors on
+                                it share no theme, which is a real answer. */}
+                            {c.focus && (
+                              <div style={{ fontSize: 11, color: '#0f766e', marginTop: 3 }}>
+                                <span style={{ color: '#9ca3af' }}>{c.focus.kind}:</span>{' '}
+                                <strong>{c.focus.label}</strong> ({c.focus.count})
+                              </div>
+                            )}
                           </div>
                         )
                       })}

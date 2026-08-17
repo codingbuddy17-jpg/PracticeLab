@@ -107,6 +107,70 @@ def _pass_thresholds(db) -> dict:
     return out
 
 
+def _is_unspecified(info) -> bool:
+    """
+    Whether a code is an unspecified one.
+
+    Read off CMS's own description rather than the code's shape. A digit rule
+    ("ends in 9") is wrong in both directions — J18.9 is unspecified and Z79.899
+    is not — while the word is CMS's own and applies to about a third of
+    billable ICD-10-CM codes, which matches the published figure.
+
+    "Other specified" is deliberately NOT counted. It means the documentation
+    named something the classification has no code for, which is a different
+    situation from the documentation not saying.
+    """
+    text_ = ((info or {}).get("description") or "").lower()
+    return "unspecified" in text_ or text_.endswith(", nos")
+
+
+# Same reasoning as the teaching focus: a gap has to be a pattern. Two errors
+# sharing a chapter is a coincidence, and a coaching note built on one is worse
+# than none because it sends someone to study the wrong thing.
+GAP_MIN = 3
+
+
+def _knowledge_gaps(db, feedback, top=4) -> list:
+    """
+    The themes running through one coder's errors.
+
+    Ranked by count, thresholded, and capped. Each row says how many errors it
+    covers so a trainer can see whether it is a habit or a handful.
+    """
+    pairs = [(f.section, f.ak_code or f.coder_code) for f in feedback
+             if (f.ak_code or f.coder_code)]
+    if not pairs:
+        return []
+    enriched = enrich_codes(db, pairs)
+    if not enriched:
+        return []
+
+    axes: dict = {}
+    for section, code in pairs:
+        info = lookup(enriched, section, code)
+        if not info:
+            continue
+        for kind, label in (("Diagnosis chapter", chapter_label(info)),):
+            if label:
+                axes.setdefault((kind, label), 0)
+                axes[(kind, label)] += 1
+        if str(getattr(section, "value", section)).upper() == "SDX":
+            severity = ccmcc_label(info)
+            if severity in ("CC", "MCC"):
+                axes.setdefault(("CC/MCC", severity), 0)
+                axes[("CC/MCC", severity)] += 1
+        for axis, value in pcs_axis_labels(info).items():
+            if axis in ("root_operation", "approach", "device"):
+                key = ("PCS " + axis.replace("_", " "), value)
+                axes.setdefault(key, 0)
+                axes[key] += 1
+
+    rows = [{"kind": k, "label": v, "count": n} for (k, v), n in axes.items()
+            if n >= GAP_MIN]
+    rows.sort(key=lambda x: -x["count"])
+    return rows[:top]
+
+
 def _code_caption(info) -> dict:
     """
     The short description, deliberately.
@@ -832,6 +896,11 @@ def build_coder_summary(results, coder_name: str, db: Session):
             {"code": c, "count": missed_counts[c],
              **_code_caption(lookup(described, missed_sections.get(c), c))}
             for c in top_missed],
+        # What this coder does not know, rather than which codes they missed.
+        # "Top missed: N18.6, I50.31, E11.22" is three facts a trainer has to
+        # synthesise; "circulatory diagnoses, MCC secondaries" is the
+        # conversation to have.
+        "knowledge_gaps": _knowledge_gaps(db, all_feedback),
     }
 
     # ── Per-category breakdown ───────────────────────────────────────────────
@@ -1107,6 +1176,51 @@ TEACHING_YIELD_MIN_ATTEMPTS = 3
 TEACHING_FAIL_SHARE = 50           # share of attempts passing, NOT a score
 TEACHING_STRONG_SHARE = 80
 
+# A focus needs to be a PATTERN, not an incident. Two errors sharing an axis on
+# one chart is a coincidence at these volumes, and labelling a chart
+# "PCS Root Operation" off a single miss is the thin-row-as-pattern defect this
+# codebase has already paid for three times.
+TEACHING_FOCUS_MIN = 3
+
+
+def _teaching_focus(errors, enriched) -> Optional[dict]:
+    """
+    What a chart's errors have in common — a chapter, a CC/MCC class, or a PCS
+    character.
+
+    Returns the strongest axis, or None when nothing clears the bar. None means
+    "these errors do not share a theme", which is a real and common answer; the
+    alternative is a label that reads as insight and is noise.
+    """
+    axes: dict = {}
+
+    def bump(kind, label):
+        if label:
+            axes.setdefault((kind, label), 0)
+            axes[(kind, label)] += 1
+
+    for section, code in errors:
+        info = lookup(enriched, section, code)
+        if not info:
+            continue
+        bump("Diagnosis chapter", chapter_label(info))
+        if str(getattr(section, "value", section)).upper() == "SDX":
+            severity = ccmcc_label(info)
+            # "Neither" is not a teaching focus — it is the absence of one.
+            if severity in ("CC", "MCC"):
+                bump("CC/MCC", severity)
+        for axis, value in pcs_axis_labels(info).items():
+            if axis in ("root_operation", "approach", "device"):
+                bump("PCS " + axis.replace("_", " "), value)
+
+    if not axes:
+        return None
+    (kind, label), count = max(axes.items(), key=lambda kv: kv[1])
+    if count < TEACHING_FOCUS_MIN:
+        return None
+    return {"kind": kind, "label": label, "count": count}
+
+
 
 @router.get("/analytics/chart-teaching-value")
 def analytics_chart_teaching_value(
@@ -1155,7 +1269,7 @@ def analytics_chart_teaching_value(
                 "category": r.chart.category,
                 "difficulty": r.chart.difficulty.value,
                 "scores": [], "passed": 0, "total": 0,
-                "error_variety": set(),
+                "error_variety": set(), "errors": [],
             }
         chart_map[cn]["scores"].append(r.total_score)
         chart_map[cn]["total"] += 1
@@ -1164,6 +1278,14 @@ def analytics_chart_teaching_value(
         for f in r.feedback:
             if f.issue_type.value == "Missed" and f.ak_code:
                 chart_map[cn]["error_variety"].add(f.ak_code)
+            if f.ak_code or f.coder_code:
+                chart_map[cn]["errors"].append((f.section, f.ak_code or f.coder_code))
+
+    # What each chart TEACHES, from what people actually got wrong on it.
+    # A label like "High Yield" says a chart is worth using; this says what for,
+    # which is what turns a list into a practice pack.
+    enriched = enrich_codes(db, [pair for d in chart_map.values()
+                                 for pair in d["errors"]])
 
     out = []
     for d in chart_map.values():
@@ -1204,6 +1326,7 @@ def analytics_chart_teaching_value(
             # explain it without re-deriving a rule it might get wrong.
             "pass_threshold": pt,
             "too_easy_at": too_easy_at,
+            "focus": _teaching_focus(d["errors"], enriched),
         })
 
     # Ordered by what a trainer should look at first. Alphabetical put
@@ -1843,6 +1966,185 @@ def error_analysis_export(
 
 
 MIN_CHARTS_FOR_CODER_RANK = 5
+
+
+@router.get("/analytics/specificity")
+def analytics_specificity(
+    from_date: Optional[str] = None, to_date: Optional[str] = None,
+    specialty: Optional[str] = None, scope: str = "formal",
+    db: Session = Depends(get_db),
+):
+    """
+    How often coders reach for an unspecified code, and where they should not
+    have.
+
+    The one measurement here that is not a re-slice of the error counts. Every
+    other panel in this module reads `grading_feedback`, which holds only
+    MISTAKES — so it can report shares of errors and never a rate. "40% of
+    errors are Chapter 9" says Chapter 9 is common in these charts, not that it
+    is hard. Unspecified usage needs the opposite: every code a coder
+    SUBMITTED, right or wrong, which lives in `practice_results`.
+
+    Two figures, and they answer different questions:
+
+      Unspecified usage rate  — of the diagnoses this coder submitted, what
+                                share were unspecified codes. A habit, not an
+                                error: sometimes unspecified is correct.
+      Specificity drops       — where the coder used an unspecified code and
+                                the answer key wanted a specific one. That IS
+                                an error, and it is the coaching moment.
+
+    A drop is only counted on a Wrong_Code finding. Pairing the two codes on a
+    Missed or Over_coded row is meaningless — those rows carry one real code
+    and one absence, so the "pair" is two unrelated diagnoses.
+    """
+    scope = (scope or "formal").lower()
+    if scope not in ("formal", "direct", "all"):
+        raise HTTPException(status_code=400, detail="scope must be formal, direct or all")
+
+    # Filtered exactly like every other tab, through the same base query, so a
+    # date range or a specialty means the same thing here as next door.
+    results = _with_details(_gr_base(db, from_date, to_date, specialty,
+                                     exclude_direct=(scope == "formal"))).join(Chart).all()
+    if scope == "direct":
+        results = [r for r in results if r.batch and r.batch.is_direct_assignment]
+    if not results:
+        return {"available": False, "reason": "No graded charts in scope.",
+                "team": None, "by_coder": [], "drops": []}
+
+    # The submitted codes live in the raw-DDL practice tables, which have no
+    # ORM model. Read once and indexed, rather than a query per result.
+    submitted: dict = {}
+    try:
+        rows = db.execute(text("""
+            SELECT s.batch_id, s.coder_name, p.chart_id,
+                   p.pdx_submitted, p.sdx_submitted
+            FROM practice_results p
+            JOIN practice_sessions s ON s.id = p.session_id
+        """)).fetchall()
+        for batch_id, coder_name, chart_id, pdx, sdx in rows:
+            submitted[(batch_id, coder_name, chart_id)] = (pdx, sdx)
+    except Exception:
+        # No practice tables: an older schema, or a deployment that has only
+        # ever used the removed Excel workflow.
+        return {"available": False,
+                "reason": "Submitted codes are not recorded for this work.",
+                "team": None, "by_coder": [], "drops": []}
+
+    import json as _json
+
+    def _dx_codes(pdx, sdx) -> list:
+        out = [pdx] if pdx else []
+        try:
+            for entry in _json.loads(sdx or "[]"):
+                code = entry.get("code") if isinstance(entry, dict) else entry
+                if code:
+                    out.append(code)
+        except Exception:
+            pass
+        return out
+
+    per_coder: dict = {}
+    all_codes: list = []
+    for r in results:
+        key = (r.batch_id, r.coder_name, r.chart_id)
+        if key not in submitted:
+            continue
+        codes = _dx_codes(*submitted[key])
+        if not codes:
+            continue
+        cid = r.emp_id or r.coder_name
+        cell = per_coder.setdefault(cid, {"coder_name": r.coder_name, "emp_id": r.emp_id,
+                                          "codes": [], "charts": set()})
+        cell["codes"].extend(codes)
+        cell["charts"].add(r.chart_id)
+        all_codes.extend(codes)
+
+    if not all_codes:
+        return {"available": False,
+                "reason": "No submitted diagnosis codes in scope.",
+                "team": None, "by_coder": [], "drops": []}
+
+    described = enrich_codes(db, [("SDX", c) for c in set(all_codes)])
+    if not described:
+        return {"available": False,
+                "reason": "The CMS code sets have not been loaded.",
+                "team": None, "by_coder": [], "drops": []}
+
+    def _rate(codes: list) -> dict:
+        """
+        Only codes the tables recognise count. A code we cannot describe is
+        not evidence either way, and putting it in the denominator would
+        quietly depress everyone's rate by however stale their answer keys are.
+        """
+        known, unspec = 0, []
+        for code in codes:
+            info = lookup(described, "SDX", code)
+            if not info or not info.get("description"):
+                continue
+            known += 1
+            if _is_unspecified(info):
+                unspec.append(code)
+        return {"submitted": len(codes), "resolved": known,
+                "unspecified": len(unspec),
+                "rate": round(len(unspec) / known * 100, 1) if known else None,
+                "codes": Counter(unspec).most_common(5)}
+
+    team = _rate(all_codes)
+    by_coder = []
+    for cid, cell in per_coder.items():
+        stat = _rate(cell["codes"])
+        by_coder.append({
+            "coder_name": cell["coder_name"], "emp_id": cell["emp_id"],
+            "charts": len(cell["charts"]),
+            **{k: v for k, v in stat.items() if k != "codes"},
+            "top_codes": [{"code": c, "count": n} for c, n in stat["codes"]],
+        })
+    # Highest first: this is a list of habits to talk about.
+    by_coder.sort(key=lambda x: (-(x["rate"] or 0), -x["unspecified"]))
+
+    # ── specificity drops ────────────────────────────────────────────────────
+    drops: dict = {}
+    for r in results:
+        for f in r.feedback:
+            if f.issue_type.value != "Wrong_Code":
+                continue
+            if str(getattr(f.section, "value", f.section)).upper() not in ("PDX", "SDX"):
+                continue
+            if not (f.coder_code and f.ak_code):
+                continue
+            coded = lookup(described, "SDX", f.coder_code) or \
+                lookup(enrich_codes(db, [("SDX", f.coder_code)]), "SDX", f.coder_code)
+            wanted = lookup(described, "SDX", f.ak_code) or \
+                lookup(enrich_codes(db, [("SDX", f.ak_code)]), "SDX", f.ak_code)
+            if not coded or not wanted:
+                continue
+            if not _is_unspecified(coded) or _is_unspecified(wanted):
+                continue
+            key = (f.coder_code, f.ak_code)
+            cell = drops.setdefault(key, {
+                "coded": f.coder_code, "coded_description": coded["description"],
+                "expected": f.ak_code, "expected_description": wanted["description"],
+                "chapter": wanted.get("chapter"),
+                "count": 0, "coders": set(), "charts": set()})
+            cell["count"] += 1
+            cell["coders"].add(r.emp_id or r.coder_name)
+            cell["charts"].add(r.chart.chart_number if r.chart else r.chart_id)
+
+    drop_rows = sorted([{**{k: v for k, v in d.items() if k not in ("coders", "charts")},
+                         "coders_affected": len(d["coders"]),
+                         "charts_affected": len(d["charts"])}
+                        for d in drops.values()], key=lambda x: -x["count"])
+
+    return {
+        "available": True,
+        "team": team | {"codes": [{"code": c, "count": n} for c, n in team["codes"]]},
+        "by_coder": by_coder,
+        "drops": drop_rows[:25],
+        "charts_in_scope": len(results),
+        "charts_with_submissions": sum(1 for r in results
+                                       if (r.batch_id, r.coder_name, r.chart_id) in submitted),
+    }
 
 
 @router.get("/analytics/error-coders")

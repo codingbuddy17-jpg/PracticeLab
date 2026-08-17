@@ -960,3 +960,89 @@ class TestDrilldownSaysWhatTheCodeIs:
         body = client.get(DETAIL, params={"code": "99213"}).json()
         assert body["info"] is None
         assert body["coders"] and body["coders"][0]["count"] == 1
+
+
+class TestTeachingFocusAndKnowledgeGaps:
+    """
+    Both answer "what is this about" rather than "how bad is it", and both are
+    thresholded. Labelling a chart "PCS Root Operation" off a single miss, or
+    telling a trainer a coder has a circulatory gap on the strength of two
+    errors, is the thin-row-as-pattern defect this codebase has paid for three
+    times — worse than silence, because it sends someone to study the wrong
+    thing.
+    """
+
+    TEACHING = "/practicelab/analytics/chart-teaching-value"
+    CODER = "/practicelab/analytics/coder-summary"
+
+    def test_a_chart_reports_what_its_errors_share(self, client, db):
+        b, c = _batch(db, "B"), _chart(db, "IP001")
+        for coder, emp in (("Ann", "E1"), ("Bob", "E2"), ("Cid", "E3")):
+            _err(db, b, c, coder, emp, "I50.31")
+        _codes(db)
+        rows = client.get(self.TEACHING, params={"scope": "all"}).json()
+        focus = next(r for r in rows if r["chart_number"] == "IP001")["focus"]
+        assert focus["kind"] == "Diagnosis chapter"
+        assert focus["label"] == "Diseases of the circulatory system"
+        assert focus["count"] == 3
+
+    def test_two_errors_are_not_a_focus(self, client, db):
+        b, c = _batch(db, "B"), _chart(db, "IP001")
+        _err(db, b, c, "Ann", "E1", "I50.31")
+        _err(db, b, c, "Bob", "E2", "I10")
+        _codes(db)
+        rows = client.get(self.TEACHING, params={"scope": "all"}).json()
+        assert next(r for r in rows if r["chart_number"] == "IP001")["focus"] is None
+
+    def test_a_chart_with_no_describable_errors_has_no_focus(self, client, db):
+        b, c = _batch(db, "B"), _chart(db, "IP001")
+        for coder, emp in (("Ann", "E1"), ("Bob", "E2"), ("Cid", "E3")):
+            _err(db, b, c, coder, emp, "99213", sect="CPT")
+        _codes(db)
+        rows = client.get(self.TEACHING, params={"scope": "all"}).json()
+        assert next(r for r in rows if r["chart_number"] == "IP001")["focus"] is None
+
+    def test_a_coder_gap_names_the_theme_not_the_codes(self, client, db):
+        b = _batch(db, "B")
+        for i, code in enumerate(["I50.31", "I10", "I50.31"]):
+            _err(db, b, _chart(db, f"IP10{i}"), "Ann", "E1", code)
+        _codes(db)
+        gaps = client.get(self.CODER, params={"coder_name": "Ann", "scope": "all"}
+                          ).json()["error_pattern"]["knowledge_gaps"]
+        assert gaps and gaps[0]["kind"] == "Diagnosis chapter"
+        assert gaps[0]["label"] == "Diseases of the circulatory system"
+        assert gaps[0]["count"] == 3
+
+    def test_a_thin_pattern_is_not_reported_as_a_gap(self, client, db):
+        b = _batch(db, "B")
+        _err(db, b, _chart(db, "IP201"), "Ann", "E1", "I50.31")
+        _err(db, b, _chart(db, "IP202"), "Ann", "E1", "E11.9")
+        _codes(db)
+        assert client.get(self.CODER, params={"coder_name": "Ann", "scope": "all"}
+                          ).json()["error_pattern"]["knowledge_gaps"] == []
+
+    def test_a_severity_gap_is_reported_for_secondaries(self, client, db):
+        b = _batch(db, "B")
+        for i in range(3):
+            _err(db, b, _chart(db, f"IP30{i}"), "Ann", "E1", "N17.9")
+        _codes(db)
+        gaps = client.get(self.CODER, params={"coder_name": "Ann", "scope": "all"}
+                          ).json()["error_pattern"]["knowledge_gaps"]
+        assert any(g["kind"] == "CC/MCC" and g["label"] == "CC" for g in gaps)
+
+    def test_neither_is_never_offered_as_a_gap(self, client, db):
+        """"Not a CC" is the absence of a theme, not a theme."""
+        b = _batch(db, "B")
+        for i in range(4):
+            _err(db, b, _chart(db, f"IP40{i}"), "Ann", "E1", "E11.9")
+        _codes(db)
+        gaps = client.get(self.CODER, params={"coder_name": "Ann", "scope": "all"}
+                          ).json()["error_pattern"]["knowledge_gaps"]
+        assert all(g["label"] != "Neither" for g in gaps)
+
+    def test_without_the_code_sets_there_are_no_gaps_and_no_error(self, client, db):
+        b = _batch(db, "B")
+        for i in range(3):
+            _err(db, b, _chart(db, f"IP50{i}"), "Ann", "E1", "I50.31")
+        body = client.get(self.CODER, params={"coder_name": "Ann", "scope": "all"}).json()
+        assert body["error_pattern"]["knowledge_gaps"] == []
