@@ -629,3 +629,23 @@ export async function getPLSpecificity(f: PLFilters = {}, scope = 'formal') {
     charts_in_scope?: number; charts_with_submissions?: number
   }
 }
+
+
+/**
+ * Which way E/M level errors went.
+ *
+ * Reads both places a level is coded — the E/M specialties and ED Facility,
+ * where the level is an ordinary CPT line. Empty is a real answer; the payload
+ * says how many code pairs it examined so an empty tab is not mistaken for
+ * nothing having been looked at.
+ */
+export async function getPLEmLevels(f: PLFilters = {}, scope = 'formal') {
+  const { data } = await api.get('/practicelab/analytics/em-levels',
+    { params: { ...f, scope } })
+  return data as {
+    team: Record<string, any>
+    by_coder: any[]; trend: any[]
+    labels: Record<string, string>
+    graded_charts: number; code_pairs_examined: number
+  }
+}

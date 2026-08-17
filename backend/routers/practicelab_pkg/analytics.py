@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session, selectinload, joinedload
 from sqlalchemy import func, Integer, text
 from database import get_db
 from models import Batch, BatchCoder, BatchStatus, GradingResult, GradingFeedback, Chart, PassFail, Specialty, ScoringConfig
+from services.em_levels import KIND_LABELS as EM_KIND_LABELS
+from services.em_levels import classify as em_classify
 from services.code_enrichment import (axis_themes, ccmcc_label, chapter_label,
                                       enrich_codes, is_licensed_cpt, lookup,
                                       pcs_axis_labels)
@@ -1893,6 +1895,108 @@ def error_analysis_export(
 
 
 MIN_CHARTS_FOR_CODER_RANK = 5
+
+
+@router.get("/analytics/em-levels")
+def analytics_em_levels(
+    from_date: Optional[str] = None, to_date: Optional[str] = None,
+    specialty: Optional[str] = None, scope: str = "formal",
+    db: Session = Depends(get_db),
+):
+    """
+    Which way E/M level errors went.
+
+    "42 level errors" is not something a trainer can act on. Split by
+    direction it is four conversations: work overjudged, work underjudged, the
+    encounter misread (new billed as established), and the critical care
+    boundary.
+
+    Direction matters beyond training. Upcoding is what payers audit for, so it
+    is what people are taught to watch; downcoding is revenue quietly left on
+    the table and nobody is looking. Two teams with identical error counts and
+    opposite directions have opposite problems.
+
+    Reads BOTH sources, because E/M levels are coded in two places: the E/M
+    specialties, whose codes sit in the E/M feedback rows, and ED Facility,
+    where the level is an ordinary CPT line graded by the main engine. A tab
+    that covered only one would quietly describe half the team.
+    """
+    scope = (scope or "formal").lower()
+    if scope not in ("formal", "direct", "all"):
+        raise HTTPException(status_code=400, detail="scope must be formal, direct or all")
+
+    results = _with_details(_gr_base(db, from_date, to_date, specialty,
+                                     exclude_direct=(scope == "formal"))).join(Chart).all()
+    if scope == "direct":
+        results = [r for r in results if r.batch and r.batch.is_direct_assignment]
+
+    per_coder: dict = {}
+    by_month: dict = {}
+    totals = Counter()
+    pairs_seen = 0
+
+    for r in results:
+        cid = r.emp_id or r.coder_name
+        month = r.graded_at.strftime("%Y-%m") if r.graded_at else None
+        for f in (r.feedback or []):
+            # Only a CPT line can carry an E/M level. classify() returns None
+            # for anything that is not one, so a stray code costs nothing —
+            # but restricting the section first keeps the scan honest about
+            # what it looked at.
+            if str(getattr(f.section, "value", f.section)).upper() != "CPT":
+                continue
+            if not (f.coder_code and f.ak_code):
+                continue
+            pairs_seen += 1
+            verdict = em_classify(f.coder_code, f.ak_code)
+            if not verdict:
+                continue
+            kind = verdict["kind"]
+            totals[kind] += 1
+            cell = per_coder.setdefault(cid, {
+                "coder_name": r.coder_name, "emp_id": r.emp_id,
+                "counts": Counter(), "charts": set()})
+            cell["counts"][kind] += 1
+            cell["charts"].add(r.chart_id)
+            if month:
+                by_month.setdefault(month, Counter())[kind] += 1
+
+    def _row(counts: Counter) -> dict:
+        up = counts["upcoded"] + counts["critical_care_overreach"]
+        down = counts["downcoded"] + counts["critical_care_missed"]
+        return {
+            **{k: counts[k] for k in EM_KIND_LABELS},
+            "total": sum(counts.values()),
+            # The headline pair. Critical care counts into them because
+            # overreach IS upcoding and a missed one IS downcoding — the
+            # boundary is just where it happens.
+            "upward": up, "downward": down,
+            # Which way a coder leans, or None when they do not lean. A team
+            # that errs both ways equally has a precision problem; one that
+            # errs in a single direction has a habit.
+            "lean": None if up == down else ("up" if up > down else "down"),
+        }
+
+    coders = []
+    for cid, cell in per_coder.items():
+        coders.append({"coder_id": cid, "coder_name": cell["coder_name"],
+                       "emp_id": cell["emp_id"],
+                       "charts_affected": len(cell["charts"]),
+                       **_row(cell["counts"])})
+    coders.sort(key=lambda c: -c["total"])
+
+    trend = [{"month": m, **_row(c)} for m, c in sorted(by_month.items())]
+
+    return {
+        "team": _row(totals),
+        "by_coder": coders,
+        "trend": trend,
+        "labels": EM_KIND_LABELS,
+        # What was examined, so an empty result reads as "no level errors"
+        # rather than "nothing was looked at".
+        "graded_charts": len(results),
+        "code_pairs_examined": pairs_seen,
+    }
 
 
 @router.get("/analytics/specificity")

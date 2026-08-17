@@ -11,7 +11,7 @@ import {
   downloadCoderPerformanceXlsx, downloadBatchReportPdf, downloadBatchAnalyticsXlsx,
   downloadCoderMatrixXlsx, downloadTopicHeatmapXlsx, downloadChartSignalsXlsx,
   getPLErrorAnalysis, getPLErrorDetail, downloadErrorAnalysisXlsx, getPLErrorCoders,
-  getPLSpecificity,
+  getPLSpecificity, getPLEmLevels,
   getPLAnalyticsByCategory, getPLChartTeachingValue, getPLCoderMatrix, getPLChartDetail,
   getBatchEMBreakdown, getEMMdmCumulative, getPLSpecialtyProfile,
   type PLFilters,
@@ -386,6 +386,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
   const [showAllInsights, setShowAllInsights] = useState(false)
   const [errorCoders, setErrorCoders] = useState<any>(null)
   const [specificity, setSpecificity] = useState<any>(null)
+  const [emLevels, setEmLevels] = useState<any>(null)
   const [expandedErrCoder, setExpandedErrCoder] = useState<string | null>(null)
   const [expandedCode, setExpandedCode] = useState<string | null>(null)
   const [codeDetail, setCodeDetail] = useState<Record<string, any>>({})
@@ -512,6 +513,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
       loadErrors()
       getPLErrorCoders(filters, scope).then(setErrorCoders).catch(() => {})
       getPLSpecificity(filters, scope).then(setSpecificity).catch(() => {})
+      getPLEmLevels(filters, scope).then(setEmLevels).catch(() => {})
     }
   }, [scope, tab, filterVersion, matrixGroupBy])
 
@@ -1702,6 +1704,56 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                     <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 10 }}>
                       Read from {specificity.charts_with_submissions} of {specificity.charts_in_scope} charts in scope —
                       the rest predate the in-browser workflow and have no submitted codes stored.
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* E/M level direction.
+                  "42 level errors" is not actionable. Upcoding is what payers
+                  audit for and what people are trained to spot; downcoding is
+                  revenue quietly left on the table with nobody watching. Two
+                  teams with the same count and opposite directions have
+                  opposite problems. */}
+              {emLevels?.team?.total > 0 && (
+                <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '14px 16px' }}>
+                  <div style={sectionLabel}>
+                    E/M Level Direction
+                    <span style={{ fontWeight: 600, textTransform: 'none' as const, letterSpacing: 0, color: '#9ca3af', marginLeft: 8 }}>
+                      — from {emLevels.code_pairs_examined} coded procedure lines
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 22, alignItems: 'baseline', marginBottom: 12, flexWrap: 'wrap' as const }}>
+                    <span><strong style={{ fontSize: 26, color: '#b45309' }}>{emLevels.team.upward}</strong>
+                      <span style={{ fontSize: 12, color: '#6b7280' }}> coded above the key</span></span>
+                    <span><strong style={{ fontSize: 26, color: '#0f766e' }}>{emLevels.team.downward}</strong>
+                      <span style={{ fontSize: 12, color: '#6b7280' }}> coded below</span></span>
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 8, marginBottom: 10 }}>
+                    {Object.entries(emLevels.labels).map(([key, label]: any) => (
+                      emLevels.team[key] > 0 ? (
+                        <span key={key} style={{ fontSize: 12, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: '4px 11px', color: '#334155' }}>
+                          {label} <strong>{emLevels.team[key]}</strong>
+                        </span>
+                      ) : null
+                    ))}
+                  </div>
+                  {emLevels.by_coder.length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 4 }}>
+                      {emLevels.by_coder.slice(0, 6).map((c: any) => (
+                        <div key={c.coder_id} style={{ display: 'flex', gap: 10, fontSize: 12, alignItems: 'baseline' }}>
+                          <span style={{ flex: 1, color: '#111' }}>{c.coder_name}</span>
+                          <span style={{ color: '#6b7280' }}>{c.total} level error{c.total !== 1 ? 's' : ''}</span>
+                          {/* A lean is a habit; erring both ways equally is a
+                              precision problem, and naming it a lean would
+                              send a trainer to fix a bias that is not there. */}
+                          {c.lean && (
+                            <span style={{ fontSize: 11, fontWeight: 700, color: c.lean === 'up' ? '#b45309' : '#0f766e' }}>
+                              leans {c.lean === 'up' ? 'high' : 'low'}
+                            </span>
+                          )}
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
