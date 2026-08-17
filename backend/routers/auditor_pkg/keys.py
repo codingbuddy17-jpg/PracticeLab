@@ -300,11 +300,25 @@ def auditable_charts(specialty: str = Query(...),
     if difficulty:
         query = query.filter(Chart.difficulty == difficulty)
     rows = query.order_by(Chart.chart_number).limit(limit).all()
+    chart_ids = [c.id for c, _curated_id in rows]
+    sets = {}
+    if chart_ids:
+        for row in (db.query(AuditKeySet)
+                    .filter(AuditKeySet.chart_id.in_(chart_ids))
+                    .order_by(AuditKeySet.chart_id, AuditKeySet.id)
+                    .all()):
+            sets.setdefault(row.chart_id, []).append({
+                "id": row.id,
+                "name": row.name,
+                "planting_count": len(row.mutations or []),
+                "always_plant": bool(row.always_plant),
+            })
     return {"charts": [{
         "id": c.id, "chart_number": c.chart_number, "category": c.category,
         "difficulty": c.difficulty.value if c.difficulty else None,
         # So the picker can show which charts carry errors you wrote.
         "has_audit_key": curated_id is not None,
+        "audit_key_sets": sets.get(c.id, []),
     } for c, curated_id in rows]}
 
 

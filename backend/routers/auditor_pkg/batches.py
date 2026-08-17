@@ -12,13 +12,13 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from database import get_db
 from models import (
-    AnswerKey, AuditAllocationCycle, AuditAssignment, AuditBatch,
+    AnswerKey, AuditAllocationCycle, AuditAssignment, AuditBatch, AuditKeySet,
     AuditBatchAuditor, AuditResult, AuditSession, AuditSource, BatchStatus,
     Chart,
 )
@@ -66,6 +66,7 @@ class AllocationRun(BaseModel):
     run_by: str
     exclude_auditors: list[str] = []
     manual_chart_ids: list[int] = []
+    manual_set_ids: dict[int, int] = Field(default_factory=dict)
 
 
 @router.post("/batches")
@@ -348,6 +349,40 @@ def run_allocation(batch_id: int, payload: AllocationRun, db: Session = Depends(
         raise HTTPException(
             400, "No charts match this batch's filters that also have an answer key")
 
+    pinned_sets: dict[int, AuditKeySet] = {}
+    if payload.manual_set_ids:
+        if batch.allocation_mode != "manual":
+            raise HTTPException(
+                400, "Specific audit key versions can only be selected in Hand-picked mode")
+        pool_ids = {c.id for c in pool}
+        extra = set(payload.manual_set_ids) - pool_ids
+        if extra:
+            names = {c.id: c.chart_number for c in db.query(Chart).filter(
+                Chart.id.in_(extra)).all()}
+            detail = ", ".join(names.get(i, str(i)) for i in sorted(extra))
+            raise HTTPException(
+                400,
+                f"Specific audit key versions were selected for chart(s) not in "
+                f"this hand-picked run: {detail}.")
+        wanted_sets = set(payload.manual_set_ids.values())
+        found = {
+            s.id: s for s in db.query(AuditKeySet)
+            .filter(AuditKeySet.id.in_(wanted_sets)).all()
+        }
+        missing = wanted_sets - set(found)
+        if missing:
+            raise HTTPException(
+                400, f"Audit key version(s) not found: {', '.join(map(str, sorted(missing)))}")
+        for chart_id, set_id in payload.manual_set_ids.items():
+            row = found[set_id]
+            if row.chart_id != chart_id:
+                chart = db.query(Chart).filter(Chart.id == chart_id).first()
+                raise HTTPException(
+                    400,
+                    f"Audit key version {set_id} does not belong to "
+                    f"{chart.chart_number if chart else chart_id}.")
+            pinned_sets[chart_id] = row
+
     existing = (db.query(AuditAssignment)
                 .filter(AuditAssignment.batch_id == batch_id).all())
     seen_counts: dict[str, dict] = {}
@@ -417,10 +452,15 @@ def run_allocation(batch_id: int, payload: AllocationRun, db: Session = Depends(
             # Version follows the chart's own use count, so it is the same for
             # every auditor in this cycle and different from last encounter.
             intent = intents[idx]
-            source, key_set = resolve_source(
-                chart.id, intent == "clean",
-                all_sets if intent != "auto" else {},
-                len(chart_uses.get(chart.id, ())))
+            if chart.id in pinned_sets:
+                # Hand-picked version choice is an explicit trainer decision:
+                # use that authored set even if the clean quota landed here.
+                source, key_set = AuditSource.MANUAL, pinned_sets[chart.id]
+            else:
+                source, key_set = resolve_source(
+                    chart.id, intent == "clean",
+                    all_sets if intent != "auto" else {},
+                    len(chart_uses.get(chart.id, ())))
             built = build_assignment(
                 chart, keys.get(chart.id), source, key_set,
                 cycle_number=cycle_number, cfg=mcfg, corpus=corpus,

@@ -652,6 +652,7 @@ function AuditBatchDetail({ batchId, trainer, onBack, onReview }: {
   // Hand-picked mode: the trainer chooses WHICH charts; the quotas still
   // decide the mix within them. Same picker as the coder allocation panel.
   const [picked, setPicked] = useState<Set<number>>(new Set())
+  const [pinnedVersions, setPinnedVersions] = useState<Record<string, string>>({})
   // A cap, not a target. Left at 0 it follows the selection, so ticking six
   // charts gives every auditor those six — the coder screen's behaviour. A
   // trainer who wants a subset drawn from a wider selection types a number.
@@ -708,11 +709,17 @@ function AuditBatchDetail({ batchId, trainer, onBack, onReview }: {
     if (handPicked && picked.size === 0) {
       return toast.error('Pick at least one chart, or switch the batch to Guided')
     }
+    const manualSetIds = Object.fromEntries(
+      Object.entries(pinnedVersions)
+        .filter(([chartId, setId]) => picked.has(Number(chartId)) && setId)
+        .map(([chartId, setId]) => [Number(chartId), Number(setId)]),
+    )
     setBusy(true)
     try {
       const res = await runAuditAllocation(batchId, {
         run_by: trainer,
         manual_chart_ids: handPicked ? Array.from(picked) : [],
+        manual_set_ids: handPicked ? manualSetIds : {},
         // Sent for every mode, as the coder screen does. It used to be omitted
         // entirely, so the batch's creation-time number always won: picking
         // ten charts for a batch created at four handed each auditor a random
@@ -965,7 +972,7 @@ function AuditBatchDetail({ batchId, trainer, onBack, onReview }: {
                   every auditor below, skipping any they have already sat.
                 </span>
                 <button style={s.linkBtn} onClick={() => {
-                  setPicked(new Set()); setMaxOverride(0)
+                  setPicked(new Set()); setPinnedVersions({}); setMaxOverride(0)
                 }}>Clear</button>
               </div>
               {batch.quota_clean > 0 && (
@@ -984,21 +991,53 @@ function AuditBatchDetail({ batchId, trainer, onBack, onReview }: {
                 <span>Chart</span><span>Category</span><span>Difficulty</span><span /></div>
               {hits.map(c => {
                 const on = picked.has(c.id as number)
+                const versions = ((c.audit_key_sets as any[]) || [])
                 return (
                   <div key={c.id as number}
                     style={{ ...s.chartPickerRow, background: on ? '#eef2ff' : '#fff' }}
                     onClick={() => setPicked(p => {
                       const next = new Set(p)
-                      next.has(c.id as number) ? next.delete(c.id as number)
-                        : next.add(c.id as number)
+                      if (next.has(c.id as number)) {
+                        next.delete(c.id as number)
+                        setPinnedVersions(v => {
+                          const out = { ...v }
+                          delete out[String(c.id)]
+                          return out
+                        })
+                      } else {
+                        next.add(c.id as number)
+                      }
                       return next
                     })}>
                     <span style={s.chartPickerNum}>{c.chart_number as string}</span>
                     <span style={s.chartPickerCat}>{c.category as string}</span>
                     <span style={s.chartPickerDiff}>
                       {c.difficulty as string}
-                      {(c.has_audit_key as boolean) && (
-                        <span style={{ ...s.tag, marginLeft: 6 }}>your errors</span>
+                      {versions.length > 0 && (
+                        <span style={{ ...s.tag, marginLeft: 6 }}>
+                          {versions.length} version{versions.length !== 1 ? 's' : ''}
+                        </span>
+                      )}
+                      {on && versions.length > 0 && (
+                        <select
+                          style={{ ...s.select, marginTop: 6, width: '100%', fontSize: 12 }}
+                          value={pinnedVersions[String(c.id)] || ''}
+                          onClick={e => e.stopPropagation()}
+                          onChange={e => {
+                            const value = e.target.value
+                            setPinnedVersions(v => value
+                              ? { ...v, [String(c.id)]: value }
+                              : Object.fromEntries(Object.entries(v)
+                                .filter(([chartId]) => chartId !== String(c.id))))
+                          }}>
+                          <option value="">Use next version automatically</option>
+                          {versions.map(v => (
+                            <option key={v.id as number} value={String(v.id)}>
+                              {v.name as string} ({v.planting_count as number} error{Number(v.planting_count) === 1 ? '' : 's'})
+                              {v.always_plant ? ' - always used' : ''}
+                            </option>
+                          ))}
+                        </select>
                       )}
                     </span>
                     <span>{on ? <CheckSquare size={16} color="#4f46e5" />

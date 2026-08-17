@@ -1244,6 +1244,14 @@ class TestHandPickedMode:
                 "mutations": [{"section": "SDx", "action": "Add",
                                "correct_value": "E11.1"}]})
 
+    def _version(self, client, chart, name, code):
+        r = client.post(f"/auditor/keys/chart/{chart.id}", json={
+            "name": name, "authored_by": "T", "passphrase": PASS,
+            "mutations": [{"section": "SDx", "action": "Add",
+                           "correct_value": code}]})
+        assert r.status_code == 200, r.text
+        return r.json()["id"]
+
     def _sources(self, client, batch_id):
         rows = client.get(f"/auditor/batches/{batch_id}/plantings",
                           params={"limit": 500}).json()["plantings"]
@@ -1291,6 +1299,35 @@ class TestHandPickedMode:
         # never fewer than two curated charts using their own errors.
         assert counts.get("Manual", 0) >= 2
         assert counts.get("Auto", 0) <= 1
+
+    def test_hand_picked_can_pin_a_specific_authored_version(
+            self, client, db, library):
+        first = self._version(client, library[0], "Version A", "E11.1")
+        second = self._version(client, library[0], "Version B", "E11.2")
+        batch_id = make_batch(client, charts_per=1, allocation_mode="manual")
+
+        allocate(client, batch_id, manual_chart_ids=[library[0].id],
+                 manual_set_ids={library[0].id: second})
+
+        rows = client.get(f"/auditor/batches/{batch_id}/plantings",
+                          params={"limit": 500}).json()["plantings"]
+        assert len(rows) == 1
+        assert rows[0]["source"] == "Manual"
+        assert rows[0]["set_id"] == second
+        assert rows[0]["set_id"] != first
+
+    def test_pinned_version_must_belong_to_the_picked_chart(
+            self, client, db, library):
+        wrong = self._version(client, library[1], "Other chart", "E11.1")
+        batch_id = make_batch(client, charts_per=1, allocation_mode="manual")
+
+        r = client.post(f"/auditor/batches/{batch_id}/run-allocation",
+                        json={"run_by": "T",
+                              "manual_chart_ids": [library[0].id],
+                              "manual_set_ids": {library[0].id: wrong}})
+
+        assert r.status_code == 400
+        assert "does not belong" in r.json()["detail"]
 
     def test_picking_an_unusable_chart_says_why(self, client, db, library):
         """
@@ -1526,14 +1563,22 @@ class TestAuditableChartPicker:
         assert library[0].chart_number in numbers
 
     def test_it_marks_charts_that_carry_authored_errors(self, client, db, library):
-        client.post(f"/auditor/keys/chart/{library[0].id}", json={
+        made = client.post(f"/auditor/keys/chart/{library[0].id}", json={
             "name": "Curated", "authored_by": "T", "passphrase": PASS,
             "mutations": [{"section": "SDx", "action": "Add", "correct_value": "E11.1"}]})
+        assert made.status_code == 200, made.text
         charts = client.get("/auditor/charts",
                             params={"specialty": "IP-DRG"}).json()["charts"]
         by_num = {c["chart_number"]: c for c in charts}
         assert by_num[library[0].chart_number]["has_audit_key"] is True
+        assert by_num[library[0].chart_number]["audit_key_sets"] == [{
+            "id": made.json()["id"],
+            "name": "Curated",
+            "planting_count": 1,
+            "always_plant": False,
+        }]
         assert by_num[library[1].chart_number]["has_audit_key"] is False
+        assert by_num[library[1].chart_number]["audit_key_sets"] == []
 
     def test_it_can_be_filtered(self, client, db, library):
         r = client.get("/auditor/charts",
