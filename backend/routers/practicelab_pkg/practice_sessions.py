@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import (
     Chart, AnswerKey, Batch, BatchCoder, BatchChart,
-    BatchAllocationCycle, Submission, GradingResult,
+    BatchAllocationCycle, GradingResult,
     GradingFeedback, ScoringConfig, Specialty,
 )
 from services.grading_engine import (
@@ -38,11 +38,6 @@ def _gen_token() -> str:
     return f"{prefix}-{part1}{part2}"
 
 
-def _specialty_type(specialty: Specialty) -> str:
-    return "IP" if _is_ip(specialty) else "OP"
-
-
-# ── Pydantic models ───────────────────────────────────────────────────────────
 
 class GeneratePracticeTokens(BaseModel):
     batch_id: int

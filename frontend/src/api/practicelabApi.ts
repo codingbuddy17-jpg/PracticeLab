@@ -119,10 +119,6 @@ export async function closeBatch(batchId: number, closedBy: string) {
   return data
 }
 
-export async function forceCloseBatch(batchId: number, payload: { closed_by: string; passphrase: string; reason: string }) {
-  const { data } = await api.post(`/practicelab/batches/${batchId}/force-close`, payload)
-  return data
-}
 
 export async function addBatchNote(batchId: number, text: string, author: string) {
   const { data } = await api.post(`/practicelab/batches/${batchId}/notes`, { text, author })
@@ -134,21 +130,7 @@ export async function addCodersToBatch(batchId: number, coders: { name: string; 
   return data as { added: string[]; skipped_duplicates: string[] }
 }
 
-export async function getAdminOpenBatches(passphrase: string) {
-  const { data } = await api.get('/practicelab/admin/open-batches', { params: { passphrase } })
-  return data as Array<{
-    id: number; name: string; specialty: string; created_by: string; created_at: string;
-    days_open: number; coder_count: number; allocation_cycles: number; total_assigned: number; graded_count: number;
-  }>
-}
 
-/**
- * A page of batches, newest first, with the pre-paging total.
- *
- * The total has to come from the server: a page cannot say how many rows there
- * were, and a "Load more" that cannot tell you what is left is a button you
- * have to press to find out whether pressing it does anything.
- */
 export async function listBatchesPage(opts: {
   directOnly?: boolean; search?: string; limit?: number; offset?: number; status?: string
 } = {}) {
@@ -162,14 +144,6 @@ export async function listBatchesPage(opts: {
   return { items: res.data as any[], total }
 }
 
-export async function listBatches(status?: string, specialty?: string, directOnly?: boolean) {
-  const { data } = await api.get('/practicelab/batches', { params: { status, specialty, direct_only: directOnly } })
-  return data as Array<{
-    id: number; name: string; specialty: string; charts_per_coder: number;
-    status: string; created_by: string; created_at: string; coder_count: number;
-    is_direct_assignment?: boolean;
-  }>
-}
 
 export async function getBatch(batchId: number) {
   const { data } = await api.get(`/practicelab/batches/${batchId}`)
@@ -365,10 +339,6 @@ export async function getPLChartDetail(chartNumber: string) {
 
 // ── E/M MDM API ──────────────────────────────────────────────────────────────
 
-export async function getEMAnswerKey(chartId: number) {
-  const { data } = await api.get(`/practicelab/em/answer-key/${chartId}`)
-  return data
-}
 
 export async function listEMAnswerKeys() {
   const { data } = await api.get('/practicelab/em/answer-key/list')

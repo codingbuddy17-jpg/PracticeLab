@@ -160,10 +160,6 @@ export async function submitAuditSession(sessionId: number, charts: ChartWork[])
 
 // ── trainer-facing ───────────────────────────────────────────────────────────
 
-export async function getAuditFormSpecs() {
-  const { data } = await api.get('/auditor/form-spec')
-  return data as { specialties: FormSpec[] }
-}
 
 export async function getAuditConfig() {
   const { data } = await api.get('/auditor/config')

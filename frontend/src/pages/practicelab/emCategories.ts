@@ -74,13 +74,3 @@ export function resolveCategory(stored: string | null | undefined, code: string)
   return EM_CATEGORY_ORDER.includes(c) ? c : emCategory(code)
 }
 
-/** Critical care add-on units — 99292 repeated, or one line carrying units. */
-export function criticalCareUnits(
-  rows: Array<{ code?: string; units?: number | string }>,
-): number {
-  return (rows || []).reduce((n, r) => {
-    if ((r.code || '').trim().toUpperCase() !== '99292') return n
-    const u = parseInt(String(r.units ?? '1'), 10)
-    return n + (u >= 1 ? u : 1)
-  }, 0)
-}

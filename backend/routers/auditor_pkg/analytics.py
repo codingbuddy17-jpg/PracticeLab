@@ -45,9 +45,6 @@ def _rate(found: int, planted: int) -> Optional[float]:
     return round(found / planted * 100, 2) if planted else None
 
 
-def _avg(values: list[float]) -> Optional[float]:
-    return round(sum(values) / len(values), 2) if values else None
-
 
 def _auditor_key_expr():
     """Stable identity: employee id when present, otherwise the name."""

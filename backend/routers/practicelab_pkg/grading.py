@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from database import get_db
 from models import (
     Chart, Batch, BatchChart, BatchStatus, BatchAllocationCycle,
-    Submission, GradingResult, GradingFeedback, PassFail, ScoringConfig,
+    GradingResult, GradingFeedback, PassFail, ScoringConfig,
 )
 from services.excel_service import export_batch_results
 from services.grading_engine import finalize_ip_score
