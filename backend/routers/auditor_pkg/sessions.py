@@ -367,7 +367,12 @@ def _result_row(sess, assignment, score, findings, emp_id) -> AuditResult:
         review_total=score.review_total, review_correct=score.review_correct,
         review_score=score.review_score, review_sections=score.review_sections,
         review_attributes=score.review_attributes,
-        findings=findings, feedback=score.matched,
+        findings=findings,
+        # Matched plantings AND the over-calls, in one list. Over-call entries
+        # carry no "planting" key, which is how every reader tells them apart —
+        # see the guard in the detection analytics.
+        feedback=score.matched + [{"outcome": "over_call", "finding": f}
+                                  for f in score.over_called],
     )
 
 

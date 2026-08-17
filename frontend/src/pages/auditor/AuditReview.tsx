@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
-import { CheckCircle, ChevronLeft, Circle, XCircle } from 'lucide-react'
+import { AlertTriangle, CheckCircle, ChevronLeft, Circle, XCircle } from 'lucide-react'
 import { getAuditReview } from '../../api/auditorApi'
 import { ISSUE_COLORS } from '../practicelab/shared'
 import s from './styles'
@@ -128,6 +128,28 @@ export function AuditReview({ sessionId, onBack }: {
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
                 {(c.outcomes || []).map((o: any, i: number) => {
+                  // An over-call has no planting — nothing was introduced
+                  // where the auditor raised a finding, which is exactly what
+                  // makes it an over-call. Rendering it through the planting
+                  // path printed "undefined should be undefined".
+                  if (o.outcome === 'over_call') {
+                    const f = o.finding || {}
+                    return (
+                      <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '6px 8px', borderRadius: 6, background: '#fffbeb' }}>
+                        <AlertTriangle size={14} color="#d97706" style={{ flexShrink: 0, marginTop: 2 }} />
+                        <div style={{ fontSize: 12, lineHeight: 1.5 }}>
+                          <strong style={{ color: '#b45309' }}>Over-call</strong>{' '}
+                          {f.section}
+                          {f.field && f.field !== 'code' ? ` ${f.field}` : ''}
+                          {typeof f.line === 'number' ? ` line ${f.line + 1}` : ''}
+                          {' — flagged '}
+                          <code>{f.claim_value || '—'}</code>
+                          {f.correct_value ? <> as <code>{f.correct_value}</code></> : null}
+                          <span style={{ color: '#9ca3af' }}> · nothing was wrong here</span>
+                        </div>
+                      </div>
+                    )
+                  }
                   const p = o.planting || {}
                   const cfg = OUTCOME[o.outcome as keyof typeof OUTCOME] || OUTCOME.missed
                   const Icon = cfg.Icon

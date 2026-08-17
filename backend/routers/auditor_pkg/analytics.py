@@ -31,6 +31,8 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from models import AuditBatch, AuditResult, Chart
+from services.code_enrichment import (ccmcc_label, chapter_label,
+                                      enrich_codes, lookup)
 from services.icd_chapters import chapter_for
 from services.audit_scoring import blended_score
 from .shared import scoring_config
@@ -772,6 +774,74 @@ def _section_action_matrix(cells: dict) -> dict:
     }
 
 
+def _pcs_axis_map(db, plantings) -> dict:
+    """
+    Axis titles for every PCS code in this scan, in one query.
+
+    Built per request from the codes actually present rather than held as a
+    module global: the table is 79,000 rows, and a request touches a handful.
+    Empty when the tables are not loaded, which makes every caller silent.
+    """
+    codes = {c for p in plantings for c in (_bare_pcs(p.get("correct_value")),
+                                            _bare_pcs(p.get("claim_value"))) if c}
+    if not codes:
+        return {}
+    try:
+        from models import PcsCodeAxis
+        rows = (db.query(PcsCodeAxis)
+                .filter(PcsCodeAxis.code.in_(sorted(codes))).all())
+    except Exception:
+        return {}
+    return {r.code: {"body_system": r.body_system,
+                     "root_operation": r.root_operation,
+                     "approach": r.approach, "device": r.device,
+                     "qualifier": r.qualifier, "body_part": r.body_part}
+            for r in rows}
+
+
+def _bump_pcs_axes(axes: dict, confusions: dict, planting: dict,
+                   outcome: str, bump, pcs_map: dict) -> None:
+    """
+    Group a PCS planting by what its characters MEAN.
+
+    Two different things come out of this. The axis buckets say which body
+    systems and root operations the misses cluster in, read off the correct
+    code. The confusion buckets name the specific swap — both the planted value
+    and the right one are real codes, so the difference between them can be
+    stated rather than implied.
+
+    Silent when the PCS tables are not loaded, like everything else built on
+    the reference data.
+    """
+    if (planting.get("section") or "") != "PCS":
+        return
+    correct = pcs_map.get(_bare_pcs(planting.get("correct_value")))
+    if not correct:
+        return
+    for axis in ("body_system", "root_operation", "approach", "device",
+                 "qualifier", "body_part"):
+        value = correct.get(axis)
+        if value:
+            bump(axes.setdefault(axis, {}), value, outcome)
+
+    planted = pcs_map.get(_bare_pcs(planting.get("claim_value")))
+    if not planted:
+        return
+    # Exactly the axes that differ. A single-character mutation gives one;
+    # an observed error may give more, and naming all of them is honest.
+    for axis in ("body_system", "root_operation", "approach", "device",
+                 "qualifier", "body_part"):
+        was, should = planted.get(axis), correct.get(axis)
+        if was and should and was != should:
+            label = "%s: %s read as %s" % (
+                axis.replace("_", " "), should, was)
+            bump(confusions, label, outcome)
+
+
+def _bare_pcs(code) -> str:
+    return str(code or "").strip().upper().replace(" ", "")
+
+
 @router.get("/analytics/detection")
 def detection_patterns(batch_id: Optional[int] = None,
                        specialty: Optional[str] = None,
@@ -804,12 +874,20 @@ def detection_patterns(batch_id: Optional[int] = None,
     by_section: dict[str, dict] = {}
     by_origin: dict[str, dict] = {}
     pcs_chars: dict[str, dict] = {}
+    # The VALUES of the seven characters, not just which position changed.
+    # "Root operation" says where to look; "Resection read as Excision" is the
+    # thing to teach.
+    pcs_axes: dict = {}
+    pcs_confusions: dict = {}
     # Which BODY of knowledge the error sat in, not which mechanic produced it.
     # "Root operation errors are missed" tells a trainer what to drill;
     # "obstetric diagnoses are missed" tells them who to put on which charts,
     # and the two do not overlap. Chapters come from the code itself, so this
     # costs no query and works whether or not the code sets are loaded.
     by_chapter: dict[str, dict] = {}
+    # One query for every PCS code in this scan, before the walk below.
+    pcs_map = _pcs_axis_map(db, [e.get("planting") or {} for r in rows
+                                 for e in (r.feedback or [])])
 
     def bump(bucket: dict, key: str, outcome: str) -> None:
         cell = bucket.setdefault(key, {"planted": 0, "found": 0, "missed": 0,
@@ -824,7 +902,13 @@ def detection_patterns(batch_id: Optional[int] = None,
 
     for r in rows:
         for entry in (r.feedback or []):
-            planting = entry.get("planting") or {}
+            # feedback now carries over-calls as well as matched plantings.
+            # An over-call entry has no "planting", and without this guard it
+            # would be counted as a planting of kind "unknown" — inflating
+            # total_plantings and depressing every detection rate on the tab.
+            planting = entry.get("planting")
+            if not planting:
+                continue
             outcome = entry.get("outcome") or "missed"
             kind = planting.get("kind") or planting.get("action") or "unknown"
             bump(by_kind, kind, outcome)
@@ -833,6 +917,8 @@ def detection_patterns(batch_id: Optional[int] = None,
             bump(by_origin, "observed" if planting.get("origin") == "observed" else "synthetic", outcome)
             if planting.get("pcs_character"):
                 bump(pcs_chars, planting["pcs_character"], outcome)
+            _bump_pcs_axes(pcs_axes, pcs_confusions, planting, outcome,
+                           bump, pcs_map)
             if (planting.get("section") or "") in ("PDx", "SDx"):
                 # correct_value is the code that SHOULD be there — the chapter
                 # of the right answer, not of whatever was planted in its place.
@@ -929,6 +1015,14 @@ def detection_patterns(batch_id: Optional[int] = None,
         "section_matrix": section_matrix,
         "by_origin": origins,
         "pcs_characters": shape(pcs_chars),
+        # Grouped by the value of each axis on the CORRECT code — what the
+        # procedure actually was — so a trainer can see which body systems and
+        # root operations the misses cluster in.
+        "pcs_axes": {axis: shape(bucket) for axis, bucket in pcs_axes.items()
+                     if bucket},
+        # And the specific confusions, from diffing the planted code against
+        # the right one. Both are real codes, so the difference is nameable.
+        "pcs_confusions": shape(pcs_confusions)[:10],
         # Capped: 22 chapters is already a long list and the tail is single
         # plantings, which say nothing. Worst first, so the cap keeps what
         # matters.
@@ -1077,8 +1171,8 @@ def pattern_detail(kind: Optional[str] = None,
             if d is not None:
                 monday = d - timedelta(days=d.weekday())
         for entry in (r.feedback or []):
-            planting = entry.get("planting") or {}
-            if not _matches(planting):
+            planting = entry.get("planting")
+            if not planting or not _matches(planting):
                 continue
             outcome = entry.get("outcome") or "missed"
             for bucket in (overall,
@@ -1131,6 +1225,50 @@ def pattern_detail(kind: Optional[str] = None,
         "accuracy": _rate(by_week[monday]["found"], by_week[monday]["planted"]),
     } for monday in sorted(by_week)[-12:]]
 
+    # ── which codes this pattern actually involved ───────────────────────────
+    #
+    # The tab could say root-operation errors slip past 70% of the time and
+    # name who missed them, and never say WHICH procedures. A drilldown that
+    # cannot be read clinically sends a trainer back to the charts to find out
+    # what the pattern was about.
+    codes: dict = {}
+    for r in rows:
+        for entry in (r.feedback or []):
+            planting = entry.get("planting")
+            if not planting or not _matches(planting):
+                continue
+            correct = planting.get("correct_value")
+            if not correct:
+                continue
+            cell = codes.setdefault(str(correct), {
+                "code": str(correct),
+                "planted_as": planting.get("claim_value"),
+                "section": planting.get("section"),
+                "count": 0, "found": 0})
+            cell["count"] += 1
+            if (entry.get("outcome") or "missed") == "correct":
+                cell["found"] += 1
+
+    described = enrich_codes(db, [(c["section"], c["code"]) for c in codes.values()])
+    pcs_map = _pcs_axis_map(db, [{"correct_value": c["code"],
+                                  "claim_value": c["planted_as"]}
+                                 for c in codes.values()])
+    code_rows = []
+    for cell in codes.values():
+        info = lookup(described, cell["section"], cell["code"])
+        axes = pcs_map.get(_bare_pcs(cell["code"])) or {}
+        code_rows.append({
+            **cell,
+            "accuracy": _rate(cell["found"], cell["count"]),
+            "description": (info or {}).get("description"),
+            "chapter": chapter_label(info),
+            # CC/MCC is a secondary-diagnosis concept, as everywhere else.
+            "cc_mcc": ccmcc_label(info) if str(cell["section"] or "").upper() == "SDX" else None,
+            "pcs": {k: v for k, v in axes.items() if v} or None,
+        })
+    code_rows.sort(key=lambda c: (c["accuracy"] if c["accuracy"] is not None else 999,
+                                  -c["count"]))
+
     label = KIND_LABELS.get(kind or "", kind) if kind else None
     if not label:
         label = " · ".join(p for p in (section, action) if p) or (origin or "pattern")
@@ -1140,6 +1278,7 @@ def pattern_detail(kind: Optional[str] = None,
         "kind": kind, "section": section, "action": action, "origin": origin,
         **overall,
         "accuracy": _rate(overall["found"], overall["planted"]),
+        "codes": code_rows[:25],
         "auditors": auditors[:50],
         "charts": chart_rows[:50],
         "trend": trend,

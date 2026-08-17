@@ -133,7 +133,10 @@ def export_batch_results(batch_name: str, charts: list[dict],
     detail = []
     for c in charts:
         for entry in (c.get("outcomes") or []):
-            p = entry.get("planting") or {}
+            # Over-call rows carry the AUDITOR's finding rather than a
+            # planting: nothing was introduced there, which is the point of
+            # them. Reading planting on those gave a row of blanks.
+            p = entry.get("planting") or entry.get("finding") or {}
             detail.append([
                 c.get("auditor_name"), c.get("chart_number"),
                 p.get("section"), p.get("action"), p.get("field") or "code",

@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import AnswerKey, AuditKeySet, Chart
 from services.audit_allocation import apply_manual_set
+from services.code_check import ccmcc_mismatches
 from .shared import (
     AUDITABLE_SPECIALTIES, QUERY_SPECIALTIES, form_spec, require_passphrase,
 )
@@ -148,6 +149,19 @@ def list_sets_for_chart(chart_id: int, db: Session = Depends(get_db)):
         "form": form_spec(chart.specialty),
         "max_versions": MAX_VERSIONS_PER_CHART,
         "sets": [_serialise(r, chart) for r in rows],
+        # The CC/MCC labels on this chart's answer key, checked against the
+        # published list.
+        #
+        # This is not cosmetic here. `drg_impacting` on every planted error is
+        # computed from that field — a secondary counts as DRG-impacting if the
+        # key says CC or MCC — and the generator also WEIGHTS which secondary
+        # to break by it. A wrong label therefore changes both what gets
+        # planted and how the result is reported, and neither shows up as an
+        # error anywhere.
+        "ccmcc_conflicts": ccmcc_mismatches(db, (
+            (chart.chart_number, e.get("code"), e.get("ccmcc"))
+            for e in ((key.sdx if key else None) or [])
+            if isinstance(e, dict) and e.get("code"))),
     }
 
 
