@@ -75,6 +75,7 @@ MUTATION_KINDS = [
     # E/M levels. Both default to 0, so a deployment that has not turned them
     # on plants exactly what it planted before.
     ("level_shift",      "mix_level_shift"),
+    ("mdm_shift",        "mix_mdm_shift"),
     ("cc_boundary",      "mix_cc_boundary"),
 ]
 
@@ -109,6 +110,7 @@ class MutationConfig:
     # renormalises over what a chart can actually support.
     mix_level_shift: int = 0
     mix_cc_boundary: int = 0
+    mix_mdm_shift: int = 0
     max_auto_plantings: int = 10
     # How much of a chart's budget prefers real coder mistakes over
     # synthetic ones, where any have been observed. 100 means take as
@@ -232,6 +234,25 @@ def _is_revenue_impacting(section: str, field: Optional[str] = None) -> bool:
 
 # ── the claim ────────────────────────────────────────────────────────────────
 
+# The MDM ladder. Shared with the E/M grading tables rather than restated: the
+# 2-of-3 rule and these names are the same thing seen twice.
+MDM_LEVEL_ORDER = ["Minimal", "Low", "Moderate", "High"]
+
+
+def _derive_mdm(value: str, field: str, mdm: dict, restore: bool = False) -> Optional[str]:
+    """
+    The overall level implied by the three components, with `field` set to
+    `value`. Returns None when the reasoning is not fully levelled.
+    """
+    from routers.practicelab_pkg.em_grading import derive_mdm_level
+    parts = dict(mdm)
+    parts[field] = value
+    copa, dr, risk = parts.get("copa"), parts.get("dr"), parts.get("risk")
+    if not (copa and dr and risk):
+        return None
+    return derive_mdm_level(copa, dr, risk)
+
+
 def claim_from_key(key) -> dict:
     """
     The correct claim, before anything is broken. A clean assignment is
@@ -246,6 +267,10 @@ def claim_from_key(key) -> dict:
         "cpt": copy.deepcopy(getattr(key, "cpt", None) or []),
         "facility_level": getattr(key, "facility_level", None) or "",
         "profee_level": getattr(key, "profee_level", None) or "",
+        # The three MDM levels, on E/M keys only. Present and empty elsewhere
+        # rather than absent, so the form and the scorer read one shape
+        # whatever the specialty.
+        "mdm": copy.deepcopy(getattr(key, "mdm", None) or {}),
     }
 
 
@@ -338,6 +363,11 @@ def _feasible(kind: str, claim: dict, specialty: Specialty, corpus: Corpus,
         # Always possible — you can always add a code that should not be there.
         # So it never renormalises out, and it grows on sparse charts.
         return True
+    if kind == "mdm_shift":
+        # Needs levels to move. A chart whose key never levelled the reasoning
+        # cannot carry this, and saying so lets the weight redistribute rather
+        # than the draw repeatedly picking a kind that always fails.
+        return any((claim.get("mdm") or {}).get(f) for f in ("copa", "dr", "risk"))
     if kind == "level_shift":
         # Needs an E/M level on the claim to move.
         return any(em_ladder_of(c.get("code")) for c in cpt)
@@ -544,7 +574,8 @@ def generate(key, specialty: Specialty, seed: int,
             break
         kinds = sorted(weights)
         kind = rng.choices(kinds, weights=[weights[k] for k in kinds], k=1)[0]
-        entry = _apply(kind, claim, specialty, corpus, cfg, rng, used, ground_truth)
+        entry = _apply(kind, claim, specialty, corpus, cfg, rng, used,
+                       ground_truth, key)
         if entry:
             ground_truth.append(entry)
 
@@ -664,7 +695,7 @@ def rng_free_index(rows: list, used: set, section: str) -> Optional[int]:
 
 def _apply(kind: str, claim: dict, specialty: Specialty, corpus: Corpus,
            cfg: MutationConfig, rng: random.Random, used: set,
-           emitted: list[dict]) -> Optional[dict]:
+           emitted: list[dict], key=None) -> Optional[dict]:
     """
     Apply one mutation in place and return its ground-truth record, or None if
     this chart could not carry it after all.
@@ -761,6 +792,58 @@ def _apply(kind: str, claim: dict, specialty: Specialty, corpus: Corpus,
             "revenue_impacting": _is_revenue_impacting("SDx"),
         }
 
+    if kind == "mdm_shift":
+        # Move one reasoning level. The auditor's job is to disagree with a
+        # judgement, which is what an E/M audit actually consists of — not to
+        # re-tick twenty-six elements.
+        #
+        # Charts where the TRAINER overrode the derived level are preferred:
+        # they read the record and disagreed with the table, so the level is a
+        # genuine judgement call there. Where they accepted the derivation,
+        # shifting it is closer to arithmetic.
+        mdm = claim.get("mdm") or {}
+        levelled = [f for f in ("copa", "dr", "risk")
+                    if mdm.get(f) and ("MDM", f) not in used]
+        if not levelled:
+            return None
+        overridden = getattr(key, "mdm_overridden", None) or {}
+        judged = [f for f in levelled if overridden.get(f)]
+        field = rng.choice(judged or levelled)
+        original = mdm[field]
+        rungs = MDM_LEVEL_ORDER
+        if original not in rungs:
+            return None
+        at = rungs.index(original)
+        step = rng.choice([-1, 1])
+        target = at + step
+        if not (0 <= target < len(rungs)):
+            target = at - step
+        if not (0 <= target < len(rungs)):
+            return None
+        replacement = rungs[target]
+        mdm[field] = replacement
+        claim["mdm"] = mdm
+        used.add(("MDM", field))
+
+        # Whether this moves the CODE decides the money. Two of three
+        # components carry the level, so one shifted element very often
+        # changes nothing at all — and an auditor who spots it without
+        # touching the code is exactly right.
+        before = _derive_mdm(original, field, mdm, restore=True)
+        after = _derive_mdm(replacement, field, mdm)
+        moves_level = bool(before and after and before != after)
+        return {
+            "kind": kind, "section": "MDM", "action": "Revise",
+            "field": field,
+            "claim_value": replacement, "correct_value": original,
+            "level_direction": "up" if target > at else "down",
+            "moves_em_level": moves_level,
+            "drg_impacting": False,
+            # Only when it moves the level. An element error that changes no
+            # code changes no payment, and calling it revenue-impacting would
+            # inflate every revenue figure the module reports.
+            "revenue_impacting": moves_level,
+        }
     if kind == "level_shift":
         # Move an E/M level along ITS OWN ladder. 99284 becomes 99285; it never
         # becomes a random procedure code, which is the planting an auditor

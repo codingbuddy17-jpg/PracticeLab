@@ -443,6 +443,9 @@ class AuditScoringConfig(Base):
     # from one whether critical care was warranted, and planting it on an
     # obviously non-critical chart makes the module easier, not harder.
     mix_cc_boundary = Column(Integer, nullable=False, default=0)
+    # Move one reasoning level — COPA, Data Review or Risk. The audit judgement
+    # an E/M review actually consists of. Off by default like the others.
+    mix_mdm_shift = Column(Integer, nullable=False, default=0)
 
     # No ceiling applies to manual plantings — a trainer authoring a set has
     # read the chart and has a reason. This caps generation only.

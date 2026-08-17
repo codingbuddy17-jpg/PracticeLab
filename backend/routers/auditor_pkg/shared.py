@@ -4,6 +4,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from config import settings
+from services import em_audit_key
 from models import (
     AnswerKey, AuditBatch, AuditKeySet, AuditScoringConfig, BatchStatus, Chart,
     Specialty,
@@ -48,14 +49,21 @@ SECTIONS_BY_SPECIALTY = {
     Specialty.ANCILLARY:      ["PDx", "SDx"],
     # The E/M level is a CPT line like any other, which is what lets the level
     # ladder and the 99285/99291 boundary work here with no new machinery.
-    Specialty.EM:             ["PDx", "SDx", "CPT"],
-    Specialty.ED_PROFEE:      ["PDx", "SDx", "CPT"],
+    # MDM is the reasoning, at the granularity an audit can judge: the three
+    # LEVELS, not the twenty-six element ticks behind them. Reviewing every
+    # tick is a different job from reviewing a claim, and it is where the
+    # variable count explodes.
+    Specialty.EM:             ["PDx", "SDx", "CPT", "MDM"],
+    Specialty.ED_PROFEE:      ["PDx", "SDx", "CPT", "MDM"],
 }
 
 # Which actions each section allows. PDx is single-valued: it can be wrong, but
 # it cannot be absent or removed, so Revise is the only thing to do to it.
 ACTIONS_BY_SECTION = {
     "PDx": ["Revise"],
+    # Single-valued, exactly like PDx: an encounter has one COPA, one Data
+    # Review and one Risk. They can be wrong; they cannot be absent or added.
+    "MDM": ["Revise"],
     "SDx": ["Add", "Revise", "Delete"],
     "PCS": ["Add", "Revise", "Delete"],
     "CPT": ["Add", "Revise", "Delete"],
@@ -65,13 +73,28 @@ ACTIONS_BY_SECTION = {
 # pointers are FIELDS ON A LINE, not sections of their own — revising one is a
 # Revise on that line, which keeps the section list short while still recording
 # exactly what was wrong.
+# The MDM section's three fields, and the values each may take. Served rather
+# than typed by the auditor: these are a fixed vocabulary, and a free-text box
+# would collect "Mod", "moderate" and "MODERATE" as three different answers.
+MDM_FIELDS = ["copa", "dr", "risk"]
+MDM_LEVELS = ["Minimal", "Low", "Moderate", "High"]
+MDM_LABELS = {"copa": "Problems addressed (COPA)",
+              "dr": "Data reviewed",
+              "risk": "Risk"}
+
+
 FIELDS_BY_SECTION = {
     Specialty.IP_DRG: {"PDx": ["code", "poa"], "SDx": ["code", "poa"],
                        "PCS": ["code"]},
     Specialty.ANCILLARY: {"PDx": ["code"], "SDx": ["code"]},
+    Specialty.EM: {"PDx": ["code"], "SDx": ["code"],
+                   "CPT": ["code", "modifier"], "MDM": MDM_FIELDS},
+    Specialty.ED_PROFEE: {"PDx": ["code"], "SDx": ["code"],
+                          "CPT": ["code", "modifier"], "MDM": MDM_FIELDS},
 }
 _DEFAULT_FIELDS = {"PDx": ["code"], "SDx": ["code"],
                    "CPT": ["code", "modifier"]}
+
 
 QUERY_SPECIALTIES = {Specialty.IP_DRG}
 
@@ -174,15 +197,51 @@ def chart_pool(db: Session, batch: AuditBatch) -> list[Chart]:
     no truth to plant errors in and nothing to audit against, so including it
     would hand the auditor a chart that can only ever score as restraint.
     """
-    q = (db.query(Chart)
-         .join(AnswerKey, AnswerKey.chart_id == Chart.id)
-         .filter(Chart.specialty == batch.specialty,
-                 Chart.status == "Active"))
+    q = db.query(Chart).filter(Chart.specialty == batch.specialty,
+                               Chart.status == "Active")
     if batch.categories:
         q = q.filter(Chart.category.in_(batch.categories))
     if batch.difficulties:
         q = q.filter(Chart.difficulty.in_(batch.difficulties))
-    return q.all()
+
+    # Which table holds this specialty's truth. E/M and ED Profee keep theirs
+    # in em_answer_keys — the same table that grades their coders — so that
+    # one chart never carries two answers that can drift apart.
+    if batch.specialty in EM_KEY_SPECIALTIES:
+        charts = q.all()
+        keyed = em_audit_key.chart_ids_with_keys(db, [c.id for c in charts])
+        return [c for c in charts if c.id in keyed]
+    return q.join(AnswerKey, AnswerKey.chart_id == Chart.id).all()
+
+
+# The specialties whose key lives in em_answer_keys rather than answer_keys.
+EM_KEY_SPECIALTIES = {Specialty.EM, Specialty.ED_PROFEE}
+
+
+def audit_key_for(db: Session, chart):
+    """
+    The key the auditor should read for one chart.
+
+    One entry point so no caller has to know there are two tables. An E/M key
+    comes back adapted into the ordinary shape, carrying its MDM levels; every
+    other specialty gets its AnswerKey unchanged.
+
+    None means nobody has authored a key yet, which is a legal state — the
+    chart is simply not eligible to be audited.
+    """
+    if chart is None:
+        return None
+    if chart.specialty in EM_KEY_SPECIALTIES:
+        key = em_audit_key.load(db, chart.id)
+        if key is not None:
+            # The boundary flag lives on the ordinary key, where a trainer sets
+            # it; carry it across so the 99285/99291 planting works for ED
+            # Profee too.
+            ordinary = (db.query(AnswerKey)
+                        .filter(AnswerKey.chart_id == chart.id).first())
+            key.cc_boundary = getattr(ordinary, "cc_boundary", None)
+        return key
+    return db.query(AnswerKey).filter(AnswerKey.chart_id == chart.id).first()
 
 
 def sets_by_chart(db: Session, chart_ids: list[int]) -> dict[int, list[AuditKeySet]]:

@@ -30,7 +30,8 @@ from services.audit_allocation import (
 )
 from services.code_enrichment import (ccmcc_label, chapter_label,
                                       enrich_codes, lookup, pcs_axis_labels)
-from .shared import (
+from .shared import (audit_key_for,
+
     chart_pool, get_batch_or_404, mutation_config, parse_specialty,
     require_passphrase, scoring_config, sets_by_chart,
 )
@@ -374,8 +375,10 @@ def run_allocation(batch_id: int, payload: AllocationRun, db: Session = Depends(
     db.add(cycle)
     db.flush()
 
-    keys = {k.chart_id: k for k in db.query(AnswerKey).filter(
-        AnswerKey.chart_id.in_([c.id for c in pool])).all()}
+    # Per chart rather than one query, because E/M charts read a different
+    # table. audit_key_for is the single place that knows which.
+    keys = {c.id: audit_key_for(db, c) for c in pool}
+    keys = {cid: k for cid, k in keys.items() if k is not None}
     corpus = build_corpus(db.query(AnswerKey).filter(
         AnswerKey.specialty == batch.specialty).all(), db)
     mcfg = mutation_config(db)
@@ -545,7 +548,7 @@ def regenerate_assignment(assignment_id: int, payload: RegeneratePayload,
         raise HTTPException(409, "This audit batch is closed")
 
     chart = db.query(Chart).filter(Chart.id == a.chart_id).first()
-    key = db.query(AnswerKey).filter(AnswerKey.chart_id == a.chart_id).first()
+    key = audit_key_for(db, chart)
     if not key:
         raise HTTPException(400, "This chart has no answer key")
 

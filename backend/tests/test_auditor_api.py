@@ -427,8 +427,12 @@ class TestScope:
         specs = client.get("/auditor/form-spec").json()["specialties"]
         spec = next(x for x in specs if x["specialty"] == specialty)
         sections = {x["key"]: x for x in spec["sections"]}
-        assert set(sections) == {"PDx", "SDx", "CPT"}
+        assert set(sections) == {"PDx", "SDx", "CPT", "MDM"}
         assert "modifier" in sections["CPT"]["fields"]
+        # The reasoning, at the granularity an audit can judge: three levels,
+        # Revise-only, not the twenty-six element ticks behind them.
+        assert sections["MDM"]["fields"] == ["copa", "dr", "risk"]
+        assert sections["MDM"]["actions"] == ["Revise"]
 
     def test_a_chart_with_no_answer_key_is_never_allocated(self, client, db, library):
         """
