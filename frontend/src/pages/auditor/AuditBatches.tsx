@@ -323,12 +323,14 @@ function CreateAuditBatch({ trainer, onDone, onCancel }: {
 
   async function create() {
     if (!name.trim()) return toast.error('Name the batch')
-    if (mode !== 'auto') {
+    if (mode === 'guided') {
       if (guidedTotal > chartsPer) {
         return toast.error(
           `Those add up to ${guidedTotal} charts but each auditor gets ${chartsPer}. ` +
           `Clean is filled first, so the rest would be dropped.`)
       }
+    }
+    if (mode !== 'auto') {
       if (quotaClean >= chartsPer) {
         return toast.error(
           'Leave at least one chart carrying errors, or the session can only ' +

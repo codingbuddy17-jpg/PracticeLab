@@ -1345,6 +1345,19 @@ class TestQuotaSanity:
             "quota_clean": 2, "quota_manual": 1, "quota_auto": 2,
             "auditors": [{"name": "A", "emp_id": "E1"}]}).status_code == 200
 
+    def test_hand_picked_ignores_authored_and_system_quota_counts(
+            self, client, db, library):
+        """
+        Hand-picked means the trainer chooses charts. Only the clean count is
+        meaningful there; authored/system split is decided by the picked charts.
+        """
+        r = client.post("/auditor/batches", json={
+            "name": "x", "specialty": "IP-DRG", "created_by": "T",
+            "charts_per_auditor": 2, "allocation_mode": "manual",
+            "quota_clean": 1, "quota_manual": 1, "quota_auto": 2,
+            "auditors": [{"name": "A", "emp_id": "E1"}]})
+        assert r.status_code == 200, r.text
+
     def test_the_allocator_never_makes_every_chart_clean(self, client, db, library):
         """Belt and braces — creation rejects it, this holds for any caller."""
         import random
