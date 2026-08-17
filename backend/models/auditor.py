@@ -394,19 +394,13 @@ class AuditScoringConfig(Base):
     query_unnecessary_pct = Column(Integer, nullable=False, default=20)
 
     pass_threshold = Column(Integer, nullable=False, default=90)
-    # Pass/fail is withheld below this many opportunities in a session. Chart
-    # scores are quantised by planting count, so a verdict on a two-planting
-    # session would be noise dressed as judgement.
-    # SUPERSEDED. The verdict was once gated on how many errors were
-    # introduced; it is now gated on how many code lines were reviewed
-    # (min_review_opportunities), because detection is quantised by planting
-    # count. Nothing reads this and it is no longer settable — kept only
-    # because the migrations in this codebase are additive and dropping a
-    # column on a live database is the one thing they will not do.
+    # SUPERSEDED. Earlier verdicts were gated on sample-size floors; the
+    # training verdict is now decided directly from Audit Score. Kept only
+    # because migrations in this codebase are additive and dropping a column on
+    # a live database is the one thing they will not do.
     min_opportunities_for_verdict = Column(Integer, nullable=False, default=20)
-    # The verdict is decided on the Review Score, which has roughly four times
-    # the opportunities per chart that detection has. Fifty is about five
-    # charts — the same length already suggested at batch creation.
+    # SUPERSEDED. Older config rows still carry this field, but current scoring
+    # does not withhold pass/fail for short audit sessions.
     min_review_opportunities = Column(Integer, nullable=False, default=50)
     # How the Audit Score blends the two schemes. 50/50 by default; a trainer
     # who cares more about detection than review can shift it.

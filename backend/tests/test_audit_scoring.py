@@ -386,33 +386,25 @@ class TestSession:
         assert s.opportunity_accuracy == 50.0
         assert s.audit_accuracy == 70.0
 
-    def test_a_session_of_only_clean_charts_reports_no_detection_verdict(self):
+    def test_a_session_of_only_clean_charts_is_judged_by_audit_score(self):
         s = score_session([_clean(), _clean(), _clean()])
         assert s.opportunities == 0
-        assert s.pass_fail is None
-        assert "restraint" in s.verdict_withheld_reason
+        assert s.audit_score == 100.0
+        assert s.pass_fail == "PASS"
+        assert s.verdict_withheld_reason is None
         assert s.opportunity_accuracy is None
 
-    def test_a_verdict_is_withheld_below_the_opportunity_floor(self):
-        """
-        Chart scores are quantised by planting count, so a verdict on a
-        two-planting session would be noise dressed as judgement.
-        """
+    def test_short_sessions_still_get_an_audit_score_verdict(self):
         charts = [score_chart([add(f"A{i}")], [{"section": "SDx", "action": "Add",
                                                 "correct_value": f"A{i}"}])
                   for i in range(4)]
         s = score_session(charts)
         assert s.opportunities == 4
-        assert s.pass_fail is None
-        assert "review lines for verdict" in s.verdict_withheld_reason
+        assert s.audit_score == 100.0
+        assert s.pass_fail == "PASS"
+        assert s.verdict_withheld_reason is None
 
-    def test_a_verdict_needs_enough_CODES_REVIEWED_not_enough_errors(self):
-        """
-        The verdict moved to the Review Score, so the floor is counted in code
-        lines rather than plantings. Detection is quantised by planting count —
-        a chart with one error can only score 0 or 100 — which made a verdict
-        on it noise until a session ran long enough to be impractical.
-        """
+    def test_long_sessions_are_also_judged_by_audit_score(self):
         claim = {"pdx_code": "J18.9",
                  "sdx": [{"code": f"E11.{i}"} for i in range(9)]}
         perfect = [{"section": "SDx", "action": "Add", "correct_value": "A0"}]
@@ -423,11 +415,11 @@ class TestSession:
         assert s.pass_fail == "PASS"
         assert s.verdict_withheld_reason is None
 
-    def test_a_short_session_withholds_the_verdict(self):
+    def test_a_short_failed_session_gets_a_fail_verdict(self):
         claim = {"pdx_code": "J18.9", "sdx": [{"code": "E11.1"}]}
-        s = score_session([score_chart([], [], claim=claim) for _ in range(2)])
-        assert s.pass_fail is None
-        assert "review lines for verdict" in (s.verdict_withheld_reason or "")
+        s = score_session([score_chart([add("A")], [], claim=claim) for _ in range(2)])
+        assert s.pass_fail == "FAIL"
+        assert s.verdict_withheld_reason is None
 
     def test_the_pass_bar_is_90_on_the_blended_audit_score(self):
         """

@@ -71,12 +71,12 @@ class TestOverview:
             if cell["planted"] == 0:
                 assert cell["accuracy"] is None, name
 
-    def test_the_verdict_is_withheld_on_a_thin_cohort(self, client, db, library):
+    def test_thin_cohorts_still_receive_a_verdict(self, client, db, library):
         batch_id = make_batch(client, charts_per=2)
         _run(client, batch_id)
         body = client.get("/auditor/analytics/overview").json()
-        assert body["pass_fail"] is None
-        assert body["verdict_withheld_reason"]
+        assert body["pass_fail"] == "PASS"
+        assert body["verdict_withheld_reason"] is None
         assert body["pass_count"] == 1
         assert body["verdict_count"] == 1
         assert body["pass_rate"] == 100.0
@@ -513,7 +513,7 @@ class TestPdfReports:
         from services.pdf_report_service import _audit_verdict
 
         summary = {"audit_score": 93.19,
-                   "verdict_withheld_reason": "9/50 review lines for verdict"}
+                   "verdict_withheld_reason": "legacy sample-size reason"}
         headline, detail, *_ = _audit_verdict(summary, pass_threshold=90)
 
         assert headline == "GOOD"
@@ -605,14 +605,12 @@ class TestTotalsAndSearch:
         assert client.get("/auditor/analytics/by-auditor",
                           params={"search": "nobody"}).json()["matched"] == 0
 
-    def test_the_overview_carries_the_verdict_rule_it_is_judged_by(
+    def test_the_overview_carries_the_score_rule_it_is_judged_by(
             self, client, db, library):
-        """The dashboard prints "9 of 20"; both numbers come from here."""
         batch_id = make_batch(client, charts_per=4)
         _run(client, batch_id)
         body = client.get("/auditor/analytics/overview").json()
         assert "opportunities" in body
-        assert body["opportunities_needed"] == 50   # code lines, not errors
         assert body["pass_threshold"] == 90
         assert body["review_total"] > 0
         assert body["review_basis"] == "pooled code lines judged correctly"

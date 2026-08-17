@@ -99,8 +99,8 @@ def export_batch_results(batch_name: str, charts: list[dict],
                    ["Found but corrected wrongly", summary.get("detected_not_corrected", 0),
                     "reported, not scored"],
                    ["Opportunities", summary.get("opportunities", 0), ""],
-                   ["Verdict", summary.get("pass_fail") or "withheld",
-                    summary.get("verdict_withheld_reason") or ""],
+                   ["Verdict", summary.get("pass_fail") or "not scored",
+                    "Audit Score threshold"],
                ],
                note=f"Audit batch: {batch_name}")
 
@@ -221,7 +221,7 @@ def export_analytics(overview: dict, batches: list[dict], auditors: list[dict],
             (r.get("delete") or {}).get("found"), (r.get("delete") or {}).get("planted"),
             _na((r.get("delete") or {}).get("accuracy")),
             _na(r.get("drg_accuracy")), r.get("over_calls"), r.get("opportunities"),
-            r.get("pass_fail") or "withheld",
+            r.get("pass_fail") or "not scored",
         ]
 
     if specialties is not None:

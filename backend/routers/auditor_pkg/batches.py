@@ -7,7 +7,6 @@ set or the generator, and every result is materialised and frozen. Nothing
 downstream re-derives a claim.
 """
 
-import math
 import random
 from datetime import datetime
 from typing import Optional
@@ -29,7 +28,6 @@ from services.audit_allocation import (
     assign_intents, build_assignment, build_corpus, new_token, resolve_quotas,
     resolve_source,
 )
-from services.audit_mutation import TYPICAL_CODE_LINES_PER_CHART
 from services.code_enrichment import (ccmcc_label, chapter_label,
                                       enrich_codes, lookup, pcs_axis_labels)
 from .shared import (
@@ -40,38 +38,6 @@ from .shared import (
 router = APIRouter()
 
 ALLOCATION_MODES = {"auto", "guided", "manual"}
-MIN_CHARTS_SUGGESTED = 5
-
-
-def _verdict_reach_note(charts: int, cfg) -> str:
-    """
-    Whether this batch can reach a pass/fail verdict, in the units the rule
-    actually uses.
-
-    The rule has moved twice and this note has to move with it. It once counted
-    charts against a suggested five, which had nothing to do with the verdict.
-    It then counted errors introduced against twenty. The verdict is now
-    decided on the Audit Score and gated on CODE LINES REVIEWED — a far
-    steadier figure, because every line on every chart counts, clean ones
-    included, so it does not swing with how many errors happened to land.
-
-    Approximate on purpose: a chart's line count depends on its claim and
-    nothing has been drawn yet.
-    """
-    if charts < 1:
-        return ""
-    expect = round(charts * TYPICAL_CODE_LINES_PER_CHART)
-    need = cfg.min_review_opportunities
-    if expect >= need:
-        return ""
-    reach = max(charts + 1, math.ceil(need / TYPICAL_CODE_LINES_PER_CHART))
-    return (f"{charts} {'chart' if charts == 1 else 'charts'} per auditor is "
-            f"roughly {expect} code lines. A pass/fail verdict needs {need} — "
-            f"about {reach} charts — so this batch will report scores without "
-            f"one. Scores, findings and every analytics figure still work; "
-            f"only the verdict is held back.")
-
-
 class AuditorEntry(BaseModel):
     name: str
     emp_id: str = ""
@@ -172,13 +138,8 @@ def create_batch(payload: BatchCreate, db: Session = Depends(get_db)):
         db.add(AuditBatchAuditor(batch_id=batch.id, auditor_name=name, emp_id=emp))
     db.commit()
 
-    warning = None
-    if payload.charts_per_auditor < MIN_CHARTS_SUGGESTED:
-        # A warning, not a block — a short spot check is legitimate.
-        warning = _verdict_reach_note(
-            payload.charts_per_auditor, scoring_config(db)) or None
     return {"batch_id": batch.id, "name": batch.name,
-            "skipped_duplicates": skipped, "warning": warning}
+            "skipped_duplicates": skipped}
 
 
 @router.get("/batches")

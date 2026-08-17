@@ -431,19 +431,6 @@ function CreateAuditBatch({ trainer, onDone, onCancel }: {
         </div>
       </div>
 
-      {chartsPer < 5 && (
-        <div style={s.warnBox}>
-          <AlertTriangle size={14} color="#d97706" style={{ flexShrink: 0, marginTop: 1 }} />
-          <span>
-            Roughly {Math.max(1, chartsPer * 11)} code lines. A pass/fail verdict needs
-            50 — about 5 charts — so this batch reports scores without one. The verdict
-            is decided on the Audit Score, and a session this short cannot carry one.
-            Everything else still works.
-          </span>
-        </div>
-      )}
-
-
       <Field label="How charts are chosen">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {MODES.map(m => (

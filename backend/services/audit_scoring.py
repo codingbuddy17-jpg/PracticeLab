@@ -40,13 +40,10 @@ class ScoringConfig:
     query_missed_pct: int = 20
     query_unnecessary_pct: int = 20
     pass_threshold: int = 90
-    # Superseded by min_review_opportunities — see the model. Kept so a stored
-    # config row still loads.
+    # Legacy compatibility only. Older config rows still carry this field.
     min_opportunities_for_verdict: int = 20
-    # The verdict is decided on the Review Score, which has roughly four times
-    # the opportunities per chart that detection has — about ten codes against
-    # two and a half errors. Fifty is therefore about five charts, which is
-    # also the suggested session length, so the two finally agree.
+    # Legacy compatibility only. Older config rows still carry this field, but
+    # the training verdict is now always decided by the Audit Score threshold.
     min_review_opportunities: int = 50
     # The Audit Score blends the two schemes, and the verdict is decided on it.
     # Detection alone is quantised by planting count; Review alone has a high
@@ -613,23 +610,11 @@ def score_session(chart_scores: list[ChartScore],
 
     out.audit_score = blended_score(out.audit_accuracy, out.review_score, cfg)
 
-    # The verdict is decided on the blended Audit Score.
-    #
-    # Neither half works alone. Detection is quantised by planting count — a
-    # chart with one error can only score 0 or 100. Review has a high floor,
-    # because most lines on any chart are correct, so an auditor who flags
-    # nothing still starts in the eighties. Blended, the same passive auditor
-    # scores 58% and someone who finds three quarters scores 92%.
-    #
-    # The floor is still counted in review opportunities, since that is the
-    # figure with enough of them to be stable.
-    if out.review_total < cfg.min_review_opportunities:
-        out.verdict_withheld_reason = (
-            f"{out.review_total}/{cfg.min_review_opportunities} review lines for verdict"
-            if out.review_total else
-            "restraint measure only — nothing reviewed in this session")
-    else:
-        out.pass_fail = "PASS" if (out.audit_score or 0) >= cfg.pass_threshold else "FAIL"
+    # The verdict is decided on the blended Audit Score. Short spot-checks are
+    # legitimate training attempts, so sample size should not suppress the
+    # pass/fail result.
+    if out.audit_score is not None:
+        out.pass_fail = "PASS" if out.audit_score >= cfg.pass_threshold else "FAIL"
     return out
 
 

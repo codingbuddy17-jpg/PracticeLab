@@ -131,8 +131,6 @@ export function AuditConfig({ trainer }: { trainer: string }) {
         <div style={{ display: 'flex', gap: 14, alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <Num label="Pass threshold %" value={cfg.pass_threshold}
             onChange={v => set('pass_threshold', v)} />
-          <Num label="Min code lines for a verdict" value={cfg.min_review_opportunities}
-            onChange={v => set('min_review_opportunities', v)} width={120} />
           <Num label="Detection weight %" value={cfg.detection_weight}
             onChange={v => set('detection_weight', v)} />
           <Num label="Review weight %" value={cfg.review_weight}

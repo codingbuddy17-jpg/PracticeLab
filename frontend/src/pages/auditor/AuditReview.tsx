@@ -70,11 +70,6 @@ export function AuditReview({ sessionId, onBack }: {
           <Stat label="Delete" value={pct(sum.delete_accuracy)}
             sub={sum.delete_planted ? `${sum.delete_found}/${sum.delete_planted}` : 'none'} />
         </div>
-        {sum.verdict_withheld_reason && (
-          <div style={{ padding: '0 16px 14px' }}>
-            <div style={s.warnBox}>{sum.verdict_withheld_reason}</div>
-          </div>
-        )}
       </div>
 
       {(data.charts || []).map((c: any) => (

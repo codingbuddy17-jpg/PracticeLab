@@ -238,10 +238,8 @@ def _session_pass_rate(base, cfg) -> dict:
     Pass rate is a session-level score count, not a chart-level average.
 
     The Audit Score is recomputed from the stored detection and review pieces
-    for each submitted audit session. It deliberately counts scored thin
-    sessions too: the overview card answers "how many submitted attempts are
-    currently passing?", while pass_fail/verdict_withheld_reason separately
-    explains whether the formal verdict gate has enough review volume.
+    for each submitted audit session. Short spot-checks count too: the overview
+    card answers "how many submitted attempts are currently passing?"
     """
     rows = (base.with_entities(
         R.session_id,
@@ -311,15 +309,8 @@ def _roll_sql(db: Session, base, cfg) -> dict:
     review = _review_rollup(base)
     audit_score = blended_score(audit_accuracy, review["review_score"], cfg)
     session_verdicts = _session_pass_rate(base, cfg)
-    verdict = None
-    withheld = None
-    if review["review_total"] >= cfg.min_review_opportunities:
-        verdict = "PASS" if (audit_score or 0) >= cfg.pass_threshold else "FAIL"
-    else:
-        withheld = (
-            f"{review['review_total']}/{cfg.min_review_opportunities} review lines for verdict"
-            if review["review_total"] else
-            "restraint measure only — nothing reviewed yet")
+    verdict = "PASS" if audit_score is not None and audit_score >= cfg.pass_threshold else \
+        ("FAIL" if audit_score is not None else None)
 
     return {
         "charts": int(charts),
@@ -364,10 +355,8 @@ def _roll_sql(db: Session, base, cfg) -> dict:
         "review_weight": cfg.review_weight,
         "sections": review["sections"],
         "attributes": review["attributes"],
-        # The verdict rule, shipped beside the figure it judges.
-        "opportunities_needed": cfg.min_review_opportunities,
         "pass_fail": verdict,
-        "verdict_withheld_reason": withheld,
+        "verdict_withheld_reason": None,
         **session_verdicts,
     }
 

@@ -392,17 +392,43 @@ class TestKeySets:
 
 class TestScope:
 
-    @pytest.mark.parametrize("specialty", ["Edits", "Denials", "E/M"])
-    def test_rubric_and_em_specialties_are_refused(self, client, db, specialty):
+    @pytest.mark.parametrize("specialty", ["Edits", "Denials"])
+    def test_rubric_specialties_are_refused(self, client, db, specialty):
         """
-        Edits & Denials have no coded key to plant errors in; E/M needs its own
-        audit design. Both are refused with the reason, not silently accepted.
+        Edits and Denials are graded against a rubric, not a claim, so there is
+        no coded key to introduce an error into. Refused with the reason rather
+        than silently accepted.
         """
         r = client.post("/auditor/batches", json={
             "name": "x", "specialty": specialty, "created_by": "T",
             "auditors": [{"name": "A", "emp_id": "E1"}]})
         assert r.status_code == 400
         assert "cannot be audited" in r.json()["detail"]
+
+    @pytest.mark.parametrize("specialty", ["E/M", "ED Profee"])
+    def test_professional_em_specialties_are_auditable(self, client, db, specialty):
+        """
+        Audited on the CODE — the level chosen, its modifier, and the diagnoses
+        supporting it — which is what an auditor reviews in practice. The MDM
+        elements behind the level stay in PracticeLab: reviewing 26
+        attestations is a different job from reviewing a claim.
+        """
+        r = client.post("/auditor/batches", json={
+            "name": "x", "specialty": specialty, "created_by": "T",
+            "auditors": [{"name": "A", "emp_id": "E1"}]})
+        assert r.status_code == 200, r.text
+
+    @pytest.mark.parametrize("specialty", ["E/M", "ED Profee"])
+    def test_their_form_carries_the_level_line(self, client, db, specialty):
+        """
+        The E/M level is a CPT line like any other, which is what lets the
+        ladder and the 99285/99291 boundary work with no new machinery.
+        """
+        specs = client.get("/auditor/form-spec").json()["specialties"]
+        spec = next(x for x in specs if x["specialty"] == specialty)
+        sections = {x["key"]: x for x in spec["sections"]}
+        assert set(sections) == {"PDx", "SDx", "CPT"}
+        assert "modifier" in sections["CPT"]["fields"]
 
     def test_a_chart_with_no_answer_key_is_never_allocated(self, client, db, library):
         """
@@ -1178,44 +1204,16 @@ class TestDeepReviewFixes:
         assert "does not exist" in r.json()["detail"]
 
 
-class TestShortSessionWarning:
-    """
-    The warning names the verdict rule, so it has to speak in the rule's units.
+class TestShortSessionCreation:
 
-    It used to say a session below 5 charts "will withhold a pass/fail
-    verdict". The verdict is gated on OPPORTUNITIES (20 by default), not
-    charts, so 5 charts does not earn one either — the warning simply
-    disappeared while still being true.
-    """
-
-    def test_it_reports_code_lines_and_what_would_reach_a_verdict(
+    def test_a_short_audit_batch_creates_without_verdict_warning(
             self, client, db, library):
-        """
-        The note has to speak in the units the rule uses, and the rule has
-        moved twice: charts against a suggested five, then errors introduced
-        against twenty, and now CODE LINES REVIEWED against fifty. Each time it
-        named the right consequence against the wrong number.
-        """
         r = client.post("/auditor/batches", json={
             "name": "Spot check", "specialty": "IP-DRG", "created_by": "T",
             "charts_per_auditor": 2,
             "auditors": [{"name": "A", "emp_id": "E1"}]})
         assert r.status_code == 200, r.text
-        warning = r.json()["warning"]
-        assert warning
-        assert "code lines" in warning
-        assert "50" in warning              # the actual gate
-        assert "opportunities" not in warning
-        assert "below the suggested" not in warning
-
-    def test_a_batch_that_can_reach_a_verdict_is_not_warned(
-            self, client, db, library):
-        r = client.post("/auditor/batches", json={
-            "name": "Full wave", "specialty": "IP-DRG", "created_by": "T",
-            "charts_per_auditor": 20,
-            "auditors": [{"name": "A", "emp_id": "E1"}]})
-        assert r.status_code == 200, r.text
-        assert r.json()["warning"] is None
+        assert "warning" not in r.json()
 
 
 class TestHandPickedMode:
@@ -1545,11 +1543,10 @@ class TestScoresSurviveTheRebuild:
     and once rebuilt from stored rows for the trainer review and the exports.
     The two must agree.
 
-    They did not. _score_from_row restored none of the review fields, and
-    score_session gates the verdict on review_total — so every rebuilt session
-    reported "nothing reviewed" and withheld its verdict. _session_summary
-    separately never exposed audit_score or review_score at all, so both paths
-    showed only the detection metrics the module has moved past.
+    They did not. _score_from_row restored none of the review fields, so every
+    rebuilt session lost the Review Score and changed the blended Audit Score.
+    _session_summary separately never exposed audit_score or review_score at all,
+    so both paths showed only the detection metrics the module has moved past.
     """
 
     def _submit(self, client, charts=8, perfect=True):

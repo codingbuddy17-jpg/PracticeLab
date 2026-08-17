@@ -534,9 +534,8 @@ def _score_from_row(r: AuditResult):
     s.drg_impacting_found = r.drg_impacting_found
     s.audit_accuracy = r.audit_accuracy
     # Review scoring, restored from the columns it was stored in. Leaving these
-    # out did not just lose the Review Score — score_session gates the verdict
-    # on review_total, so a rebuilt session reported "nothing reviewed" and
-    # withheld the verdict on every chart a trainer opened.
+    # out loses the Review Score and changes the blended Audit Score shown in
+    # trainer review.
     s.review_total = r.review_total or 0
     s.review_correct = r.review_correct or 0
     s.review_score = r.review_score

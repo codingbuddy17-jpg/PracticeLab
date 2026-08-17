@@ -326,15 +326,6 @@ function GlobalFilters({ draft, setDraft, apply, clear, active }: {
   )
 }
 
-/**
- * The verdict, and the opportunity count that gates it.
- *
- * The API has always returned pass_fail, verdict_withheld_reason and
- * opportunities; nothing rendered them. So a trainer was told at batch
- * creation that a verdict needs N opportunities, then had no way to see how
- * many they had, whether the cohort passed, or why no verdict appeared — the
- * one number the whole rule turns on was invisible.
- */
 const SECTION_LABEL: Record<string, string> = {
   PDx: 'PDx Score', SDx: 'SDx Score', PCS: 'PCS Score', CPT: 'CPT Score',
 }
@@ -388,8 +379,6 @@ function SectionMetrics({ sections }: { sections: any }) {
 
 function Verdict({ overview, threshold }: { overview: any; threshold: number }) {
   const verdict = overview.pass_fail as string | null
-  const need = overview.opportunities_needed
-  const has = overview.review_total ?? 0
   const pass = verdict === 'PASS'
   const accent = verdict ? (pass ? '#059669' : '#dc2626') : '#6b7280'
   const bg = verdict ? (pass ? '#f0fdf4' : '#fef2f2') : '#f8fafc'
@@ -398,21 +387,13 @@ function Verdict({ overview, threshold }: { overview: any; threshold: number }) 
                   padding: '12px 16px', borderRadius: 12, background: bg,
                   border: `1px solid ${accent}33`, borderLeft: `4px solid ${accent}` }}>
       <span style={{ fontSize: 20, fontWeight: 800, color: accent, letterSpacing: -0.3 }}>
-        {verdict || 'Verdict pending'}
+        {verdict || 'No scored audits yet'}
       </span>
       <span style={{ fontSize: 12.5, color: '#4b5563', lineHeight: 1.5 }}>
         {verdict
           ? <>Audit Score {pct(overview.audit_score)} against a {threshold}% threshold.</>
-          : <>Verdict pending. Audit Score {pct(overview.audit_score)} is directional until more charts are reviewed.</>}
+          : <>Submit an audit to calculate the Audit Score.</>}
       </span>
-      {!verdict && need > 0 && (
-        <span style={{ marginLeft: 'auto', minWidth: 130 }}>
-          <span style={{ display: 'block', height: 6, borderRadius: 3, background: '#e5e7eb' }}>
-            <span style={{ display: 'block', height: 6, borderRadius: 3, background: '#7c3aed',
-                           width: `${Math.min(100, Math.round(has / need * 100))}%` }} />
-          </span>
-        </span>
-      )}
     </div>
   )
 }
