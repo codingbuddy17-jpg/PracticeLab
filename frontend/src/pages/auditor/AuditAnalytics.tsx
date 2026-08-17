@@ -778,6 +778,7 @@ function AuditorsTab({ rows, matched, query, setQuery, selected, setSelected, pr
                 <Metric label="Found, Corrected Wrongly" value={profile.overview.detected_not_corrected || 0} tone="#7c3aed" />
                 <Metric label="Overcalls" value={profile.overview.over_calls || 0} tone="#ea580c" />
               </div>
+              <KnowledgeGaps rows={selected?.knowledge_gaps} />
               <CompactBatchTable rows={profile.batches} threshold={threshold} />
             </div>
           )}
@@ -1024,6 +1025,14 @@ function ChartSignalsTab({ data, query, setQuery, threshold }: {
                       <div style={muted}>
                         {(r.clean_charts || 0)} clean · {(r.opportunity_charts || 0)} opportunity
                       </div>
+                      {/* What this chart's errors are ABOUT — the signal says
+                          it produces misses, this says what kind. Absent when
+                          they share no theme, which is common and honest. */}
+                      {r.focus && (
+                        <div style={{ ...muted, color: '#0f766e' }}>
+                          {r.focus.kind}: <strong>{r.focus.label}</strong> ({r.focus.count})
+                        </div>
+                      )}
                     </td>
                     {/*
                       A signal says a chart keeps producing misses. The next
@@ -1442,6 +1451,33 @@ function OriginComparison({ rows, threshold }: { rows: any[]; threshold: number 
               + 'fair proxy for the real work.'}
       </div>
     </Panel>
+  )
+}
+
+/**
+ * The themes running through what an auditor MISSED.
+ *
+ * Not what they saw. A caught planting is not a gap, and mixing the two would
+ * rank someone's strongest area beside their weakest purely on volume.
+ * Absent when nothing clears the threshold, which is a real answer at small
+ * volumes rather than an empty box.
+ */
+function KnowledgeGaps({ rows }: { rows?: any[] }) {
+  if (!rows?.length) return null
+  return (
+    <div style={{ marginTop: 12 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase' as const, letterSpacing: 0.5, marginBottom: 6 }}>
+        Knowledge areas to coach
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 8 }}>
+        {rows.map(g => (
+          <span key={g.kind + g.label} style={{ fontSize: 12, background: '#f0fdfa', color: '#0f766e', border: '1px solid #99f6e4', padding: '4px 11px', borderRadius: 10 }}>
+            <span style={{ color: '#5eead4' }}>{g.kind}</span>{' '}
+            <strong>{g.label}</strong> · {g.count} missed
+          </span>
+        ))}
+      </div>
+    </div>
   )
 }
 

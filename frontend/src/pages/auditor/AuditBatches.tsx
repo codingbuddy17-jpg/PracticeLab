@@ -51,6 +51,34 @@ function ageGroup(created?: string) {
   return 'Older'
 }
 
+/**
+ * The descriptions behind one planted error.
+ *
+ * Silent when nothing is known — CPT is never described here, and an
+ * environment without the code sets shows the plantings exactly as before.
+ */
+function PlantingCodes({ codes }: { codes?: any }) {
+  if (!codes) return null
+  const parts: string[] = []
+  const correct = codes.correct
+  const claim = codes.claim
+  if (correct?.description) parts.push(correct.description)
+  if (correct?.cc_mcc && correct.cc_mcc !== 'Neither') parts.push(correct.cc_mcc)
+  const axes = correct?.pcs || {}
+  for (const key of ['root_operation', 'approach', 'device']) {
+    if (axes[key]) parts.push(axes[key])
+  }
+  if (!parts.length && !claim?.description) return null
+  return (
+    <div style={{ fontSize: 11, color: '#9ca3af', marginLeft: 10, marginTop: 1 }}>
+      {parts.join(' · ')}
+      {claim?.description && correct?.description
+        && claim.description !== correct.description
+        ? ` — planted as: ${claim.description}` : ''}
+    </div>
+  )
+}
+
 export function AuditBatches({ trainer }: { trainer: string }) {
   const [view, setView] = useState<View>('list')
   const [batches, setBatches] = useState<Record<string, any>[]>([])
@@ -1116,6 +1144,11 @@ function AuditBatchDetail({ batchId, trainer, onBack, onReview }: {
                               seen in {g.observed_coders} coder submission(s)
                             </span>
                           )}
+                          {/* What the codes ARE. This list is the QA step
+                              before an auditor sees the chart, and judging
+                              whether an error is sensible to ask means knowing
+                              what was changed into what. */}
+                          <PlantingCodes codes={g.codes} />
                         </div>
                       ))}
                     </div>
