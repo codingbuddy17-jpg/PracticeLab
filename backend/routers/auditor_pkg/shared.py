@@ -125,6 +125,14 @@ def form_spec(specialty: Specialty) -> dict:
                 "key": s,
                 "actions": ACTIONS_BY_SECTION.get(s, ["Add", "Revise", "Delete"]),
                 "fields": fields.get(s, _DEFAULT_FIELDS.get(s, ["code"])),
+                # Allowed values, where a field has a fixed vocabulary. Served
+                # rather than hardcoded in the panel for the same reason the
+                # sections are: two lists that must agree will not, and a
+                # free-text MDM box would collect "Mod", "moderate" and
+                # "MODERATE" as three different answers.
+                "field_values": ({f: MDM_LEVELS for f in MDM_FIELDS}
+                                 if s == "MDM" else {}),
+                "field_labels": MDM_LABELS if s == "MDM" else {},
             }
             for s in sections
         ],

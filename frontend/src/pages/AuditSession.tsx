@@ -527,7 +527,11 @@ function SectionBlock({ spec, chart, state, onVerdict, onUpsert }: {
   const key = spec.key
   const open = state.verdicts[key] === NEEDS_CHANGES
   const isPdx = key === 'PDx'
-  const rows = isPdx ? [] : rowsFor(chart, key)
+  // MDM is single-valued like PDx — one COPA, one Data Review, one Risk — so
+  // it has no line list. Without this it would render "no codes in this
+  // section", which is true and useless.
+  const isMdm = key === 'MDM'
+  const rows = (isPdx || isMdm) ? [] : rowsFor(chart, key)
   const mine = state.findings.filter(f => f.section === key)
   const adds = mine.filter(f => f.action === 'Add')
 
@@ -641,7 +645,10 @@ function SectionBlock({ spec, chart, state, onVerdict, onUpsert }: {
       </div>
 
       <div style={{ padding: '12px 16px' }}>
-        {isPdx ? (
+        {isMdm ? (
+          <MdmRow chart={chart} spec={spec} open={open}
+            revisionOf={revisionOf} setRevision={setRevision} />
+        ) : isPdx ? (
           <PdxRow chart={chart} spec={spec} open={open}
             revisionOf={revisionOf} setRevision={setRevision} describe={describe} />
         ) : (
@@ -709,6 +716,47 @@ function SectionBlock({ spec, chart, state, onVerdict, onUpsert }: {
           </>
         )}
       </div>
+    </div>
+  )
+}
+
+/**
+ * The reasoning behind an E/M level, at the granularity an audit can judge.
+ *
+ * Three levels — problems addressed, data reviewed, risk — each single-valued
+ * and each chosen from a fixed list. Not the twenty-six element ticks the
+ * coder works through: an auditor disagrees with a JUDGEMENT, and re-ticking
+ * every element behind it is a different job.
+ *
+ * The values come from the served form spec rather than a list in here, so the
+ * vocabulary cannot drift away from the one the scorer compares against.
+ */
+function MdmRow({ chart, spec, open, revisionOf, setRevision }: {
+  chart: AuditChart
+  spec: SectionSpec
+  open: boolean
+  revisionOf: (line: number, field: string) => Finding | undefined
+  setRevision: (line: number, field: string, claimValue: string, value: string) => void
+}) {
+  const mdm: Record<string, string> = (chart.claim as any).mdm || {}
+  const values: Record<string, string[]> = (spec as any).field_values || {}
+  const labels: Record<string, string> = (spec as any).field_labels || {}
+  return (
+    <div style={s.line}>
+      {spec.fields.map(field => (
+        <Field
+          key={field}
+          label={labels[field] || FIELD_LABEL[field] || field}
+          value={mdm[field] || ''}
+          open={open}
+          revision={revisionOf(0, field)}
+          section="MDM"
+          field={field}
+          options={values[field]}
+          onChange={v => setRevision(0, field, mdm[field] || '', v)}
+        />
+      ))}
+      {!open && <span style={s.lockedNote}>Reviewed as documented</span>}
     </div>
   )
 }
@@ -880,7 +928,7 @@ function AddField({ field, finding, onChange, onEnter, fieldId, autoFocus, requi
 }
 
 function Field({ label, value, open, revision, strike, onChange, section, field,
-                describe }: {
+                describe, options }: {
   label: string
   value: string
   open: boolean
@@ -890,6 +938,8 @@ function Field({ label, value, open, revision, strike, onChange, section, field,
   field?: string
   onChange: (v: string) => void
   describe?: (code: string) => CodeInfo | null
+  /** A fixed vocabulary. Present means a select, absent means a text box. */
+  options?: string[]
 }) {
   const changed = !!revision
   // Checked only once the auditor has typed a correction — the claim's own
@@ -910,7 +960,22 @@ function Field({ label, value, open, revision, strike, onChange, section, field,
     <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
       <span style={s.fieldLabel}>{label}</span>
       {open ? (
-        field === 'code' ? (
+        options && options.length ? (
+          // Fixed vocabulary: chosen, never typed. A free-text box would
+          // collect "Mod", "moderate" and "MODERATE" as three answers, and
+          // none of them would match the key.
+          <select
+            style={{ ...boxStyle, width: 150, boxSizing: 'border-box',
+                     textTransform: 'none', cursor: 'pointer' }}
+            value={revision?.correct_value ?? value ?? ''}
+            onChange={e => onChange(e.target.value)}
+          >
+            {/* The claim's own value is always selectable, so an auditor can
+                undo a change without reloading. */}
+            {!options.includes(value) && <option value={value}>{value || '—'}</option>}
+            {options.map(o => <option key={o} value={o}>{o}</option>)}
+          </select>
+        ) : field === 'code' ? (
           <CodeSuggest
             style={{ ...boxStyle, width: 130, boxSizing: 'border-box' }}
             section={section}
@@ -1123,6 +1188,7 @@ const ACTION_COLOR = {
 
 const FIELD_LABEL: Record<string, string> = {
   code: 'Code', poa: 'POA', ccmcc: 'CC/MCC', modifier: 'Modifier', units: 'Units',
+  copa: 'COPA', dr: 'Data reviewed', risk: 'Risk',
 }
 
 const FIELD_PLACEHOLDER: Record<string, string> = {

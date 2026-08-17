@@ -14,6 +14,21 @@ const MIX_LABELS: Record<string, string> = {
   mix_swap_pdx: 'Swap principal with a secondary',
   mix_poa: 'Flip a POA indicator',
   mix_spurious: 'Add a spurious code',
+  // E/M. All three ship at 0 so existing batches plant what they always did;
+  // give them a share here to turn them on, remembering the mix must total 100.
+  mix_level_shift: 'Shift an E/M level (99284 → 99285)',
+  mix_cc_boundary: 'Critical care boundary (99285 vs 99291)',
+  mix_mdm_shift: 'Shift an MDM level (COPA, data, risk)',
+}
+
+// Which kinds only apply to some specialties, so a trainer setting a weight on
+// an IP batch is not left wondering why it never fires. The mix renormalises
+// over what each chart can support, so a weight here is an upper bound rather
+// than a promise.
+const MIX_NOTES: Record<string, string> = {
+  mix_level_shift: 'E/M levels only — ED Facility, E/M, ED Profee',
+  mix_cc_boundary: 'Only on charts marked a close call on the audit-key screen',
+  mix_mdm_shift: 'E/M and ED Profee only, where the key carries MDM levels',
 }
 
 const REVENUE_ELEMENTS = [
@@ -148,7 +163,14 @@ export function AuditConfig({ trainer }: { trainer: string }) {
               <input style={{ ...s.input, width: 64 }} type="number" min={0}
                 value={cfg.mix[f] ?? 0}
                 onChange={e => setMix(f, parseInt(e.target.value) || 0)} />
-              <span style={{ fontSize: 12.5, color: '#374151' }}>{MIX_LABELS[f]}</span>
+              <span style={{ fontSize: 12.5, color: '#374151' }}>
+                {MIX_LABELS[f]}
+                {MIX_NOTES[f] && (
+                  <span style={{ display: 'block', fontSize: 11, color: '#6b7280' }}>
+                    {MIX_NOTES[f]}
+                  </span>
+                )}
+              </span>
             </div>
           ))}
         </div>

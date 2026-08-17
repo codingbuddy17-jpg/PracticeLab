@@ -238,3 +238,34 @@ class TestNothingChangesUntilTurnedOn:
                  for g in generate(key, Specialty.EM, seed=seed,
                                    cfg=MutationConfig(), budget=2)[1]}
         assert "mdm_shift" not in kinds
+
+
+class TestTheMdmVocabularyIsServed:
+    """
+    The four levels are sent with the form, not restated in the frontend.
+
+    A free-text MDM box collects "Mod", "moderate" and "MODERATE" as three
+    different answers, none of which the scorer matches; a hardcoded list in
+    the UI is the same failure one release later, once only one side is edited.
+    """
+
+    def test_every_mdm_field_carries_its_levels(self):
+        section = {s["key"]: s for s in form_spec(Sp.EM)["sections"]}["MDM"]
+        for field in section["fields"]:
+            assert section["field_values"][field] == [
+                "Minimal", "Low", "Moderate", "High"]
+
+    def test_the_levels_are_the_ones_the_key_stores(self, client, db):
+        """The list an auditor picks from must contain the key's own value."""
+        chart = make_chart(db, specialty="E/M")
+        db.commit()
+        _em_key(db, chart.id, copa="Moderate", dr="Low", risk="High")
+        key = audit_key_for(db, chart)
+        levels = {s["key"]: s for s in
+                  form_spec(Sp.EM)["sections"]}["MDM"]["field_values"]["copa"]
+        assert all(v in levels for v in key.mdm.values())
+
+    def test_an_ordinary_section_serves_no_vocabulary(self):
+        """Codes are typed, not chosen — the list is seventy thousand long."""
+        section = {s["key"]: s for s in form_spec(Sp.IP_DRG)["sections"]}["PDx"]
+        assert section["field_values"] == {}
