@@ -24,6 +24,16 @@ AUDITABLE_SPECIALTIES = {
     Specialty.SURGERY,
     Specialty.ED_SINGLE_PATH,
     Specialty.ANCILLARY,
+    # Professional E/M. Audited on the CODE — the level chosen, its modifier,
+    # and the diagnoses supporting it — which is what an auditor reviews in
+    # practice. The MDM elements behind the level are graded in PracticeLab and
+    # are NOT part of the audit form: reviewing 26 attestations is a different
+    # job from reviewing a claim, and it is where the variable count explodes.
+    #
+    # These read the ordinary answer key like every other specialty. The wide
+    # em_answer_keys table drives coder grading and is not needed here.
+    Specialty.EM,
+    Specialty.ED_PROFEE,
 }
 
 # Which coding sections an auditor reviews, per specialty — read off the same
@@ -36,6 +46,10 @@ SECTIONS_BY_SPECIALTY = {
     Specialty.SURGERY:        ["PDx", "SDx", "CPT"],
     Specialty.ED_SINGLE_PATH: ["PDx", "SDx", "CPT"],
     Specialty.ANCILLARY:      ["PDx", "SDx"],
+    # The E/M level is a CPT line like any other, which is what lets the level
+    # ladder and the 99285/99291 boundary work here with no new machinery.
+    Specialty.EM:             ["PDx", "SDx", "CPT"],
+    Specialty.ED_PROFEE:      ["PDx", "SDx", "CPT"],
 }
 
 # Which actions each section allows. PDx is single-valued: it can be wrong, but

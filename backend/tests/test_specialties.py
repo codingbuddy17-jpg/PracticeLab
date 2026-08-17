@@ -349,3 +349,24 @@ class TestAnswerKeyExportRoundTrip:
         wb = self._export([(self._Key(pdx_code="E11.9"),
                             self._Chart("EM001", Specialty.EM))])
         assert "E-M" in wb.sheetnames
+
+
+def test_the_auditable_list_matches_the_frontend_copy():
+    """
+    The auditor's specialty list exists twice — AUDITABLE_SPECIALTIES on the
+    backend and AUDITABLE in the frontend constants — and the specialty-sync
+    checker does not cover it. A specialty added to one and not the other is
+    either invisible in the UI or offered and then refused by the API.
+    """
+    import pathlib
+    import re
+    from routers.auditor_pkg.shared import AUDITABLE_SPECIALTIES
+
+    src = (pathlib.Path(__file__).resolve().parents[2] / "frontend" / "src"
+           / "pages" / "auditor" / "constants.ts").read_text()
+    block = re.search(r"export const AUDITABLE = \[(.*?)\]", src, re.S).group(1)
+    frontend = set(re.findall(r"'([^']+)'", block))
+    backend = {s.value for s in AUDITABLE_SPECIALTIES}
+    assert frontend == backend, (
+        f"only on the backend: {sorted(backend - frontend)}; "
+        f"only in the frontend: {sorted(frontend - backend)}")
