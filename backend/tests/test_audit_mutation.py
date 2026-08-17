@@ -11,8 +11,9 @@ import pytest
 
 from models.charts import Specialty
 from services.audit_mutation import (
-    Corpus, MutationConfig, claim_from_key, generate, planting_budget,
-    total_codes, _mutate_pcs_code, _substitute_dx, PCS_MUTABLE_POSITIONS,
+    Corpus, MUTATION_KINDS, MutationConfig, claim_from_key, generate,
+    planting_budget, total_codes, _mutate_pcs_code, _substitute_dx,
+    PCS_MUTABLE_POSITIONS,
 )
 
 
@@ -585,3 +586,169 @@ class TestDRGImpactIsInpatientOnly:
                 if r["action"] == "Add" and r["section"] == "SDx" \
                         and str((r.get("entry") or {}).get("ccmcc")).upper() not in ("CC", "MCC"):
                     assert r["drg_impacting"] is False
+
+
+# ── E/M levels ────────────────────────────────────────────────────────────────
+
+def _ed_key(cpt=None):
+    """An ED Facility claim: a level, and an ordinary procedure beside it."""
+    return FakeKey(
+        pdx_code="R07.9", pdx_poa="",
+        sdx=[{"code": "I10", "poa": "", "ccmcc": ""}],
+        pcs=[],
+        cpt=cpt if cpt is not None else [
+            {"code": "99284", "modifier": "", "units": 1},
+            {"code": "36415", "modifier": "", "units": 1},
+        ],
+    )
+
+
+def _only(kind, **over):
+    """A config that can draw exactly one kind, so the test is deterministic."""
+    zeros = {f: 0 for _k, f in MUTATION_KINDS}
+    zeros[dict(MUTATION_KINDS)[kind]] = 100
+    zeros.update(over)
+    return MutationConfig(**zeros)
+
+
+class TestLevelShift:
+    """
+    A level moves along ITS OWN ladder. A random procedure code where an E/M
+    level belongs is spotted without reading the chart, which teaches auditors
+    to distrust the module rather than to audit with it.
+    """
+
+    def test_the_planted_code_is_another_level_on_the_same_ladder(self):
+        from services.em_levels import EMERGENCY
+        for seed in range(25):
+            claim, gt = generate(_ed_key(), Specialty.ED_FACILITY, seed=seed,
+                                 cfg=_only("level_shift"), corpus=CORPUS, budget=1)
+            if not gt:
+                continue
+            assert gt[0]["kind"] == "level_shift"
+            assert gt[0]["claim_value"] in EMERGENCY
+            assert gt[0]["correct_value"] == "99284"
+            assert gt[0]["claim_value"] != "99284"
+
+    def test_the_direction_is_recorded(self):
+        seen = set()
+        for seed in range(60):
+            _claim, gt = generate(_ed_key(), Specialty.ED_FACILITY, seed=seed,
+                                  cfg=_only("level_shift"), corpus=CORPUS, budget=1)
+            if gt:
+                seen.add(gt[0]["level_direction"])
+        assert seen == {"up", "down"}, "levels must be planted in both directions"
+
+    def test_the_distance_varies(self):
+        """
+        If every planted level error were one rung out, "check plus or minus
+        one" becomes as learnable as "look for the odd code".
+        """
+        from services.em_levels import EMERGENCY
+        steps = set()
+        for seed in range(80):
+            _claim, gt = generate(_ed_key(), Specialty.ED_FACILITY, seed=seed,
+                                  cfg=_only("level_shift"), corpus=CORPUS, budget=1)
+            if gt:
+                steps.add(abs(EMERGENCY.index(gt[0]["claim_value"])
+                              - EMERGENCY.index(gt[0]["correct_value"])))
+        assert len(steps) > 1, f"every shift was the same distance: {steps}"
+
+    def test_a_chart_with_no_level_cannot_draw_it(self):
+        key = _ed_key(cpt=[{"code": "36415", "modifier": "", "units": 1},
+                           {"code": "20610", "modifier": "", "units": 1}])
+        _claim, gt = generate(key, Specialty.SDS, seed=3,
+                              cfg=_only("level_shift"), corpus=CORPUS, budget=1)
+        assert gt == []
+
+
+class TestCriticalCareBoundary:
+    """
+    99285 against 99291 — the hardest question in the ED, and the one planting
+    that must never be generated blind.
+    """
+
+    def test_it_is_not_planted_unless_the_chart_is_marked_borderline(self):
+        """
+        The guard the whole design rests on. An answer key says which code is
+        right; it cannot say whether the question is fair. Planted on a chart
+        where critical care is plainly absent, it is spotted without reading.
+        """
+        for seed in range(20):
+            _claim, gt = generate(_ed_key(cpt=[{"code": "99285", "modifier": "", "units": 1}]),
+                                  Specialty.ED_FACILITY, seed=seed,
+                                  cfg=_only("cc_boundary"), corpus=CORPUS, budget=1)
+            assert gt == [], "planted without a trainer saying the chart is borderline"
+
+    def test_a_borderline_chart_swaps_the_level_for_critical_care(self):
+        claim, gt = generate(_ed_key(cpt=[{"code": "99285", "modifier": "", "units": 1}]),
+                             Specialty.ED_FACILITY, seed=5,
+                             cfg=_only("cc_boundary"), corpus=CORPUS, budget=1,
+                             cc_boundary="borderline")
+        assert gt and gt[0]["kind"] == "cc_boundary"
+        assert gt[0]["correct_value"] == "99285"
+        assert gt[0]["claim_value"] == "99291"
+        assert gt[0]["level_direction"] == "up"
+
+    def test_it_works_the_other_way_too(self):
+        """
+        Critical care was right and the claim understates it. Revenue quietly
+        gone — the direction nobody watches for.
+        """
+        claim, gt = generate(_ed_key(cpt=[{"code": "99291", "modifier": "", "units": 1}]),
+                             Specialty.ED_FACILITY, seed=5,
+                             cfg=_only("cc_boundary"), corpus=CORPUS, budget=1,
+                             cc_boundary="borderline")
+        assert gt and gt[0]["claim_value"] == "99285"
+        assert gt[0]["correct_value"] == "99291"
+        assert gt[0]["level_direction"] == "down"
+
+    def test_it_is_revenue_impacting(self):
+        _claim, gt = generate(_ed_key(cpt=[{"code": "99285", "modifier": "", "units": 1}]),
+                              Specialty.ED_FACILITY, seed=5,
+                              cfg=_only("cc_boundary"), corpus=CORPUS, budget=1,
+                              cc_boundary="borderline")
+        assert gt[0]["revenue_impacting"] is True
+
+
+class TestTheLevelLineIsNotDeleted:
+    def test_omitting_a_procedure_never_removes_the_em_level(self):
+        """
+        Every encounter carries exactly one level, so a claim without one could
+        not have been submitted. It is not an error a coder makes, and spending
+        the procedure weight on it teaches nothing.
+        """
+        key = _ed_key(cpt=[{"code": "99284", "modifier": "", "units": 1},
+                           {"code": "36415", "modifier": "", "units": 1},
+                           {"code": "20610", "modifier": "", "units": 1}])
+        for seed in range(30):
+            _claim, gt = generate(key, Specialty.ED_FACILITY, seed=seed,
+                                  cfg=_only("omit_proc"), corpus=CORPUS, budget=1)
+            for g in gt:
+                assert g.get("correct_value") != "99284", \
+                    "the E/M level was deleted as if it were an ordinary procedure"
+
+    def test_a_claim_whose_only_procedures_are_levels_cannot_omit(self):
+        key = _ed_key(cpt=[{"code": "99284", "modifier": "", "units": 1},
+                           {"code": "99291", "modifier": "", "units": 1}])
+        _claim, gt = generate(key, Specialty.ED_FACILITY, seed=2,
+                              cfg=_only("omit_proc"), corpus=CORPUS, budget=1)
+        assert gt == []
+
+
+class TestNothingChangesUntilTurnedOn:
+    def test_both_new_kinds_default_to_zero_weight(self):
+        """
+        Batches already in use must plant exactly what they planted before.
+        """
+        cfg = MutationConfig()
+        assert cfg.mix_level_shift == 0
+        assert cfg.mix_cc_boundary == 0
+
+    def test_a_default_config_never_plants_a_level_error(self):
+        kinds = set()
+        for seed in range(40):
+            _claim, gt = generate(_ed_key(), Specialty.ED_FACILITY, seed=seed,
+                                  cfg=MutationConfig(), corpus=CORPUS, budget=2)
+            kinds.update(g["kind"] for g in gt)
+        assert "level_shift" not in kinds and "cc_boundary" not in kinds

@@ -387,7 +387,11 @@ def build_assignment(chart, key, source: AuditSource, key_set,
     # entirely synthetic, and the same chart in a later cycle plants from
     # whatever has accumulated since.
     claim, truth = generate(key, chart.specialty, seed=seed, cfg=cfg,
-                            corpus=corpus, tier=tier, observations=observations)
+                            corpus=corpus, tier=tier, observations=observations,
+                            # Only a trainer who read the chart can say whether
+                            # the 99285/99291 question is a fair one to ask of
+                            # it, so the generator is told rather than guessing.
+                            cc_boundary=getattr(key, "cc_boundary", None))
     return {**base, "seed": seed, "claim": claim, "ground_truth": truth}
 
 

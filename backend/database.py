@@ -672,6 +672,17 @@ def _run_migrations():
     _add_col("practice_results", "profee_level_submitted", "TEXT", "TEXT")
     _add_col("practice_results", "profee_level_answer_key", "TEXT", "TEXT")
 
+    # ── E/M level plantings, and the critical care boundary flag ─────────────
+    #
+    # New columns on EXISTING tables, so create_all() will not add them — this
+    # is the trap the whole file exists for. Both mix weights default to 0, so
+    # batches already in use plant exactly what they planted before.
+    _add_col("audit_scoring_configs", "mix_level_shift",
+             "INTEGER NOT NULL DEFAULT 0", "INTEGER NOT NULL DEFAULT 0")
+    _add_col("audit_scoring_configs", "mix_cc_boundary",
+             "INTEGER NOT NULL DEFAULT 0", "INTEGER NOT NULL DEFAULT 0")
+    _add_col("answer_keys", "cc_boundary", "VARCHAR(20)", "TEXT")
+
     # ── PCS axis titles: widen to TEXT ───────────────────────────────────────
     #
     # They were VARCHAR(60)/(90) and CMS's own prose exceeds both: the longest

@@ -430,6 +430,26 @@ class AuditScoringConfig(Base):
     mix_poa = Column(Integer, nullable=False, default=2)
     mix_spurious = Column(Integer, nullable=False, default=13)
 
+    # ── E/M level errors, for ED Facility and the E/M specialties ────────────
+    #
+    # Both default to 0 so nothing changes on batches already in use: the mix
+    # renormalises over what a chart can support, so a zero weight is simply
+    # never drawn. Turn them on per deployment once there are ED charts worth
+    # asking the question of.
+    #
+    # A level moves ALONG its own ladder — 99284 to 99285 — and never jumps
+    # families. A random procedure code where an E/M level belongs is the kind
+    # of planting an auditor spots without reading the chart, which teaches
+    # them to distrust the module rather than to audit.
+    mix_level_shift = Column(Integer, nullable=False, default=0)
+    # 99285 against 99291: whether the condition qualifies as critical care at
+    # all. The hardest question in the ED and the most valuable planting —
+    # which is exactly why it is only ever planted on a chart a trainer has
+    # marked borderline. The generator reads an answer key; it cannot judge
+    # from one whether critical care was warranted, and planting it on an
+    # obviously non-critical chart makes the module easier, not harder.
+    mix_cc_boundary = Column(Integer, nullable=False, default=0)
+
     # No ceiling applies to manual plantings — a trainer authoring a set has
     # read the chart and has a reason. This caps generation only.
     max_auto_plantings = Column(Integer, nullable=False, default=10)

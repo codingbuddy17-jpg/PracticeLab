@@ -28,6 +28,10 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from models.charts import Specialty
+from services.em_levels import CRITICAL_CARE as EM_CRITICAL_CARE
+from services.em_levels import ladder_of as em_ladder_of
+from services.em_levels import EMERGENCY as EM_EMERGENCY
+from services.em_levels import _LADDERS as EM_LADDERS
 
 
 # ── what counts as a procedure section, per specialty ────────────────────────
@@ -68,6 +72,10 @@ MUTATION_KINDS = [
     ("swap_pdx",         "mix_swap_pdx"),
     ("poa",              "mix_poa"),
     ("spurious",         "mix_spurious"),
+    # E/M levels. Both default to 0, so a deployment that has not turned them
+    # on plants exactly what it planted before.
+    ("level_shift",      "mix_level_shift"),
+    ("cc_boundary",      "mix_cc_boundary"),
 ]
 
 # Difficulty shifts the weights; it never changes the rules.
@@ -97,6 +105,10 @@ class MutationConfig:
     mix_units: int = 0
     mix_poa: int = 2
     mix_spurious: int = 13
+    # Off by default: see the model. A zero weight is never drawn, and the mix
+    # renormalises over what a chart can actually support.
+    mix_level_shift: int = 0
+    mix_cc_boundary: int = 0
     max_auto_plantings: int = 10
     # How much of a chart's budget prefers real coder mistakes over
     # synthetic ones, where any have been observed. 100 means take as
@@ -169,6 +181,10 @@ class Corpus:
             if out:
                 return out
         return []
+
+
+def _norm_code(code) -> str:
+    return str(code or "").strip().upper()
 
 
 def _bare(code: Optional[str]) -> str:
@@ -273,7 +289,8 @@ def planting_budget(claim: dict, cfg: MutationConfig, rng: random.Random) -> int
 
 # ── feasibility ──────────────────────────────────────────────────────────────
 
-def _feasible(kind: str, claim: dict, specialty: Specialty, corpus: Corpus) -> bool:
+def _feasible(kind: str, claim: dict, specialty: Specialty, corpus: Corpus,
+              cc_boundary: Optional[str] = None) -> bool:
     """
     Whether a chart can carry this mutation at all. A kind that is not feasible
     surrenders its weight to the kinds that are — the same renormalisation the
@@ -289,7 +306,13 @@ def _feasible(kind: str, claim: dict, specialty: Specialty, corpus: Corpus) -> b
         # flawed claim, it is a broken one.
         return len(sdx) >= 2
     if kind == "omit_proc":
-        return len(procs) >= 2
+        # The E/M line is excluded: every encounter carries exactly one level,
+        # so deleting it is not an error a coder makes — it is a claim that
+        # could not have been submitted. Counting it here also let the mix
+        # spend its procedure weight on a planting nobody learns from.
+        deletable = [p for p in procs if not em_ladder_of(p.get("code"))
+                     and _norm_code(p.get("code")) not in EM_CRITICAL_CARE]
+        return len(deletable) >= 2
     if kind in ("modifier_missing", "modifier_wrong"):
         return any((c.get("modifier") or "").strip() for c in cpt)
     if kind == "substitute":
@@ -315,15 +338,28 @@ def _feasible(kind: str, claim: dict, specialty: Specialty, corpus: Corpus) -> b
         # Always possible — you can always add a code that should not be there.
         # So it never renormalises out, and it grows on sparse charts.
         return True
+    if kind == "level_shift":
+        # Needs an E/M level on the claim to move.
+        return any(em_ladder_of(c.get("code")) for c in cpt)
+    if kind == "cc_boundary":
+        # Needs BOTH an ED level or critical care line to swap, and a trainer's
+        # word that this chart is genuinely borderline. Without the second the
+        # planting is spotted without reading the chart.
+        if str(cc_boundary or "").strip().lower() != "borderline":
+            return False
+        return any(em_ladder_of(c.get("code")) == "emergency"
+                   or _norm_code(c.get("code")) in EM_CRITICAL_CARE
+                   for c in cpt)
     return False
 
 
 def _weights(claim: dict, specialty: Specialty, corpus: Corpus,
-             cfg: MutationConfig, tier: Optional[str]) -> dict[str, float]:
+             cfg: MutationConfig, tier: Optional[str],
+             cc_boundary: Optional[str] = None) -> dict[str, float]:
     mult = TIER_MULTIPLIERS.get((tier or "").lower(), {})
     out: dict[str, float] = {}
     for kind, field_name in MUTATION_KINDS:
-        if not _feasible(kind, claim, specialty, corpus):
+        if not _feasible(kind, claim, specialty, corpus, cc_boundary):
             continue
         w = float(getattr(cfg, field_name, 0)) * mult.get(kind, 1.0)
         if w > 0:
@@ -460,7 +496,8 @@ def generate(key, specialty: Specialty, seed: int,
              corpus: Optional[Corpus] = None,
              tier: Optional[str] = None,
              budget: Optional[int] = None,
-             observations: Optional[list] = None) -> tuple[dict, list[dict]]:
+             observations: Optional[list] = None,
+             cc_boundary: Optional[str] = None) -> tuple[dict, list[dict]]:
     """
     Build a flawed claim and the ground truth for it.
 
@@ -502,7 +539,7 @@ def generate(key, specialty: Specialty, seed: int,
     attempts = 0
     while len(ground_truth) < want and attempts < want * 8:
         attempts += 1
-        weights = _weights(claim, specialty, corpus, cfg, tier)
+        weights = _weights(claim, specialty, corpus, cfg, tier, cc_boundary)
         if not weights:
             break
         kinds = sorted(weights)
@@ -657,6 +694,17 @@ def _apply(kind: str, claim: dict, specialty: Specialty, corpus: Corpus,
         if len(rows) < 2:
             return None
         candidates = [i for i in range(len(rows)) if (section, i) not in used]
+        if section == "CPT":
+            # Never the E/M level. Every encounter carries exactly one, so a
+            # claim without it could not have been submitted — it is not an
+            # error a coder makes, and it teaches nothing. The feasibility
+            # check says the same thing; both are needed, because that one
+            # decides whether the kind can be DRAWN and this decides what it
+            # touches once it has been.
+            candidates = [i for i in candidates
+                          if not em_ladder_of((rows[i] or {}).get("code"))
+                          and _norm_code((rows[i] or {}).get("code"))
+                          not in EM_CRITICAL_CARE]
         if not candidates:
             return None
         i = rng.choice(candidates)
@@ -713,6 +761,76 @@ def _apply(kind: str, claim: dict, specialty: Specialty, corpus: Corpus,
             "revenue_impacting": _is_revenue_impacting("SDx"),
         }
 
+    if kind == "level_shift":
+        # Move an E/M level along ITS OWN ladder. 99284 becomes 99285; it never
+        # becomes a random procedure code, which is the planting an auditor
+        # spots without reading the chart.
+        #
+        # The distance varies on purpose. If every planted level error were
+        # exactly one rung out, "check plus or minus one" becomes as learnable
+        # as "look for the odd-looking code", and the point of the module is
+        # that the chart has to be read.
+        candidates = [i for i in range(len(cpt))
+                      if em_ladder_of((cpt[i] or {}).get("code"))
+                      and ("CPT", i) not in used]
+        if not candidates:
+            return None
+        i = rng.choice(candidates)
+        original = _norm_code(cpt[i].get("code"))
+        rungs = EM_LADDERS[em_ladder_of(original)]
+        at = rungs.index(original)
+        steps = rng.choices([1, 2], weights=[80, 20], k=1)[0]
+        direction = rng.choice([-1, 1])
+        target = at + steps * direction
+        if not (0 <= target < len(rungs)):
+            target = at - steps * direction        # off the end: turn around
+        if not (0 <= target < len(rungs)) or target == at:
+            return None
+        replacement = rungs[target]
+        cpt[i] = dict(cpt[i], code=replacement)
+        used.add(("CPT", i))
+        return {
+            "kind": kind, "section": "CPT", "action": "Revise",
+            "field": "code", "line": i,
+            "claim_value": replacement, "correct_value": original,
+            # Which way the claim now reads against the truth. Upcoded and
+            # downcoded are different findings with different money attached.
+            "level_direction": "up" if target > at else "down",
+            "drg_impacting": _is_drg_impacting("CPT", None, specialty),
+            "revenue_impacting": True,
+        }
+
+    if kind == "cc_boundary":
+        # 99285 against 99291 — whether the condition qualifies as critical
+        # care at all. Only reached on a chart a trainer marked borderline
+        # (see _feasible): an answer key cannot say whether the question is
+        # fair, and the generator must not guess.
+        candidates = [i for i in range(len(cpt))
+                      if ("CPT", i) not in used
+                      and (em_ladder_of((cpt[i] or {}).get("code")) == "emergency"
+                           or _norm_code((cpt[i] or {}).get("code")) in EM_CRITICAL_CARE)]
+        if not candidates:
+            return None
+        i = rng.choice(candidates)
+        original = _norm_code(cpt[i].get("code"))
+        if original in EM_CRITICAL_CARE:
+            # Critical care was right: the claim now understates it as a level
+            # 5. Revenue quietly gone — the direction nobody watches for.
+            replacement, direction = "99285", "down"
+        else:
+            # A level 5 was right: the claim now claims critical care the
+            # record cannot support.
+            replacement, direction = "99291", "up"
+        cpt[i] = dict(cpt[i], code=replacement)
+        used.add(("CPT", i))
+        return {
+            "kind": kind, "section": "CPT", "action": "Revise",
+            "field": "code", "line": i,
+            "claim_value": replacement, "correct_value": original,
+            "level_direction": direction,
+            "drg_impacting": _is_drg_impacting("CPT", None, specialty),
+            "revenue_impacting": True,
+        }
     if kind == "substitute_pcs":
         # One character of a 7-character positional code. Structurally valid
         # and a genuine confusion: Excision for Resection, the wrong body part,

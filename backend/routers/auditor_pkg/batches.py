@@ -112,7 +112,7 @@ def create_batch(payload: BatchCreate, db: Session = Depends(get_db)):
     if not 0 <= payload.clean_share <= 100:
         raise HTTPException(400, "clean_share must be between 0 and 100")
 
-    if mode in ("guided", "manual"):
+    if mode == "guided":
         quotas = [payload.quota_clean, payload.quota_manual, payload.quota_auto]
         if any(q is not None for q in quotas):
             clean, manual, auto = (max(0, q or 0) for q in quotas)
@@ -133,6 +133,14 @@ def create_batch(payload: BatchCreate, db: Session = Depends(get_db)):
                     f"{clean} clean of {payload.charts_per_auditor} leaves nothing "
                     f"to find. Keep at least one chart carrying errors, or the "
                     f"session can only measure whether they left it alone.")
+    elif mode == "manual" and payload.quota_clean is not None:
+        clean = max(0, payload.quota_clean or 0)
+        if clean >= payload.charts_per_auditor:
+            raise HTTPException(
+                400,
+                f"{clean} clean of {payload.charts_per_auditor} leaves nothing "
+                f"to find. Keep at least one chart carrying errors, or the "
+                f"session can only measure whether they left it alone.")
 
     seen_emp = set()
     auditors, skipped = [], []
@@ -587,7 +595,10 @@ def regenerate_assignment(assignment_id: int, payload: RegeneratePayload,
     from services.audit_mutation import generate
     claim, truth = generate(key, chart.specialty, seed=a.seed,
                             cfg=mutation_config(db), corpus=corpus,
-                            tier=batch.difficulty_tier)
+                            tier=batch.difficulty_tier,
+                            # Whether this chart may carry the 99285/99291
+                            # question. Only a trainer who read it can say.
+                            cc_boundary=getattr(key, "cc_boundary", None))
     a.claim, a.ground_truth = claim, truth
     a.source = AuditSource.AUTO
     a.set_id = None

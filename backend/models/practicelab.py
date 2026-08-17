@@ -56,6 +56,16 @@ class AnswerKey(Base):
     # single-path training. Null for every other specialty.
     facility_level = Column(String(20), nullable=True)
     profee_level = Column(String(20), nullable=True)
+    # Whether this chart sits on the critical care boundary — the 99285 vs
+    # 99291 judgement. Set by a trainer who has READ the chart, because nothing
+    # else can tell: an answer key says which code is right, not whether the
+    # question is a fair one to ask.
+    #
+    # The auditor generator plants that swap only where this says "borderline".
+    # On a chart where critical care is plainly absent the planting is spotted
+    # without reading anything, which teaches auditors to distrust the module
+    # rather than to audit with it.
+    cc_boundary = Column(String(20), nullable=True)
     entered_by = Column(String(100), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

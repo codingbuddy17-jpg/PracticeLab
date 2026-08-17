@@ -785,6 +785,8 @@ KIND_LABELS = {
     "units": "Wrong units",
     "poa": "Wrong POA",
     "spurious": "Spurious code",
+    "level_shift": "Wrong E/M level",
+    "cc_boundary": "Critical care boundary (99285 vs 99291)",
     "observed": "Real coder mistake",
 }
 
