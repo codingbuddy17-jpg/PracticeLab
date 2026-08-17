@@ -25,28 +25,31 @@ export function BySpecialtyTab({ filters = NO_FILTERS }: { filters?: AFilters })
     return <EmptyState message="No specialty data available yet. Submit some assessments first." />
 
   const specialties: any[] = data.specialties
-  const maxAcc = Math.max(...specialties.map((s: any) => s.accuracy_pct ?? 0))
-  const minAcc = Math.min(...specialties.map((s: any) => s.accuracy_pct ?? 100))
-  const avgAcc = specialties.reduce((sum: number, s: any) => sum + (s.accuracy_pct ?? 0), 0) / specialties.length
+  const ranked = [...specialties].sort((a, b) => (b.accuracy_pct ?? -1) - (a.accuracy_pct ?? -1))
+  const weakest = [...specialties].sort((a, b) => (a.accuracy_pct ?? 101) - (b.accuracy_pct ?? 101))[0]
+  const best = ranked[0]
+  const overallAccuracy = data.overall_accuracy ?? (
+    data.total_responses ? Math.round((data.total_correct / data.total_responses) * 1000) / 10 : null
+  )
 
   return (
     <div>
       <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginBottom: 22 }}>
         <KpiCard label="Specialties Covered" value={String(specialties.length)} icon={<Layers size={14} />} />
-        <KpiCard label="Best Specialty Accuracy" value={fmt(Math.round(maxAcc * 10) / 10)} color={scoreColor(maxAcc)} icon={<Award size={14} />} />
-        <KpiCard label="Weakest Specialty" value={fmt(Math.round(minAcc * 10) / 10)} color={scoreColor(minAcc)} icon={<AlertCircle size={14} />} />
-        <KpiCard label="Overall Avg Accuracy" value={fmt(Math.round(avgAcc * 10) / 10)} color={scoreColor(avgAcc)} icon={<TrendingUp size={14} />} />
+        <KpiCard label="Best Specialty" value={fmt(best?.accuracy_pct)} color={scoreColor(best?.accuracy_pct)} icon={<Award size={14} />} sub={`${best?.specialty || '—'} · ${best?.correct ?? 0}/${best?.total_responses ?? 0}`} />
+        <KpiCard label="Weakest Specialty" value={fmt(weakest?.accuracy_pct)} color={scoreColor(weakest?.accuracy_pct)} icon={<AlertCircle size={14} />} sub={`${weakest?.specialty || '—'} · ${weakest?.correct ?? 0}/${weakest?.total_responses ?? 0}`} />
+        <KpiCard label="Overall Accuracy" value={fmt(overallAccuracy)} color={scoreColor(overallAccuracy)} icon={<TrendingUp size={14} />} sub={`${data.total_correct ?? 0}/${data.total_responses ?? 0} responses`} />
       </div>
 
       <Panel title="Accuracy by Specialty">
         <ResponsiveContainer width="100%" height={Math.max(260, specialties.length * 42)}>
-          <BarChart data={[...specialties].sort((a, b) => (b.accuracy_pct ?? 0) - (a.accuracy_pct ?? 0))} layout="vertical" margin={{ top: 5, right: 60, left: 160, bottom: 5 }}>
+          <BarChart data={ranked} layout="vertical" margin={{ top: 5, right: 60, left: 160, bottom: 5 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" horizontal={false} />
             <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 11 }} tickFormatter={(v) => `${v}%`} />
             <YAxis type="category" dataKey="specialty" tick={{ fontSize: 12, fontWeight: 600 }} width={155} />
             <Tooltip formatter={(v: any) => [`${v}%`, 'Accuracy']} />
             <Bar dataKey="accuracy_pct" radius={[0, 4, 4, 0]}>
-              {([...specialties].sort((a, b) => (b.accuracy_pct ?? 0) - (a.accuracy_pct ?? 0)) as any[]).map((entry: any, i: number) => (
+              {(ranked as any[]).map((entry: any, i: number) => (
                 <Cell key={i} fill={scoreColor(entry.accuracy_pct)} />
               ))}
             </Bar>
