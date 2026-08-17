@@ -766,3 +766,197 @@ class TestTrendIsARate:
         body = client.get(URL).json()
         notes = body["commentary"] + body["commentary_more"]
         assert not any(n["kind"] == "warn" and "rising" in n["text"] for n in notes)
+
+
+# ── clinical axes ────────────────────────────────────────────────────────────
+
+def _codes(db):
+    """A small slice of the CMS tables, shaped like the real ones."""
+    from models import CodeDescription, PcsCodeAxis
+    db.add_all([
+        CodeDescription(code="I5031", code_system="ICD10CM",
+                        description="Acute diastolic heart failure",
+                        chapter="Diseases of the circulatory system",
+                        chapter_no=9, cc_mcc_status="MCC", is_billable=True),
+        CodeDescription(code="I10", code_system="ICD10CM",
+                        description="Essential hypertension",
+                        chapter="Diseases of the circulatory system",
+                        chapter_no=9, cc_mcc_status=None, is_billable=True),
+        CodeDescription(code="E119", code_system="ICD10CM",
+                        description="Type 2 diabetes without complications",
+                        chapter="Endocrine, nutritional and metabolic diseases",
+                        chapter_no=4, cc_mcc_status=None, is_billable=True),
+        CodeDescription(code="N179", code_system="ICD10CM",
+                        description="Acute kidney failure, unspecified",
+                        chapter="Diseases of the genitourinary system",
+                        chapter_no=14, cc_mcc_status="CC", is_billable=True),
+        CodeDescription(code="0DTJ4ZZ", code_system="ICD10PCS",
+                        description="Resection of Appendix", is_billable=True),
+    ])
+    db.add(PcsCodeAxis(code="0DTJ4ZZ", section="Medical and Surgical",
+                       body_system="Gastrointestinal System",
+                       root_operation="Resection", body_part="Appendix",
+                       approach="Percutaneous Endoscopic",
+                       device="No Device", qualifier="No Qualifier"))
+    db.commit()
+
+
+class TestChapterAxis:
+    """
+    Which body of knowledge the errors sit in. Every other grouping on this tab
+    is administrative — section, issue type, coder, chart — and none of them
+    can say "your team does not know circulatory".
+    """
+
+    def test_errors_roll_up_into_chapters(self, client, db):
+        b, c = _batch(db, "B"), _chart(db, "IP001")
+        _err(db, b, c, "Ann", "E1", "I50.31")
+        _err(db, b, c, "Bob", "E2", "I10")
+        _err(db, b, c, "Cid", "E3", "E11.9")
+        _codes(db)
+        rows = client.get(URL, params={"include_scattered": True}).json()["by_chapter"]
+        top = {r["label"]: r["count"] for r in rows}
+        assert top["Diseases of the circulatory system"] == 2
+        assert top["Endocrine, nutritional and metabolic diseases"] == 1
+
+    def test_a_chapter_row_carries_its_spread(self, client, db):
+        """
+        Same concentration question the code rows answer: two coders on one
+        chapter is a different problem from one coder repeating himself.
+        """
+        b, c1, c2 = _batch(db, "B"), _chart(db, "IP001"), _chart(db, "IP002")
+        _err(db, b, c1, "Ann", "E1", "I50.31")
+        _err(db, b, c2, "Bob", "E2", "I10")
+        _codes(db)
+        row = [r for r in client.get(URL, params={"include_scattered": True})
+               .json()["by_chapter"]
+               if r["label"].startswith("Diseases of the circulatory")][0]
+        assert row["coders_affected"] == 2
+        assert row["charts_affected"] == 2
+
+    def test_procedures_do_not_appear_in_the_chapter_axis(self, client, db):
+        """A PCS code has no ICD chapter — it must not be bucketed as one."""
+        b, c = _batch(db, "B"), _chart(db, "IP001")
+        _err(db, b, c, "Ann", "E1", "0DTJ4ZZ", sect="PCS")
+        _codes(db)
+        assert client.get(URL, params={"include_scattered": True}
+                          ).json()["by_chapter"] == []
+
+
+class TestCcMccAxis:
+    def test_secondary_diagnosis_errors_split_by_severity(self, client, db):
+        b, c = _batch(db, "B"), _chart(db, "IP001")
+        _err(db, b, c, "Ann", "E1", "I50.31")       # MCC
+        _err(db, b, c, "Bob", "E2", "N17.9")        # CC
+        _err(db, b, c, "Cid", "E3", "E11.9")        # neither
+        _codes(db)
+        rows = {r["label"]: r["count"] for r in
+                client.get(URL, params={"include_scattered": True}).json()["by_ccmcc"]}
+        assert rows == {"MCC": 1, "CC": 1, "Neither": 1}
+
+    def test_a_principal_diagnosis_is_not_counted(self, client, db):
+        """
+        CC/MCC is what a SECONDARY contributes to the DRG. A principal
+        diagnosis has no CC/MCC role, so including it answers a question
+        nobody asked.
+        """
+        b, c = _batch(db, "B"), _chart(db, "IP001")
+        _err(db, b, c, "Ann", "E1", "I50.31", sect="PDx")
+        _codes(db)
+        assert client.get(URL, params={"include_scattered": True}
+                          ).json()["by_ccmcc"] == []
+
+
+class TestPcsAxes:
+    def test_procedure_errors_group_by_each_character(self, client, db):
+        b, c = _batch(db, "B"), _chart(db, "IP001")
+        _err(db, b, c, "Ann", "E1", "0DTJ4ZZ", sect="PCS")
+        _err(db, b, c, "Bob", "E2", "0DTJ4ZZ", sect="PCS")
+        _codes(db)
+        axes = client.get(URL, params={"include_scattered": True}).json()["by_pcs_axis"]
+        assert axes["root_operation"][0]["label"] == "Resection"
+        assert axes["root_operation"][0]["count"] == 2
+        assert axes["approach"][0]["label"] == "Percutaneous Endoscopic"
+
+    def test_an_axis_with_nothing_in_it_is_absent(self, client, db):
+        b, c = _batch(db, "B"), _chart(db, "IP001")
+        _err(db, b, c, "Ann", "E1", "I50.31")
+        _codes(db)
+        assert client.get(URL, params={"include_scattered": True}
+                          ).json()["by_pcs_axis"] == {}
+
+
+class TestItSaysWhatItCouldNotDescribe:
+    """
+    An empty chapter panel means one of three very different things: nothing
+    was loaded, the codes are CPT and never can be described, or the edition
+    does not have them. A trainer should not have to guess which.
+    """
+
+    def test_licensed_cpt_is_counted_separately_from_a_missing_code(self, client, db):
+        b, c = _batch(db, "B"), _chart(db, "IP001")
+        _err(db, b, c, "Ann", "E1", "99213", sect="CPT")   # AMA — never ours
+        _err(db, b, c, "Bob", "E2", "Z99.99")              # not in this edition
+        _err(db, b, c, "Cid", "E3", "I50.31")              # described
+        _codes(db)
+        e = client.get(URL, params={"include_scattered": True}).json()["enrichment"]
+        assert e["available"] is True
+        assert e["described"] == 1
+        assert e["licensed_cpt"] == 1
+        assert e["not_in_edition"] == 1
+
+    def test_without_the_ingest_the_axes_are_empty_and_say_so(self, client, db):
+        b, c = _batch(db, "B"), _chart(db, "IP001")
+        _err(db, b, c, "Ann", "E1", "I50.31")
+        body = client.get(URL, params={"include_scattered": True}).json()
+        assert body["enrichment"]["available"] is False
+        assert body["by_chapter"] == [] and body["by_ccmcc"] == []
+
+    def test_the_axes_never_change_a_score(self, client, db):
+        """
+        Enrichment only. Loading the code sets must not move a number anyone
+        has already been told.
+        """
+        b, c = _batch(db, "B"), _chart(db, "IP001")
+        _err(db, b, c, "Ann", "E1", "I50.31")
+        before = client.get(URL, params={"include_scattered": True}).json()
+        _codes(db)
+        after = client.get(URL, params={"include_scattered": True}).json()
+        for key in ("total_errors", "errors_per_chart", "by_issue_type",
+                    "by_section", "total_codes"):
+            assert before[key] == after[key], key
+
+
+class TestDrilldownSaysWhatTheCodeIs:
+    """
+    A drilldown that lists who missed a code, without saying what the code is,
+    asks the reader to already know. The section comes from the ERRORS, not
+    from the code's shape — J1885 is real HCPCS and looks like a diagnosis, and
+    only the rows know which box it was typed into.
+    """
+
+    def test_a_diagnosis_carries_its_description_chapter_and_severity(self, client, db):
+        b, c = _batch(db, "B"), _chart(db, "IP001")
+        _err(db, b, c, "Ann", "E1", "I50.31")
+        _codes(db)
+        info = client.get(DETAIL, params={"code": "I50.31"}).json()["info"]
+        assert info["description"] == "Acute diastolic heart failure"
+        assert info["chapter_no"] == 9
+        assert info["cc_mcc"] == "MCC"
+
+    def test_a_procedure_carries_its_axes(self, client, db):
+        b, c = _batch(db, "B"), _chart(db, "IP001")
+        _err(db, b, c, "Ann", "E1", "0DTJ4ZZ", sect="PCS")
+        _codes(db)
+        info = client.get(DETAIL, params={"code": "0DTJ4ZZ"}).json()["info"]
+        assert info["pcs"]["root_operation"] == "Resection"
+        assert info["pcs"]["approach"] == "Percutaneous Endoscopic"
+
+    def test_an_undescribed_code_still_returns_its_drilldown(self, client, db):
+        """The evidence matters more than the caption; losing both would be worse."""
+        b, c = _batch(db, "B"), _chart(db, "IP001")
+        _err(db, b, c, "Ann", "E1", "99213", sect="CPT")
+        _codes(db)
+        body = client.get(DETAIL, params={"code": "99213"}).json()
+        assert body["info"] is None
+        assert body["coders"] and body["coders"][0]["count"] == 1

@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session, selectinload, joinedload
 from sqlalchemy import func, Integer, text
 from database import get_db
 from models import Batch, BatchCoder, BatchStatus, GradingResult, GradingFeedback, Chart, PassFail, Specialty, ScoringConfig
+from services.code_enrichment import (ccmcc_label, chapter_label, enrich_codes,
+                                      is_licensed_cpt, lookup, pcs_axis_labels)
 from services.pdf_report_service import generate_coder_report_pdf
 from .shared import _uses_dpo
 from services.download_headers import content_disposition
@@ -103,6 +105,31 @@ def _pass_thresholds(db) -> dict:
         else:
             out[s.value] = op
     return out
+
+
+def _code_caption(info) -> dict:
+    """
+    The short description, deliberately.
+
+    These captions land in narrow PDF and table columns, which is precisely
+    what CMS's short description is for — "Ketorolac tromethamine inj" is the
+    wrong thing in a form field and the right thing in a print column.
+    """
+    if not info:
+        return {"description": None, "chapter": None, "cc_mcc": None}
+    return {
+        "description": info.get("short_description") or info.get("description"),
+        "chapter": info.get("chapter"),
+        "cc_mcc": info.get("cc_mcc"),
+    }
+
+
+def _described_missed(db, counts, sections, top=5) -> list:
+    """Top missed codes with what each one is."""
+    codes = [c for c, _n in counts.most_common(top)]
+    found = enrich_codes(db, [(sections.get(c), c) for c in codes])
+    return [{"code": c, "count": counts[c],
+             **_code_caption(lookup(found, sections.get(c), c))} for c in codes]
 
 
 @router.get("/analytics/overview")
@@ -420,10 +447,14 @@ def specialty_profile(
         return None
 
     missed = Counter()
+    # The section each code was typed into, so it is described against the
+    # right table rather than guessed from its shape.
+    missed_sections: dict = {}
     for r in results:
         for f in r.feedback:
             if f.issue_type.value == "Missed" and f.ak_code:
                 missed[f.ak_code] += 1
+                missed_sections.setdefault(f.ak_code, f.section)
 
     return {
         "specialty": spec.value,
@@ -461,7 +492,7 @@ def specialty_profile(
             "min_attempts": min_attempts,
             "struggling_list": struggling[:10],
         },
-        "top_missed_codes": [{"code": c, "count": n} for c, n in missed.most_common(5)],
+        "top_missed_codes": _described_missed(db, missed, missed_sections),
     }
 
 
@@ -783,12 +814,24 @@ def build_coder_summary(results, coder_name: str, db: Session):
     total_fb = len(all_feedback)
     issue_counts = Counter(f.issue_type.value for f in all_feedback)
     missed_counts = Counter(f.ak_code for f in all_feedback if f.issue_type.value == "Missed" and f.ak_code)
+    # Describe them. This list is read in a PDF as often as on screen, and a
+    # PDF has no hover and no drilldown — a bare code there is a lookup task
+    # handed to whoever opens it.
+    missed_sections = {}
+    for fb in all_feedback:
+        if fb.ak_code and fb.ak_code not in missed_sections:
+            missed_sections[fb.ak_code] = fb.section
+    top_missed = [c for c, _n in missed_counts.most_common(5)]
+    described = enrich_codes(db, [(missed_sections.get(c), c) for c in top_missed])
     error_pattern = {
         "by_issue_type": [
             {"type": t, "count": c, "pct": round(c / total_fb * 100, 1) if total_fb else 0}
             for t, c in sorted(issue_counts.items(), key=lambda x: -x[1])
         ],
-        "top_missed_codes": [{"code": c, "count": n} for c, n in missed_counts.most_common(5)],
+        "top_missed_codes": [
+            {"code": c, "count": missed_counts[c],
+             **_code_caption(lookup(described, missed_sections.get(c), c))}
+            for c in top_missed],
     }
 
     # ── Per-category breakdown ───────────────────────────────────────────────
@@ -1248,6 +1291,67 @@ def analytics_error_analysis(
         if r.graded_at and (d["last_seen"] is None or r.graded_at > d["last_seen"]):
             d["last_seen"] = r.graded_at
 
+    # ── What the codes are ABOUT ─────────────────────────────────────────────
+    #
+    # Everything above this point groups errors administratively — by coder, by
+    # chart, by section. These axes group them clinically, which is the
+    # question a trainer actually asks: not "who" but "what do they not know".
+    #
+    # ENRICHMENT ONLY. None of it touches a score. Grading is settled when the
+    # chart is graded, and re-running the code-set ingest must never move a
+    # number somebody has already been told.
+    enriched = enrich_codes(db, ((f.section, f.ak_code or f.coder_code)
+                                 for _r, f in items))
+
+    def _axis(bucket: dict, key, r, f):
+        if not key:
+            return
+        cell = bucket.setdefault(key, {"count": 0, "coders": set(), "charts": set()})
+        cell["count"] += 1
+        cell["coders"].add(r.emp_id or r.coder_name)
+        cell["charts"].add(r.chart.chart_number if r.chart else r.chart_id)
+
+    by_chapter: dict = {}
+    by_ccmcc: dict = {}
+    pcs_axes: dict = {k: {} for k in ("root_operation", "approach", "body_system",
+                                      "device", "qualifier", "body_part")}
+    described = licensed_cpt = undescribed = 0
+
+    for r, f in items:
+        code = f.ak_code or f.coder_code
+        if not code:
+            continue
+        info = lookup(enriched, f.section, code)
+        if info is None:
+            # Split deliberately. A CPT code cannot be described because this
+            # application does not hold CPT, which is a permanent and
+            # explainable gap; anything else is a code the loaded edition does
+            # not have, which is a data problem worth surfacing.
+            if is_licensed_cpt(code):
+                licensed_cpt += 1
+            else:
+                undescribed += 1
+            continue
+        described += 1
+        _axis(by_chapter, chapter_label(info), r, f)
+        # CC/MCC is a SECONDARY diagnosis concept — it is what a secondary
+        # contributes to the DRG. A principal diagnosis has no CC/MCC role, so
+        # including PDx here would answer a question nobody asked.
+        if str(getattr(f.section, "value", f.section)).upper() == "SDX":
+            _axis(by_ccmcc, ccmcc_label(info), r, f)
+        for axis, value in pcs_axis_labels(info).items():
+            if axis in pcs_axes:
+                _axis(pcs_axes[axis], value, r, f)
+
+    def _axis_rows(bucket: dict) -> list:
+        rows = [{"label": k, "count": v["count"],
+                 "coders_affected": len(v["coders"]),
+                 "charts_affected": len(v["charts"]),
+                 "share": _share(v["count"])}
+                for k, v in bucket.items()]
+        rows.sort(key=lambda x: -x["count"])
+        return rows
+
     def _verdict(d):
         """Which of the three problems this is — the point of the whole tab."""
         n_coders, n_charts = len(d["coders"]), len(d["charts"])
@@ -1275,6 +1379,24 @@ def analytics_error_analysis(
             "pattern": label,
             "pattern_reason": why,
             "last_seen": d["last_seen"].isoformat() if d["last_seen"] else None,
+        })
+        # The section a code was typed into decides which table describes it —
+        # J1885 is real HCPCS and looks like a diagnosis, so its shape cannot
+        # be trusted. The commonest section wins where a code appears in more
+        # than one.
+        top_section = d["sections"].most_common(1)[0][0]
+        info = lookup(enriched, top_section, d["code"])
+        axes = pcs_axis_labels(info)
+        code_rows[-1].update({
+            "description": (info or {}).get("description"),
+            "code_system": (info or {}).get("system"),
+            "chapter": chapter_label(info),
+            "cc_mcc": ccmcc_label(info),
+            "root_operation": axes.get("root_operation"),
+            "approach": axes.get("approach"),
+            "body_system": axes.get("body_system"),
+            "device": axes.get("device"),
+            "qualifier": axes.get("qualifier"),
         })
     code_rows.sort(key=lambda x: -x["count"])
 
@@ -1608,6 +1730,23 @@ def analytics_error_analysis(
                           for t, c in by_issue.most_common()],
         "by_section": [{"section": sec, "count": c, "pct": _share(c)}
                        for sec, c in by_section.most_common()],
+        # ── clinical axes ────────────────────────────────────────────────────
+        # What the errors are about, rather than who made them. Inpatient work
+        # carries all three; everything else carries chapters only, because
+        # outpatient procedures are CPT and this application does not hold CPT.
+        "by_chapter": _axis_rows(by_chapter),
+        "by_ccmcc": _axis_rows(by_ccmcc),
+        "by_pcs_axis": {axis: _axis_rows(bucket)
+                        for axis, bucket in pcs_axes.items() if bucket},
+        # Said plainly rather than left to be inferred from a short list. An
+        # empty chapter panel means one of three very different things, and a
+        # trainer should not have to guess which.
+        "enrichment": {
+            "available": bool(enriched),
+            "described": described,
+            "licensed_cpt": licensed_cpt,
+            "not_in_edition": undescribed,
+        },
         "codes": page,
         # Three different totals, all of them needed: every distinct code seen,
         # how many match the current search/pattern, and how many are on this
@@ -1942,8 +2081,21 @@ def analytics_error_detail(
             d["count"] += 1
             d["coders"].add(cid)
 
+    # What this code IS, so the drilldown can be read without leaving the app.
+    # The section is taken from the errors themselves rather than guessed from
+    # the code's shape: J1885 is a real HCPCS code and looks like a diagnosis,
+    # and only the rows know which box it was typed into.
+    sections = {f.section for r in results for f in r.feedback
+                if (f.ak_code or f.coder_code) == code}
+    info = None
+    for sect in sections:
+        info = lookup(enrich_codes(db, [(sect, code)]), sect, code)
+        if info:
+            break
+
     return {
         "code": code,
+        "info": info,
         "coders": sorted([{"coder_name": v["coder_name"], "emp_id": v["emp_id"],
                            "count": v["count"], "charts": len(v["charts"])}
                           for v in by_coder.values()], key=lambda x: -x["count"]),

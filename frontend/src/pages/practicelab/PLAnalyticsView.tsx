@@ -115,6 +115,85 @@ function NameBox({ label, name, figure, color, hint }: {
   )
 }
 
+/**
+ * One clinical axis — chapter, CC/MCC, or a PCS character.
+ *
+ * A list rather than a chart. These have long labels ("Diseases of the
+ * genitourinary system"), a handful of rows, and the number that matters is
+ * the count next to the name; a bar chart would spend most of its width on
+ * axis labels to show three bars.
+ *
+ * Each row carries its spread for the same reason the code rows do: eight
+ * errors from one coder on one chart is not the same finding as eight from
+ * four coders across four charts, and the count alone cannot tell them apart.
+ */
+/**
+ * What a code is, above its drilldown.
+ *
+ * Absent rather than apologetic when nothing is known — that is the ordinary
+ * case for CPT, which this application does not carry, and a row reading
+ * "description unavailable" would draw the eye to a permanent condition.
+ */
+function CodeIdentity({ info }: { info?: any }) {
+  if (!info) return null
+  const axes = info.pcs || {}
+  const chips: [string, string][] = [
+    ['Chapter', info.chapter],
+    ['CC/MCC', info.cc_mcc],
+    ['Root operation', axes.root_operation],
+    ['Body system', axes.body_system],
+    ['Body part', axes.body_part],
+    ['Approach', axes.approach],
+    ['Device', axes.device],
+    ['Qualifier', axes.qualifier],
+  ].filter(([, v]) => !!v) as [string, string][]
+  return (
+    <div style={{ gridColumn: '1 / -1', background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: '10px 12px' }}>
+      <div style={{ fontSize: 13, color: '#111', fontWeight: 600, marginBottom: chips.length ? 6 : 0 }}>
+        {info.description}
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 6 }}>
+        {chips.map(([label, value]) => (
+          <span key={label} style={{ fontSize: 11, background: '#f8fafc', border: '1px solid #e5e7eb', borderRadius: 20, padding: '2px 9px', color: '#475569' }}>
+            <span style={{ color: '#94a3b8' }}>{label}</span> {value}
+          </span>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function ClinicalAxis({ title, rows, color }: {
+  title: string; rows: any[]; color: string
+}) {
+  const top = (rows || []).slice(0, 8)
+  const max = Math.max(1, ...top.map(r => r.count))
+  return (
+    <div>
+      <div style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' as const, letterSpacing: 0.4, marginBottom: 8 }}>{title}</div>
+      <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 6 }}>
+        {top.map(r => (
+          <div key={r.label}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, fontSize: 12 }}>
+              <span style={{ flex: 1, color: '#111', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.label}>{r.label}</span>
+              <span style={{ fontWeight: 800, color }}>{r.count}</span>
+              <span style={{ fontSize: 11, color: '#9ca3af', flexShrink: 0 }}>
+                {r.coders_affected} coder{r.coders_affected !== 1 ? 's' : ''} · {r.charts_affected} chart{r.charts_affected !== 1 ? 's' : ''}
+              </span>
+            </div>
+            <div style={{ height: 4, background: '#f1f5f9', borderRadius: 99, marginTop: 3 }}>
+              <div style={{ height: '100%', width: `${(r.count / max) * 100}%`, background: color, borderRadius: 99, opacity: 0.75 }} />
+            </div>
+          </div>
+        ))}
+        {rows.length > top.length && (
+          <div style={{ fontSize: 11, color: '#9ca3af' }}>+{rows.length - top.length} more</div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function Box({ label, value, color, hint }: { label: string; value: any; color?: string; hint?: string }) {
   return (
     <div style={styles.statCard}>
@@ -1512,6 +1591,44 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                 </div>
               </div>
 
+              {/* ── What the errors are ABOUT ──────────────────────────────
+                  Every panel above groups administratively — by type, by
+                  section, by coder. These group clinically, which is the
+                  question a trainer is actually asking. Inpatient work carries
+                  all three; everything else carries chapters only, because
+                  outpatient procedures are CPT and this app does not hold CPT. */}
+              {(d.by_chapter?.length > 0 || d.by_ccmcc?.length > 0
+                || Object.keys(d.by_pcs_axis || {}).length > 0) && (
+                <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '14px 16px' }}>
+                  <div style={sectionLabel}>
+                    What The Errors Are About
+                    <span style={{ fontWeight: 600, textTransform: 'none' as const, letterSpacing: 0, color: '#9ca3af', marginLeft: 8 }}>
+                      — a share of errors, not a difficulty rate: a chapter is
+                      here because these charts use it, not only because it is hard
+                    </span>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                    {d.by_chapter?.length > 0 && (
+                      <ClinicalAxis title="Diagnosis Chapter" rows={d.by_chapter} color="#4f46e5" />
+                    )}
+                    {d.by_ccmcc?.length > 0 && (
+                      <ClinicalAxis title="CC / MCC (secondary diagnoses)" rows={d.by_ccmcc} color="#b45309" />
+                    )}
+                    {Object.entries(d.by_pcs_axis || {}).map(([axis, rows]: any) => (
+                      <ClinicalAxis key={axis} color="#0f766e" rows={rows}
+                        title={'PCS ' + axis.replace(/_/g, ' ').replace(/\b\w/g, (m: string) => m.toUpperCase())} />
+                    ))}
+                  </div>
+                  {d.enrichment && (d.enrichment.licensed_cpt > 0 || d.enrichment.not_in_edition > 0) && (
+                    <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 10 }}>
+                      {d.enrichment.described} of {d.enrichment.described + d.enrichment.licensed_cpt + d.enrichment.not_in_edition} errors described
+                      {d.enrichment.licensed_cpt > 0 && <> · {d.enrichment.licensed_cpt} CPT (not carried — AMA licence)</>}
+                      {d.enrichment.not_in_edition > 0 && <> · {d.enrichment.not_in_edition} not in the loaded edition</>}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {d.trend.length > 1 && (
                 <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '14px 16px' }}>
                   <div style={sectionLabel}>
@@ -1596,6 +1713,10 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                       </div>
                       {open && (
                         <div style={{ padding: '12px 16px', background: '#fafafa', borderBottom: '1px solid #ede9fe', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                          {/* What the code IS, before who missed it. A drilldown
+                              that lists coders without saying what the code
+                              means asks the reader to already know. */}
+                          <CodeIdentity info={codeDetail[detailKey(c.code)]?.info} />
                           <div>
                             <div style={sectionLabel}>Who</div>
                             {!codeDetail[detailKey(c.code)] ? <div style={{ fontSize: 12, color: '#9ca3af' }}>Loading…</div>

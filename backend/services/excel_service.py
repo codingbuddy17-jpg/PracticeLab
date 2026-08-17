@@ -1140,18 +1140,42 @@ def export_error_analysis(data: dict) -> bytes:
            ["specialty", "errors", "charts", "errors_per_chart", "rankable"])
 
     codes = data.get("codes") or []
+    # The reference columns are what make this sheet pivotable: a trainer can
+    # slice by chapter or root operation in Excel without any of it being built
+    # into the app. They are blank for CPT, which this application does not
+    # hold, and for codes absent from the loaded edition.
     w = _sheet("Codes",
-               [("Code", 16), ("Times", 10), ("Coders", 10), ("Charts", 10),
+               [("Code", 16), ("Description", 54), ("Code System", 13),
+                ("Chapter", 40), ("CC/MCC", 10),
+                ("Root Operation", 18), ("Approach", 22), ("Body System", 22),
+                ("Device", 22), ("Qualifier", 18),
+                ("Times", 10), ("Coders", 10), ("Charts", 10),
                 ("Pattern", 14), ("What it means", 62), ("Section", 12),
-                ("Issue Mix", 34), ("Specialties", 22), ("Per Coder", 12), ("Last Seen", 13)],
+                ("Issue Mix", 34), ("Specialties", 22), ("Per Coder", 12),
+                ("Last Seen", 13)],
                [{**c, "issue_mix": " · ".join(f"{b['type'].replace('_', ' ')} {b['count']}"
                                               for b in c.get("issue_breakdown") or [])}
                 for c in codes],
-               ["code", "count", "coders_affected", "charts_affected", "pattern",
+               ["code", "description", "code_system", "chapter", "cc_mcc",
+                "root_operation", "approach", "body_system", "device", "qualifier",
+                "count", "coders_affected", "charts_affected", "pattern",
                 "pattern_reason", "top_section", "issue_mix", "specialties",
                 "per_coder", "last_seen"])
     for ri in range(2, len(codes) + 2):
-        w.cell(ri, 6).alignment = Alignment(wrap_text=True, vertical="top")
+        w.cell(ri, 15).alignment = Alignment(wrap_text=True, vertical="top")
+        w.cell(ri, 2).alignment = Alignment(wrap_text=True, vertical="top")
+
+    # ── the clinical axes, one sheet each ────────────────────────────────────
+    _axis_cols = [("Group", 46), ("Errors", 10), ("Coders", 10), ("Charts", 10),
+                  ("Share %", 10)]
+    _axis_keys = ["label", "count", "coders_affected", "charts_affected", "share"]
+    if data.get("by_chapter"):
+        _sheet("By Chapter", _axis_cols, data["by_chapter"], _axis_keys)
+    if data.get("by_ccmcc"):
+        _sheet("By CC-MCC", _axis_cols, data["by_ccmcc"], _axis_keys)
+    for axis, rows in (data.get("by_pcs_axis") or {}).items():
+        if rows:
+            _sheet("PCS " + axis.replace("_", " ").title(), _axis_cols, rows, _axis_keys)
 
     # The evidence behind each verdict. On screen this opens one code at a
     # time; in a sheet there is no reason to make someone click two hundred

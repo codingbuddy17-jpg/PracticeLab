@@ -519,8 +519,17 @@ def generate_coder_report_pdf(coder_name: str, summary: dict, team_avg_score: Op
         issue_rows = [[Paragraph(e["type"].replace("_", " "), NORMAL), Paragraph(str(e["count"]), NORMAL), Paragraph(f"{e['pct']}%", NORMAL)] for e in ep["by_issue_type"]]
         if ep.get("top_missed_codes"):
             left = _data_table(["Issue Type", "Count", "Share"], issue_rows, [2, 1, 1], width=HALF_W)
-            mc_rows = [[Paragraph(m["code"], NORMAL), Paragraph(f"{m['count']}×", NORMAL)] for m in ep["top_missed_codes"]]
-            right = _data_table(["Top Missed Codes", "Frequency"], mc_rows, [2, 1], width=HALF_W)
+            # A PDF has no hover and no drilldown: a bare code here is a
+            # lookup task handed to whoever opens it, and the person reading a
+            # coder report is often not a coder.
+            mc_rows = [[Paragraph(m["code"], NORMAL),
+                        Paragraph(m.get("description") or "", SMALL_GRAY),
+                        Paragraph(f"{m['count']}×", NORMAL)]
+                       for m in ep["top_missed_codes"]]
+            # "Freq" rather than "Frequency": in a half-width table the longer
+            # word wrapped mid-header into "Freque / ncy".
+            right = _data_table(["Code", "What it is", "Freq"],
+                                mc_rows, [1.0, 2.6, 0.6], width=HALF_W)
             elements.append(_two_col(left, right))
         else:
             elements.append(_data_table(["Issue Type", "Count", "Share"], issue_rows, [2, 1, 1]))
@@ -700,8 +709,13 @@ def generate_batch_report_pdf(insights: dict) -> bytes:
 
     if te.get("top_missed_codes"):
         _section_heading(elements, "Top Missed Codes (team-wide)")
-        mc_rows = [[Paragraph(m["code"], NORMAL), Paragraph(f"missed {m['count']}×", NORMAL)] for m in te["top_missed_codes"]]
-        elements.append(_data_table(["Code", "Frequency"], mc_rows, [1, 1]))
+        mc_rows = [[Paragraph(m["code"], NORMAL),
+                    Paragraph(m.get("description") or "", SMALL_GRAY),
+                    Paragraph(m.get("chapter") or "", SMALL_GRAY),
+                    Paragraph(f"missed {m['count']}×", NORMAL)]
+                   for m in te["top_missed_codes"]]
+        elements.append(_data_table(["Code", "What it is", "Chapter", "Frequency"],
+                                    mc_rows, [0.9, 2.2, 2.0, 0.9]))
 
     _footer_note(elements)
     doc.build(elements, onFirstPage=_draw_background, onLaterPages=_draw_background)
