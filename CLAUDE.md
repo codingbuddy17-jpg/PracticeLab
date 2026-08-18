@@ -167,9 +167,15 @@ Two CMS files are easy to take from the wrong place:
 repository is public. CPT lines render bare and the answer-key checks decline
 to judge five-digit numeric codes rather than pretend to have checked them.
 
-Descriptions are wired into the **entry** screens only — coder PDx/SDx/PCS and
-the auditor's claim, revise and add rows — plus the trainer freshness note.
-Analytics, results screens and the PDF exports show codes without them.
+Descriptions are wired into the screens where codes are **typed**: coder
+PDx/SDx/PCS, the auditor's claim/revise/add rows, and both trainer key editors
+(`AnswerKeyEditor`, `EMAnswerKeysView`) — plus the trainer freshness note.
+`auditor/AuditKeys.tsx` is not wired yet. Analytics, results screens and the
+PDF exports show codes without them.
+
+On a coder screen a description is a study aid; on a **key** screen it is a
+check, and a wrong key is worse than a wrong answer because it silently grades
+everyone against it. Key screens come first when extending this, not last.
 
 ---
 
@@ -228,7 +234,34 @@ qualifies as critical care at all — and it is the one planting the generator
 may not invent. An answer key says which code is right, not whether the call
 was close, so it is planted only where a trainer has set
 `AnswerKey.cc_boundary = "borderline"`. The 99292 unit count is NOT where
-coders go wrong; it follows from the time.
+coders go wrong; it follows from the time, and critical-care **time** is not
+planted at all — an auditor validates the code, not the arithmetic.
+
+**E/M and ED Profee are auditable, and their key is a different table.**
+`em_answer_keys`, adapted by `services/em_audit_key.py` into the ordinary key
+shape. Never ask a trainer for an ordinary key as well: one chart with two
+truths disagrees the first time either is edited, silently, with the coder
+graded against one and the auditor against the other.
+
+**MDM is audited as three levels, never as the 26 element ticks.** COPA, Data
+Review and Risk — single-valued, Revise-only, picked from a list served by
+`form_spec`. The ticks are what the coaching module grades; an auditor
+disagrees with a judgement.
+
+**MDM is an ordinary planted finding, not a slice of the score.** A fixed
+weight has to be paid whether or not the chart has anything to pay it with, and
+a separately scored *detection* component would pay for flagging — which the
+module refuses everywhere else. MDM reports its own percentage in
+`review_attributes` beside POA and Modifier, outside the code-line denominator,
+split COPA/Data/Risk. If E/M volume ever demands more, add a distinct **E/M
+Reasoning Score** beside the Audit Score; do not carve one out of it.
+
+**Planting reads the declared E/M category, never infers it.** `em_levels.py`
+knows three ladders plus critical care; preventive, consults and the rest are
+off-ladder, so planting abstains — which fails safe per chart but makes
+**category predict cleanliness across a batch**. An auditor who learns
+"preventive means clean" stops reading them, and the render-identically rule
+does not catch it.
 
 ### The Auditor module
 
