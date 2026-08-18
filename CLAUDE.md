@@ -282,7 +282,10 @@ both come to 50% and are different coaching conversations.
 **Hand-picked allocation takes only the clean count.** The authored/generated
 split follows the charts the trainer picks, because a quota of three authored
 cannot be met if one picked chart has a version. Guided is the mode where
-numbers steer the draw.
+numbers steer the draw. Hand-picked is also the only mode that may **pin a
+specific key version per chart** (`manual_set_ids`); the other modes refuse it,
+since a trainer who did not choose the charts cannot be choosing their
+versions.
 
 **`Quotas.manual = None` ≠ `0`.** `None` means "no opinion, so a chart with an
 authored version uses it"; `0` means "pass authored versions over". Conflating
@@ -292,6 +295,12 @@ them silently discarded every trainer-authored error set in Automatic mode.
 not the auditor. Keying on the auditor gives four auditors three different
 versions in one sitting; keying on the cycle pins a chart to one version
 forever when it does not appear every cycle.
+
+**Reasoning errors report where they sat and whether they mattered.**
+`by_mdm_field` splits COPA / Data Review / Risk; `by_mdm_level_impact` splits
+"Moved E/M level" from "Reasoning only". Keep the second — the 2-of-3 rule
+means one shifted element usually moves nothing, and without the split every
+reasoning error reads as equally costly.
 
 **Analytics says "Score", not "Accuracy"** — Audit Score, Clean Chart Score,
 PCS Score, Query Score. IP leads with PCS Score rather than DRG accuracy.
