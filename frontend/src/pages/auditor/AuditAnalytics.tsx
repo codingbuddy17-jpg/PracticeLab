@@ -79,7 +79,7 @@ export function AuditAnalytics() {
   const [chartSearch, setChartSearch] = useState('')
   const [auditorMatched, setAuditorMatched] = useState(0)
 
-  // Overview carries the header counts, the verdict and the trend, so it loads
+  // Overview carries the header counts and the trend, so it loads
   // for every tab. Everything else is fetched the first time its tab is
   // opened: all six endpoints used to fire on every filter change to render
   // one visible panel, nine round trips once an auditor was selected.
@@ -377,33 +377,11 @@ function SectionMetrics({ sections }: { sections: any }) {
   )
 }
 
-function Verdict({ overview, threshold }: { overview: any; threshold: number }) {
-  const verdict = overview.pass_fail as string | null
-  const pass = verdict === 'PASS'
-  const accent = verdict ? (pass ? '#059669' : '#dc2626') : '#6b7280'
-  const bg = verdict ? (pass ? '#f0fdf4' : '#fef2f2') : '#f8fafc'
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap',
-                  padding: '12px 16px', borderRadius: 12, background: bg,
-                  border: `1px solid ${accent}33`, borderLeft: `4px solid ${accent}` }}>
-      <span style={{ fontSize: 20, fontWeight: 800, color: accent, letterSpacing: -0.3 }}>
-        {verdict || 'No scored audits yet'}
-      </span>
-      <span style={{ fontSize: 12.5, color: '#4b5563', lineHeight: 1.5 }}>
-        {verdict
-          ? <>Audit Score {pct(overview.audit_score)} against a {threshold}% threshold.</>
-          : <>Submit an audit to calculate the Audit Score.</>}
-      </span>
-    </div>
-  )
-}
-
 function OverviewTab({ overview, trend, cleanOpportunity, threshold }: {
   overview: any; trend: any[]; cleanOpportunity: any[]; threshold: number
 }) {
   return (
     <div style={stackStyle}>
-      <Verdict overview={overview} threshold={threshold} />
       <div style={metricGridStyle}>
         <Metric label="Auditors Tested" value={overview.auditors || 0} tone="#475569" />
         <Metric label="Overall Audit Score" value={pct(overview.audit_score)}
