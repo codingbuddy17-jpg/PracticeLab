@@ -81,6 +81,34 @@ It is deliberately not kept in the folder: ten megabytes of dependencies for a
 document you may never need to regenerate is clutter, and it is not committed,
 so a fresh clone will not have it either.
 
+## The live environment, as it actually is
+
+| | URL |
+|---|---|
+| API | `https://chart-viewer-api-rxrd.onrender.com` |
+| UI | `https://chart-viewer-ui.onrender.com` |
+
+**The API host is not the name you would guess**, and earlier circulated
+documents give `chart-viewer-api.onrender.com` — a host that now answers with
+somebody else's HTML. Anyone testing against that URL will conclude the API is
+broken when it is running perfectly. The frontend's own `VITE_API_URL` is the
+authority if this table ever goes stale.
+
+Confirm the deployment is actually working, rather than assuming from a green
+build:
+
+```bash
+python scripts/smoke_deployed.py --base https://chart-viewer-api-rxrd.onrender.com
+```
+
+That exercises one read per module and checks a code description resolves.
+Add `--write --passphrase "<MASTER_ADMIN_PASSPHRASE>"` to make it perform a
+real write and remove it again — **the half that matters**, because most of
+this application degrades to silence rather than erroring, so reads can pass
+against a database that cannot be written to. That is not hypothetical: it is
+exactly how the entire E/M module was unwritable in production while every
+read-only check passed.
+
 ## Also worth knowing
 
 - `../CLAUDE.md` in the repository root is written for engineers picking the
