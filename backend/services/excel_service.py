@@ -426,6 +426,8 @@ def parse_answer_key_upload(file_bytes: bytes, specialty: str, with_pointers: bo
             continue
         key = str(name).split("\n")[0].strip().lower()
         header_at.setdefault(key, idx)
+    if not any(name in header_at for name in HEADER_NAMES):
+        raise ValueError("Missing required column: Chart_Number")
 
     def _cell(row, idx) -> str:
         """Safely read a cell value, returning "" for None/empty/'None' sentinel."""

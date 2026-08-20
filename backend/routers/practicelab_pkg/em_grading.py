@@ -1132,7 +1132,7 @@ def upload_em_answer_keys(
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Could not parse file: {e}")
 
-    stored, replaced, skipped, not_found = [], [], [], []
+    stored, replaced, skipped, not_found, wrong_specialty = [], [], [], [], []
 
     # The same two rules the IP/OP upload enforces, applied here rather than
     # only where they were written. This endpoint had neither.
@@ -1157,7 +1157,7 @@ def upload_em_answer_keys(
             continue
 
         if chart.specialty.value not in ("E/M", "ED Profee"):
-            not_found.append(chart_num)
+            wrong_specialty.append(chart_num)
             continue
 
         em_code = row.get("em_code", "").strip()
@@ -1316,8 +1316,8 @@ def upload_em_answer_keys(
         "replaced": replaced,
         "skipped_duplicates": skipped,
         "not_found": not_found,
+        "wrong_specialty": wrong_specialty,
     }
 
 
 # ── Excel template download ───────────────────────────────────────────────────
-
