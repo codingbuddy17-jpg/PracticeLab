@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
-import { Download, Plus, Trash2, ChevronDown, ChevronUp, CheckCircle, Upload } from 'lucide-react'
+import { Download, Plus, Trash2, Pencil, ChevronDown, ChevronUp, CheckCircle, Upload } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { listEMAnswerKeys, upsertEMAnswerKey, deleteEMAnswerKey, downloadEMAnswerKeyTemplate, uploadEMAnswerKeys } from '../../api'
+import { listEMAnswerKeys, upsertEMAnswerKey, deleteEMAnswerKey, getEMAnswerKey, downloadEMAnswerKeyTemplate, uploadEMAnswerKeys } from '../../api'
 import { searchCharts, getAnswerKeyStatus, getChartsMissingKeys } from '../../api'
 import { CodeSuggest } from '../../components/CodeSuggest'
 import { CodeCaption } from '../../components/CodeCaption'
@@ -68,6 +68,15 @@ const EM_TIME_ELIGIBLE = ['99202','99203','99204','99205','99212','99213','99214
 const EM_CODES = ['99202','99203','99204','99205','99211','99212','99213','99214','99215','99281','99282','99283','99284','99285']
 
 // ── Empty form state ──────────────────────────────────────────────────────────
+
+const notAssessed: React.CSSProperties = {
+  fontSize: 11, color: '#9ca3af', fontStyle: 'italic',
+}
+
+function parseJson(raw: any, fallback: any) {
+  if (Array.isArray(raw)) return raw
+  try { return JSON.parse(raw || 'null') ?? fallback } catch { return fallback }
+}
 
 function emptyForm() {
   const f: Record<string, any> = { em_code: '', em_modifier: '', patient_type: 'NA',
@@ -182,6 +191,44 @@ export function EMAnswerKeysView() {
   useEffect(() => {
     if (!steps.some(s => s.key === expandedSection)) setExpandedSection(steps[0].key)
   }, [category])
+
+  /**
+   * Open an existing key for editing.
+   *
+   * The save path already upserts on chart_id, so editing needed no backend
+   * work — only a way to get the stored key back into the form. Without it the
+   * only way to correct a typo was to delete the key and retype twenty-six
+   * element ticks, which is how keys quietly stop being corrected at all.
+   *
+   * The full row is fetched rather than reusing the list, which omits the
+   * element ticks to stay small.
+   */
+  async function editKey(row: any) {
+    try {
+      const full = await getEMAnswerKey(row.chart_id)
+      const next = emptyForm()
+      Object.keys(next).forEach(k => {
+        if (full[k] !== undefined && full[k] !== null) next[k] = full[k]
+      })
+      // Stored as JSON text; the form wants arrays, and an empty key still
+      // needs one blank row to type into.
+      next.dx_codes = parseJson(full.dx_codes, [''])
+      if (!next.dx_codes.length) next.dx_codes = ['']
+      next.procedure_cpts = parseJson(full.procedure_cpts,
+        [{ code: '', modifier: '', pointers: [], units: '' }])
+      if (!next.procedure_cpts.length) {
+        next.procedure_cpts = [{ code: '', modifier: '', pointers: [], units: '' }]
+      }
+      setForm(next)
+      setSelectedChart({ id: row.chart_id, chart_number: row.chart_number,
+                         category: row.category })
+      setShowForm(true)
+      setExpandedSection('copa')
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    } catch {
+      toast.error('Could not load that key for editing')
+    }
+  }
 
   function addDx() { setForm(f => ({ ...f, dx_codes: [...f.dx_codes, ''] })) }
   function removeDx(i: number) { setForm(f => ({ ...f, dx_codes: f.dx_codes.filter((_: any, idx: number) => idx !== i) })) }
@@ -794,34 +841,43 @@ export function EMAnswerKeysView() {
         </div>
       ) : (
         <div style={styles.table}>
-          <div style={{ ...styles.tableHeader, gridTemplateColumns: '110px 1fr 80px 80px 80px 100px 80px 60px' }}>
+          <div style={{ ...styles.tableHeader, gridTemplateColumns: '110px 1fr 80px 80px 80px 100px 80px 76px' }}>
             <div>Chart</div><div>Category</div>
             <div>COPA</div><div>Data Rev.</div><div>Risk</div>
             <div>E/M Code</div><div>Entered By</div><div></div>
           </div>
           {akList.map(row => (
-            <div key={row.chart_id} style={{ ...styles.tableRow, gridTemplateColumns: '110px 1fr 80px 80px 80px 100px 80px 60px' }}>
+            <div key={row.chart_id} style={{ ...styles.tableRow, gridTemplateColumns: '110px 1fr 80px 80px 80px 100px 80px 76px' }}>
               <div style={{ fontWeight: 700, color: '#1e3a5f' }}>{row.chart_number}</div>
               <div style={{ fontSize: 12, color: '#374151' }}>{row.category || '—'}</div>
-              <div>
-                <span style={{ ...levelBadge, ...levelColor(row.copa_level) }}>
-                  {row.copa_level}{row.copa_level_overridden ? ' *' : ''}
-                </span>
-              </div>
-              <div>
-                <span style={{ ...levelBadge, ...levelColor(row.dr_level) }}>
-                  {row.dr_level}{row.dr_level_overridden ? ' *' : ''}
-                </span>
-              </div>
-              <div>
-                <span style={{ ...levelBadge, ...levelColor(row.risk_level) }}>
-                  {row.risk_level}{row.risk_level_overridden ? ' *' : ''}
-                </span>
-              </div>
+              {/* A preventive visit, or one levelled by time, is not graded on
+                  medical decision making at all. The stored levels are the
+                  derivation's default rather than a judgement anyone made, and
+                  grading already ignores them — printing "Minimal" here claimed
+                  a decision the trainer never took. */}
+              {(['copa', 'dr', 'risk'] as const).map(el => (
+                <div key={el}>
+                  {row.uses_mdm === false ? (
+                    <span style={notAssessed} title="This category is not graded on MDM">
+                      n/a
+                    </span>
+                  ) : (
+                    <span style={{ ...levelBadge, ...levelColor(row[`${el}_level`]) }}>
+                      {row[`${el}_level`]}{row[`${el}_level_overridden`] ? ' *' : ''}
+                    </span>
+                  )}
+                </div>
+              ))}
               <div style={{ fontWeight: 700, fontSize: 13 }}>{row.em_code}</div>
               <div style={{ fontSize: 12, color: '#6b7280' }}>{row.entered_by}</div>
-              <div>
+              <div style={{ display: 'flex', gap: 4 }}>
+                <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#2563eb' }}
+                  title="Edit this key"
+                  onClick={() => editKey(row)}>
+                  <Pencil size={14} />
+                </button>
                 <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626' }}
+                  title="Delete this key"
                   onClick={() => setDeleteDialog({ chartId: row.chart_id, chartNumber: row.chart_number })}>
                   <Trash2 size={14} />
                 </button>

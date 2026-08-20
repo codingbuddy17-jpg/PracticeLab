@@ -9,6 +9,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_, func
 from pydantic import BaseModel
 from database import get_db
+from services.em_audit_key import (EM_KEY_SPECIALTIES,
+                                   chart_ids_with_keys as em_key_chart_ids)
 from models import (
     Chart, ChartStatus, Specialty, Difficulty, AnswerKey,
     Batch, BatchCoder, BatchChart, BatchStatus, BatchAllocationCycle,
@@ -522,6 +524,21 @@ def pool_preview(
     # E&D specialties don't use answer keys — skip that count entirely
     if _is_ed(spec):
         return {"total_matching": total, "with_answer_key": None}
+
+    # E/M and ED Profee keep their keys in em_answer_keys, which has no ORM
+    # model and no row in answer_keys. Counting the join alone reported zero
+    # for every E/M pool, and the screen said "no chart here has an answer key"
+    # to a trainer who had just entered five.
+    # E/M and ED Profee keep their keys in em_answer_keys, which has no ORM
+    # model and no row in answer_keys. Counting the join alone reported zero
+    # for every E/M pool, and the screen said "no chart here has an answer key"
+    # to a trainer who had just entered five.
+    if spec in EM_KEY_SPECIALTIES:
+        chart_ids = [row[0] for row in q.with_entities(Chart.id).all()]
+        return {
+            "total_matching": total,
+            "with_answer_key": len(em_key_chart_ids(db, chart_ids)),
+        }
 
     q_keyed = q.join(AnswerKey, AnswerKey.chart_id == Chart.id)
     return {

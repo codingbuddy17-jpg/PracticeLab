@@ -24,6 +24,14 @@ from typing import Optional
 
 from sqlalchemy import text
 
+from models import Specialty
+
+# The specialties whose answer key lives in em_answer_keys rather than
+# answer_keys. Defined here rather than in either router package, because both
+# the coder side and the auditor side need it and neither should import the
+# other.
+EM_KEY_SPECIALTIES = {Specialty.EM, Specialty.ED_PROFEE}
+
 # The columns an audit needs. The other ~26 element ticks are what the COACHING
 # module grades; an auditor reviews the levels those ticks produced.
 _COLUMNS = ("chart_id", "em_code", "em_modifier", "level_method",

@@ -223,7 +223,7 @@ def chart_pool(db: Session, batch: AuditBatch) -> list[Chart]:
 
 
 # The specialties whose key lives in em_answer_keys rather than answer_keys.
-EM_KEY_SPECIALTIES = {Specialty.EM, Specialty.ED_PROFEE}
+from services.em_audit_key import EM_KEY_SPECIALTIES  # noqa: E402,F401
 
 
 def audit_key_for(db: Session, chart):

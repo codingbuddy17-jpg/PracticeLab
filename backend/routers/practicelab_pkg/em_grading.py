@@ -805,12 +805,30 @@ def list_em_answer_keys(db: Session = Depends(get_db)):
         SELECT eak.chart_id, c.chart_number, c.category, c.specialty,
                eak.em_code, eak.copa_level, eak.dr_level, eak.risk_level,
                eak.entered_by, eak.entered_at,
+               eak.em_category, eak.level_method, eak.patient_type,
+               eak.em_modifier, eak.total_time, eak.critical_care_minutes,
+               eak.dx_codes, eak.procedure_cpts,
                eak.copa_level_overridden, eak.dr_level_overridden, eak.risk_level_overridden
         FROM em_answer_keys eak
         JOIN charts c ON c.id = eak.chart_id
         ORDER BY c.chart_number
     """)).mappings().fetchall()
-    return [dict(r) for r in rows]
+
+    out = []
+    for r in rows:
+        d = dict(r)
+        # Whether the three MDM levels mean anything on THIS chart. A preventive
+        # visit or one levelled by time is not graded on medical decision making
+        # at all, and the stored levels are the derivation's default rather than
+        # a judgement anybody made. Printing "Minimal" beside such a chart says
+        # a trainer decided something they never decided — and on a key screen
+        # that is the kind of quiet wrongness that gets believed.
+        category = resolve_category(d.get("em_category"), d.get("em_code"))
+        method = (d.get("level_method") or "MDM").upper().strip()
+        d["em_category"] = category
+        d["uses_mdm"] = bool(category_uses_mdm(category) and method != "TIME")
+        out.append(d)
+    return out
 
 
 # NOTE: every STATIC /em/answer-key/... path must be registered before the

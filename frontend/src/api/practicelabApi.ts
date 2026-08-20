@@ -350,6 +350,12 @@ export async function upsertEMAnswerKey(payload: Record<string, any>) {
   return data as { status: string; copa_level: string; dr_level: string; risk_level: string }
 }
 
+/** One E/M key in full, including the element ticks the list omits. */
+export async function getEMAnswerKey(chartId: number) {
+  const { data } = await api.get(`/practicelab/em/answer-key/${chartId}`)
+  return data as Record<string, any>
+}
+
 export async function deleteEMAnswerKey(chartId: number, passphrase: string) {
   const { data } = await api.delete(`/practicelab/em/answer-key/${chartId}`, { params: { passphrase } })
   return data
