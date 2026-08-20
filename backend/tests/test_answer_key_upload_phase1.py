@@ -9,17 +9,23 @@ import io
 
 import pytest
 from openpyxl import Workbook, load_workbook
+from sqlalchemy import text
 
 from conftest import make_chart
 from models import AnswerKey, AuditBatch, BatchStatus, Specialty
+from routers.auditor_pkg.shared import audit_key_for
 from routers.auditor_pkg.shared import chart_pool
+from routers.practicelab_pkg.chart_grading import _grade_chart_for_sp
+from routers.practicelab_pkg.em_grading import grade_em_chart
 from routers.practicelab_pkg.shared import (
     _is_dx_only, _is_ip, _is_single_path, _uses_pointers, _uses_units,
 )
+from services.audit_mutation import Corpus, MUTATION_KINDS, MutationConfig, generate
 from services.em_audit_key import EM_KEY_SPECIALTIES
 from services.excel_service import (
     EM_KEY_COLUMNS, generate_answer_key_template,
 )
+from services.grading_engine import DEFAULT_EDSP_CFG, DEFAULT_IP_CFG, DEFAULT_OP_CFG
 
 PASS = "test-passphrase"
 
@@ -157,6 +163,41 @@ def _upload_em(client, data: bytes, replace=False, passphrase=PASS):
     )
 
 
+def _only_mutation(kind: str) -> MutationConfig:
+    zeros = {field: 0 for _kind, field in MUTATION_KINDS}
+    zeros[dict(MUTATION_KINDS)[kind]] = 100
+    return MutationConfig(**zeros)
+
+
+def _perfect_standard_submission(ak: AnswerKey, spec: Specialty) -> dict:
+    out = {
+        "pdx_code": ak.pdx_code or "",
+        "pdx_poa": ak.pdx_poa or "",
+        "sdx": ak.sdx or [],
+        "pcs": ak.pcs or [],
+        "cpt": ak.cpt or [],
+    }
+    if _is_single_path(spec):
+        out["facility_level"] = ak.facility_level or ""
+        out["profee_level"] = ak.profee_level or ""
+    return out
+
+
+def _em_scoring_config() -> dict:
+    return {
+        "line1_weight": 70,
+        "line2_weight": 30,
+        "em_level_weight": 23.33,
+        "cpt_weight": 23.33,
+        "dx_weight": 23.34,
+        "copa_weight": 10.0,
+        "dr_weight": 10.0,
+        "risk_weight": 10.0,
+        "pass_threshold": 80,
+        "overcoding_penalty": True,
+    }
+
+
 @pytest.mark.parametrize("spec", STANDARD_KEY_SPECIALTIES, ids=lambda s: s.value)
 def test_standard_specialty_upload_is_visible_to_coder_and_auditor(client, db, spec):
     chart = make_chart(db, specialty=spec.value, chart_number=f"QA{spec.name[:5]}")
@@ -187,6 +228,43 @@ def test_standard_specialty_upload_is_visible_to_coder_and_auditor(client, db, s
     assert [c.id for c in chart_pool(db, batch)] == [chart.id]
 
 
+@pytest.mark.parametrize("spec", STANDARD_KEY_SPECIALTIES, ids=lambda s: s.value)
+def test_standard_uploaded_key_can_grade_a_perfect_coder_submission(client, db, spec):
+    chart = make_chart(db, specialty=spec.value, chart_number=f"GR{spec.name[:5]}")
+    db.commit()
+    r = _upload_standard(client, spec, _standard_key_file(spec, chart.chart_number))
+    assert r.status_code == 200, r.text
+
+    ak = db.query(AnswerKey).filter(AnswerKey.chart_id == chart.id).one()
+    result, feedback = _grade_chart_for_sp(
+        chart, ak, _perfect_standard_submission(ak, spec),
+        DEFAULT_IP_CFG, DEFAULT_OP_CFG, DEFAULT_EDSP_CFG,
+    )
+
+    assert result["weighted_score"] == 100
+    assert result["pass_fail"] == "PASS"
+    assert feedback == []
+
+
+@pytest.mark.parametrize("spec", STANDARD_KEY_SPECIALTIES, ids=lambda s: s.value)
+def test_standard_uploaded_key_can_drive_auditor_mutation(client, db, spec):
+    chart = make_chart(db, specialty=spec.value, chart_number=f"MU{spec.name[:5]}")
+    db.commit()
+    r = _upload_standard(client, spec, _standard_key_file(spec, chart.chart_number))
+    assert r.status_code == 200, r.text
+
+    key = audit_key_for(db, chart)
+    claim, ground_truth = generate(
+        key, spec, seed=7, cfg=_only_mutation("spurious"), budget=1,
+        corpus=Corpus(dx_codes=["E11.9", "I10", "Z99.89"]),
+    )
+
+    assert claim["pdx_code"]
+    assert ground_truth
+    assert ground_truth[0]["section"] == "SDx"
+    assert ground_truth[0]["action"] == "Delete"
+
+
 @pytest.mark.parametrize("spec", sorted(EM_KEY_SPECIALTIES, key=lambda s: s.value),
                          ids=lambda s: s.value)
 def test_em_store_upload_is_visible_to_coder_and_auditor_pool(client, db, spec):
@@ -209,6 +287,57 @@ def test_em_store_upload_is_visible_to_coder_and_auditor_pool(client, db, spec):
     db.add(batch)
     db.commit()
     assert [c.id for c in chart_pool(db, batch)] == [chart.id]
+
+
+@pytest.mark.parametrize("spec", sorted(EM_KEY_SPECIALTIES, key=lambda s: s.value),
+                         ids=lambda s: s.value)
+def test_em_uploaded_key_can_grade_a_perfect_coder_submission(client, db, spec):
+    chart = make_chart(db, specialty=spec.value, chart_number=f"GREM{spec.name}")
+    db.commit()
+    r = _upload_em(client, _em_key_file(chart.chart_number, spec))
+    assert r.status_code == 200, r.text
+
+    ak = db.execute(
+        text("SELECT * FROM em_answer_keys WHERE chart_id = :c"),
+        {"c": chart.id},
+    ).mappings().one()
+    sub = {
+        "sub_em_code": ak["em_code"],
+        "sub_em_modifier": ak["em_modifier"] or "",
+        "sub_patient_type": ak["patient_type"],
+        "sub_level_method": ak["level_method"],
+        "sub_dx_codes": ak["dx_codes"],
+        "sub_procedure_cpts": ak["procedure_cpts"],
+        "sub_copa_stable_chronic": 2,
+        "sub_dr_review_test_results": 1,
+        "sub_dr_independent_interpretation": True,
+        "sub_risk_prescription_drug_mgmt": True,
+    }
+
+    scoring = grade_em_chart(dict(ak), sub, _em_scoring_config())
+
+    assert round(scoring["total_score"], 1) == 100.0
+    assert scoring["em_level_score"] > 0
+    assert scoring["dx_score"] > 0
+
+
+@pytest.mark.parametrize("spec", sorted(EM_KEY_SPECIALTIES, key=lambda s: s.value),
+                         ids=lambda s: s.value)
+def test_em_uploaded_key_can_drive_mdm_auditor_mutation(client, db, spec):
+    chart = make_chart(db, specialty=spec.value, chart_number=f"MUEM{spec.name}")
+    db.commit()
+    r = _upload_em(client, _em_key_file(chart.chart_number, spec))
+    assert r.status_code == 200, r.text
+
+    key = audit_key_for(db, chart)
+    claim, ground_truth = generate(
+        key, spec, seed=4, cfg=_only_mutation("mdm_shift"), budget=1,
+    )
+
+    assert set(claim["mdm"]) == {"copa", "dr", "risk"}
+    assert ground_truth
+    assert ground_truth[0]["section"] == "MDM"
+    assert ground_truth[0]["action"] == "Revise"
 
 
 def test_standard_upload_reports_wrong_specialty_without_storing(client, db):
