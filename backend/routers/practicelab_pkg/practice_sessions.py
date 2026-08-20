@@ -203,10 +203,23 @@ def _em_feedback_items(scoring: dict, ak: dict, em: dict, cfg: dict) -> list:
             "ak_code": str(ue["ak"]), "coder_code": str(ue["sub"]),
         })
     items += [
-        {"section": "Coding Accuracy", "issue": f"E/M Level: {scoring.get('em_level_score', 0):.1f}/{cfg['em_level_weight']:.1f} pts", "ak_code": ak.get("em_code", ""), "coder_code": em.get("em_code", "")},
-        {"section": "Coding Accuracy", "issue": f"CPT: {scoring.get('cpt_score', 0):.1f} pts", "ak_code": "", "coder_code": ""},
-        {"section": "Coding Accuracy", "issue": f"Dx: {scoring.get('dx_score', 0):.1f} pts", "ak_code": "", "coder_code": ""},
+        # The RENORMALISED weight, not the configured one. Weights redistribute
+        # per chart — a chart with no procedures spreads the CPT weight across
+        # the others — so the configured 23.3 printed as the denominator beside
+        # a score of 35.0, which reads as broken arithmetic.
+        {"section": "Coding Accuracy", "issue": f"E/M Level: {scoring.get('em_level_score', 0):.1f}/{(scoring.get('applied_weights') or {}).get('em_level', cfg['em_level_weight']):.1f} pts", "ak_code": ak.get("em_code", ""), "coder_code": em.get("em_code", "")},
+        {"section": "Coding Accuracy", "issue": f"Dx: {scoring.get('dx_score', 0):.1f}/{(scoring.get('applied_weights') or {}).get('dx', 0.0):.1f} pts", "ak_code": "", "coder_code": ""},
     ]
+    # No procedures on the key means no CPT line to score. The row read
+    # "CPT: 0.0/0.0 pts", which looks like a component the coder lost rather
+    # than one that does not apply.
+    if (scoring.get("applied_weights") or {}).get("cpt"):
+        items.append({
+            "section": "Coding Accuracy",
+            "issue": f"CPT: {scoring.get('cpt_score', 0):.1f}/{scoring['applied_weights']['cpt']:.1f} pts",
+            "ak_code": "", "coder_code": "",
+        })
+
     # The three MDM levels, ONLY where the chart is graded on them.
     #
     # A preventive visit, or one levelled by time, is not assessed on medical
@@ -599,11 +612,12 @@ def submit_practice_session(session_id: int, payload: SubmitPracticeSession, db:
                 _upsert_practice_result(db, session_id, entry, specialty, graded=False)
                 continue
             scoring = grade_em_chart(ak, sub, cfg, cfg["overcoding_penalty"])
-            total = round(
-                scoring["em_level_score"] + scoring["cpt_score"] + scoring["dx_score"] +
-                scoring["copa_element_score"] + scoring["dr_element_score"] + scoring["risk_element_score"],
-                1
-            )
+            # The grader's own total, never a hand-rolled sum of components.
+            # Adding the six named components silently omitted the TIME score,
+            # so every time-levelled chart was graded ~30 points low: a chart
+            # with the right level, the right time and 2 of 3 diagnoses stored
+            # 58 instead of 88.
+            total = round(scoring["total_score"], 1)
             pf = "PASS" if total >= cfg["pass_threshold"] else "FAIL"
             # Build feedback items from scoring breakdown for results display
             em_feedback = _em_feedback_items(scoring, ak, em, cfg)
@@ -1365,10 +1379,9 @@ def regrade_practice_session(session_id: int, db: Session = Depends(get_db)):
             em_cfg = _em_scoring_cfg(db)
             scoring = grade_em_chart(em_ak, _em_submission_dict(entry.em_data),
                                      em_cfg, em_cfg["overcoding_penalty"])
-            total = round(
-                scoring["em_level_score"] + scoring["cpt_score"] + scoring["dx_score"] +
-                scoring["copa_element_score"] + scoring["dr_element_score"] +
-                scoring["risk_element_score"], 1)
+            # Same fault as the batch path: the hand-rolled sum drops the
+            # TIME component. grade_em_chart already returns the total.
+            total = round(scoring["total_score"], 1)
             result_kwargs = {
                 "weighted_score": total,
                 "pass_fail": "PASS" if total >= em_cfg["pass_threshold"] else "FAIL",

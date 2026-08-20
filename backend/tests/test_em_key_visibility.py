@@ -355,3 +355,66 @@ class TestScoresAreAveragedNotPooledAcrossDifferentDenominators:
                                           r["coding_accuracy_total"],
                                           r["reasoning_accuracy_total"],
                                           r["total_score"]))
+
+
+class TestTheStoredTotalIsTheGradersTotal:
+    """
+    The stored score was recomputed by hand as the sum of six named components
+    — E/M level, CPT, Dx, COPA, Data Review, Risk. That list has no TIME in it,
+    so every time-levelled chart was stored ~30 points below what it scored.
+
+    A real chart: level 99215 correct, 45 minutes correct, 2 of 3 diagnoses.
+    Graded 88.3, stored 58, shown to the coder as a FAIL.
+    """
+
+    def _cfg(self):
+        return {"line1_weight": 70.0, "line2_weight": 30.0, "em_level_weight": 23.33,
+                "cpt_weight": 23.33, "dx_weight": 23.34, "copa_weight": 10.0,
+                "dr_weight": 10.0, "risk_weight": 10.0, "pass_threshold": 80.0,
+                "overcoding_penalty": True}
+
+    def test_a_time_levelled_chart_keeps_its_reasoning_points(self):
+        import json
+        from routers.practicelab_pkg.em_grading import grade_em_chart
+
+        ak = {"em_code": "99215", "em_modifier": "", "patient_type": "ESTABLISHED",
+              "level_method": "TIME", "total_time": 45, "em_category": "office",
+              "dx_codes": json.dumps(["J18.9", "E11.9", "I10"]),
+              "procedure_cpts": "[]", "copa_level": "Minimal",
+              "dr_level": "Minimal", "risk_level": "Minimal"}
+        sub = {"sub_em_code": "99215", "sub_em_modifier": "",
+               "sub_patient_type": "ESTABLISHED", "sub_level_method": "TIME",
+               "sub_total_time": 45,
+               "sub_dx_codes": json.dumps(["J18.9", "E11.9", "Z00.00"])}
+        sc = grade_em_chart(ak, sub, self._cfg())
+
+        assert sc["total_score"] > 85, sc["total_score"]
+        # And the hand-rolled sum that used to be stored is demonstrably lower,
+        # which is the whole point of never recomputing it.
+        by_hand = (sc["em_level_score"] + sc["cpt_score"] + sc["dx_score"]
+                   + sc["copa_element_score"] + sc["dr_element_score"]
+                   + sc["risk_element_score"])
+        assert by_hand < sc["total_score"] - 25
+
+    def test_no_call_site_recomputes_the_total(self):
+        """
+        Two places did, and both were wrong the same way. A grep is the only
+        thing that stops a third appearing.
+        """
+        import pathlib
+        src = (pathlib.Path(__file__).resolve().parents[1] / "routers"
+               / "practicelab_pkg" / "practice_sessions.py").read_text()
+        assert 'scoring["copa_element_score"] + scoring["dr_element_score"]' not in src, (
+            "a total is being rebuilt from components again — use "
+            "scoring['total_score']")
+
+    def test_a_chart_with_no_procedures_shows_no_cpt_line(self):
+        from routers.practicelab_pkg.practice_sessions import _em_feedback_items
+        items = _em_feedback_items(
+            {"em_level_score": 35.0, "cpt_score": 0.0, "dx_score": 23.3,
+             "applied_weights": {"em_level": 35.0, "dx": 35.0},
+             "uses_mdm": False, "ak_level_method": "TIME",
+             "reasoning_accuracy_total": 30.0},
+            {"em_code": "99215", "total_time": 45},
+            {"em_code": "99215", "total_time": 45}, {"em_level_weight": 23.33})
+        assert not [i for i in items if i["issue"].startswith("CPT")]
