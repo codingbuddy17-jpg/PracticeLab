@@ -1,4 +1,4 @@
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
 import { ChevronLeft, Settings } from 'lucide-react'
 import { AuditBatches } from './auditor/AuditBatches'
 import { AuditKeys } from './auditor/AuditKeys'
@@ -26,7 +26,6 @@ const KNOWN: string[] = [...TABS.map(t => t.key), 'config']
 
 export function TrainerAuditor() {
   const { tab } = useParams<{ tab?: string }>()
-  const navigate = useNavigate()
   const active = (tab && KNOWN.includes(tab) ? tab : 'batches') as TabKey
 
   // Same source the PracticeLab screens read. A separate key here would mean a
@@ -41,22 +40,26 @@ export function TrainerAuditor() {
       </header>
 
       <nav style={st.tabs}>
+        {/* Links, not buttons. The URL was already right — /trainer/auditor/keys
+            — but a button navigating in its onClick gives the browser nothing
+            to act on, so Cmd/Ctrl-click and "Open in new tab" did nothing. The
+            Assessment module has done it this way from the start. */}
         {TABS.map(t => (
-          <button
+          <Link
             key={t.key}
-            onClick={() => navigate(`/trainer/auditor/${t.key}`)}
-            style={{ ...st.tab, ...(t.key === active ? st.tabOn : {}) }}
+            to={`/trainer/auditor/${t.key}`}
+            style={{ ...st.tab, ...(t.key === active ? st.tabOn : {}), textDecoration: 'none' }}
           >
             {t.label}
-          </button>
+          </Link>
         ))}
-        <button
-          onClick={() => navigate('/trainer/auditor/config')}
+        <Link
+          to="/trainer/auditor/config"
           title="Score Config"
-          style={{ ...st.settingsBtn, ...(active === 'config' ? st.settingsBtnOn : {}) }}
+          style={{ ...st.settingsBtn, ...(active === 'config' ? st.settingsBtnOn : {}), textDecoration: 'none' }}
         >
           <Settings size={15} /> Score Config
-        </button>
+        </Link>
       </nav>
 
       <main style={st.main}>

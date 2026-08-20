@@ -35,6 +35,7 @@ export function TrainerPracticeLab() {
    */
   const [searchParams] = useSearchParams()
   const urlTab = searchParams.get('tab')
+  const urlBatch = searchParams.get('batch')
   const [view, setView]                     = useState<View>(
     TABS.some(t => t.key === urlTab) ? (urlTab as Tab) : 'home')
   const [batches, setBatches]               = useState<any[]>([])
@@ -55,13 +56,33 @@ export function TrainerPracticeLab() {
     getScoringConfigs().then(setScoringCfg).catch(() => {})
   }, [])
 
-  // Follow the URL when it changes under us — Back, Forward, or a pasted link.
+  /**
+   * Follow the URL when it changes under us — Back, Forward, or a pasted link.
+   *
+   * `?batch=` wins over `?tab=`: a link to a batch is a link to that batch,
+   * and the tab is only where Back should land afterwards. The URL is the
+   * source of truth for WHICH view; everything else stays in memory.
+   */
   useEffect(() => {
+    const id = Number(urlBatch)
+    if (urlBatch && Number.isFinite(id) && id > 0) {
+      if (view !== 'batch-detail' || selectedBatchId !== id) {
+        setSelectedBatchId(id)
+        setView('batch-detail')
+      }
+      return
+    }
+    if (view === 'batch-detail') {
+      // The batch left the URL — a Back press out of the detail view.
+      setNavStack([])
+      setView(TABS.some(t => t.key === urlTab) ? (urlTab as Tab) : 'home')
+      return
+    }
     if (TABS.some(t => t.key === urlTab) && urlTab !== view) {
       setNavStack([])
       setView(urlTab as Tab)
     }
-  }, [urlTab])   // eslint-disable-line react-hooks/exhaustive-deps
+  }, [urlTab, urlBatch])   // eslint-disable-line react-hooks/exhaustive-deps
 
   // Debounced: typing a batch name should not fire a request per keystroke.
   useEffect(() => {
@@ -125,17 +146,34 @@ export function TrainerPracticeLab() {
   function goBack() {
     const prev = (navStack[navStack.length - 1] || 'home') as View
     setNavStack(s => s.slice(0, -1))
+    // Leaving an addressable view means changing the URL, not just the state:
+    // setting state alone leaves ?batch= in the address bar, and the effect
+    // that follows the URL would immediately put us back where we were.
+    if (view === 'batch-detail') {
+      const tab = TABS.some(t => t.key === prev) ? prev : 'home'
+      navigate(`/trainer/practicelab?tab=${tab}`)
+      if (tab === 'home') loadHome()
+      return
+    }
     setView(prev)
     if (prev === 'home') loadHome()
   }
 
   const backTarget = (navStack[navStack.length - 1] || 'home') as View
 
-  function openBatch(id: number) {
+  /**
+   * A batch is addressable: /trainer/practicelab?tab=home&batch=12.
+   *
+   * The URL change is what switches the view — the effect above does it — so a
+   * trainer can send someone a batch rather than "open PracticeLab, find the
+   * June wave, click it". Also makes browser Back leave the batch instead of
+   * leaving the module.
+   */
+  function openBatch(id: number, fromTab: Tab = 'home') {
     const b = batches.find((x: any) => x.id === id) || directAssignments.find((x: any) => x.id === id)
-    setSelectedBatchId(id)
     if (b) setLastBatch({ id, name: b.name })
-    go('batch-detail')
+    setNavStack(s => [...s, fromTab])
+    navigate(`/trainer/practicelab?tab=${fromTab}&batch=${id}`)
   }
 
   const statusColor = (s: string) => ({ Open: '#2563eb', Closed: '#16a34a' }[s] || '#6b7280')
@@ -248,12 +286,12 @@ export function TrainerPracticeLab() {
           />
         )}
         {view === 'answer-keys'    && <AnswerKeysView />}
-        {view === 'analytics'      && <PLAnalyticsView onOpenBatch={(id: number) => { setSelectedBatchId(id); go('batch-detail') }} />}
+        {view === 'analytics'      && <PLAnalyticsView onOpenBatch={(id: number) => openBatch(id, 'analytics')} />}
         {view === 'scoring-config' && <ScoringConfigView />}
         {view === 'create-batch' && (
           <CreateBatchView
             onCancel={goBack}
-            onCreated={(id: number) => { setSelectedBatchId(id); setView('batch-detail'); loadHome() }}
+            onCreated={(id: number) => { loadHome(); navigate(`/trainer/practicelab?tab=home&batch=${id}`) }}
             scoringCfg={scoringCfg}
           />
         )}
@@ -261,7 +299,7 @@ export function TrainerPracticeLab() {
           <CreateBatchView
             onCancel={goBack}
             directMode
-            onCreated={(id: number) => { setSelectedBatchId(id); setView('batch-detail'); loadHome() }}
+            onCreated={(id: number) => { loadHome(); navigate(`/trainer/practicelab?tab=home&batch=${id}`) }}
             scoringCfg={scoringCfg}
           />
         )}
