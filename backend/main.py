@@ -35,4 +35,32 @@ app.include_router(codes.router)
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    """
+    What is actually running here.
+
+    "ok" alone answers the load balancer and nobody else. The two facts below
+    have each cost real time to establish by other means:
+
+    `python` — production built on 3.14 while runtime.txt said 3.11 and the
+    test suite ran 3.9, and the only way anyone found out was a stack trace
+    with the interpreter path in it. A pin nobody can verify is not a pin.
+
+    `database` — sqlite or postgresql. The difference is not cosmetic here:
+    SQLite is more permissive in ways that have taken production down, so
+    knowing which one a given environment is on is the first question worth
+    asking when something behaves differently.
+
+    Deliberately nothing about data, credentials or configuration — this route
+    is unauthenticated, and it stays that way by having nothing worth guarding.
+    """
+    import sys
+
+    from config import settings
+
+    url = (settings.DATABASE_URL or "")
+    return {
+        "status": "ok",
+        "python": "%d.%d.%d" % sys.version_info[:3],
+        "database": ("postgresql" if url.startswith(("postgres://", "postgresql"))
+                     else "sqlite" if url.startswith("sqlite") else "other"),
+    }

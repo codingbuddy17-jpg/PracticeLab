@@ -116,6 +116,21 @@ def main() -> int:
     routes = len((body or {}).get("paths", {})) if isinstance(body, dict) else 0
     s.expect("route table is populated", routes > 100, "%d paths" % routes)
 
+    print("\nwhat is actually running")
+    code, health = call(s.base, "/health")
+    s.expect("health", code == 200 and isinstance(health, dict),
+             "got %s %s" % (code, str(health)[:120]))
+    if isinstance(health, dict):
+        py = health.get("python", "?")
+        db = health.get("database", "?")
+        print("       python %s · database %s" % (py, db))
+        # The pin exists so that production runs the interpreter this code was
+        # tested on. Nobody noticed 3.14 until a stack trace gave it away.
+        s.expect("running the pinned Python (3.11)", py.startswith("3.11"),
+                 "running %s — check PYTHON_VERSION on the service" % py)
+        s.expect("talking to PostgreSQL", db == "postgresql",
+                 "database reports %s" % db)
+
     print("\nread paths, one per module")
     s.get_ok("charts",              "/charts/stats")
     s.get_ok("practicelab batches", "/practicelab/batches?page=1&page_size=1")
