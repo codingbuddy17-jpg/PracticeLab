@@ -192,7 +192,24 @@ def _run_migrations():
     # SQLite stores everything as TEXT already so this DDL is not needed there.
     if not is_sqlite:
         _run("ALTER TABLE batches ALTER COLUMN status TYPE VARCHAR(20) USING status::text")
-        _run("DROP TYPE IF EXISTS batchstatus")
+        # Only if nothing still uses it. A bare DROP TYPE raises
+        # DependentObjectsStillExist while any column is still typed
+        # batchstatus, which logged a migration failure on every single boot
+        # for no reason — and the CASCADE form would drop those columns, which
+        # is emphatically not wanted. This drops the leftover when it really is
+        # a leftover and stays quiet otherwise.
+        _run("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_attribute a
+                    JOIN pg_type t ON t.oid = a.atttypid
+                    WHERE t.typname = 'batchstatus' AND NOT a.attisdropped
+                ) THEN
+                    DROP TYPE IF EXISTS batchstatus;
+                END IF;
+            END $$;
+        """)
     # Normalise legacy status labels to Open / Closed on both dialects.
     _run("UPDATE batches SET status = 'Open'   WHERE status IN ('Active', 'Grading', 'Draft')")
     _run("UPDATE batches SET status = 'Closed' WHERE status = 'Complete'")
@@ -268,13 +285,14 @@ def _run_migrations():
        VALUES
         ('IP', 20, 20, 20, 40, NULL, NULL, NULL, 80,
          '["pdx_mismatch","ccmcc_missing","pcs_undercoded","pcs_overcoded","spurious_sdx","spurious_pcs"]',
-         1, 1, 1, 80.0),
-        ('OP', 25, 25, NULL, NULL, 50, NULL, NULL, 90, '[]', 1, 1, 1, 80.0),
-        ('EDSP', 20, 20, NULL, NULL, 20, 20, 20, 90, '[]', 1, 1, 1, 80.0)
+         TRUE, TRUE, TRUE, 80.0),
+        ('OP', 25, 25, NULL, NULL, 50, NULL, NULL, 90, '[]', TRUE, TRUE, TRUE, 80.0),
+        ('EDSP', 20, 20, NULL, NULL, 20, 20, 20, 90, '[]', TRUE, TRUE, TRUE, 80.0)
        ON CONFLICT (specialty_type) DO NOTHING""")
-    _run("UPDATE scoring_configs SET dpo_enabled = 1 WHERE specialty_type IN ('IP', 'OP', 'EDSP')")
+    _run("UPDATE scoring_configs SET dpo_enabled = TRUE WHERE specialty_type IN ('IP', 'OP', 'EDSP')")
     _run("""UPDATE batches SET use_dpo = FALSE
-            WHERE specialty NOT IN ('IP-DRG', 'ED Facility', 'SDS', 'Surgery', 'Ancillary', 'ED Single Path')""")
+            WHERE CAST(specialty AS TEXT)
+                  NOT IN ('IP-DRG', 'ED Facility', 'SDS', 'Surgery', 'Ancillary', 'ED Single Path')""")
 
     # ── self_practice tables ──────────────────────────────────────────────────
     _run("""CREATE TABLE IF NOT EXISTS self_practice_submissions (
