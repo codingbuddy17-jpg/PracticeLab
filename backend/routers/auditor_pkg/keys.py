@@ -22,6 +22,7 @@ from services.em_levels import CRITICAL_CARE as EM_CRITICAL_CARE
 from services.em_levels import EMERGENCY as EM_EMERGENCY
 from .shared import (
     AUDITABLE_SPECIALTIES, QUERY_SPECIALTIES, form_spec, require_passphrase,
+    sections_for_chart,
 )
 
 router = APIRouter()
@@ -148,7 +149,16 @@ def list_sets_for_chart(chart_id: int, db: Session = Depends(get_db)):
             "pdx_code": key.pdx_code, "pdx_poa": key.pdx_poa,
             "sdx": key.sdx or [], "pcs": key.pcs or [], "cpt": key.cpt or [],
         },
-        "form": form_spec(chart.specialty),
+        # Same per-chart narrowing the audit session does: a preventive visit
+        # or one levelled by time is not graded on medical decision making, so
+        # a trainer must not be offered an MDM error to plant on it — the
+        # generator already refuses, and offering it invites a mutation that
+        # silently never fires.
+        "form": {**form_spec(chart.specialty),
+                 "sections": [
+                     sec for sec in form_spec(chart.specialty)["sections"]
+                     if sec["key"] in sections_for_chart(db, chart, chart.specialty)
+                 ]},
         "max_versions": MAX_VERSIONS_PER_CHART,
         "sets": [_serialise(r, chart) for r in rows],
         # The CC/MCC labels on this chart's answer key, checked against the

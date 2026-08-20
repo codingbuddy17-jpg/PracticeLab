@@ -153,3 +153,76 @@ class TestEditing:
             "SELECT em_code FROM em_answer_keys WHERE chart_id = :c"),
             {"c": chart.id}).fetchall()
         assert [r[0] for r in rows] == ["99215"]
+
+
+class TestTheAuditorIsNotAskedAboutMdmWhereItDoesNotApply:
+    """
+    The audit form is served per SPECIALTY, but E/M is not uniform. A
+    preventive visit, or one levelled by time, is not graded on medical
+    decision making — so asking an auditor for a verdict on COPA, Data Review
+    and Risk asks them to judge something that carries no weight, against three
+    stored levels that are the derivation's default rather than a decision.
+
+    This keys on CATEGORY, which is a property of the encounter and already
+    plain from the code on the claim. It must never key on whether anything was
+    planted: a chart has to render identically either way.
+    """
+    import pytest as _pytest
+
+    @_pytest.mark.parametrize("category,method,mdm_expected", [
+        ("office", "MDM", True),
+        ("emergency", "MDM", True),
+        ("preventive", "MDM", False),
+        ("office", "TIME", False),
+    ])
+    def test_the_mdm_section_appears_only_where_it_is_graded(
+            self, client, db, category, method, mdm_expected):
+        from routers.auditor_pkg.shared import sections_for_chart
+        from models import Specialty as Sp
+
+        chart = make_chart(db, specialty="E/M")
+        db.commit()
+        _em_key(db, chart.id, category=category, method=method)
+
+        sections = sections_for_chart(db, chart, Sp.EM)
+        assert ("MDM" in sections) is mdm_expected
+        # The code sections are never affected — every E/M chart is reviewed on
+        # its diagnoses and its codes whatever the category.
+        for always in ("PDx", "SDx", "CPT"):
+            assert always in sections
+
+    def test_an_ordinary_specialty_is_untouched(self, client, db):
+        from routers.auditor_pkg.shared import form_spec, sections_for_chart
+        from models import Specialty as Sp
+
+        chart = make_chart(db, specialty="IP-DRG")
+        db.commit()
+        assert (sections_for_chart(db, chart, Sp.IP_DRG)
+                == [s["key"] for s in form_spec(Sp.IP_DRG)["sections"]])
+
+    def test_a_chart_with_no_em_key_keeps_the_full_form(self, client, db):
+        """
+        Absence of a key is not evidence the chart is preventive. Narrowing on
+        a guess would hide a section the chart may well be graded on.
+        """
+        from routers.auditor_pkg.shared import sections_for_chart
+        from models import Specialty as Sp
+
+        chart = make_chart(db, specialty="E/M")
+        db.commit()
+        assert "MDM" in sections_for_chart(db, chart, Sp.EM)
+
+    def test_the_trainer_key_screen_narrows_the_same_way(self, client, db):
+        """
+        A trainer must not be offered an MDM error to plant on a chart the
+        generator will refuse to plant one on — the mutation would be
+        configured and then silently never fire.
+        """
+        chart = make_chart(db, specialty="E/M")
+        db.commit()
+        _em_key(db, chart.id, category="preventive")
+
+        body = client.get("/auditor/keys/chart/%d" % chart.id).json()
+        keys = [s["key"] for s in body["form"]["sections"]]
+        assert "MDM" not in keys
+        assert "PDx" in keys

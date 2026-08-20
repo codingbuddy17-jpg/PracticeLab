@@ -157,11 +157,27 @@ export function AuditSession() {
   }, [token])
 
   const sections = session?.form?.sections || []
+  /**
+   * The sections THIS chart is reviewed on.
+   *
+   * The form spec is served per specialty, but E/M is not uniform: a
+   * preventive visit, or one levelled by time, is not graded on medical
+   * decision making, so the server omits MDM from that chart's list. Charts
+   * without a list (every specialty but E/M) get the full set.
+   *
+   * Completeness has to use this too, or a chart could never be finished:
+   * a section that was never drawn cannot be given a verdict.
+   */
+  const sectionsFor = (chart: any): SectionSpec[] => {
+    const allowed: string[] | undefined = chart?.sections
+    if (!allowed) return sections
+    return sections.filter((sp: SectionSpec) => allowed.includes(sp.key))
+  }
   const supportsQuery = !!session?.supports_query
   const activeChart = session?.charts.find(c => c.chart_id === activeId) || null
   const activeState = activeId !== null ? (states[activeId] || EMPTY_STATE()) : null
   const doneCount = (session?.charts || []).filter(
-    c => chartComplete(states[c.chart_id] || EMPTY_STATE(), sections, supportsQuery)).length
+    c => chartComplete(states[c.chart_id] || EMPTY_STATE(), sectionsFor(c), supportsQuery)).length
   const findingCount = Object.values(states).reduce((n, st) => n + st.findings.length, 0)
 
   function patch(chartId: number, changes: Partial<ChartState>) {
@@ -207,11 +223,11 @@ export function AuditSession() {
   async function submit() {
     if (!session) return
     const blocked = session.charts.filter(
-      c => !chartComplete(states[c.chart_id] || EMPTY_STATE(), sections, supportsQuery))
+      c => !chartComplete(states[c.chart_id] || EMPTY_STATE(), sectionsFor(c), supportsQuery))
     if (blocked.length) {
       setActiveId(blocked[0].chart_id)
       setView('working')
-      const why = chartGaps(states[blocked[0].chart_id] || EMPTY_STATE(), sections, supportsQuery)[0]
+      const why = chartGaps(states[blocked[0].chart_id] || EMPTY_STATE(), sectionsFor(blocked[0]), supportsQuery)[0]
       flash(`${blocked[0].chart_number}: ${why}`)
       return
     }
@@ -266,7 +282,7 @@ export function AuditSession() {
 
   if (view === 'review') {
     const incomplete = session.charts.filter(
-      c => !chartComplete(states[c.chart_id] || EMPTY_STATE(), sections, supportsQuery))
+      c => !chartComplete(states[c.chart_id] || EMPTY_STATE(), sectionsFor(c), supportsQuery))
     return (
       <div style={s.reviewPage}>
         <button onClick={() => setView('working')} style={s.backBtn}>← Back to auditing</button>
@@ -278,7 +294,7 @@ export function AuditSession() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 24 }}>
           {session.charts.map(c => {
             const st = states[c.chart_id] || EMPTY_STATE()
-            const done = chartComplete(st, sections, supportsQuery)
+            const done = chartComplete(st, sectionsFor(c), supportsQuery)
             return (
               <div key={c.chart_id} style={{ ...s.reviewRow, borderColor: done ? '#e5e7eb' : '#fecaca', background: done ? '#fff' : '#fffafa' }}>
                 {done ? <CheckCircle size={16} color="#059669" /> : <AlertTriangle size={16} color="#dc2626" />}
@@ -289,7 +305,7 @@ export function AuditSession() {
                 </span>
                 {!done && (
                   <span style={{ fontSize: 11.5, color: '#dc2626', fontWeight: 600, maxWidth: 260, textAlign: 'right' }}>
-                    {chartGaps(st, sections, supportsQuery)[0]}
+                    {chartGaps(st, sectionsFor(c), supportsQuery)[0]}
                   </span>
                 )}
                 <button onClick={() => { setActiveId(c.chart_id); setView('working') }} style={s.linkBtn}>Open</button>
@@ -333,7 +349,7 @@ export function AuditSession() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 16 }}>
           {session.charts.map(c => {
             const st = states[c.chart_id] || EMPTY_STATE()
-            const done = chartComplete(st, sections, supportsQuery)
+            const done = chartComplete(st, sectionsFor(c), supportsQuery)
             const started = chartTouched(st)
             const on = c.chart_id === activeId
             return (
@@ -387,7 +403,7 @@ export function AuditSession() {
             key={activeChart.chart_id}
             chart={activeChart}
             state={activeState}
-            sections={sections}
+            sections={sectionsFor(activeChart)}
             supportsQuery={supportsQuery}
             onChange={changes => patch(activeChart.chart_id, changes)}
           />

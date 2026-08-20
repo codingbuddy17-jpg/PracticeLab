@@ -27,6 +27,7 @@ from models import (
 from services.audit_scoring import score_chart, score_session
 from .shared import (
     QUERY_SPECIALTIES, assert_batch_open, fields_for, form_spec, scoring_config,
+    sections_for_chart,
 )
 
 router = APIRouter()
@@ -113,6 +114,13 @@ def open_session(token: str, db: Session = Depends(get_db)):
             # planted in it, and the panel must render it identically either
             # way — an empty state drawn differently is a tell.
             "claim": a.claim or {},
+            # Which sections this chart is actually reviewed on. E/M is not
+            # uniform: a preventive visit or one levelled by time is not graded
+            # on medical decision making, so asking for an MDM verdict there
+            # asks for a judgement that carries no weight. Keyed on category,
+            # which is a property of the encounter and already visible from the
+            # claim — never on whether anything was planted.
+            "sections": sections_for_chart(db, chart, sess.specialty),
             "draft": None if a.chart_id not in drafts else {
                 "section_verdicts": drafts[a.chart_id].section_verdicts or {},
                 "findings": drafts[a.chart_id].findings or [],
@@ -201,13 +209,21 @@ def submit_session(session_id: int, payload: SubmitSession, db: Session = Depend
         AuditAssignment.cycle_id == sess.cycle_id,
         _assignment_owner_filter(sess)).all()}
 
-    required = [s["key"] for s in form_spec(sess.specialty)["sections"]]
     work_by_chart = {w.chart_id: w for w in payload.charts}
+    # AuditAssignment has no relationship to Chart, so the rows are fetched
+    # here rather than one per chart inside the loop.
+    charts_by_id = {c.id: c for c in db.query(Chart).filter(
+        Chart.id.in_(list(assignments))).all()} if assignments else {}
 
     incomplete = []
     for chart_id in assignments:
         work = work_by_chart.get(chart_id)
         verdicts = (work.section_verdicts if work else {}) or {}
+        # Per chart, not per specialty: a section the panel never drew cannot
+        # be required, or an E/M batch with one preventive chart in it could
+        # not be submitted at all.
+        required = sections_for_chart(db, charts_by_id.get(chart_id),
+                                      sess.specialty)
         missing = [s for s in required if verdicts.get(s) not in VERDICTS]
         if missing:
             incomplete.append({"chart_id": chart_id, "missing_sections": missing})

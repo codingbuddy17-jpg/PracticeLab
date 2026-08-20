@@ -107,6 +107,43 @@ def fields_for(specialty: Specialty) -> dict:
     return FIELDS_BY_SECTION.get(specialty, _DEFAULT_FIELDS)
 
 
+def sections_for_chart(db, chart, specialty: Specialty) -> list:
+    """
+    Which sections apply to THIS chart, not merely to its specialty.
+
+    The form spec is served per specialty, but E/M is not uniform: a preventive
+    visit, a consult, or a visit levelled by time is not graded on medical
+    decision making at all. Asking an auditor to give a verdict on COPA, Data
+    Review and Risk for such a chart asks them to judge something that carries
+    no weight, against three stored levels that are the derivation's default
+    rather than anybody's decision.
+
+    This keys on the CATEGORY, which is a property of the encounter and is
+    already plain from the code on the claim. It does not key on whether
+    anything was planted, which would be a tell — the module's central rule is
+    that a chart renders identically either way, and category is fixed per
+    chart in the same way section colour is fixed per section.
+    """
+    sections = [s["key"] for s in form_spec(specialty)["sections"]]
+    if "MDM" not in sections or chart is None:
+        return sections
+
+    from routers.practicelab_pkg.em_grading import (category_uses_mdm,
+                                                    resolve_category)
+    key = audit_key_for(db, chart)
+    if key is None:
+        # No key yet. Absence is not evidence the chart is preventive, and
+        # guessing would hide a section the chart may well be graded on. The
+        # trainer key screen shows unkeyed charts, so this path is reached.
+        return sections
+    category = resolve_category(getattr(key, "em_category", None),
+                                getattr(key, "em_code", None))
+    method = (getattr(key, "level_method", "MDM") or "MDM").upper()
+    if not (category_uses_mdm(category) and method != "TIME"):
+        return [s for s in sections if s != "MDM"]
+    return sections
+
+
 def form_spec(specialty: Specialty) -> dict:
     """
     Everything the auditor's panel needs to render itself.
