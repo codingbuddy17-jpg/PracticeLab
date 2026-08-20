@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { ChevronLeft, Plus, Zap, Settings } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { listBatchesPage, getPLAnalyticsOverview, getScoringConfigs } from '../api'
@@ -24,7 +24,19 @@ const TABS: { key: Tab; label: string }[] = [
 
 export function TrainerPracticeLab() {
   const navigate = useNavigate()
-  const [view, setView]                     = useState<View>('home')
+  /**
+   * The tab lives in the URL.
+   *
+   * It used to be component state on a <button>, so the tabs could not be
+   * opened in a new tab, middle-clicked, bookmarked or linked to — and the
+   * browser's Back button left the page instead of returning to the previous
+   * tab. Sub-views (a batch, a results screen) stay in memory as before;
+   * only the three top-level tabs are addressable.
+   */
+  const [searchParams] = useSearchParams()
+  const urlTab = searchParams.get('tab')
+  const [view, setView]                     = useState<View>(
+    TABS.some(t => t.key === urlTab) ? (urlTab as Tab) : 'home')
   const [batches, setBatches]               = useState<any[]>([])
   const [directAssignments, setDirectAssignments] = useState<any[]>([])
   const [selectedBatchId, setSelectedBatchId] = useState<number | null>(null)
@@ -42,6 +54,14 @@ export function TrainerPracticeLab() {
   useEffect(() => {
     getScoringConfigs().then(setScoringCfg).catch(() => {})
   }, [])
+
+  // Follow the URL when it changes under us — Back, Forward, or a pasted link.
+  useEffect(() => {
+    if (TABS.some(t => t.key === urlTab) && urlTab !== view) {
+      setNavStack([])
+      setView(urlTab as Tab)
+    }
+  }, [urlTab])   // eslint-disable-line react-hooks/exhaustive-deps
 
   // Debounced: typing a batch name should not fire a request per keystroke.
   useEffect(() => {
@@ -197,14 +217,18 @@ export function TrainerPracticeLab() {
       {!isDrilldown && (
         <div style={s.tabBar}>
           {TABS.map(t => (
-            <button
+            // A real link, so ⌘-click and middle-click open a new tab and the
+            // address bar carries something worth sending to someone. The
+            // click handler still does the in-page switch; React Router leaves
+            // modified clicks to the browser.
+            <Link
               key={t.key}
-              style={{ ...s.tab, ...(activeTab === t.key ? s.tabActive : {}) }}
+              to={`/trainer/practicelab?tab=${t.key}`}
+              style={{ ...s.tab, ...(activeTab === t.key ? s.tabActive : {}), textDecoration: 'none' }}
               onClick={() => { setNavStack([]); setView(t.key); if (t.key === 'home') loadHome() }}
             >
               {t.label}
-              {activeTab === t.key && <span style={s.tabUnderline} />}
-            </button>
+            </Link>
           ))}
         </div>
       )}
@@ -269,15 +293,16 @@ const s: Record<string, React.CSSProperties> = {
   },
   tab: {
     position: 'relative',
-    padding: '11px 18px 10px',
-    fontSize: 13,
-    fontWeight: 600,
-    color: '#6b7280',
+    padding: '13px 22px 11px',
+    fontSize: 14,
+    fontWeight: 700,
+    letterSpacing: -0.1,
+    color: '#64748b',
     background: 'none',
     border: 'none',
     cursor: 'pointer',
-    borderBottom: '2px solid transparent',
-    transition: 'color 0.15s',
+    borderBottom: '3px solid transparent',
+    transition: 'color 0.15s, background 0.15s',
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
@@ -285,7 +310,13 @@ const s: Record<string, React.CSSProperties> = {
   },
   tabActive: {
     color: '#0f766e',
-    borderBottom: '2px solid #0f766e',
+    // Thicker rule and a faint wash behind the label. The 2px underline alone
+    // was easy to miss against the bar's own bottom border, which is also a
+    // line the same width.
+    borderBottom: '3px solid #0f766e',
+    background: 'rgba(15,118,110,0.07)',
+    borderTopLeftRadius: 8,
+    borderTopRightRadius: 8,
   },
   tabUnderline: {
     display: 'none', // handled by borderBottom on tabActive
