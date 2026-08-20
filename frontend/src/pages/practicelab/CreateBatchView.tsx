@@ -158,9 +158,7 @@ export function CreateBatchView({ onCreated, onCancel, scoringCfg, directMode: d
           surprise. */}
       <div style={styles.infoBox}>
         {directMode
-          ? <>Pick the charts, then create access codes and send them out. Useful for targeted
-             reinforcement — &ldquo;do these two sepsis charts&rdquo;. Results are graded and tracked
-             in analytics exactly like a regular batch.</>
+          ? <>Graded and tracked in analytics exactly like a regular batch.</>
           : <>Batch stays <strong>Open</strong> until you close it. Charts are assigned through allocation cycles — run one now, or more later as the practice phase progresses.</>}
       </div>
 
@@ -200,7 +198,7 @@ export function CreateBatchView({ onCreated, onCancel, scoringCfg, directMode: d
       </div>
       {directMode && (
         <div style={styles.infoBox}>
-          After creating this assignment, use <strong>Allocation</strong> on the next screen to pick charts — choose <strong>Random</strong> to pull from the pool above, or <strong>Manual</strong> to search and select specific chart number(s). The same selected chart(s) are assigned to every included coder (subject to charts already assigned to them).
+          Every coder gets the same charts — minus any already assigned to them.
         </div>
       )}
 
@@ -221,12 +219,7 @@ export function CreateBatchView({ onCreated, onCancel, scoringCfg, directMode: d
               ⚠ No chart here has an answer key, so nothing can be graded. Upload keys before
               running allocation.
             </div>
-          ) : directMode ? (
-            <div style={{ marginTop: 6, color: '#6b7280' }}>
-              You pick the charts by hand on the next screen, so this is what you have to
-              choose from.
-            </div>
-          ) : coders.length === 0 ? (
+          ) : directMode ? null : coders.length === 0 ? (
             <div style={{ marginTop: 6, color: '#6b7280' }}>
               Add coders below to see whether the pool covers them.
             </div>
@@ -254,7 +247,7 @@ export function CreateBatchView({ onCreated, onCancel, scoringCfg, directMode: d
             <span style={{ fontSize: 16 }}>📋</span>
             <div style={{ fontSize: 13, color: '#92400e' }}>
               <strong>Manual rubric scoring applies for Edits &amp; Denials specialties.</strong>
-              <div style={{ fontWeight: 400, marginTop: 2 }}>Trainer scores each case using the 5-section rubric (Review · Research · Resolution · Rationale) after coder submission.</div>
+              <div style={{ fontWeight: 400, marginTop: 2 }}>You score each case on the rubric after submission — there is no auto-grading.</div>
             </div>
           </div>
         ) : isEM ? (
@@ -262,7 +255,7 @@ export function CreateBatchView({ onCreated, onCancel, scoringCfg, directMode: d
             <span style={{ fontSize: 16 }}>🩺</span>
             <div style={{ fontSize: 13, color: '#5b21b6' }}>
               <strong>E/M MDM scoring applies for this specialty.</strong>
-              <div style={{ fontWeight: 400, marginTop: 2 }}>Graded on: E/M level accuracy · COPA / Data Review / Risk element matching · Dx code accuracy · Procedure CPTs. Batch grading uses the MDM scoring engine.</div>
+              <div style={{ fontWeight: 400, marginTop: 2 }}>E/M level · COPA / Data Review / Risk · diagnoses · procedure CPTs.</div>
             </div>
           </div>
         ) : isEDSP ? (
@@ -271,7 +264,7 @@ export function CreateBatchView({ onCreated, onCancel, scoringCfg, directMode: d
               <span style={{ fontSize: 12, fontWeight: 800, color: '#6b21a8' }}>SP</span>
               <div style={{ fontSize: 13, color: '#6b21a8' }}>
                 <strong>ED Single Path scoring applies for this specialty.</strong>
-                <div style={{ fontWeight: 400, marginTop: 2 }}>Accuracy (DPO) counts shared Dx, facility/profee levels, and additional CPTs. Diagnosis pointers are not used.</div>
+                <div style={{ fontWeight: 400, marginTop: 2 }}>Shared Dx, facility and profee levels, additional CPTs. No diagnosis pointers.</div>
               </div>
             </div>
             <label style={styles.methodOption}>
