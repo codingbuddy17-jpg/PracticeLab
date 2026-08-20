@@ -12,6 +12,8 @@ import {
 import { ISSUE_COLORS } from '../practicelab/shared'
 import s from './styles'
 import { AUDITABLE } from './constants'
+import { CodeCaption } from '../../components/CodeCaption'
+import { useCodeDescriptions } from '../../hooks/useCodeDescriptions'
 
 /**
  * The trainer's audit keys.
@@ -617,6 +619,12 @@ function KeySection({ spec, answerKey, mutations, setMutations }: {
     ? (answerKey?.pdx_code ? [{ code: answerKey.pdx_code, poa: answerKey.pdx_poa }] : [])
     : (answerKey?.[SECTION_ROWS[key]] || [])
 
+  // What the key's own codes say. This is a KEY screen, so a description is a
+  // check rather than a study aid: a trainer authoring a planted error is
+  // looking at the code they believe is correct, and a wrong key grades
+  // everyone against it silently. Asked for the section's own system.
+  const describe = useCodeDescriptions(rows.map((r: any) => String(r.code || '')), key)
+
   const mine = mutations.filter(m => m.section === key)
   const spurious = mine.filter(m => m.action === 'Delete')
 
@@ -709,6 +717,9 @@ function KeySection({ spec, answerKey, mutations, setMutations }: {
               )}
               {row.poa && <span style={{ ...s.tag, background: '#f0fdf4', color: '#15803d' }}>POA {row.poa}</span>}
               {row.modifier && <span style={s.tag}>{row.modifier}</span>}
+              <div style={{ flexBasis: '100%', order: 99 }}>
+                <CodeCaption code={row.code} describe={describe} />
+              </div>
 
               <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                 {revisions.map((r: any) => (

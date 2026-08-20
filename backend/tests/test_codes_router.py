@@ -306,6 +306,103 @@ class TestRowsWithADescriptionAlignToTheInput:
         src = self.SRC.read_text()
         for m in re.finditer(r"<div key=\{i\} style=\{\{ display: 'flex'[^}]*\}\}>", src):
             row = src[m.start():m.start() + 1400]
-            if "CodeSays" in row:
-                assert "alignItems: 'center'" not in m.group(0), \
-                    "a row with a description line must align to the top"
+            if "CodeSays" not in row:
+                continue
+            # A caption on its own full-width wrapped line cannot cause the
+            # fault this guards. The bug was a description sharing a COLUMN
+            # with the code box, which made that column the tallest thing in
+            # the row and pushed its neighbours down against it. A wrapped
+            # line is a separate flex line, and alignItems applies per line.
+            if "flexBasis: '100%'" in row:
+                continue
+            assert "alignItems: 'center'" not in m.group(0), \
+                "a row with an inline description must align to the top"
+
+
+class TestEveryCodeEntryScreenShowsWhatTheCodeSays:
+    """
+    The coverage question, asked once for every screen rather than by counting
+    occurrences in a file.
+
+    Twice now a screen was reported as wired when it was not: the trainer key
+    editors, and the E/M branch of the coder form. Both times the check was
+    "does this file mention CodeSuggest", and both times the answer was yes for
+    a DIFFERENT branch of the same file.
+
+    Two distinct things are being asserted, because they are not the same
+    feature and one does not imply the other:
+
+      CodeSuggest    descriptions in the dropdown, while someone is TYPING
+      CodeCaption    the description of the code that is already in the box
+
+    The second is what lets someone check a code they did not just type —
+    reopening a saved answer key, or reading a claim. It is the one that
+    matters most on a key screen, and it was the one missing.
+    """
+    import pathlib as _p
+    SRC = _p.Path(__file__).resolve().parents[2] / "frontend" / "src"
+
+    # screen -> the exact per-FIELD anchors that must appear.
+    #
+    # Per field, not per file. A file-level check ("does this mention
+    # CodeCaption") passes as soon as one section has it, which is precisely
+    # how the E/M branch and the key editors were reported as done while their
+    # fields were plain inputs. Each entry below names the value being
+    # described, so deleting any single caption fails this.
+    SCREENS = {
+        "pages/PracticeSession.tsx": [
+            'section="PDx"', 'section="SDx"', 'section="PCS"',
+            'section="CPT"', 'section="MODIFIER"',
+            "describeDx(entry.pdx_code)",         # IP/OP principal
+            "describeCpt(row.code)",              # procedure line
+            "describeMod(",                       # its modifier
+            "describeDx(row.code)",               # E/M branch diagnoses
+        ],
+        "pages/AuditSession.tsx": ['<CodeCaption', "useCodeDescriptions("],
+        "pages/practicelab/AnswerKeyEditor.tsx": [
+            "code={pdx}", "code={s.code}", "code={p.code}",
+            "code={c.code}", "code={c.modifier",
+            'section="CPT"', 'section="MODIFIER"',
+        ],
+        "pages/practicelab/EMAnswerKeysView.tsx": [
+            "code={code}",                        # diagnosis rows
+            "code={form.em_modifier}",            # the E/M modifier
+            "code={cpt.code}", "code={cpt.modifier",
+            'section="CPT"', 'section="MODIFIER"',
+        ],
+        "pages/auditor/AuditKeys.tsx": ["code={row.code}", "useCodeDescriptions("],
+    }
+
+    def test_every_code_field_on_every_screen_is_wired(self):
+        missing = []
+        for screen, anchors in self.SCREENS.items():
+            src = (self.SRC / screen).read_text()
+            for anchor in anchors:
+                if anchor not in src:
+                    missing.append("%s: %s" % (screen, anchor))
+        assert missing == [], (
+            "code fields with no description wiring: %s" % missing)
+
+    def test_the_modifier_field_can_explain_itself(self):
+        """
+        The HCPCS file is the only source in the app that says what a modifier
+        means, and for a long time no field asked it. A modifier drives denials;
+        "25" alone tells a trainee nothing.
+        """
+        for screen in ("pages/PracticeSession.tsx",
+                       "pages/practicelab/AnswerKeyEditor.tsx",
+                       "pages/practicelab/EMAnswerKeysView.tsx"):
+            src = (self.SRC / screen).read_text()
+            assert "'MODIFIER'" in src or '"MODIFIER"' in src, screen
+
+    def test_the_shared_caption_is_shared(self):
+        """
+        Three copies of this component is how two of them fall behind. It lives
+        in components/ and every screen imports that one.
+        """
+        assert (self.SRC / "components" / "CodeCaption.tsx").exists()
+        for screen in ("pages/practicelab/AnswerKeyEditor.tsx",
+                       "pages/practicelab/EMAnswerKeysView.tsx",
+                       "pages/auditor/AuditKeys.tsx"):
+            src = (self.SRC / screen).read_text()
+            assert "components/CodeCaption" in src, screen

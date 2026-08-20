@@ -4,6 +4,8 @@ import toast from 'react-hot-toast'
 import { listEMAnswerKeys, upsertEMAnswerKey, deleteEMAnswerKey, downloadEMAnswerKeyTemplate, uploadEMAnswerKeys } from '../../api'
 import { searchCharts, getAnswerKeyStatus, getChartsMissingKeys } from '../../api'
 import { CodeSuggest } from '../../components/CodeSuggest'
+import { CodeCaption } from '../../components/CodeCaption'
+import { useCodeDescriptions } from '../../hooks/useCodeDescriptions'
 import { errorMessage } from '../../api/errors'
 import { trainerName } from './shared'
 import styles from './styles'
@@ -154,6 +156,15 @@ export function EMAnswerKeysView() {
   // What kind of encounter this key describes, and therefore which steps the
   // form shows. Falls back to the E/M code so a key saved before categories
   // existed opens on the category it always had.
+  // Asked per code system: a modifier and a procedure share a numeric shape,
+  // so one combined lookup would let a modifier match a procedure code.
+  const describeDx = useCodeDescriptions(form.dx_codes, 'SDx')
+  const describeCpt = useCodeDescriptions(
+    [form.em_code, ...form.procedure_cpts.map((c: any) => c.code)], 'CPT')
+  const describeMod = useCodeDescriptions(
+    [form.em_modifier,
+     ...form.procedure_cpts.flatMap((c: any) =>
+       String(c.modifier || '').split(/[,\s]+/).filter(Boolean))], 'MODIFIER')
   const category: EMCategory = resolveCategory(form.em_category, form.em_code)
   const mdm = categoryUsesMdm(category)
   const steps = [
@@ -581,7 +592,7 @@ export function EMAnswerKeysView() {
             <div style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: '#1e3a5f', marginBottom: 12 }}>Diagnosis Coding (ICD-10-CM)</div>
               {form.dx_codes.map((code: string, i: number) => (
-                <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                <div key={i} style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
                   <CodeSuggest style={{ ...styles.input, flex: 1 }}
                     section={i === 0 ? 'PDx' : 'SDx'}
                     placeholder={i === 0 ? 'Primary Dx (e.g. E11.9)' : `Additional Dx ${i + 1}`}
@@ -590,6 +601,9 @@ export function EMAnswerKeysView() {
                     <button style={{ ...styles.outlineBtn, color: '#dc2626', borderColor: '#fca5a5', padding: '6px 10px' }}
                       onClick={() => removeDx(i)}><Trash2 size={13} /></button>
                   )}
+                  <div style={{ flexBasis: '100%' }}>
+                    <CodeCaption code={code} describe={describeDx} system="ICD10CM" />
+                  </div>
                 </div>
               ))}
               <button style={{ ...styles.outlineBtn, fontSize: 12 }} onClick={addDx}>+ Add Diagnosis Code</button>
@@ -618,8 +632,10 @@ export function EMAnswerKeysView() {
                 </div>
                 <div style={{ width: 120 }}>
                   <label style={styles.label}>Modifier</label>
-                  <input style={styles.input} placeholder="e.g. 25" value={form.em_modifier}
-                    onChange={e => setField('em_modifier', e.target.value)} />
+                  <CodeSuggest style={styles.input} section="MODIFIER"
+                    placeholder="e.g. 25" value={form.em_modifier}
+                    onChange={v => setField('em_modifier', v)} />
+                  <CodeCaption code={form.em_modifier} describe={describeMod} />
                 </div>
               </div>
 
@@ -681,11 +697,13 @@ export function EMAnswerKeysView() {
                 Procedure CPTs (if applicable)
               </div>
               {form.procedure_cpts.map((cpt: any, i: number) => (
-                <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-                  <input style={{ ...styles.input, flex: 2 }} placeholder={`CPT Code ${i + 1}`}
-                    value={cpt.code} onChange={e => setCpt(i, 'code', e.target.value)} />
-                  <input style={{ ...styles.input, flex: 1 }} placeholder="Modifier"
-                    value={cpt.modifier} onChange={e => setCpt(i, 'modifier', e.target.value)} />
+                <div key={i} style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+                  <CodeSuggest style={{ ...styles.input, flex: 2 }} section="CPT"
+                    placeholder={`CPT Code ${i + 1}`}
+                    value={cpt.code} onChange={v => setCpt(i, 'code', v)} />
+                  <CodeSuggest style={{ ...styles.input, flex: 1 }} section="MODIFIER"
+                    placeholder="Modifier"
+                    value={cpt.modifier} onChange={v => setCpt(i, 'modifier', v)} />
                   <input style={{ ...styles.input, width: 74 }} placeholder="Units" inputMode="numeric"
                     title="Leave blank unless the count matters — a blank line is not graded on units."
                     value={cpt.units ?? ''}
@@ -697,6 +715,10 @@ export function EMAnswerKeysView() {
                       .replace(/[^0-9A-L,\s]/g, '').split(/[,\s]+/).filter(Boolean).slice(0, 4) as any)} />
                   <button style={{ ...styles.outlineBtn, color: '#dc2626', borderColor: '#fca5a5', padding: '6px 10px' }}
                     onClick={() => removeCpt(i)}><Trash2 size={13} /></button>
+                  <div style={{ flexBasis: '100%' }}>
+                    <CodeCaption code={cpt.code} describe={describeCpt} />
+                    <CodeCaption code={cpt.modifier || ''} describe={describeMod} />
+                  </div>
                 </div>
               ))}
               {/* ED Profee and office E/M bill on a CMS-1500, so each line points

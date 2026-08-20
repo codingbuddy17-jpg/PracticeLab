@@ -6,6 +6,8 @@ import {
   type AnswerKeyDetail, type AnswerKeyImpact,
 } from '../../api'
 import { CodeSuggest } from '../../components/CodeSuggest'
+import { CodeCaption } from '../../components/CodeCaption'
+import { useCodeDescriptions } from '../../hooks/useCodeDescriptions'
 import { errorMessage } from '../../api/errors'
 import { trainerName } from './shared'
 import styles from './styles'
@@ -115,7 +117,18 @@ export function AnswerKeyEditor({ chartId, onClose, onSaved }: {
   }
   if (!detail) return null
 
-  const rowStyle = { display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }
+  // One batched lookup per code system. Asked separately because a modifier
+  // and a procedure share a numeric shape, and a seven-character string must
+  // not be allowed to match something in the wrong table.
+  const describeDx = useCodeDescriptions([pdx, ...sdx.map(x => x.code)], 'SDx')
+  const describePcs = useCodeDescriptions(pcs.map(x => x.code), 'PCS')
+  const describeCpt = useCodeDescriptions(cpt.map(x => x.code), 'CPT')
+  const describeMod = useCodeDescriptions(
+    cpt.flatMap(x => (x.modifier || '').split(/[,\s]+/).filter(Boolean)), 'MODIFIER')
+  // flexWrap so a description sits on its own full-width line under the row's
+  // controls rather than squeezing the code box.
+  const rowStyle = { display: 'flex', gap: 8, alignItems: 'center',
+                     flexWrap: 'wrap' as const, marginBottom: 6 }
   const inp = { ...styles.input, marginBottom: 0 }
 
   return (
@@ -184,7 +197,7 @@ export function AnswerKeyEditor({ chartId, onClose, onSaved }: {
 
         {/* PDx */}
         <div style={styles.label}>{detail.is_ip ? 'Principal Diagnosis' : 'First-Listed Diagnosis'}</div>
-        <div style={{ ...rowStyle, marginBottom: 12 }}>
+        <div style={{ ...rowStyle, marginBottom: 2 }}>
           <CodeSuggest style={{ ...inp, flex: 1 }} section="PDx"
             placeholder="e.g. J18.9" value={pdx} onChange={setPdx} />
           {detail.is_ip && (
@@ -193,6 +206,9 @@ export function AnswerKeyEditor({ chartId, onClose, onSaved }: {
               {POA_OPTIONS.map(o => <option key={o} value={o}>{o || 'POA'}</option>)}
             </select>
           )}
+        </div>
+        <div style={{ marginBottom: 12 }}>
+          <CodeCaption code={pdx} describe={describeDx} system="ICD10CM" />
         </div>
 
         {/* SDx */}
@@ -216,6 +232,9 @@ export function AnswerKeyEditor({ chartId, onClose, onSaved }: {
             )}
             <button onClick={() => setSdx(sdx.filter((_, j) => j !== i))}
               style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af' }}><X size={14} /></button>
+            <div style={{ flexBasis: '100%' }}>
+              <CodeCaption code={s.code} describe={describeDx} system="ICD10CM" />
+            </div>
           </div>
         ))}
         <button style={{ ...styles.outlineBtn, marginBottom: 12 }}
@@ -234,6 +253,9 @@ export function AnswerKeyEditor({ chartId, onClose, onSaved }: {
                   onChange={v => setPcs(pcs.map((x, j) => j === i ? { code: v } : x))} />
                 <button onClick={() => setPcs(pcs.filter((_, j) => j !== i))}
                   style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af' }}><X size={14} /></button>
+                <div style={{ flexBasis: '100%' }}>
+                  <CodeCaption code={p.code} describe={describePcs} system="ICD10PCS" />
+                </div>
               </div>
             ))}
             <button style={{ ...styles.outlineBtn, marginBottom: 12 }}
@@ -252,10 +274,12 @@ export function AnswerKeyEditor({ chartId, onClose, onSaved }: {
             )}
             {cpt.map((c, i) => (
               <div key={i} style={rowStyle}>
-                <input style={{ ...inp, width: 130 }} placeholder="e.g. 27447" value={c.code}
-                  onChange={e => setCpt(cpt.map((x, j) => j === i ? { ...x, code: e.target.value } : x))} />
-                <input style={{ ...inp, flex: 1 }} placeholder="Modifier" value={c.modifier || ''}
-                  onChange={e => setCpt(cpt.map((x, j) => j === i ? { ...x, modifier: e.target.value } : x))} />
+                <CodeSuggest style={{ ...inp, width: 130 }} section="CPT"
+                  placeholder="e.g. 27447" value={c.code}
+                  onChange={v => setCpt(cpt.map((x, j) => j === i ? { ...x, code: v } : x))} />
+                <CodeSuggest style={{ ...inp, flex: 1 }} section="MODIFIER"
+                  placeholder="Modifier" value={c.modifier || ''}
+                  onChange={v => setCpt(cpt.map((x, j) => j === i ? { ...x, modifier: v } : x))} />
                 {detail.uses_units && (
                   <input style={{ ...inp, width: 78 }} placeholder="Units" inputMode="numeric"
                     title="Leave blank unless the count matters — a blank line is not graded on units."
@@ -273,6 +297,14 @@ export function AnswerKeyEditor({ chartId, onClose, onSaved }: {
                         .split(/[,\s]+/).filter(Boolean).slice(0, 4),
                     } : x))} />
                 )}
+                <div style={{ flexBasis: '100%' }}>
+                  {/* AMA CPT is unlicensed and absent, so most procedure lines
+                      stay bare. HCPCS Level II codes typed here DO resolve, and
+                      a modifier's meaning comes from the same file — the only
+                      thing in the app that explains one. */}
+                  <CodeCaption code={c.code} describe={describeCpt} />
+                  <CodeCaption code={c.modifier || ''} describe={describeMod} />
+                </div>
                 <button onClick={() => setCpt(cpt.filter((_, j) => j !== i))}
                   style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af' }}><X size={14} /></button>
               </div>

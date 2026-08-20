@@ -718,6 +718,17 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
     [entry.pdx_code, ...entry.sdx.map(r => r.code),
      ...emData.em_dx.map(r => r.code)], 'SDx')
   const describePcs = useCodeDescriptions(entry.pcs.map(r => r.code), 'PCS')
+  // Procedure lines and their modifiers. AMA CPT is unlicensed and absent, so
+  // most of these resolve to nothing; HCPCS Level II codes typed in the same
+  // box DO resolve, and the modifier file is the only thing in the app that
+  // explains a modifier. Asked apart because the two share a numeric shape.
+  const describeCpt = useCodeDescriptions(
+    [...entry.cpt.map(r => r.code),
+     ...(entry.em_data?.em_cpt || []).map((r: any) => r.code)], 'CPT')
+  const describeMod = useCodeDescriptions(
+    [...entry.cpt, ...(entry.em_data?.em_cpt || [])].flatMap(
+      (r: any) => String(r.modifier || '').split(/[,\s]+/).filter(Boolean)),
+    'MODIFIER')
   const queryOn = ip && entry.query_flag
   const queryNoteMissing = queryOn && !entry.coder_notes.trim()
   // ED codes (99281-99285) cannot be levelled by time — MDM only.
@@ -1120,27 +1131,34 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
             </div>
           )}
           {emData.em_cpt.map((row, i) => (
-            <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
-              <input
+            <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center',
+                                  flexWrap: 'wrap', marginBottom: 6 }}>
+              <CodeSuggest
                 style={{ ...s.inputField, width: 120, marginBottom: 0 }}
+                section="CPT"
                 placeholder="e.g. 20610"
                 value={row.code}
-                onChange={e => {
+                onChange={v => {
                   const cpt = [...emData.em_cpt]
-                  cpt[i] = { ...cpt[i], code: e.target.value }
+                  cpt[i] = { ...cpt[i], code: v }
                   updateEM({ em_cpt: cpt })
                 }}
               />
-              <input
+              <CodeSuggest
                 style={{ ...s.inputField, flex: 1, marginBottom: 0 }}
+                section="MODIFIER"
                 placeholder="Modifier e.g. 25"
                 value={row.modifier}
-                onChange={e => {
+                onChange={v => {
                   const cpt = [...emData.em_cpt]
-                  cpt[i] = { ...cpt[i], modifier: e.target.value }
+                  cpt[i] = { ...cpt[i], modifier: v }
                   updateEM({ em_cpt: cpt })
                 }}
               />
+              <div style={{ flexBasis: '100%' }}>
+                <CodeSays info={describeCpt(row.code)} />
+                <CodeSays info={describeMod(row.modifier || '')} />
+              </div>
               <input
                 style={{ ...s.inputField, width: 74, marginBottom: 0 }}
                 placeholder="Units"
@@ -1399,13 +1417,15 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
             </div>
           )}
           {entry.cpt.map((row, i) => (
-            <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 8 }}>
-              <input
+            <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'center',
+                                  flexWrap: 'wrap', marginBottom: 8 }}>
+              <CodeSuggest
                 style={{ ...s.inputField, width: 140, marginBottom: 0,
                          borderColor: checkCpt(row.code).ok ? '#e5e7eb' : '#dc2626' }}
+                section="CPT"
                 placeholder="e.g. 20610"
                 value={row.code}
-                onChange={e => updateCpt(i, 'code', e.target.value)}
+                onChange={v => updateCpt(i, 'code', v)}
               />
               <input
                 style={{ ...s.inputField, flex: 1, marginBottom: 0,
@@ -1415,6 +1435,12 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
                 value={row.modifier}
                 onChange={e => updateCpt(i, 'modifier', e.target.value)}
               />
+              <div style={{ flexBasis: '100%' }}>
+                <CodeSays info={describeCpt(row.code)} />
+                {String(row.modifier || '').split(/[,\s]+/).filter(Boolean).map(m => (
+                  <CodeSays key={m} info={describeMod(m)} />
+                ))}
+              </div>
               {units && (
                 <input
                   style={{ ...s.inputField, width: 78, marginBottom: 0 }}
