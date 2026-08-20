@@ -267,13 +267,14 @@ def upload_answer_keys(
         if not chart:
             not_found.append(chart_num)
             continue
+        matched_chart_num = chart.chart_number
 
         # Exact match, not just IP-vs-OP. Layouts differ per specialty (pointer
         # columns, single-path levels, Dx-only), so an ED Facility file uploaded
         # against Surgery charts would previously be accepted and silently
         # mis-parsed.
         if chart.specialty != spec_enum:
-            wrong_specialty.append(chart_num)
+            wrong_specialty.append(matched_chart_num)
             continue
 
         existing = db.query(AnswerKey).filter(AnswerKey.chart_id == chart.id).first()
@@ -287,9 +288,9 @@ def upload_answer_keys(
                 existing.facility_level = row.get("facility_level") or None
                 existing.profee_level = row.get("profee_level") or None
                 existing.entered_by = entered_by
-                replaced.append(chart_num)
+                replaced.append(matched_chart_num)
             else:
-                skipped.append(chart_num)
+                skipped.append(matched_chart_num)
             continue
 
         ak = AnswerKey(
@@ -305,7 +306,7 @@ def upload_answer_keys(
             entered_by=entered_by,
         )
         db.add(ak)
-        stored.append(chart_num)
+        stored.append(matched_chart_num)
 
     db.commit()
 
@@ -315,18 +316,18 @@ def upload_answer_keys(
     #
     # A warning, never a refusal: the loaded edition may be older than the key,
     # and a deployment may not have run the code-set ingest at all.
-    accepted = set(stored) | set(replaced)
+    accepted = {n.strip().upper() for n in set(stored) | set(replaced)}
     unknown = unknown_codes(db, (
         triple
         for row in rows
-        if (row.get("chart_number") or "") in accepted
+        if (row.get("chart_number") or "").strip().upper() in accepted
         for triple in entries_from_key_row(row["chart_number"], row)))
 
     # Only inpatient keys carry a CC/MCC column at all.
     ccmcc = ccmcc_mismatches(db, (
         triple
         for row in rows
-        if (row.get("chart_number") or "") in accepted
+        if (row.get("chart_number") or "").strip().upper() in accepted
         for triple in ccmcc_from_key_row(row["chart_number"], row))
     ) if is_ip_upload else []
 

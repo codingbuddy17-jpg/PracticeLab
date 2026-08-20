@@ -1155,14 +1155,15 @@ def upload_em_answer_keys(
         if not chart:
             not_found.append(chart_num)
             continue
+        matched_chart_num = chart.chart_number
 
         if chart.specialty.value not in ("E/M", "ED Profee"):
-            wrong_specialty.append(chart_num)
+            wrong_specialty.append(matched_chart_num)
             continue
 
         em_code = row.get("em_code", "").strip()
         if not em_code:
-            skipped.append(chart_num)
+            skipped.append(matched_chart_num)
             continue
 
         entered_by_val = row.get("entered_by") or entered_by
@@ -1237,7 +1238,7 @@ def upload_em_answer_keys(
 
         if existing:
             if not replace:
-                skipped.append(chart_num)
+                skipped.append(matched_chart_num)
                 continue
             db.execute(text("""
                 UPDATE em_answer_keys SET
@@ -1269,7 +1270,7 @@ def upload_em_answer_keys(
                     entered_by=:entered_by, entered_at=CURRENT_TIMESTAMP
                 WHERE chart_id=:chart_id
             """), params)
-            replaced.append(chart_num)
+            replaced.append(matched_chart_num)
         else:
             db.execute(text("""
                 INSERT INTO em_answer_keys (
@@ -1308,7 +1309,7 @@ def upload_em_answer_keys(
                     :em_category, :critical_care_minutes, :dx_codes, :procedure_cpts, :entered_by
                 )
             """), params)
-            stored.append(chart_num)
+            stored.append(matched_chart_num)
 
     db.commit()
     return {

@@ -428,6 +428,20 @@ def parse_answer_key_upload(file_bytes: bytes, specialty: str, with_pointers: bo
         header_at.setdefault(key, idx)
     if not any(name in header_at for name in HEADER_NAMES):
         raise ValueError("Missing required column: Chart_Number")
+    missing_required = []
+    if is_ip:
+        for name in ("pdx_poa", "sdx_1_poa"):
+            if name not in header_at:
+                missing_required.append(name.upper())
+    if single_path:
+        for name in ("facility_ed_level", "profee_ed_level"):
+            if name not in header_at:
+                missing_required.append({
+                    "facility_ed_level": "Facility_ED_Level",
+                    "profee_ed_level": "Profee_ED_Level",
+                }[name])
+    if missing_required:
+        raise ValueError("Missing required column(s): " + ", ".join(missing_required))
 
     def _cell(row, idx) -> str:
         """Safely read a cell value, returning "" for None/empty/'None' sentinel."""

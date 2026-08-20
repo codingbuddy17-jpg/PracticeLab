@@ -393,6 +393,69 @@ def test_standard_upload_fails_clearly_when_chart_number_header_is_missing(clien
     assert "Chart_Number" in r.json()["detail"]
 
 
+def test_standard_upload_matches_chart_number_case_and_spacing(client, db):
+    chart = make_chart(db, specialty="SDS", chart_number="QACASE")
+    db.commit()
+
+    r = _upload_standard(client, Specialty.SDS,
+                         _standard_key_file(Specialty.SDS, "  qacase  "))
+
+    assert r.status_code == 200, r.text
+    assert r.json()["stored"] == [chart.chart_number]
+    assert r.json()["not_found"] == []
+
+
+def test_standard_upload_with_only_blank_rows_stores_nothing(client, db):
+    make_chart(db, specialty="SDS", chart_number="QABLANK")
+    db.commit()
+
+    r = _upload_standard(client, Specialty.SDS,
+                         _workbook(["Chart_Number", "PDx_Code"], ["", ""]))
+
+    assert r.status_code == 200, r.text
+    assert r.json()["stored"] == []
+    assert r.json()["not_found"] == []
+    assert db.query(AnswerKey).count() == 0
+
+
+def test_standard_upload_missing_chart_number_reports_not_found_without_storing(client, db):
+    make_chart(db, specialty="SDS", chart_number="QAFOUND")
+    db.commit()
+
+    r = _upload_standard(client, Specialty.SDS,
+                         _workbook(["Chart_Number", "PDx_Code"], ["QANOTFOUND", "E11.9"]))
+
+    assert r.status_code == 200, r.text
+    assert r.json()["stored"] == []
+    assert r.json()["not_found"] == ["QANOTFOUND"]
+    assert db.query(AnswerKey).count() == 0
+
+
+def test_ip_upload_without_poa_columns_fails_clearly(client, db):
+    make_chart(db, specialty="IP-DRG", chart_number="QAIPPOA")
+    db.commit()
+    data = _workbook(["Chart_Number", "PDx_Code", "SDx_1", "PCS_1"],
+                     ["QAIPPOA", "J18.9", "I10", "0DTJ4ZZ"])
+
+    r = _upload_standard(client, Specialty.IP_DRG, data)
+
+    assert r.status_code in (400, 422)
+    assert "POA" in r.json()["detail"]
+
+
+def test_ed_single_path_upload_without_level_columns_fails_clearly(client, db):
+    make_chart(db, specialty="ED Single Path", chart_number="QAEDSPMISS")
+    db.commit()
+    data = _workbook(["Chart_Number", "PDx_Code", "SDx_1", "CPT_1"],
+                     ["QAEDSPMISS", "R07.9", "I10", "93010"])
+
+    r = _upload_standard(client, Specialty.ED_SINGLE_PATH, data)
+
+    assert r.status_code in (400, 422)
+    assert "Facility_ED_Level" in r.json()["detail"]
+    assert "Profee_ED_Level" in r.json()["detail"]
+
+
 def test_em_upload_reports_wrong_specialty_separately(client, db):
     chart = make_chart(db, specialty="Surgery", chart_number="QAEMWRONG")
     db.commit()
@@ -403,3 +466,37 @@ def test_em_upload_reports_wrong_specialty_separately(client, db):
     assert r.json()["stored"] == []
     assert r.json()["not_found"] == []
     assert r.json()["wrong_specialty"] == [chart.chart_number]
+
+
+def test_em_upload_with_missing_em_code_skips_without_storing(client, db):
+    chart = make_chart(db, specialty="E/M", chart_number="QAEMNOCODE")
+    db.commit()
+    headers, values = _em_values(chart.chart_number, "99214")
+    values[[field for field, _header in EM_KEY_COLUMNS].index("em_code")] = ""
+
+    r = _upload_em(client, _workbook(headers, values))
+
+    assert r.status_code == 200, r.text
+    assert r.json()["stored"] == []
+    assert r.json()["skipped_duplicates"] == [chart.chart_number]
+    assert db.execute(text(
+        "SELECT COUNT(*) FROM em_answer_keys WHERE chart_id=:c"
+    ), {"c": chart.id}).scalar() == 0
+
+
+def test_em_upload_sanitises_weird_method_and_category_values(client, db):
+    chart = make_chart(db, specialty="E/M", chart_number="QAEMWEIRD")
+    db.commit()
+    headers, values = _em_values(chart.chart_number, "99214")
+    fields = [field for field, _header in EM_KEY_COLUMNS]
+    values[fields.index("level_method")] = "nonsense"
+    values[fields.index("em_category")] = "not a category"
+
+    r = _upload_em(client, _workbook(headers, values))
+
+    assert r.status_code == 200, r.text
+    row = db.execute(text(
+        "SELECT level_method, em_category FROM em_answer_keys WHERE chart_id=:c"
+    ), {"c": chart.id}).fetchone()
+    assert row[0] == "MDM"
+    assert row[1] == "office"
