@@ -1708,6 +1708,14 @@ function EMResultCard({ r }: { r: ResultRow }) {
         {r.total_score !== null && (
           <span style={{ fontSize: 16, fontWeight: 800, color: (r.total_score ?? 0) >= 80 ? '#059669' : '#dc2626' }}>{r.total_score?.toFixed(1)}%</span>
         )}
+        {/* The two panels below add up to the score above, out of 100. Without
+            this a reader compares the headline against a panel subtotal — 58
+            points of coding against an 88% chart — and concludes one of them
+            is wrong. */}
+        <span style={{ fontSize: 11, color: '#6b7280' }}>
+          {em.ca_total.toFixed(1)} coding + {em.ra_total.toFixed(1)} reasoning
+          {' '}= {(em.ca_total + em.ra_total).toFixed(1)} of 100
+        </span>
         <span style={{ fontSize: 12, fontWeight: 700, padding: '2px 10px', borderRadius: 6, background: r.pass_fail === 'PASS' ? '#d1fae5' : '#fee2e2', color: r.pass_fail === 'PASS' ? '#059669' : '#dc2626' }}>{r.pass_fail || '—'}</span>
         {r.flagged && <Flag size={13} color="#f59e0b" />}
       </div>

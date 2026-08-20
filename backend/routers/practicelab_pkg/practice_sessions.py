@@ -1392,6 +1392,14 @@ def regrade_practice_session(session_id: int, db: Session = Depends(get_db)):
 _ELEMENTS = (("copa", "COPA"), ("dr", "Data Review"), ("risk", "Risk"))
 
 
+def _avg_pct(charts, key):
+    """Average of the charts that HAVE this line. None when none do."""
+    vals = [c[key] for c in charts if c.get(key) is not None]
+    if not vals:
+        return None
+    return round(sum(vals) / len(vals), 1)
+
+
 def _match_pct(charts, key):
     """
     Percentage over the charts where the element could be judged.
@@ -1666,6 +1674,15 @@ def _em_breakdown(db, batch_id=None, specialty=None, from_date=None, to_date=Non
             "mdm_judged_chart": mdm_judged_chart,
             "coding_max": chart_coding_max,
             "reasoning_max": chart_reasoning_max,
+            # The chart's own score for each line. Averaging these is the only
+            # honest way to combine charts whose lines are worth different
+            # amounts: a preventive chart scores coding out of 100 and a
+            # time-levelled one out of 70, so averaging the POINTS and dividing
+            # by an averaged maximum produces a number belonging to no chart.
+            "coding_pct": (round(100 * ca_total / chart_coding_max, 1)
+                           if chart_coding_max else None),
+            "reasoning_pct": (round(100 * ra_total / chart_reasoning_max, 1)
+                              if chart_reasoning_max else None),
         }
         # emp_id is the coder identity everywhere else. Keyed on the typed
         # name, one person entered two ways became two coders here — and on a
@@ -1690,8 +1707,11 @@ def _em_breakdown(db, batch_id=None, specialty=None, from_date=None, to_date=Non
             "avg_total": round(sum(c["total_score"] for c in charts) / n, 1),
             "avg_coding_accuracy": round(sum(c["coding_accuracy"] for c in charts) / n, 1),
             "avg_reasoning_accuracy": round(sum(c["reasoning_accuracy"] for c in charts) / n, 1),
-            "coding_max": round(sum(c["coding_max"] for c in charts) / n, 1),
-            "reasoning_max": round(sum(c["reasoning_max"] for c in charts) / n, 1),
+            "coding_score": _avg_pct(charts, "coding_pct"),
+            "reasoning_score": _avg_pct(charts, "reasoning_pct"),
+            # How many charts had a reasoning line at all, so the
+            # reasoning figure ships its denominator.
+            "reasoning_charts": sum(1 for c in charts if c["reasoning_max"]),
             # Counted over the charts where it could be judged, not over all —
             # a coder who left elements blank must not read as consistent.
             "mdm_judged": sum(1 for c in charts if c["mdm_consistency"]),
@@ -1716,8 +1736,11 @@ def _em_breakdown(db, batch_id=None, specialty=None, from_date=None, to_date=Non
         "avg_total": round(sum(c["total_score"] for c in all_charts) / n_all, 1),
         "avg_coding_accuracy": round(sum(c["coding_accuracy"] for c in all_charts) / n_all, 1),
         "avg_reasoning_accuracy": round(sum(c["reasoning_accuracy"] for c in all_charts) / n_all, 1),
-        "coding_max": round(sum(c["coding_max"] for c in all_charts) / n_all, 1),
-        "reasoning_max": round(sum(c["reasoning_max"] for c in all_charts) / n_all, 1),
+        "coding_score": _avg_pct(all_charts, "coding_pct"),
+        "reasoning_score": _avg_pct(all_charts, "reasoning_pct"),
+        # How many charts had a reasoning line at all, so the
+        # reasoning figure ships its denominator.
+        "reasoning_charts": sum(1 for c in all_charts if c["reasoning_max"]),
         # ── where the reasoning goes wrong, and what it costs ───────────────
         #
         # Two different questions, and a trainer needs both:

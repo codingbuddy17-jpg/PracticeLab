@@ -291,3 +291,67 @@ class TestNonMdmChartsDoNotProduceMdmJudgements:
                   {"mdm_judged_chart": True, "copa_match": False},
                   {"mdm_judged_chart": False, "copa_match": False}]
         assert _match_pct(charts, "copa_match") == 50.0
+
+
+class TestScoresAreAveragedNotPooledAcrossDifferentDenominators:
+    """
+    Charts do not share a denominator. A preventive chart scores its coding out
+    of 100, because with no reasoning line the reasoning weight folds into
+    coding; a time-levelled chart scores it out of 70.
+
+    Averaging the POINTS and dividing by an averaged maximum produced "79.2 of
+    85" — a denominator belonging to no chart, and a percentage (93.2%) that is
+    not the average of the two chart scores (91.7%).
+    """
+
+    def test_the_average_is_of_chart_scores(self):
+        from routers.practicelab_pkg.practice_sessions import _avg_pct
+        charts = [
+            {"coding_pct": 100.0},   # preventive: 100 of 100
+            {"coding_pct": 83.3},    # time-levelled: 58.33 of 70
+        ]
+        assert _avg_pct(charts, "coding_pct") == 91.7
+
+    def test_a_chart_without_that_line_is_left_out_rather_than_counted_as_zero(self):
+        from routers.practicelab_pkg.practice_sessions import _avg_pct
+        charts = [{"reasoning_pct": None}, {"reasoning_pct": 100.0}]
+        assert _avg_pct(charts, "reasoning_pct") == 100.0
+
+    def test_no_chart_with_the_line_is_NA_not_zero(self):
+        from routers.practicelab_pkg.practice_sessions import _avg_pct
+        assert _avg_pct([{"reasoning_pct": None}], "reasoning_pct") is None
+
+    def test_the_two_lines_add_up_to_the_chart_score(self):
+        """
+        The headline is coding + reasoning out of 100. If they ever stopped
+        summing, the results card would show a total contradicting the panels
+        printed directly beneath it.
+        """
+        import json
+        from routers.practicelab_pkg.em_grading import grade_em_chart
+
+        cfg = {"line1_weight": 70.0, "line2_weight": 30.0, "em_level_weight": 23.33,
+               "cpt_weight": 23.33, "dx_weight": 23.34, "copa_weight": 10.0,
+               "dr_weight": 10.0, "risk_weight": 10.0, "pass_threshold": 80.0,
+               "overcoding_penalty": True}
+        for category, method, minutes in (("office", "TIME", 35),
+                                          ("preventive", "MDM", None),
+                                          ("office", "MDM", None)):
+            ak = {"em_code": "99214" if category != "preventive" else "99395",
+                  "em_modifier": "", "patient_type": "ESTABLISHED",
+                  "level_method": method, "total_time": minutes,
+                  "em_category": category,
+                  "dx_codes": json.dumps(["J18.9", "E11.9", "I10"]),
+                  "procedure_cpts": "[]", "copa_level": "Moderate",
+                  "dr_level": "Moderate", "risk_level": "Moderate"}
+            sub = {"sub_em_code": ak["em_code"], "sub_em_modifier": "",
+                   "sub_patient_type": "ESTABLISHED", "sub_level_method": method,
+                   "sub_total_time": minutes,
+                   "sub_dx_codes": json.dumps(["J18.9", "E11.9", "Z00.00"])}
+            r = grade_em_chart(ak, sub, cfg)
+            total = r["coding_accuracy_total"] + r["reasoning_accuracy_total"]
+            assert abs(total - r["total_score"]) < 0.15, (
+                "%s/%s: %s + %s != %s" % (category, method,
+                                          r["coding_accuracy_total"],
+                                          r["reasoning_accuracy_total"],
+                                          r["total_score"]))

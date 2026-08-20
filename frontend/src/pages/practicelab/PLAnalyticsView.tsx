@@ -205,18 +205,6 @@ function Box({ label, value, color, hint }: { label: string; value: any; color?:
   )
 }
 
-/**
- * A points subtotal as a share of what it was worth.
- *
- * The raw figure was shown on its own and read as a percentage: 58 points out
- * of a 70-point line looks like 58% and is really 83%. A rate ships its
- * denominator, and where there is no denominator the answer is NA — not 0.
- */
-function pctOf(points: number | null | undefined, max: number | null | undefined) {
-  if (points == null || !max) return 'NA'
-  return `${Math.round((points / max) * 1000) / 10}%`
-}
-
 export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: number) => void } = {}) {
   const [tab, setTab] = useState<'overview' | 'specialty' | 'chart' | 'batch' | 'coder' | 'category' | 'teaching' | 'matrix' | 'errors' | 'em_mdm'>(
     () => (localStorage.getItem(TAB_STORAGE_KEY) as any) || 'overview'
@@ -3226,13 +3214,20 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                     // it. The raw figure read as a percentage — "58 pts" out of
                     // 70 looks like 58% and is really 83% — and the module's
                     // rule is that a rate ships its denominator.
-                    { label: 'Coding Score', value: pctOf(t.avg_coding_accuracy, t.coding_max),
-                      color: '#7c3aed', sub: `${t.avg_coding_accuracy.toFixed(1)} of ${t.coding_max} pts` },
-                    { label: 'Reasoning Score', value: pctOf(t.avg_reasoning_accuracy, t.reasoning_max),
-                      color: '#0891b2', sub: `${t.avg_reasoning_accuracy.toFixed(1)} of ${t.reasoning_max} pts` },
-                    { label: 'Right code, wrong reasoning', value: `${t.right_code_wrong_reasoning_count}`,
-                      color: '#f59e0b',
-                      sub: 'charts levelled correctly on reasoning that did not support it' },
+                    // Averages of the CHART scores, not of the points. Charts
+                    // do not share a denominator — a preventive chart scores
+                    // coding out of 100 and a time-levelled one out of 70 —
+                    // so averaging points gives a figure belonging to no chart.
+                    { label: 'Coding Score', value: t.coding_score == null ? 'NA' : `${t.coding_score}%`,
+                      color: '#7c3aed', sub: `averaged over ${t.chart_count} chart(s)` },
+                    { label: 'Reasoning Score', value: t.reasoning_score == null ? 'NA' : `${t.reasoning_score}%`,
+                      color: '#0891b2',
+                      sub: t.reasoning_charts
+                        ? `over ${t.reasoning_charts} of ${t.chart_count} chart(s) with reasoning`
+                        : 'no chart here is graded on reasoning' },
+                    { label: 'Right level, weak reasoning', value: `${t.right_code_wrong_reasoning_count}`,
+                      color: t.right_code_wrong_reasoning_count > 0 ? '#f59e0b' : '#9ca3af',
+                      sub: 'correct code, under half the reasoning marks' },
                     // Does the coder's own reasoning support the level they
                     // chose? Counted only over charts where all three elements
                     // were stated and the code carries an MDM level — a blank
@@ -3278,7 +3273,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                     <table style={{ borderCollapse: 'collapse', fontSize: 12, width: '100%' }}>
                       <thead>
                         <tr style={{ background: '#f9fafb' }}>
-                          {['Coder', 'Charts', 'Total %', 'Coding', 'Reasoning', 'COPA', 'Data Review', 'Risk', 'E/M Level', 'Right code, wrong reasoning'].map(h => (
+                          {['Coder', 'Charts', 'Total %', 'Coding', 'Reasoning', 'COPA', 'Data Review', 'Risk', 'E/M Level', 'Right level, weak reasoning'].map(h => (
                             <th key={h} style={{ padding: '8px 10px', textAlign: h === 'Coder' ? 'left' : 'center', fontWeight: 700, color: '#374151', borderBottom: '2px solid #e5e7eb', whiteSpace: 'nowrap' as const, fontSize: 11 }}>{h}</th>
                           ))}
                         </tr>
@@ -3297,12 +3292,12 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                             <td style={{ padding: '7px 10px', textAlign: 'center', borderBottom: '1px solid #f3f4f6', color: '#6b7280' }}>{c.chart_count}</td>
                             <td style={{ padding: '7px 10px', textAlign: 'center', borderBottom: '1px solid #f3f4f6', fontWeight: 700, color: c.avg_total >= 80 ? '#059669' : '#dc2626' }}>{c.avg_total}%</td>
                             <td style={{ padding: '7px 10px', textAlign: 'center', borderBottom: '1px solid #f3f4f6', color: '#7c3aed', fontWeight: 600 }}
-                                title={`${c.avg_coding_accuracy.toFixed(1)} of ${c.coding_max} pts`}>
-                              {pctOf(c.avg_coding_accuracy, c.coding_max)}
+                                title="average of this coder's chart scores">
+                              {c.coding_score == null ? 'NA' : `${c.coding_score}%`}
                             </td>
                             <td style={{ padding: '7px 10px', textAlign: 'center', borderBottom: '1px solid #f3f4f6', color: '#0891b2', fontWeight: 600 }}
-                                title={`${c.avg_reasoning_accuracy.toFixed(1)} of ${c.reasoning_max} pts`}>
-                              {pctOf(c.avg_reasoning_accuracy, c.reasoning_max)}
+                                title={`over ${c.reasoning_charts} chart(s) with a reasoning line`}>
+                              {c.reasoning_score == null ? 'NA' : `${c.reasoning_score}%`}
                             </td>
                             {/* NA where the element was never judged — a coder
                                 whose charts were all preventive has no COPA
