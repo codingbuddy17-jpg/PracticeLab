@@ -7,8 +7,12 @@ actually been hurt: an E/M answer key upload returned 500 in production against
 a codebase whose 2,510 tests were green, because the deployed DATABASE had a
 table the tests never saw.
 
-    python scripts/smoke_deployed.py --base https://chart-viewer-api.onrender.com
+    python scripts/smoke_deployed.py --base https://chart-viewer-api-rxrd.onrender.com
     python scripts/smoke_deployed.py --base ... --write --passphrase "..."
+
+The base is the API service's own URL, which is NOT the one in the handover
+document — that host now serves something else and answers in HTML. If this
+script reports HTML, the base is wrong rather than the service being down.
 
 **Reads alone are not enough, and this is the point.** Most of this codebase
 degrades to silence rather than erroring — a code description that cannot be
@@ -70,6 +74,20 @@ class Smoke:
                     "got %s %s" % (code, str(body)[:160]))
         return body
 
+    def get_reachable(self, label, path):
+        """
+        A route behind the trainer passphrase.
+
+        200 and 403 are both passes, and 403 is arguably the better one: it
+        proves the service is alive AND that the gate in front of it is doing
+        its job. What matters here is that the request reached the application
+        — a 500 or a connection failure is the thing being watched for.
+        """
+        code, body = call(self.base, path)
+        self.expect(label, code in (200, 403),
+                    "got %s %s" % (code, str(body)[:160]))
+        return body
+
 
 def main() -> int:
     ap = argparse.ArgumentParser()
@@ -101,7 +119,8 @@ def main() -> int:
     print("\nread paths, one per module")
     s.get_ok("charts",              "/charts/stats")
     s.get_ok("practicelab batches", "/practicelab/batches?page=1&page_size=1")
-    s.get_ok("assessment questions", "/assessment/questions?page=1&page_size=1")
+    s.get_reachable("assessment questions (passphrase-gated)",
+                    "/assessment/questions?page=1&page_size=1")
     s.get_ok("auditor batches",     "/auditor/batches?page=1&page_size=1")
     s.get_ok("E/M answer keys",     "/practicelab/em/answer-key/list")
     status = s.get_ok("code sets",  "/codes/status")
