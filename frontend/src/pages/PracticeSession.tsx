@@ -710,10 +710,14 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
   // One batched lookup for every code on the form. Dx and PCS resolve against
   // different systems, so they are asked separately rather than letting a
   // seven-character string match something in the wrong table.
-  const describeDx = useCodeDescriptions(
-    [entry.pdx_code, ...entry.sdx.map(r => r.code)], 'SDx')
-  const describePcs = useCodeDescriptions(entry.pcs.map(r => r.code), 'PCS')
   const emData = entry.em_data || EMPTY_EM_DATA()
+  // E/M charts carry their diagnoses on em_data.em_dx, not entry.sdx — a
+  // separate form path in the same component. Left out of this list, every
+  // E/M diagnosis silently had no description while IP/OP had them.
+  const describeDx = useCodeDescriptions(
+    [entry.pdx_code, ...entry.sdx.map(r => r.code),
+     ...emData.em_dx.map(r => r.code)], 'SDx')
+  const describePcs = useCodeDescriptions(entry.pcs.map(r => r.code), 'PCS')
   const queryOn = ip && entry.query_flag
   const queryNoteMissing = queryOn && !entry.coder_notes.trim()
   // ED codes (99281-99285) cannot be levelled by time — MDM only.
@@ -1175,18 +1179,22 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
         {/* ── Dx Coding (last) ── */}
         <EMAccordion title="Dx Coding — ICD-10-CM Diagnoses" open={emOpenSections.dx} onToggle={() => toggleSection('dx')} accent="#059669">
           {emData.em_dx.map((row, i) => (
-            <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
-              <input
-                style={{ ...s.inputField, flex: 1, marginBottom: 0, textTransform: 'uppercase' }}
-                placeholder={i === 0 ? 'PDx — e.g. J18.9' : `Dx ${i + 1} — e.g. E11.9`}
-                value={row.code}
-                onChange={e => {
-                  const dx = [...emData.em_dx]
-                  dx[i] = { code: e.target.value.toUpperCase() }
-                  updateEM({ em_dx: dx })
-                }}
-              />
-              <button onClick={() => updateEM({ em_dx: emData.em_dx.filter((_, j) => j !== i) })} style={s.removeBtn}><X size={14} /></button>
+            <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 6 }}>
+              <div style={{ flex: 1 }}>
+                <CodeSuggest
+                  style={{ ...s.inputField, width: '100%', boxSizing: 'border-box', marginBottom: 0 }}
+                  placeholder={i === 0 ? 'PDx — e.g. J18.9' : `Dx ${i + 1} — e.g. E11.9`}
+                  section={i === 0 ? 'PDx' : 'SDx'}
+                  value={row.code}
+                  onChange={v => {
+                    const dx = [...emData.em_dx]
+                    dx[i] = { code: v.toUpperCase() }
+                    updateEM({ em_dx: dx })
+                  }}
+                />
+                <CodeSays info={describeDx(row.code)} />
+              </div>
+              <button onClick={() => updateEM({ em_dx: emData.em_dx.filter((_, j) => j !== i) })} style={{ ...s.removeBtn, marginTop: 6 }}><X size={14} /></button>
             </div>
           ))}
           <button onClick={() => updateEM({ em_dx: [...emData.em_dx, { code: '' }] })} style={s.addBtn}><Plus size={13} /> Add Diagnosis</button>

@@ -223,6 +223,36 @@ class TestEveryCodeRowIsWiredForDescriptions:
         assert src.count("<CodeSays") >= 3, \
             "PDx, secondary diagnoses and PCS each need a description line"
 
+    def test_the_em_diagnosis_rows_are_wired_too(self):
+        """
+        E/M is a SEPARATE form path in the same component: its diagnoses live
+        on `em_data.em_dx`, not `entry.sdx`. The count check above passed for
+        months while every E/M diagnosis rendered from a plain <input> with no
+        suggestions and no description — the IP/OP rows alone satisfied it.
+
+        Counting occurrences in a file cannot tell you which BRANCH they are
+        in. This reads the em_dx block itself.
+        """
+        import pathlib
+        src = (pathlib.Path(__file__).resolve().parents[2] / "frontend" / "src"
+               / "pages" / "PracticeSession.tsx").read_text()
+
+        # Anchored on the ROW map. `emData.em_dx.map(` also appears earlier in
+        # the Box 21 label strip, which is display-only and correctly plain.
+        start = src.index("emData.em_dx.map((row, i)")
+        block = src[start:start + 1400]
+        assert "<CodeSuggest" in block, \
+            "E/M diagnosis rows take a plain input — no code suggestions"
+        assert "<CodeSays" in block, \
+            "E/M diagnosis rows show no description"
+
+        # And the lookup has to be FED those codes, or the row renders a
+        # description box that is always empty. First occurrence is the entry
+        # form's; the later one belongs to the results screen.
+        call = src.index("const describeDx = useCodeDescriptions(")
+        assert "em_dx" in src[call:call + 300], \
+            "em_dx codes are never sent to the description lookup"
+
 
 class TestSuggestionsAreOfferedInTheFormPeopleType:
     """
