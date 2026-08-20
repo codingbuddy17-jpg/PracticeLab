@@ -1,0 +1,103 @@
+# The four checks, plus the two things the four checks cannot do.
+#
+# Until now nothing ran automatically: a push to main deploys straight to
+# production, and the checks happened only when someone remembered. Everything
+# here already existed as a command in CLAUDE.md — this just stops it depending
+# on memory.
+name: checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+
+    services:
+      # A real PostgreSQL, because SQLite is where the expensive faults hide.
+      # Local to the runner, so the per-test schema rebuild costs milliseconds
+      # rather than a round trip to Oregon.
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: chartviewer_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports: ['5432:5432']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # The version production runs. Local dev is 3.9 and is the stricter
+          # environment; this is the one that has to boot.
+          python-version: '3.11'
+
+      - name: Install
+        run: pip install -r backend/requirements.txt pytest
+
+      - name: Tests (SQLite — fast pass)
+        working-directory: backend
+        run: PYTHONPATH="$PWD:$PWD/tests" python -m pytest tests -q -p no:warnings
+
+      - name: Tests (PostgreSQL — the pass that catches what SQLite hides)
+        working-directory: backend
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chartviewer_test
+        run: PYTHONPATH="$PWD:$PWD/tests" python -m pytest tests -q -p no:warnings
+
+      - name: Schema parity against PostgreSQL
+        env:
+          PARITY_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chartviewer_test
+        run: python scripts/check_pg_parity.py
+
+      - name: API contracts
+        run: python scripts/check_api_contracts.py
+
+      - name: Specialty sync
+        run: python scripts/check_specialty_sync.py
+
+      - name: Boot
+        working-directory: backend
+        env:
+          DATABASE_URL: sqlite:////tmp/boot.db
+          STORAGE_ENDPOINT_URL: x
+          STORAGE_ACCESS_KEY: x
+          STORAGE_SECRET_KEY: x
+          STORAGE_BUCKET_NAME: x
+          STORAGE_PUBLIC_URL: x
+          MASTER_ADMIN_PASSPHRASE: x
+        # The only check that catches a total outage, and the one the suite
+        # cannot give you, because tests never start the app.
+        run: |
+          python -c "
+          import uvicorn, threading, time, urllib.request
+          from main import app
+          routes = [r for r in app.routes if hasattr(r, 'methods')]
+          s = uvicorn.Server(uvicorn.Config(app, host='127.0.0.1', port=8899, log_level='error'))
+          threading.Thread(target=s.run, daemon=True).start()
+          [time.sleep(0.25) for _ in range(20) if not s.started]
+          code = urllib.request.urlopen('http://127.0.0.1:8899/openapi.json', timeout=5).status
+          print('boot', code, len(routes), 'routes')
+          assert code == 200 and len(routes) > 150
+          s.should_exit = True
+          "
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm install
+        working-directory: frontend
+      - run: npm run build
+        working-directory: frontend

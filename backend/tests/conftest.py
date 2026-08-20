@@ -42,8 +42,26 @@ from models import (
 
 # ── Per-test isolated DB ──────────────────────────────────────────────────────
 
+# Point this at a real PostgreSQL to run the suite the way production runs.
+#
+#   TEST_DATABASE_URL=postgresql://... pytest tests -q
+#
+# Why it exists: SQLite is more permissive than PostgreSQL in ways that have
+# repeatedly cost production. VARCHAR lengths are unenforced, `id INTEGER
+# PRIMARY KEY` auto-assigns where PostgreSQL gives no default at all, and there
+# are no network round trips to make a slow write look slow. Each of those
+# passed the whole suite and failed on the first real load.
+#
+# Unset, everything runs on in-memory SQLite exactly as before — fast, and what
+# you want for the hundredth run of the day.
+PG_URL = os.environ.get("TEST_DATABASE_URL", "").strip()
+
+
 @pytest.fixture()
 def engine():
+    if PG_URL:
+        yield from _postgres_engine()
+        return
     # StaticPool is required: every new connection to sqlite ":memory:" gets its
     # OWN empty database, so create_all() on one connection is invisible to the
     # session opened on the next one ("no such table: batches"). StaticPool keeps
@@ -52,15 +70,54 @@ def engine():
                         connect_args={"check_same_thread": False},
                         poolclass=StaticPool)
     Base.metadata.create_all(eng)
-    # Run additive migrations so new columns are present
+    _migrate(eng, strict=False)
+    yield eng
+    eng.dispose()
+
+
+def _postgres_engine():
+    """
+    One throwaway schema per test, so tests stay isolated without dropping and
+    rebuilding a whole database between each one.
+
+    A schema is cheap; `search_path` makes every unqualified table name resolve
+    inside it, so nothing in the application or the migrations has to know.
+    """
+    import uuid
+    from sqlalchemy import text
+
+    schema = "t_%s" % uuid.uuid4().hex[:12]
+    admin = create_engine(PG_URL, isolation_level="AUTOCOMMIT")
+    with admin.connect() as c:
+        c.execute(text('CREATE SCHEMA "%s"' % schema))
+    eng = create_engine(
+        PG_URL,
+        connect_args={"options": "-csearch_path=%s" % schema},
+    )
+    try:
+        Base.metadata.create_all(eng)
+        # strict: on PostgreSQL a failing migration is a real defect, not a
+        # dialect quirk to shrug at. Swallowing them here is what let a table
+        # with no id default reach production.
+        _migrate(eng, strict=True)
+        yield eng
+    finally:
+        eng.dispose()
+        with admin.connect() as c:
+            c.execute(text('DROP SCHEMA IF EXISTS "%s" CASCADE' % schema))
+        admin.dispose()
+
+
+def _migrate(eng, strict: bool):
     from unittest.mock import patch
     with patch("database.engine", eng):
         try:
             migrate()
         except Exception:
-            pass  # SQLite doesn't support all ALTER TABLE forms; Base.metadata covers the rest
-    yield eng
-    eng.dispose()
+            # SQLite does not support every ALTER TABLE form, and Base.metadata
+            # already covers what it misses. PostgreSQL has no such excuse.
+            if strict:
+                raise
 
 
 @pytest.fixture()
