@@ -3219,11 +3219,11 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                     // coding out of 100 and a time-levelled one out of 70 —
                     // so averaging points gives a figure belonging to no chart.
                     { label: 'Coding Score', value: t.coding_score == null ? 'NA' : `${t.coding_score}%`,
-                      color: '#7c3aed', sub: `averaged over ${t.chart_count} chart(s)` },
+                      color: '#7c3aed', sub: `average of ${t.chart_count} chart scores` },
                     { label: 'Reasoning Score', value: t.reasoning_score == null ? 'NA' : `${t.reasoning_score}%`,
                       color: '#0891b2',
                       sub: t.reasoning_charts
-                        ? `over ${t.reasoning_charts} of ${t.chart_count} chart(s) with reasoning`
+                        ? `${t.reasoning_charts} of ${t.chart_count} charts are graded on reasoning`
                         : 'no chart here is graded on reasoning' },
                     { label: 'Right level, weak reasoning', value: `${t.right_code_wrong_reasoning_count}`,
                       color: t.right_code_wrong_reasoning_count > 0 ? '#f59e0b' : '#9ca3af',
@@ -3240,9 +3240,14 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                       sub: `${emBreakdown.mdm_above} above · ${emBreakdown.mdm_below} below · of ${emBreakdown.mdm_judged}`,
                     }] : []),
                   ].map(tile => (
-                    <div key={tile.label} style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '14px 16px', textAlign: 'center' }}>
+                    // The basis of each figure lives in the hover, not under
+                    // it. A rate still has to ship its denominator, but eight
+                    // tiles each carrying a line of prose stopped reading as a
+                    // summary — which is the one job this row has.
+                    <div key={tile.label}
+                         title={tile.sub ? `${tile.label} — ${tile.sub}` : tile.label}
+                         style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '14px 16px', textAlign: 'center', cursor: tile.sub ? 'help' : 'default' }}>
                       <div style={{ fontSize: 22, fontWeight: 800, color: tile.color }}>{tile.value}</div>
-                      {tile.sub && <div style={{ fontSize: 11, color: '#9ca3af' }}>{tile.sub}</div>}
                       <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>{tile.label}</div>
                     </div>
                   ))}
