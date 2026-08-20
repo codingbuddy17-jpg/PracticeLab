@@ -47,6 +47,11 @@ Run all four before pushing anything non-trivial. The suite alone is not enough
 — see the migration trap below for a bug that passed 2000+ tests and still took
 production down.
 
+**CI runs all of this on every push** (`.github/workflows/checks.yml`), so a
+push no longer depends on anyone remembering. Two things live there that you
+cannot get locally without a PostgreSQL: `scripts/check_pg_parity.py` on every
+push, and the full suite against PostgreSQL nightly.
+
 ```bash
 cd backend && PYTHONPATH="$PWD:$PWD/tests" ../.venv/bin/python -m pytest tests -q -p no:warnings
 ```
@@ -71,6 +76,24 @@ interpolation (`` `/x${q}` ``) is invisible to it — append query strings
 `check_specialty_sync.py` asserts the frontend specialty lists match the
 backend `Specialty` enum. They are duplicated with no shared source of truth,
 so adding an enum member silently leaves dropdowns stale.
+
+**Two more, for the two things none of the above can see.**
+
+`scripts/check_pg_parity.py` builds the schema on a real PostgreSQL and
+inspects it. SQLite is more permissive in ways that have taken production down,
+and those are properties of the built schema, so this finds them in seconds
+without running a test. Ids with no default FAIL; prose in a bounded VARCHAR
+warns.
+
+`scripts/smoke_deployed.py --base https://chart-viewer-api-rxrd.onrender.com`
+exercises the DEPLOYED app. Everything else checks local code, and the gap
+between "the code is correct" and "the running service works" is where this
+project has actually been hurt. **Use `--write`**: this codebase degrades to
+silence, so reads pass against a database that cannot be written to — which is
+exactly how a total E/M outage looked healthy from outside.
+
+The API's host is `chart-viewer-api-rxrd.onrender.com`. The obvious name
+without the suffix belongs to somebody else and answers in HTML.
 
 **Boot check** — the only one that catches a total outage, and the one the test
 suite cannot give you, because tests never start the app:
@@ -100,7 +123,19 @@ existing model is invisible to `create_all()`, so:
 - production breaks, because its table is old and has no such column
 
 **A new column on an existing table needs an `_add_col()` call in
-`database.py`.** A new table does not. This took `/auditor/batches` down with
+`database.py`.** A new table does not.
+
+**A new raw-DDL table needs `_PK`, not `id INTEGER PRIMARY KEY`.** That exact
+phrase is SQLite's auto-assigning rowid alias; in PostgreSQL it is a plain
+integer with no default, so every insert omitting `id` raises
+`NotNullViolation`. It bites only tables with **no ORM model** — for the others
+`create_all()` builds them properly and the raw statement is a no-op behind
+`IF NOT EXISTS`. It took the whole E/M module down: no answer key, grading
+result or scoring config could be written, with 2,510 tests green.
+
+**Migrations fail silently on PostgreSQL and pass on SQLite.** Four had never
+run in production. Write dialect-portable SQL: `TRUE`/`FALSE` not `1`/`0` for
+booleans, and `CAST(x AS TEXT)` rather than `::text`, which SQLite rejects. This took `/auditor/batches` down with
 2074 tests green.
 
 Migrations are additive and non-fatal — a failure logs and startup continues.
@@ -193,6 +228,17 @@ and fatal at a thousand. Every list endpoint pages, and counts come from the
 whole filtered set rather than the loaded page — counting loaded rows told a
 trainer there were no closed batches whenever they fell past page one.
 
+**A guard must be per FIELD, not per file.** "Does this file mention
+`CodeSuggest`" passes as soon as one branch has it — which is how the E/M
+diagnosis rows and both key editors were reported as wired while rendering
+plain inputs. Anchor a test on the value being described, then delete it and
+watch the test fail. Same for screens: enumerate them, do not summarise.
+
+**Copy earns its place or goes.** The batch screen carried five notices, most
+narrating the next screen or the mode the trainer had just chosen. Keep what a
+user cannot see for themselves; cut walkthroughs of screens that explain
+themselves, and never name the internal engine doing the work.
+
 **Check for siblings before calling a UI bug fixed.** These three classes have
 each recurred more than once: unpaginated lists that die at scale, counts
 computed over the current page instead of the query, and copy that describes
@@ -237,11 +283,28 @@ was close, so it is planted only where a trainer has set
 coders go wrong; it follows from the time, and critical-care **time** is not
 planted at all — an auditor validates the code, not the arithmetic.
 
+**Anything asking "does this chart have a key" must know about
+`em_answer_keys`.** It has no ORM model and no row in `answer_keys`, so a join
+against `AnswerKey` reports zero for every E/M chart — which told a trainer who
+had just entered five keys that nothing could be graded. `EM_KEY_SPECIALTIES`
+and `chart_ids_with_keys()` live in `services/em_audit_key.py`, because the
+coder side and the auditor side both need them and neither should import the
+other.
+
 **E/M and ED Profee are auditable, and their key is a different table.**
 `em_answer_keys`, adapted by `services/em_audit_key.py` into the ordinary key
 shape. Never ask a trainer for an ordinary key as well: one chart with two
 truths disagrees the first time either is edited, silently, with the coder
 graded against one and the auditor against the other.
+
+**E/M is not uniform, so its form is resolved per CHART.** A preventive visit,
+a consult, or a visit levelled by time is not graded on medical decision making
+at all, and `applicable_weights` drops the MDM weights for them. The auditor
+form, its completion check, its submit gate and the trainer key screen all use
+`sections_for_chart()`. Keying on category is safe — it is a property of the
+encounter, already plain from the code on the claim — but never key on whether
+something was planted. A chart with **no key** keeps the full form: absence is
+not evidence it is preventive.
 
 **MDM is audited as three levels, never as the 26 element ticks.** COPA, Data
 Review and Risk — single-valued, Revise-only, picked from a list served by
@@ -339,7 +402,11 @@ it looks. Two faults passed 2258 tests and appeared on the first real load:
   trips rather than the query.
 
 Any bulk write or new column wants **one real run against PostgreSQL** before
-it is called done.
+it is called done. `TEST_DATABASE_URL=postgresql://... pytest tests` now does
+exactly that — one throwaway schema per test, and migration failures RAISE
+rather than being swallowed the way they are on SQLite. Measured at ~90s per
+test against a remote database, so point it at a local PostgreSQL; CI runs it
+nightly against a service container.
 
 ---
 
