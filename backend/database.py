@@ -716,8 +716,8 @@ def _run_migrations():
     # every category is levelled by MDM: preventive visits are levelled by age
     # and patient type, critical care by total time. The level columns are
     # simply unread for those.
-    _run("""CREATE TABLE IF NOT EXISTS em_answer_keys (
-        id INTEGER PRIMARY KEY,
+    _run(f"""CREATE TABLE IF NOT EXISTS em_answer_keys (
+        id {_PK},
         chart_id INTEGER REFERENCES charts(id) NOT NULL UNIQUE,
         -- COPA elements (counts per problem type)
         copa_self_limited INTEGER NOT NULL DEFAULT 0,
@@ -772,8 +772,8 @@ def _run_migrations():
     # component. Linked one-to-one to the grading_results row that carries the
     # headline score, so E/M charts report alongside every other specialty
     # while keeping their own detail.
-    _run("""CREATE TABLE IF NOT EXISTS em_grading_results (
-        id INTEGER PRIMARY KEY,
+    _run(f"""CREATE TABLE IF NOT EXISTS em_grading_results (
+        id {_PK},
         result_id INTEGER REFERENCES grading_results(id) NOT NULL UNIQUE,
         -- Submitted COPA
         sub_copa_self_limited INTEGER NOT NULL DEFAULT 0,
@@ -852,6 +852,38 @@ def _run_migrations():
     # schema change and leaves every stored row valid.
     _add_col("em_answer_keys", "em_category", "VARCHAR(30)", "TEXT")
     _add_col("em_answer_keys", "critical_care_minutes", "INTEGER", "INTEGER")
+
+    # ── repair: the em_* tables were created without an id default ──────────
+    #
+    # They were written as a literal "id INTEGER PRIMARY KEY" rather than
+    # through _PK. In SQLite that exact phrase IS the auto-assigning rowid
+    # alias, so every test passed; in PostgreSQL it is a plain integer column
+    # with no default, and every insert that omits id raises NotNullViolation.
+    # These three have no ORM model, so create_all() never corrected them the
+    # way it did for the tables it owns — which is why only em_* was affected.
+    #
+    # Result in production: nothing in the E/M module could write. No answer
+    # key could be saved or uploaded, no grading result stored, no scoring
+    # config changed. Found 2026-08-20 when a trainer hit it on key upload.
+    #
+    # Attaches a sequence only where one is missing, and starts it above the
+    # highest id present, so it is safe to re-run and safe on a populated
+    # table. PostgreSQL only: SQLite has been assigning these all along.
+    if not is_sqlite:
+        for _tbl in ("em_answer_keys", "em_grading_results", "em_scoring_configs"):
+            _run("""
+                DO $$
+                BEGIN
+                    IF EXISTS (SELECT 1 FROM information_schema.columns
+                               WHERE table_name = '{t}' AND column_name = 'id'
+                                 AND column_default IS NULL) THEN
+                        EXECUTE 'CREATE SEQUENCE IF NOT EXISTS {t}_id_seq OWNED BY {t}.id';
+                        EXECUTE 'ALTER TABLE {t} ALTER COLUMN id SET DEFAULT nextval(''{t}_id_seq'')';
+                        PERFORM setval('{t}_id_seq',
+                                       COALESCE((SELECT MAX(id) FROM {t}), 0) + 1, false);
+                    END IF;
+                END $$;
+            """.replace("{t}", _tbl))
     _add_col("em_grading_results", "sub_critical_care_minutes", "INTEGER", "INTEGER")
     _add_col("practice_chart_drafts", "critical_care_minutes", "INTEGER", "INTEGER")
 
@@ -863,8 +895,8 @@ def _run_migrations():
     # accuracy (the MDM elements). Whichever parts apply to a given chart are
     # renormalised to 100 at grading time, so every chart is scored out of the
     # same total regardless of category.
-    _run("""CREATE TABLE IF NOT EXISTS em_scoring_configs (
-        id INTEGER PRIMARY KEY,
+    _run(f"""CREATE TABLE IF NOT EXISTS em_scoring_configs (
+        id {_PK},
         line1_weight FLOAT NOT NULL DEFAULT 70.0,
         line2_weight FLOAT NOT NULL DEFAULT 30.0,
         em_level_weight FLOAT NOT NULL DEFAULT 23.33,
