@@ -10,6 +10,14 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    # Nightly, 02:00 UTC. The PostgreSQL pass lives here rather than on every
+    # push: it rebuilds the whole schema per test, which is slow enough that
+    # gating a push on it would teach people to skip CI. Measured against a
+    # remote database it ran 90 seconds per test; locally it is far cheaper,
+    # but still not push-speed.
+    - cron: '0 2 * * *'
+  workflow_dispatch:
 
 jobs:
   backend:
@@ -43,14 +51,8 @@ jobs:
       - name: Install
         run: pip install -r backend/requirements.txt pytest
 
-      - name: Tests (SQLite — fast pass)
+      - name: Tests (SQLite — every push)
         working-directory: backend
-        run: PYTHONPATH="$PWD:$PWD/tests" python -m pytest tests -q -p no:warnings
-
-      - name: Tests (PostgreSQL — the pass that catches what SQLite hides)
-        working-directory: backend
-        env:
-          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chartviewer_test
         run: PYTHONPATH="$PWD:$PWD/tests" python -m pytest tests -q -p no:warnings
 
       - name: Schema parity against PostgreSQL
@@ -89,6 +91,42 @@ jobs:
           assert code == 200 and len(routes) > 150
           s.should_exit = True
           "
+
+  # The full suite against a real PostgreSQL. Nightly and on demand, not on
+  # every push — see the schedule note above.
+  #
+  # What this catches that the SQLite pass cannot: anything where the two
+  # engines disagree at RUNTIME rather than in the schema. A value too long for
+  # its column, a migration that fails on a type PostgreSQL enforces, an
+  # ordering assumption that only holds on SQLite, a query that is legal in one
+  # dialect and not the other.
+  postgres-suite:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: chartviewer_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports: ['5432:5432']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install
+        run: pip install -r backend/requirements.txt pytest
+      - name: Tests (PostgreSQL)
+        working-directory: backend
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chartviewer_test
+        run: PYTHONPATH="$PWD:$PWD/tests" python -m pytest tests -q -p no:warnings
 
   frontend:
     runs-on: ubuntu-latest
