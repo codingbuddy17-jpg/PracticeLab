@@ -206,10 +206,31 @@ def _em_feedback_items(scoring: dict, ak: dict, em: dict, cfg: dict) -> list:
         {"section": "Coding Accuracy", "issue": f"E/M Level: {scoring.get('em_level_score', 0):.1f}/{cfg['em_level_weight']:.1f} pts", "ak_code": ak.get("em_code", ""), "coder_code": em.get("em_code", "")},
         {"section": "Coding Accuracy", "issue": f"CPT: {scoring.get('cpt_score', 0):.1f} pts", "ak_code": "", "coder_code": ""},
         {"section": "Coding Accuracy", "issue": f"Dx: {scoring.get('dx_score', 0):.1f} pts", "ak_code": "", "coder_code": ""},
-        {"section": "Reasoning Accuracy", "issue": f"COPA ({scoring.get('derived_copa_level', '')}) — {scoring.get('copa_element_score', 0):.1f} pts", "ak_code": ak.get("copa_level", ""), "coder_code": scoring.get("derived_copa_level", "")},
-        {"section": "Reasoning Accuracy", "issue": f"Data Review ({scoring.get('derived_dr_level', '')}) — {scoring.get('dr_element_score', 0):.1f} pts", "ak_code": ak.get("dr_level", ""), "coder_code": scoring.get("derived_dr_level", "")},
-        {"section": "Reasoning Accuracy", "issue": f"Risk ({scoring.get('derived_risk_level', '')}) — {scoring.get('risk_element_score', 0):.1f} pts", "ak_code": ak.get("risk_level", ""), "coder_code": scoring.get("derived_risk_level", "")},
     ]
+    # The three MDM levels, ONLY where the chart is graded on them.
+    #
+    # A preventive visit, or one levelled by time, is not assessed on medical
+    # decision making — applicable_weights gives it no COPA, Data Review or
+    # Risk weight at all. Emitting the rows anyway put the key's stored default
+    # ("Minimal") against the coder's derived default (also "Minimal"), which
+    # matched every time. Analytics counted those as judgements and reported
+    # 100% COPA / Data Review / Risk for a coder who had never been asked.
+    if scoring.get("uses_mdm"):
+        items += [
+            {"section": "Reasoning Accuracy", "issue": f"COPA ({scoring.get('derived_copa_level', '')}) — {scoring.get('copa_element_score', 0):.1f} pts", "ak_code": ak.get("copa_level", ""), "coder_code": scoring.get("derived_copa_level", "")},
+            {"section": "Reasoning Accuracy", "issue": f"Data Review ({scoring.get('derived_dr_level', '')}) — {scoring.get('dr_element_score', 0):.1f} pts", "ak_code": ak.get("dr_level", ""), "coder_code": scoring.get("derived_dr_level", "")},
+            {"section": "Reasoning Accuracy", "issue": f"Risk ({scoring.get('derived_risk_level', '')}) — {scoring.get('risk_element_score', 0):.1f} pts", "ak_code": ak.get("risk_level", ""), "coder_code": scoring.get("derived_risk_level", "")},
+        ]
+    elif (scoring.get("ak_level_method") or "").upper() == "TIME":
+        # Time-levelled charts DO have a reasoning component — it is the time
+        # supporting the code — so say what it was worth rather than leaving
+        # the section empty and looking like nothing was assessed.
+        items.append({
+            "section": "Reasoning Accuracy",
+            "issue": f"Time supports the level — {scoring.get('reasoning_accuracy_total', 0):.1f} pts",
+            "ak_code": str(ak.get("total_time") or ""),
+            "coder_code": str(em.get("total_time") or ""),
+        })
     return items
 
 
@@ -1371,6 +1392,20 @@ def regrade_practice_session(session_id: int, db: Session = Depends(get_db)):
 _ELEMENTS = (("copa", "COPA"), ("dr", "Data Review"), ("risk", "Risk"))
 
 
+def _match_pct(charts, key):
+    """
+    Percentage over the charts where the element could be judged.
+
+    None, not 0 and not 100, when nothing was judged. NA is a real value here:
+    a coder whose charts were all preventive has no COPA record, and reporting
+    either number invents one. See the NA rule in CLAUDE.md.
+    """
+    judged = [c for c in charts if c.get("mdm_judged_chart")]
+    if not judged:
+        return None
+    return round(100 * sum(1 for c in judged if c[key]) / len(judged), 1)
+
+
 def _element_summary(charts: list) -> list:
     """
     How each reasoning element is judged: overstated, understated, or right.
@@ -1534,6 +1569,11 @@ def _em_breakdown(db, batch_id=None, specialty=None, from_date=None, to_date=Non
 
         copa_match, dr_match, risk_match = _matched(copa_row), _matched(dr_row), _matched(risk_row)
         em_level_match = _matched(em_row)
+        # Whether this chart was assessed on MDM at all. Preventive visits and
+        # time-levelled charts are not, and a chart nobody was asked about must
+        # not count towards a percentage in either direction — neither as a
+        # match (which read 100%) nor as a miss (which would read 0%).
+        mdm_judged_chart = bool(copa_row or dr_row or risk_row)
 
         # ── which ELEMENT was misjudged, and which way ───────────────────────
         #
@@ -1566,7 +1606,19 @@ def _em_breakdown(db, batch_id=None, specialty=None, from_date=None, to_date=Non
         # "Right level, wrong reasoning" = E/M code correct but RA < threshold
         # Right level, wrong reasoning: the code is correct but under half the
         # reasoning points were earned.
-        right_code_wrong_reasoning = em_level_match and ra_total < ra_half
+        # A chart with no reasoning component cannot have wrong reasoning. Left
+        # unguarded this flagged every preventive chart: ra_total is 0 because
+        # nothing was assessed, which is below any threshold.
+        right_code_wrong_reasoning = bool(
+            ra_items and em_level_match and ra_total < ra_half)
+
+        # What each line was worth ON THIS CHART. Not a constant: a chart with
+        # no reasoning component scores its coding out of the full 100, because
+        # applicable_weights folds line 2 into line 1 when line 2 is empty.
+        # Without this the screen showed a points subtotal that reads as a
+        # percentage — "58 pts" out of 70 looks like 58% and is really 83%.
+        chart_coding_max = 100.0 - (ra_max if ra_items else 0.0)
+        chart_reasoning_max = ra_max if ra_items else 0.0
 
         # ── does the coder's own reasoning support the level they chose? ────
         #
@@ -1611,6 +1663,9 @@ def _em_breakdown(db, batch_id=None, specialty=None, from_date=None, to_date=Non
             "copa_delta": copa_delta, "dr_delta": dr_delta, "risk_delta": risk_delta,
             "em_level_match": em_level_match,
             "right_code_wrong_reasoning": right_code_wrong_reasoning,
+            "mdm_judged_chart": mdm_judged_chart,
+            "coding_max": chart_coding_max,
+            "reasoning_max": chart_reasoning_max,
         }
         # emp_id is the coder identity everywhere else. Keyed on the typed
         # name, one person entered two ways became two coders here — and on a
@@ -1635,15 +1690,20 @@ def _em_breakdown(db, batch_id=None, specialty=None, from_date=None, to_date=Non
             "avg_total": round(sum(c["total_score"] for c in charts) / n, 1),
             "avg_coding_accuracy": round(sum(c["coding_accuracy"] for c in charts) / n, 1),
             "avg_reasoning_accuracy": round(sum(c["reasoning_accuracy"] for c in charts) / n, 1),
+            "coding_max": round(sum(c["coding_max"] for c in charts) / n, 1),
+            "reasoning_max": round(sum(c["reasoning_max"] for c in charts) / n, 1),
             # Counted over the charts where it could be judged, not over all —
             # a coder who left elements blank must not read as consistent.
             "mdm_judged": sum(1 for c in charts if c["mdm_consistency"]),
             "mdm_consistent": sum(1 for c in charts if c["mdm_consistency"] == "consistent"),
             "mdm_above": sum(1 for c in charts if c["mdm_consistency"] == "above"),
             "mdm_below": sum(1 for c in charts if c["mdm_consistency"] == "below"),
-            "copa_pct": round(100 * sum(1 for c in charts if c["copa_match"]) / n, 1),
-            "dr_pct": round(100 * sum(1 for c in charts if c["dr_match"]) / n, 1),
-            "risk_pct": round(100 * sum(1 for c in charts if c["risk_match"]) / n, 1),
+            "copa_pct": _match_pct(charts, "copa_match"),
+            "dr_pct": _match_pct(charts, "dr_match"),
+            "risk_pct": _match_pct(charts, "risk_match"),
+            # How many of this coder's charts were graded on MDM at all, so the
+            # three figures above ship their denominator rather than floating.
+            "mdm_charts": sum(1 for c in charts if c.get("mdm_judged_chart")),
             "em_level_pct": round(100 * sum(1 for c in charts if c["em_level_match"]) / n, 1),
             "right_code_wrong_reasoning_count": sum(1 for c in charts if c["right_code_wrong_reasoning"]),
             "pass_count": sum(1 for c in charts if c["pass_fail"] == "PASS"),
@@ -1656,6 +1716,8 @@ def _em_breakdown(db, batch_id=None, specialty=None, from_date=None, to_date=Non
         "avg_total": round(sum(c["total_score"] for c in all_charts) / n_all, 1),
         "avg_coding_accuracy": round(sum(c["coding_accuracy"] for c in all_charts) / n_all, 1),
         "avg_reasoning_accuracy": round(sum(c["reasoning_accuracy"] for c in all_charts) / n_all, 1),
+        "coding_max": round(sum(c["coding_max"] for c in all_charts) / n_all, 1),
+        "reasoning_max": round(sum(c["reasoning_max"] for c in all_charts) / n_all, 1),
         # ── where the reasoning goes wrong, and what it costs ───────────────
         #
         # Two different questions, and a trainer needs both:
@@ -1672,9 +1734,10 @@ def _em_breakdown(db, batch_id=None, specialty=None, from_date=None, to_date=Non
         # nothing at all.
         "elements": _element_summary(all_charts),
         "attribution": _level_error_attribution(all_charts),
-        "copa_pct": round(100 * sum(1 for c in all_charts if c["copa_match"]) / n_all, 1),
-        "dr_pct": round(100 * sum(1 for c in all_charts if c["dr_match"]) / n_all, 1),
-        "risk_pct": round(100 * sum(1 for c in all_charts if c["risk_match"]) / n_all, 1),
+        "copa_pct": _match_pct(all_charts, "copa_match"),
+        "dr_pct": _match_pct(all_charts, "dr_match"),
+        "risk_pct": _match_pct(all_charts, "risk_match"),
+        "mdm_charts": sum(1 for c in all_charts if c.get("mdm_judged_chart")),
         "em_level_pct": round(100 * sum(1 for c in all_charts if c["em_level_match"]) / n_all, 1),
         "right_code_wrong_reasoning_count": sum(1 for c in all_charts if c["right_code_wrong_reasoning"]),
         # Team-level MDM consistency, over the charts where it could be judged.
@@ -1689,11 +1752,14 @@ def _em_breakdown(db, batch_id=None, specialty=None, from_date=None, to_date=Non
     # are already on screen; naming the lowest is the step a reader would take
     # next, and it is the thing a session gets built around.
     weakest = None
-    if all_charts:
+    if all_charts and team["mdm_charts"]:
+        # Only where MDM was judged. With no MDM charts the three figures are
+        # None, and naming a "weakest" among three absences is invention.
         comps = [("COPA", team["copa_pct"]), ("Data Review", team["dr_pct"]),
                  ("Risk", team["risk_pct"])]
+        comps = [c for c in comps if c[1] is not None]
         comps.sort(key=lambda x: x[1])
-        if comps[0][1] < comps[-1][1]:
+        if comps and comps[0][1] < comps[-1][1]:
             weakest = {"component": comps[0][0], "match_pct": comps[0][1],
                        "strongest": comps[-1][0], "strongest_pct": comps[-1][1]}
 

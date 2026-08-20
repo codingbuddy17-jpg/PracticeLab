@@ -1688,6 +1688,12 @@ function parseEMFeedback(feedback: ResultRow['feedback']) {
     risk:     pick(raItems, 'Risk'),
     ca_total: caItems.reduce((s, f) => s + (extractPts(f.issue) ?? 0), 0),
     ra_total: raItems.reduce((s, f) => s + (extractPts(f.issue) ?? 0), 0),
+    // What each line was worth on THIS chart. A chart with no reasoning
+    // component — a preventive visit — scores its coding out of the full 100,
+    // because the reasoning weight folds into it. Without the denominator the
+    // subtotal reads as a percentage and understates the coder badly.
+    ca_max: raItems.length ? 70 : 100,
+    ra_max: raItems.length ? 30 : 0,
   }
 }
 
@@ -1710,7 +1716,7 @@ function EMResultCard({ r }: { r: ResultRow }) {
         {/* Coding Accuracy */}
         <div style={{ background: '#f5f3ff', border: '1px solid #ddd6fe', borderRadius: 8, padding: '10px 12px' }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: '#5b21b6', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-            Coding Accuracy — {em.ca_total.toFixed(1)} pts
+            Coding Accuracy — {em.ca_total.toFixed(1)} of {em.ca_max ?? 70} pts
           </div>
           <EMScoreLine label="E/M Level" pts={em.em_level?.pts} ak={em.em_level?.ak} sub={em.em_level?.sub} isMatch={levelMatch === null ? null : !!levelMatch} />
           <EMScoreLine label="CPT" pts={em.cpt?.pts} />
@@ -1719,7 +1725,7 @@ function EMResultCard({ r }: { r: ResultRow }) {
         {/* Reasoning Accuracy */}
         <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '10px 12px' }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: '#065f46', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-            Reasoning Accuracy — {em.ra_total.toFixed(1)} pts
+            Reasoning Accuracy — {em.ra_total.toFixed(1)} of {em.ra_max ?? 30} pts
           </div>
           <EMScoreLine label="COPA" pts={em.copa?.pts} ak={em.copa?.ak} sub={em.copa?.sub} isMatch={em.copa?.ak === em.copa?.sub && !!em.copa?.ak} />
           <EMScoreLine label="Data Review" pts={em.dr?.pts} ak={em.dr?.ak} sub={em.dr?.sub} isMatch={em.dr?.ak === em.dr?.sub && !!em.dr?.ak} />

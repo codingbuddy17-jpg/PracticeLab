@@ -226,3 +226,68 @@ class TestTheAuditorIsNotAskedAboutMdmWhereItDoesNotApply:
         keys = [s["key"] for s in body["form"]["sections"]]
         assert "MDM" not in keys
         assert "PDx" in keys
+
+
+class TestNonMdmChartsDoNotProduceMdmJudgements:
+    """
+    A preventive visit, or one levelled by time, is not graded on medical
+    decision making. It used to get COPA / Data Review / Risk feedback rows
+    anyway, carrying the key's stored default against the coder's derived
+    default — both "Minimal", so they matched every time.
+
+    Analytics counted those as judgements. A coder who had never been asked
+    about MDM read 100% on all three, and every preventive chart was flagged
+    "right code, wrong reasoning" because its reasoning total is 0.
+    """
+
+    def _items(self, uses_mdm, method="MDM"):
+        from routers.practicelab_pkg.practice_sessions import _em_feedback_items
+        scoring = {
+            "em_level_score": 35.0, "cpt_score": 0.0, "dx_score": 23.3,
+            "copa_element_score": 0.0, "dr_element_score": 0.0,
+            "risk_element_score": 0.0, "derived_copa_level": "Minimal",
+            "derived_dr_level": "Minimal", "derived_risk_level": "Minimal",
+            "uses_mdm": uses_mdm, "ak_level_method": method,
+            "reasoning_accuracy_total": 30.0,
+        }
+        return _em_feedback_items(
+            scoring, {"em_code": "99214", "copa_level": "Minimal",
+                      "dr_level": "Minimal", "risk_level": "Minimal",
+                      "total_time": 35},
+            {"em_code": "99214", "total_time": 35}, {"em_level_weight": 35.0})
+
+    def test_an_mdm_chart_still_reports_its_three_levels(self):
+        ra = [i["issue"] for i in self._items(True)
+              if i["section"] == "Reasoning Accuracy"]
+        assert any(i.startswith("COPA") for i in ra)
+        assert any(i.startswith("Data Review") for i in ra)
+        assert any(i.startswith("Risk") for i in ra)
+
+    def test_a_preventive_chart_reports_none_of_them(self):
+        ra = [i["issue"] for i in self._items(False, method="MDM")]
+        assert not [i for i in ra if i.startswith(("COPA", "Data Review", "Risk"))]
+
+    def test_a_time_levelled_chart_says_what_its_reasoning_was_worth(self):
+        """
+        Not simply blank: time-levelled charts DO have a reasoning component —
+        the time supporting the code — and an empty section reads as though
+        nothing was assessed.
+        """
+        ra = [i["issue"] for i in self._items(False, method="TIME")
+              if i["section"] == "Reasoning Accuracy"]
+        assert ra, "a time-levelled chart reported no reasoning at all"
+        assert any(i.startswith("Time") for i in ra), ra
+
+    def test_a_chart_nobody_was_asked_about_does_not_move_the_percentage(self):
+        """NA is a real value: neither 100% nor 0%."""
+        from routers.practicelab_pkg.practice_sessions import _match_pct
+        charts = [{"mdm_judged_chart": False, "copa_match": False},
+                  {"mdm_judged_chart": False, "copa_match": False}]
+        assert _match_pct(charts, "copa_match") is None
+
+    def test_judged_charts_alone_set_the_percentage(self):
+        from routers.practicelab_pkg.practice_sessions import _match_pct
+        charts = [{"mdm_judged_chart": True, "copa_match": True},
+                  {"mdm_judged_chart": True, "copa_match": False},
+                  {"mdm_judged_chart": False, "copa_match": False}]
+        assert _match_pct(charts, "copa_match") == 50.0

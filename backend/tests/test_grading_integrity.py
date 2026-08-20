@@ -146,6 +146,9 @@ class TestFeedbackIsReadByLabelNotPosition:
             "em_level_score": 23.33, "cpt_score": 10.0, "dx_score": 5.0,
             "copa_element_score": 0.0, "dr_element_score": 0.0, "risk_element_score": 0.0,
             "derived_copa_level": "Low", "derived_dr_level": "Low", "derived_risk_level": "Low",
+            # This test is about row ORDER, so it needs the MDM rows present.
+            # They are emitted only for charts actually graded on MDM.
+            "uses_mdm": True,
         }
         items = _em_feedback_items(scoring, {"em_code": "99214"}, {"em_code": "99213"},
                                    {"em_level_weight": 23.33})

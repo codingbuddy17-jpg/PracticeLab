@@ -205,6 +205,18 @@ function Box({ label, value, color, hint }: { label: string; value: any; color?:
   )
 }
 
+/**
+ * A points subtotal as a share of what it was worth.
+ *
+ * The raw figure was shown on its own and read as a percentage: 58 points out
+ * of a 70-point line looks like 58% and is really 83%. A rate ships its
+ * denominator, and where there is no denominator the answer is NA — not 0.
+ */
+function pctOf(points: number | null | undefined, max: number | null | undefined) {
+  if (points == null || !max) return 'NA'
+  return `${Math.round((points / max) * 1000) / 10}%`
+}
+
 export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: number) => void } = {}) {
   const [tab, setTab] = useState<'overview' | 'specialty' | 'chart' | 'batch' | 'coder' | 'category' | 'teaching' | 'matrix' | 'errors' | 'em_mdm'>(
     () => (localStorage.getItem(TAB_STORAGE_KEY) as any) || 'overview'
@@ -3180,10 +3192,16 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
 
           {!emLoading && emBreakdown?.has_data && (() => {
             const t = emBreakdown.team
+            // A bar cannot say NA — a missing value would draw as an empty
+            // column and read as zero. The three MDM components are charted
+            // only when some chart was actually graded on MDM; E/M level
+            // always applies.
             const componentData = [
-              { name: 'COPA', pct: t.copa_pct, fill: '#7c3aed' },
-              { name: 'Data Review', pct: t.dr_pct, fill: '#0891b2' },
-              { name: 'Risk', pct: t.risk_pct, fill: '#dc2626' },
+              ...(t.mdm_charts > 0 ? [
+                { name: 'COPA', pct: t.copa_pct, fill: '#7c3aed' },
+                { name: 'Data Review', pct: t.dr_pct, fill: '#0891b2' },
+                { name: 'Risk', pct: t.risk_pct, fill: '#dc2626' },
+              ] : []),
               { name: 'E/M Level', pct: t.em_level_pct, fill: '#059669' },
             ]
             return (
@@ -3204,9 +3222,17 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                     // Against the configured E/M pass mark, not a fixed 80.
                     { label: 'Avg Total Score', value: `${t.avg_total}%`,
                       color: cc(t.avg_total, emBreakdown.pass_threshold) },
-                    { label: 'Coding Accuracy', value: `${t.avg_coding_accuracy.toFixed(1)} pts`, color: '#7c3aed' },
-                    { label: 'Reasoning Accuracy', value: `${t.avg_reasoning_accuracy.toFixed(1)} pts`, color: '#0891b2' },
-                    { label: 'Right Code, Wrong Reasoning', value: `${t.right_code_wrong_reasoning_count}`, color: '#f59e0b', sub: 'charts' },
+                    // Points out of the line's own weight, shown as a share of
+                    // it. The raw figure read as a percentage — "58 pts" out of
+                    // 70 looks like 58% and is really 83% — and the module's
+                    // rule is that a rate ships its denominator.
+                    { label: 'Coding Score', value: pctOf(t.avg_coding_accuracy, t.coding_max),
+                      color: '#7c3aed', sub: `${t.avg_coding_accuracy.toFixed(1)} of ${t.coding_max} pts` },
+                    { label: 'Reasoning Score', value: pctOf(t.avg_reasoning_accuracy, t.reasoning_max),
+                      color: '#0891b2', sub: `${t.avg_reasoning_accuracy.toFixed(1)} of ${t.reasoning_max} pts` },
+                    { label: 'Right code, wrong reasoning', value: `${t.right_code_wrong_reasoning_count}`,
+                      color: '#f59e0b',
+                      sub: 'charts levelled correctly on reasoning that did not support it' },
                     // Does the coder's own reasoning support the level they
                     // chose? Counted only over charts where all three elements
                     // were stated and the code carries an MDM level — a blank
@@ -3252,7 +3278,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                     <table style={{ borderCollapse: 'collapse', fontSize: 12, width: '100%' }}>
                       <thead>
                         <tr style={{ background: '#f9fafb' }}>
-                          {['Coder', 'Charts', 'Total %', 'Coding Acc.', 'Reasoning Acc.', 'COPA Match', 'DR Match', 'Risk Match', 'E/M Level', 'RCWR'].map(h => (
+                          {['Coder', 'Charts', 'Total %', 'Coding', 'Reasoning', 'COPA', 'Data Review', 'Risk', 'E/M Level', 'Right code, wrong reasoning'].map(h => (
                             <th key={h} style={{ padding: '8px 10px', textAlign: h === 'Coder' ? 'left' : 'center', fontWeight: 700, color: '#374151', borderBottom: '2px solid #e5e7eb', whiteSpace: 'nowrap' as const, fontSize: 11 }}>{h}</th>
                           ))}
                         </tr>
@@ -3270,10 +3296,22 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                             </td>
                             <td style={{ padding: '7px 10px', textAlign: 'center', borderBottom: '1px solid #f3f4f6', color: '#6b7280' }}>{c.chart_count}</td>
                             <td style={{ padding: '7px 10px', textAlign: 'center', borderBottom: '1px solid #f3f4f6', fontWeight: 700, color: c.avg_total >= 80 ? '#059669' : '#dc2626' }}>{c.avg_total}%</td>
-                            <td style={{ padding: '7px 10px', textAlign: 'center', borderBottom: '1px solid #f3f4f6', color: '#7c3aed', fontWeight: 600 }}>{c.avg_coding_accuracy.toFixed(1)}</td>
-                            <td style={{ padding: '7px 10px', textAlign: 'center', borderBottom: '1px solid #f3f4f6', color: '#0891b2', fontWeight: 600 }}>{c.avg_reasoning_accuracy.toFixed(1)}</td>
+                            <td style={{ padding: '7px 10px', textAlign: 'center', borderBottom: '1px solid #f3f4f6', color: '#7c3aed', fontWeight: 600 }}
+                                title={`${c.avg_coding_accuracy.toFixed(1)} of ${c.coding_max} pts`}>
+                              {pctOf(c.avg_coding_accuracy, c.coding_max)}
+                            </td>
+                            <td style={{ padding: '7px 10px', textAlign: 'center', borderBottom: '1px solid #f3f4f6', color: '#0891b2', fontWeight: 600 }}
+                                title={`${c.avg_reasoning_accuracy.toFixed(1)} of ${c.reasoning_max} pts`}>
+                              {pctOf(c.avg_reasoning_accuracy, c.reasoning_max)}
+                            </td>
+                            {/* NA where the element was never judged — a coder
+                                whose charts were all preventive has no COPA
+                                record, and 100% or 0% would both invent one. */}
                             {[c.copa_pct, c.dr_pct, c.risk_pct, c.em_level_pct].map((pct, j) => (
-                              <td key={j} style={{ padding: '7px 10px', textAlign: 'center', borderBottom: '1px solid #f3f4f6', fontWeight: 600, color: pct >= 80 ? '#059669' : pct >= 60 ? '#d97706' : '#dc2626' }}>{pct}%</td>
+                              <td key={j} style={{ padding: '7px 10px', textAlign: 'center', borderBottom: '1px solid #f3f4f6', fontWeight: 600, color: pct == null ? '#9ca3af' : pct >= 80 ? '#059669' : pct >= 60 ? '#d97706' : '#dc2626' }}
+                                  title={j < 3 && pct != null ? `over ${c.mdm_charts} chart(s) graded on MDM` : undefined}>
+                                {pct == null ? 'NA' : `${pct}%`}
+                              </td>
                             ))}
                             <td style={{ padding: '7px 10px', textAlign: 'center', borderBottom: '1px solid #f3f4f6', fontWeight: 700, color: c.right_code_wrong_reasoning_count > 0 ? '#f59e0b' : '#9ca3af' }}>
                               {c.right_code_wrong_reasoning_count > 0 ? `⚠ ${c.right_code_wrong_reasoning_count}` : '—'}
