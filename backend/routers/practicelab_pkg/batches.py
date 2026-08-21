@@ -718,6 +718,12 @@ def get_batch(batch_id: int, db: Session = Depends(get_db)):
     assignments = (db.query(BatchChart)
                    .filter(BatchChart.batch_id == batch_id)
                    .join(Chart, Chart.id == BatchChart.chart_id).all())
+    graded_pairs = {
+        (r.coder_name, r.chart_id)
+        for r in db.query(GradingResult.coder_name, GradingResult.chart_id)
+        .filter(GradingResult.batch_id == batch_id,
+                GradingResult.total_score.isnot(None)).all()
+    }
 
     # cycle_id -> {coder_name: token}. One query rather than one per cycle: a
     # batch that has run a dozen cycles would otherwise pay a round trip each.
@@ -730,19 +736,23 @@ def get_batch(batch_id: int, db: Session = Depends(get_db)):
 
     coder_map: dict[str, list] = {}
     for a in assignments:
+        submitted = (a.coder_name, a.chart_id) in graded_pairs
         coder_map.setdefault(a.coder_name, []).append({
             "chart_id": a.chart_id,
             "chart_number": a.chart.chart_number,
             "specialty": a.chart.specialty.value,
             "category": a.chart.category,
             "difficulty": a.chart.difficulty.value,
-            "submission_status": a.submission_status.value,
+            "submission_status": "Submitted" if submitted else a.submission_status.value,
         })
 
     now = datetime.utcnow()
     cycles = db.query(BatchAllocationCycle).filter(BatchAllocationCycle.batch_id == batch_id).order_by(BatchAllocationCycle.cycle_number).all()
 
-    pending_submissions_count = sum(1 for a in assignments if a.submission_status == SubmissionStatus.PENDING)
+    pending_submissions_count = sum(
+        1 for a in assignments
+        if (a.coder_name, a.chart_id) not in graded_pairs
+    )
     pending_drg_count = 0
     if _is_ip(batch.specialty):
         pending_drg_count = (db.query(GradingResult)

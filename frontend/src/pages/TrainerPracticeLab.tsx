@@ -211,7 +211,7 @@ export function TrainerPracticeLab() {
                 </button>
               )}
               {lastBatch && (
-                <button style={{ ...styles.navBtn, color: '#4f46e5', borderColor: '#c7d2fe' }}
+                <button style={{ ...styles.navBtn, color: '#4f46e5', border: '1px solid #c7d2fe' }}
                   onClick={() => openBatch(lastBatch.id)}>
                   ↩ {lastBatch.name}
                 </button>
@@ -221,7 +221,7 @@ export function TrainerPracticeLab() {
             // Primary create actions — always visible on tab views
             <>
               <button
-                style={{ ...styles.navBtn, color: '#4f46e5', borderColor: '#c7d2fe' }}
+                style={{ ...styles.navBtn, color: '#4f46e5', border: '1px solid #c7d2fe' }}
                 onClick={() => go('create-direct')}
               >
                 <Zap size={15} /> Direct Assignment
@@ -241,7 +241,7 @@ export function TrainerPracticeLab() {
               ...styles.navBtn,
               padding: '6px 10px',
               color: view === 'scoring-config' ? '#0f766e' : '#9ca3af',
-              borderColor: view === 'scoring-config' ? '#0f766e' : '#e5e7eb',
+              border: `1px solid ${view === 'scoring-config' ? '#0f766e' : '#e5e7eb'}`,
               background: view === 'scoring-config' ? '#f0fdf4' : 'transparent',
             }}
             onClick={() => { setNavStack([]); setView(view === 'scoring-config' ? 'home' : 'scoring-config') }}

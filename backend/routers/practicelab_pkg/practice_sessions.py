@@ -939,7 +939,7 @@ def list_practice_sessions(batch_id: int, cycle_id: Optional[int] = None, db: Se
         {
             "session_id": r[0], "coder_name": r[1], "specialty": r[2],
             "token": r[3], "status": r[4],
-            "submitted_at": r[5].isoformat() if r[5] else None,
+            "submitted_at": _iso(r[5]),
             "show_results_to_coder": bool(r[6]),
         }
         for r in rows

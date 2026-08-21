@@ -101,6 +101,11 @@ def test_coder_standard_outputs_survive_real_submission(client, db):
         f"/practicelab/batches/{session['batch_id']}/results/export"))
     assert batch_wb.sheetnames
 
+    batch_detail = client.get(f"/practicelab/batches/{session['batch_id']}")
+    assert batch_detail.status_code == 200, batch_detail.text
+    assert batch_detail.json()["pending_submissions"] == 0
+    assert batch_detail.json()["coders"][0]["charts"][0]["submission_status"] == "Submitted"
+
     perf_wb = _assert_workbook(client.get(
         "/practicelab/analytics/coder-performance.xlsx"))
     assert "Results" in perf_wb.sheetnames
