@@ -1024,7 +1024,7 @@ def batch_practice_grid(batch_id: int, cycle_id: Optional[int] = None, db: Sessi
         row = {
             "coder_name": coder_name, "status": status,
             "session_id": sess_id,
-            "submitted_at": submitted_at.isoformat() if submitted_at else None,
+            "submitted_at": _iso(submitted_at),
             "charts": {},
         }
         if coder_name in coder_results:
