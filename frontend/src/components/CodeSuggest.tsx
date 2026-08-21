@@ -30,7 +30,7 @@ type Props = {
   maxLength?: number
   autoFocus?: boolean
   upper?: boolean
-  onEnter?: () => void
+  onEnter?: (value: string) => void
   disabled?: boolean
 }
 
@@ -85,7 +85,7 @@ export function CodeSuggest({ value, onChange, section, style, placeholder,
   function onKeyDown(e: React.KeyboardEvent) {
     if (!open || !matches.length) {
       // Enter still belongs to the form when there is no list to choose from.
-      if (e.key === 'Enter' && onEnter) { e.preventDefault(); onEnter() }
+      if (e.key === 'Enter' && onEnter) { e.preventDefault(); onEnter(value) }
       return
     }
     if (e.key === 'ArrowDown') {

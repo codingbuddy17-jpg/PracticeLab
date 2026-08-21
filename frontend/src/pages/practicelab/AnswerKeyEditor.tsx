@@ -118,6 +118,21 @@ export function AnswerKeyEditor({ chartId, onClose, onSaved }: {
   const describeCpt = useCodeDescriptions(cpt.map(x => x.code), 'CPT')
   const describeMod = useCodeDescriptions(
     cpt.flatMap(x => (x.modifier || '').split(/[,\s]+/).filter(Boolean)), 'MODIFIER')
+  function addSdxOnEnter(i: number, value?: string) {
+    if (i === sdx.length - 1 && (value ?? sdx[i]?.code ?? '').trim()) {
+      setSdx([...sdx, { code: '', poa: '', ccmcc: '' }])
+    }
+  }
+  function addPcsOnEnter(i: number, value?: string) {
+    if (i === pcs.length - 1 && (value ?? pcs[i]?.code ?? '').trim()) {
+      setPcs([...pcs, { code: '' }])
+    }
+  }
+  function addCptOnEnter(i: number, value?: string) {
+    if (i === cpt.length - 1 && (value ?? cpt[i]?.code ?? '').trim()) {
+      setCpt([...cpt, { code: '', modifier: '', pointers: [], units: '' }])
+    }
+  }
 
   if (loading) {
     return (
@@ -204,7 +219,10 @@ export function AnswerKeyEditor({ chartId, onClose, onSaved }: {
         <div style={styles.label}>{detail.is_ip ? 'Principal Diagnosis' : 'First-Listed Diagnosis'}</div>
         <div style={{ ...rowStyle, marginBottom: 2 }}>
           <CodeSuggest style={{ ...inp, flex: 1 }} section="PDx"
-            placeholder="e.g. J18.9" value={pdx} onChange={setPdx} />
+            placeholder="e.g. J18.9" value={pdx} onChange={setPdx}
+            onEnter={v => {
+              if (v.trim() && sdx.length === 0) setSdx([{ code: '', poa: '', ccmcc: '' }])
+            }} />
           {detail.is_ip && (
             <select style={{ ...styles.select, marginBottom: 0, width: 110 }} value={pdxPoa}
               onChange={e => setPdxPoa(e.target.value)}>
@@ -222,7 +240,8 @@ export function AnswerKeyEditor({ chartId, onClose, onSaved }: {
           <div key={i} style={rowStyle}>
             <CodeSuggest style={{ ...inp, flex: 1 }} section="SDx"
               placeholder="e.g. E11.9" value={s.code}
-              onChange={v => setSdx(sdx.map((x, j) => j === i ? { ...x, code: v } : x))} />
+              onChange={v => setSdx(sdx.map((x, j) => j === i ? { ...x, code: v } : x))}
+              onEnter={v => addSdxOnEnter(i, v)} />
             {detail.is_ip && (
               <>
                 <select style={{ ...styles.select, marginBottom: 0, width: 90 }} value={s.poa || ''}
@@ -255,7 +274,8 @@ export function AnswerKeyEditor({ chartId, onClose, onSaved }: {
               <div key={i} style={rowStyle}>
                 <CodeSuggest style={{ ...inp, flex: 1 }} section="PCS"
                   placeholder="e.g. 0BHN3BZ" value={p.code}
-                  onChange={v => setPcs(pcs.map((x, j) => j === i ? { code: v } : x))} />
+                  onChange={v => setPcs(pcs.map((x, j) => j === i ? { code: v } : x))}
+                  onEnter={v => addPcsOnEnter(i, v)} />
                 <button onClick={() => setPcs(pcs.filter((_, j) => j !== i))}
                   style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af' }}><X size={14} /></button>
                 <div style={{ flexBasis: '100%' }}>
@@ -281,10 +301,12 @@ export function AnswerKeyEditor({ chartId, onClose, onSaved }: {
               <div key={i} style={rowStyle}>
                 <CodeSuggest style={{ ...inp, width: 130 }} section="CPT"
                   placeholder="e.g. 27447" value={c.code}
-                  onChange={v => setCpt(cpt.map((x, j) => j === i ? { ...x, code: v } : x))} />
+                  onChange={v => setCpt(cpt.map((x, j) => j === i ? { ...x, code: v } : x))}
+                  onEnter={v => addCptOnEnter(i, v)} />
                 <CodeSuggest style={{ ...inp, flex: 1 }} section="MODIFIER"
                   placeholder="Modifier" value={c.modifier || ''}
-                  onChange={v => setCpt(cpt.map((x, j) => j === i ? { ...x, modifier: v } : x))} />
+                  onChange={v => setCpt(cpt.map((x, j) => j === i ? { ...x, modifier: v } : x))}
+                  onEnter={v => addCptOnEnter(i, v)} />
                 {detail.uses_units && (
                   <input style={{ ...inp, width: 78 }} placeholder="Units" inputMode="numeric"
                     title="Leave blank unless the count matters — a blank line is not graded on units."

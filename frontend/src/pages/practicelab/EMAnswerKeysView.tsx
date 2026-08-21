@@ -95,6 +95,21 @@ function emptyForm() {
   return f
 }
 
+function categoryFromChart(raw: string | null | undefined): EMCategory | '' {
+  const c = String(raw || '').trim().toLowerCase()
+  if (!c) return ''
+  if (c.includes('critical')) return 'critical_care'
+  if (c.includes('preventive')) return 'preventive'
+  if (c.includes('emergency') || c === 'ed') return 'emergency'
+  if (c.includes('inpatient') || c.includes('observation')) return 'inpatient_observation'
+  if (c.includes('office') || c.includes('outpatient')) return 'office'
+  return ''
+}
+
+function emptyFormForChart(chart: any) {
+  return { ...emptyForm(), em_category: categoryFromChart(chart?.category) }
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function EMAnswerKeysView() {
@@ -231,16 +246,16 @@ export function EMAnswerKeysView() {
   }
 
   function addDx() { setForm(f => ({ ...f, dx_codes: [...f.dx_codes, ''] })) }
-  function addDxOnEnter(i: number) {
-    if (i === form.dx_codes.length - 1 && String(form.dx_codes[i] || '').trim()) addDx()
+  function addDxOnEnter(i: number, value?: string) {
+    if (i === form.dx_codes.length - 1 && String(value ?? form.dx_codes[i] ?? '').trim()) addDx()
   }
   function removeDx(i: number) { setForm(f => ({ ...f, dx_codes: f.dx_codes.filter((_: any, idx: number) => idx !== i) })) }
   function setDx(i: number, val: string) { setForm(f => { const a = [...f.dx_codes]; a[i] = val; return { ...f, dx_codes: a } }) }
 
   function addCpt() { setForm(f => ({ ...f, procedure_cpts: [...f.procedure_cpts, { code: '', modifier: '', pointers: [], units: '' }] })) }
-  function addCptOnEnter(i: number) {
+  function addCptOnEnter(i: number, value?: string) {
     const row = form.procedure_cpts[i]
-    if (i === form.procedure_cpts.length - 1 && String(row?.code || '').trim()) addCpt()
+    if (i === form.procedure_cpts.length - 1 && String(value ?? row?.code ?? '').trim()) addCpt()
   }
   function removeCpt(i: number) { setForm(f => ({ ...f, procedure_cpts: f.procedure_cpts.filter((_: any, idx: number) => idx !== i) })) }
   function setCpt(i: number, field: 'code' | 'modifier' | 'pointers' | 'units', val: any) {
@@ -449,7 +464,12 @@ export function EMAnswerKeysView() {
               <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, marginTop: 4, background: '#fff', maxHeight: 160, overflowY: 'auto' }}>
                 {chartResults.map(c => (
                   <div key={c.id} style={{ padding: '8px 12px', cursor: 'pointer', fontSize: 13, borderBottom: '1px solid #f3f4f6' }}
-                    onClick={() => { setSelectedChart(c); setChartResults([]) }}>
+                    onClick={() => {
+                      setSelectedChart(c)
+                      setChartResults([])
+                      setForm(emptyFormForChart(c))
+                      setExpandedSection('copa')
+                    }}>
                     <strong>{c.chart_number}</strong> — {c.category} <span style={{ color: '#9ca3af' }}>{c.specialty}</span>
                   </div>
                 ))}
@@ -651,7 +671,7 @@ export function EMAnswerKeysView() {
                     section={i === 0 ? 'PDx' : 'SDx'}
                     placeholder={i === 0 ? 'Primary Dx (e.g. E11.9)' : `Additional Dx ${i + 1}`}
                     value={code} onChange={v => setDx(i, v)}
-                    onEnter={() => addDxOnEnter(i)} />
+                    onEnter={v => addDxOnEnter(i, v)} />
                   {form.dx_codes.length > 1 && (
                     <button style={{ ...styles.outlineBtn, color: '#dc2626', borderColor: '#fca5a5', padding: '6px 10px' }}
                       onClick={() => removeDx(i)}><Trash2 size={13} /></button>
@@ -756,11 +776,11 @@ export function EMAnswerKeysView() {
                   <CodeSuggest style={{ ...styles.input, flex: 2 }} section="CPT"
                     placeholder={`CPT Code ${i + 1}`}
                     value={cpt.code} onChange={v => setCpt(i, 'code', v)}
-                    onEnter={() => addCptOnEnter(i)} />
+                    onEnter={v => addCptOnEnter(i, v)} />
                   <CodeSuggest style={{ ...styles.input, flex: 1 }} section="MODIFIER"
                     placeholder="Modifier"
                     value={cpt.modifier} onChange={v => setCpt(i, 'modifier', v)}
-                    onEnter={() => addCptOnEnter(i)} />
+                    onEnter={v => addCptOnEnter(i, v)} />
                   <input style={{ ...styles.input, width: 74 }} placeholder="Units" inputMode="numeric"
                     title="Leave blank unless the count matters — a blank line is not graded on units."
                     value={cpt.units ?? ''}
@@ -829,7 +849,7 @@ export function EMAnswerKeysView() {
                                          category: c.category, specialty: c.specialty })
                       setChartResults([])
                       setChartSearch(c.chart_number)
-                      setForm(emptyForm())
+                      setForm(emptyFormForChart(c))
                       setShowForm(true)
                       setExpandedSection('copa')
                     }}>

@@ -12,9 +12,9 @@ def read(path: str) -> str:
 def test_code_suggest_enter_contract_is_still_active():
     src = read("components/CodeSuggest.tsx")
 
-    assert "onEnter?: () => void" in src
+    assert "onEnter?: (value: string) => void" in src
     assert "if (e.key === 'Enter' && onEnter)" in src
-    assert "e.preventDefault(); onEnter()" in src
+    assert "e.preventDefault(); onEnter(value)" in src
 
 
 def test_coder_practice_repeated_code_rows_support_enter_to_continue():
@@ -30,15 +30,15 @@ def test_coder_practice_repeated_code_rows_support_enter_to_continue():
         assert f"function {helper}" in src
 
     for call in [
-        "onEnter={() => addSdxOnEnter(i)}",
-        "onEnter={() => addPcsOnEnter(i)}",
-        "onEnter={() => addCptOnEnter(i)}",
-        "onEnter={() => addEmDxOnEnter(i)}",
-        "onEnter={() => addEmCptOnEnter(i)}",
+        "onEnter={v => addSdxOnEnter(i, v)}",
+        "onEnter={v => addPcsOnEnter(i, v)}",
+        "onEnter={v => addCptOnEnter(i, v)}",
+        "onEnter={v => addEmDxOnEnter(i, v)}",
+        "onEnter={v => addEmCptOnEnter(i, v)}",
     ]:
         assert call in src
 
-    assert "entry.pdx_code.trim() && entry.sdx.length === 0" in src
+    assert "v.trim() && entry.sdx.length === 0" in src
 
 
 def test_coder_answer_key_editors_keep_enter_row_entry():
@@ -46,11 +46,11 @@ def test_coder_answer_key_editors_keep_enter_row_entry():
     em = read("pages/practicelab/EMAnswerKeysView.tsx")
 
     for src in [standard, em]:
-        assert "onEnter={() => addDxOnEnter(i)}" in src or "onEnter={() => addSdxOnEnter(i)}" in src
-        assert "onEnter={() => addCptOnEnter(i)}" in src
+        assert "onEnter={v => addDxOnEnter(i, v)}" in src or "onEnter={v => addSdxOnEnter(i, v)}" in src
+        assert "onEnter={v => addCptOnEnter(i, v)}" in src
 
-    assert "onEnter={() => addPcsOnEnter(i)}" in standard
-    assert "pdx.trim() && sdx.length === 0" in standard
+    assert "onEnter={v => addPcsOnEnter(i, v)}" in standard
+    assert "v.trim() && sdx.length === 0" in standard
 
 
 def test_auditor_add_finding_fields_keep_enter_confirmation_and_poa_requirement():
