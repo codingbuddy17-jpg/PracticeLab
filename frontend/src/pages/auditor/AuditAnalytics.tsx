@@ -421,7 +421,14 @@ function OverviewTab({ overview, trend, cleanOpportunity, threshold }: {
               <XAxis dataKey="name" tick={{ fontSize: 11 }} />
               <YAxis domain={[0, 100]} tickFormatter={v => `${v}%`} tick={{ fontSize: 10 }} width={34} />
               <Tooltip formatter={(v: any) => [`${v}%`, 'Score']} contentStyle={tooltipStyle} />
-              <Bar dataKey="score" radius={[5, 5, 0, 0]}>
+              {/* isAnimationActive={false}: recharts 3's bar entry animation
+                  never completes here, so the bars were computed — two
+                  recharts-bar-rectangle groups — and never drawn. The panel
+                  rendered its axes and both category labels over an empty
+                  plot, which read as "no data" beside tiles showing 85% and
+                  40%. Verified by turning it off and watching the paths
+                  appear. */}
+              <Bar dataKey="score" isAnimationActive={false} radius={[5, 5, 0, 0]}>
                 {cleanOpportunity.map((r: any) => <Cell key={r.name} fill={r.fill} />)}
               </Bar>
             </BarChart>
@@ -945,7 +952,7 @@ function ChartSignalsTab({ data, query, setQuery, threshold }: {
               <XAxis dataKey="label" tick={{ fontSize: 10 }} />
               <YAxis tick={{ fontSize: 10 }} allowDecimals={false} width={34} />
               <Tooltip contentStyle={tooltipStyle} />
-              <Bar dataKey="count" name="Charts" radius={[4, 4, 0, 0]}>
+              <Bar dataKey="count" name="Charts" isAnimationActive={false} radius={[4, 4, 0, 0]}>
                 {distribution.map((r: any) => <Cell key={r.label} fill={r.fill} />)}
               </Bar>
             </BarChart>

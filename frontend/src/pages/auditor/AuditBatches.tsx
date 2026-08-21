@@ -1101,7 +1101,12 @@ function AuditBatchDetail({ batchId, trainer, onBack, onReview }: {
                           background: c.status === 'submitted' ? '#d1fae5' : '#eff6ff',
                           color: c.status === 'submitted' ? '#059669' : '#2563eb',
                         }}>
-                          {c.status}
+                          {/* The stored value is snake_case; a trainer should
+                              not be reading the database's spelling. */}
+                          {c.status === 'in_progress' ? 'In progress'
+                            : c.status === 'submitted' ? 'Submitted'
+                            : c.status === 'not_started' ? 'Not started'
+                            : c.status}
                         </span>
                         {c.status === 'submitted' && (
                           <button style={s.linkBtn} onClick={() => onReview(c.session_id)}>

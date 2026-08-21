@@ -247,7 +247,7 @@ export function InsightsPanel({ insights, batchId, onClose }: { insights: any; b
               <div key={c.category} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', borderBottom: i < topCats.length - 1 ? '1px solid #dcfce7' : 'none' }}>
                 <span style={{ fontSize: 11, fontWeight: 800, color: '#16a34a', width: 18 }}>#{i + 1}</span>
                 <span style={{ fontWeight: 600, fontSize: 13, flex: 1 }}>{c.category}</span>
-                <span style={{ fontSize: 11, color: '#6b7280' }}>{c.attempt_count} attempts</span>
+                <span style={{ fontSize: 11, color: '#6b7280' }}>{c.attempt_count} attempt{c.attempt_count === 1 ? '' : 's'}</span>
                 <span style={{ fontWeight: 800, fontSize: 14, color: '#16a34a' }}>{c.avg_score}%</span>
               </div>
             ))}
@@ -260,7 +260,7 @@ export function InsightsPanel({ insights, batchId, onClose }: { insights: any; b
               <div key={c.category} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', borderBottom: i < bottomCats.length - 1 ? '1px solid #fee2e2' : 'none' }}>
                 <span style={{ fontSize: 11, fontWeight: 800, color: '#dc2626', width: 18 }}>#{i + 1}</span>
                 <span style={{ fontWeight: 600, fontSize: 13, flex: 1 }}>{c.category}</span>
-                <span style={{ fontSize: 11, color: '#6b7280' }}>{c.attempt_count} attempts</span>
+                <span style={{ fontSize: 11, color: '#6b7280' }}>{c.attempt_count} attempt{c.attempt_count === 1 ? '' : 's'}</span>
                 <span style={{ fontWeight: 800, fontSize: 14, color: c.avg_score >= 60 ? '#d97706' : '#dc2626' }}>{c.avg_score}%</span>
               </div>
             ))}
@@ -327,7 +327,7 @@ export function InsightsPanel({ insights, batchId, onClose }: { insights: any; b
               <BarChart data={cpRows} layout="vertical" margin={{ left: 8, right: 40, top: 2, bottom: 2 }}>
                 <XAxis type="number" domain={[0, 100]} tickFormatter={v => `${v}%`} tick={{ fontSize: 10 }} />
                 <YAxis type="category" dataKey="category" width={100} tick={{ fontSize: 11, fontWeight: 600 }} />
-                <Tooltip formatter={(v: any, _name: any, p: any) => [`${v}% avg · ${p.payload.pass_rate}% pass rate · ${p.payload.attempt_count} attempts`, 'Avg Grading Score']} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                <Tooltip formatter={(v: any, _name: any, p: any) => [`${v}% avg · ${p.payload.pass_rate}% pass rate · ${p.payload.attempt_count} attempt${p.payload.attempt_count === 1 ? '' : 's'}`, 'Avg Grading Score']} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
                 <Bar dataKey="avg_score" radius={[0, 6, 6, 0]}>
                   {cpRows.map((c: any) => <Cell key={c.category} fill={c.avg_score < 60 ? '#dc2626' : c.avg_score < 80 ? '#d97706' : '#16a34a'} />)}
                 </Bar>
