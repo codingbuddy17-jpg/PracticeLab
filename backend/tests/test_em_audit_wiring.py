@@ -168,6 +168,65 @@ class TestTheKeyComesFromTheEmTable:
         db.add(batch); db.commit()
         assert chart_pool(db, batch) == []
 
+    def test_ed_profee_critical_care_boundary_is_stored_on_the_em_key(
+            self, client, db):
+        """
+        ED Profee has no ordinary answer_keys row. The 99285/99291 marker must
+        live with the E/M key, or the key screen appears to save while the
+        generator never sees the flag.
+        """
+        chart = make_chart(db, specialty="ED Profee")
+        db.commit()
+        _em_key(db, chart.id, em_code="99285")
+
+        r = client.post(f"/auditor/keys/chart/{chart.id}/cc-boundary",
+                        json={"cc_boundary": "borderline",
+                              "passphrase": "test-passphrase"})
+        assert r.status_code == 200, r.text
+        assert r.json()["cc_boundary"] == "borderline"
+
+        key = audit_key_for(db, chart)
+        assert key.cc_boundary == "borderline"
+        body = client.get(f"/auditor/keys/chart/{chart.id}").json()
+        assert body["cc_boundary"] == "borderline"
+
+        _claim, gt = generate(key, Specialty.ED_PROFEE, seed=4,
+                              cfg=_only("cc_boundary"), budget=1,
+                              cc_boundary=key.cc_boundary)
+        assert gt and gt[0]["kind"] == "cc_boundary"
+
+    def test_an_authored_mdm_version_is_playable(self, client, db):
+        """
+        Auto plantings already emit MDM findings. A trainer-authored version
+        must use the same shape or E/M curation is code-only while scoring is
+        MDM-aware.
+        """
+        chart = make_chart(db, specialty="E/M")
+        db.commit()
+        _em_key(db, chart.id, risk="Moderate")
+
+        r = client.post(f"/auditor/keys/chart/{chart.id}", json={
+            "name": "Risk level judgement",
+            "authored_by": "T",
+            "passphrase": "test-passphrase",
+            "mutations": [{
+                "section": "MDM", "action": "Revise", "field": "risk",
+                "line": 0, "claim_value": "Low",
+                "correct_value": "Moderate",
+            }],
+        })
+        assert r.status_code == 200, r.text
+
+        key_set = db.query(AuditKeySet).filter(AuditKeySet.chart_id == chart.id).first()
+        from services.audit_allocation import apply_manual_set
+        claim, truth = apply_manual_set(audit_key_for(db, chart), key_set)
+        assert claim["mdm"]["risk"] == "Low"
+        assert truth[0]["section"] == "MDM"
+        assert truth[0]["action"] == "Revise"
+        assert truth[0]["field"] == "risk"
+        assert truth[0]["claim_value"] == "Low"
+        assert truth[0]["correct_value"] == "Moderate"
+
 
 class TestTheForm:
     @pytest.mark.parametrize("specialty", [Sp.EM, Sp.ED_PROFEE])

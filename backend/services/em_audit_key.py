@@ -38,7 +38,7 @@ _COLUMNS = ("chart_id", "em_code", "em_modifier", "level_method",
             "em_category", "dx_codes", "procedure_cpts",
             "copa_level", "dr_level", "risk_level",
             "copa_level_overridden", "dr_level_overridden",
-            "risk_level_overridden")
+            "risk_level_overridden", "cc_boundary")
 
 
 class EmAuditKey:
@@ -62,7 +62,7 @@ class EmAuditKey:
         self.sdx = [{"code": c, "poa": "", "ccmcc": ""} for c in codes[1:]]
         self.pcs = []              # professional claims carry no PCS
         self.cpt = _em_lines(row)
-        self.cc_boundary = None    # set from the chart's own flag by the caller
+        self.cc_boundary = (row.get("cc_boundary") or None)
         self.mdm = {
             "copa": (row.get("copa_level") or "") or None,
             "dr": (row.get("dr_level") or "") or None,

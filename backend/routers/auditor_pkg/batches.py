@@ -416,7 +416,7 @@ def run_allocation(batch_id: int, payload: AllocationRun, db: Session = Depends(
     keys = {cid: k for cid, k in keys.items() if k is not None}
     corpus = build_corpus(db.query(AnswerKey).filter(
         AnswerKey.specialty == batch.specialty).all(), db)
-    mcfg = mutation_config(db)
+    mcfg = mutation_config(db, batch.specialty)
     all_sets = sets_by_chart(db, [c.id for c in pool])
 
     # What real coders actually got wrong on these charts, diffed against the
@@ -598,7 +598,7 @@ def regenerate_assignment(assignment_id: int, payload: RegeneratePayload,
     a.seed = (a.seed or 0) + 7919
     from services.audit_mutation import generate
     claim, truth = generate(key, chart.specialty, seed=a.seed,
-                            cfg=mutation_config(db), corpus=corpus,
+                            cfg=mutation_config(db, chart.specialty), corpus=corpus,
                             tier=batch.difficulty_tier,
                             # Whether this chart may carry the 99285/99291
                             # question. Only a trainer who read it can say.

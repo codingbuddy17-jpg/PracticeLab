@@ -1,5 +1,7 @@
 """Shared helpers for the auditor sub-routers."""
 
+from typing import Optional
+
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
@@ -230,8 +232,22 @@ def scoring_config(db: Session) -> ScoringConfig:
     return ScoringConfig.from_db(load_config(db))
 
 
-def mutation_config(db: Session) -> MutationConfig:
-    return MutationConfig.from_db(load_config(db))
+def mutation_config(db: Session, specialty: Optional[Specialty] = None) -> MutationConfig:
+    cfg = load_config(db)
+    out = MutationConfig.from_db(cfg)
+    em_only = ("mix_level_shift", "mix_cc_boundary", "mix_mdm_shift")
+    if specialty in em_audit_key.EM_KEY_SPECIALTIES:
+        from routers.auditor_pkg.config import EM_MIX_DEFAULT, EM_MIX_FIELDS
+        stored = getattr(cfg, "em_mutation_mix", None) or {}
+        for field in MutationConfig.__dataclass_fields__:
+            if field.startswith("mix_") and field != "mix_units":
+                setattr(out, field, 0)
+        for field in EM_MIX_FIELDS:
+            setattr(out, field, int(stored.get(field, EM_MIX_DEFAULT[field]) or 0))
+    else:
+        for field in em_only:
+            setattr(out, field, 0)
+    return out
 
 
 def chart_pool(db: Session, batch: AuditBatch) -> list[Chart]:
@@ -279,12 +295,13 @@ def audit_key_for(db: Session, chart):
     if chart.specialty in EM_KEY_SPECIALTIES:
         key = em_audit_key.load(db, chart.id)
         if key is not None:
-            # The boundary flag lives on the ordinary key, where a trainer sets
-            # it; carry it across so the 99285/99291 planting works for ED
-            # Profee too.
+            # Older databases briefly stored this flag on an ordinary key. New
+            # E/M and ED Profee keys store it beside the E/M truth so there is
+            # still one active key source.
             ordinary = (db.query(AnswerKey)
                         .filter(AnswerKey.chart_id == chart.id).first())
-            key.cc_boundary = getattr(ordinary, "cc_boundary", None)
+            key.cc_boundary = getattr(key, "cc_boundary", None) \
+                or getattr(ordinary, "cc_boundary", None)
         return key
     return db.query(AnswerKey).filter(AnswerKey.chart_id == chart.id).first()
 

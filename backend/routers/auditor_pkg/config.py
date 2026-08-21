@@ -14,6 +14,29 @@ from .shared import AUDITABLE_SPECIALTIES, form_spec, load_config, require_passp
 router = APIRouter()
 
 MIX_FIELDS = [f for _kind, f in MUTATION_KINDS]
+EM_MIX_FIELDS = [
+    "mix_omit_sdx",
+    "mix_omit_proc",
+    "mix_modifier_missing",
+    "mix_modifier_wrong",
+    "mix_substitute",
+    "mix_spurious",
+    "mix_level_shift",
+    "mix_cc_boundary",
+    "mix_mdm_shift",
+]
+EM_MIX_DEFAULT = {
+    "mix_omit_sdx": 10,
+    "mix_omit_proc": 10,
+    "mix_modifier_missing": 5,
+    "mix_modifier_wrong": 5,
+    "mix_substitute": 5,
+    "mix_spurious": 10,
+    "mix_level_shift": 25,
+    "mix_cc_boundary": 10,
+    "mix_mdm_shift": 20,
+}
+GENERAL_ONLY_ZERO = {"mix_level_shift", "mix_cc_boundary", "mix_mdm_shift"}
 
 
 class ConfigUpdate(BaseModel):
@@ -33,15 +56,42 @@ class ConfigUpdate(BaseModel):
     max_section_share: Optional[int] = None
     ccmcc_preference: Optional[int] = None
     mix: Optional[dict] = None
+    em_mix: Optional[dict] = None
     updated_by: str
     passphrase: str
 
 
-def _serialise(cfg: AuditScoringConfig) -> dict:
+def _general_mix(cfg: AuditScoringConfig) -> dict:
     mix = {f: getattr(cfg, f) for f in MIX_FIELDS}
+    for f in GENERAL_ONLY_ZERO:
+        mix[f] = 0
     if hasattr(cfg, "mix_units") and int(getattr(cfg, "mix_units") or 0):
         mix["mix_spurious"] = int(mix.get("mix_spurious") or 0) \
             + int(getattr(cfg, "mix_units") or 0)
+    return mix
+
+
+def _em_mix(cfg: AuditScoringConfig) -> dict:
+    stored = cfg.em_mutation_mix or {}
+    return {f: int((stored or {}).get(f, EM_MIX_DEFAULT[f]) or 0)
+            for f in EM_MIX_FIELDS}
+
+
+def _validate_mix(name: str, incoming: dict, allowed: list[str]) -> dict:
+    unknown = set(incoming) - set(allowed) - {"mix_units"}
+    if unknown:
+        raise HTTPException(400, f"Unknown {name} mutation weights: {sorted(unknown)}")
+    cleaned = {f: int(incoming.get(f, 0) or 0) for f in allowed}
+    total = sum(cleaned.values())
+    if total != 100:
+        raise HTTPException(
+            400, f"{name} mutation weights must total 100 — they currently total {total}")
+    return cleaned
+
+
+def _serialise(cfg: AuditScoringConfig) -> dict:
+    mix = _general_mix(cfg)
+    em_mix = _em_mix(cfg)
     return {
         "add_weight": cfg.add_weight,
         "revise_weight": cfg.revise_weight,
@@ -62,6 +112,8 @@ def _serialise(cfg: AuditScoringConfig) -> dict:
         "ccmcc_preference": cfg.ccmcc_preference,
         "mix": mix,
         "mix_total": sum(mix.values()),
+        "em_mix": em_mix,
+        "em_mix_total": sum(em_mix.values()),
         "updated_by": cfg.updated_by,
         "updated_at": cfg.updated_at.isoformat() if cfg.updated_at else None,
     }
@@ -84,18 +136,24 @@ def update_config(payload: ConfigUpdate, db: Session = Depends(get_db)):
 
     if payload.mix is not None:
         incoming = {k: v for k, v in payload.mix.items() if k != "mix_units"}
-        unknown = set(incoming) - set(MIX_FIELDS)
-        if unknown:
-            raise HTTPException(400, f"Unknown mutation weights: {sorted(unknown)}")
-        merged = {f: incoming.get(f, getattr(cfg, f)) for f in MIX_FIELDS}
-        total = sum(int(v or 0) for v in merged.values())
-        if total != 100:
-            raise HTTPException(
-                400, f"Mutation weights must total 100 — they currently total {total}")
+        # Backwards compatibility: old clients sent E/M-only weights in the
+        # common mix. Ignore those here; the separate em_mix owns them now.
+        incoming = {k: v for k, v in incoming.items() if k not in GENERAL_ONLY_ZERO}
+        merged = _general_mix(cfg)
+        merged.update(incoming)
+        for f in GENERAL_ONLY_ZERO:
+            merged[f] = 0
+        merged = _validate_mix("General", merged, MIX_FIELDS)
         for f, v in merged.items():
             setattr(cfg, f, int(v or 0))
         if hasattr(cfg, "mix_units"):
             cfg.mix_units = 0
+
+    if payload.em_mix is not None:
+        incoming = {k: v for k, v in payload.em_mix.items() if k != "mix_units"}
+        merged = _em_mix(cfg)
+        merged.update(incoming)
+        cfg.em_mutation_mix = _validate_mix("E/M", merged, EM_MIX_FIELDS)
 
     weights = [payload.add_weight, payload.revise_weight, payload.delete_weight]
     if any(w is not None for w in weights):

@@ -12,6 +12,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -35,7 +36,7 @@ router = APIRouter()
 MAX_VERSIONS_PER_CHART = 3
 
 VALID_ACTIONS = {"Add", "Revise", "Delete"}
-VALID_SECTIONS = {"PDx", "SDx", "PCS", "CPT"}
+VALID_SECTIONS = {"PDx", "SDx", "PCS", "CPT", "MDM"}
 
 
 class Mutation(BaseModel):
@@ -78,6 +79,9 @@ def _validate(chart: Chart, mutations: list[Mutation],
         if m.section == "PDx" and m.action != "Revise":
             raise HTTPException(
                 400, f"{where}: PDx can only be revised, not {m.action.lower()}ed")
+        if m.section == "MDM" and m.action != "Revise":
+            raise HTTPException(
+                400, f"{where}: MDM can only be revised, not {m.action.lower()}ed")
         if m.action == "Add" and not (m.correct_value or "").strip():
             raise HTTPException(400, f"{where}: an Add needs the code the auditor must add")
         if m.action == "Delete" and not (m.claim_value or "").strip():
@@ -85,7 +89,7 @@ def _validate(chart: Chart, mutations: list[Mutation],
         if m.action == "Revise" and not (m.claim_value or "").strip():
             raise HTTPException(
                 400, f"{where}: a Revise needs the wrong value to put on the claim")
-        if m.action == "Revise" and m.section != "PDx" and m.line is None:
+        if m.action == "Revise" and m.section not in ("PDx", "MDM") and m.line is None:
             raise HTTPException(400, f"{where}: a Revise needs the line to change")
 
         # Checked against the answer key, not just for shape. Preview warned
@@ -94,6 +98,15 @@ def _validate(chart: Chart, mutations: list[Mutation],
         # quietly shed half its errors when it was next allocated. For an audit
         # key, silently dropping the answer is the worst possible failure.
         if key is None:
+            continue
+        if m.section == "MDM":
+            if (m.field or "") not in ("copa", "dr", "risk"):
+                raise HTTPException(
+                    400, f"{where}: MDM can revise only copa, dr, or risk")
+            current = (getattr(key, "mdm", None) or {}).get(m.field or "")
+            if not current:
+                raise HTTPException(
+                    400, f"{where}: this chart has no {m.field} MDM level to revise")
             continue
         rows = {"SDx": key.sdx, "PCS": key.pcs, "CPT": key.cpt}.get(m.section) or []
         if m.action == "Add" and m.section != "PDx":
@@ -169,6 +182,7 @@ def list_sets_for_chart(chart_id: int, db: Session = Depends(get_db)):
         "answer_key": None if key is None else {
             "pdx_code": key.pdx_code, "pdx_poa": key.pdx_poa,
             "sdx": key.sdx or [], "pcs": key.pcs or [], "cpt": key.cpt or [],
+            "mdm": getattr(key, "mdm", {}) or {},
         },
         # Same per-chart narrowing the audit session does: a preventive visit
         # or one levelled by time is not graded on medical decision making, so
@@ -221,7 +235,10 @@ def set_cc_boundary(chart_id: int, payload: BoundaryPayload,
     will be asked.
     """
     require_passphrase(payload.passphrase, "mark a chart's critical care boundary")
-    key = db.query(AnswerKey).filter(AnswerKey.chart_id == chart_id).first()
+    chart = db.query(Chart).filter(Chart.id == chart_id).first()
+    if not chart:
+        raise HTTPException(404, "Chart not found")
+    key = audit_key_for(db, chart)
     if not key:
         raise HTTPException(
             400, "This chart has no answer key — there is nothing to mark yet")
@@ -230,7 +247,6 @@ def set_cc_boundary(chart_id: int, payload: BoundaryPayload,
     if value not in (None, "borderline"):
         raise HTTPException(400, "cc_boundary must be 'borderline' or empty")
 
-    chart = db.query(Chart).filter(Chart.id == chart_id).first()
     # Only ED charts carry this question. Marking a Surgery chart borderline
     # would be a no-op the trainer could not see, which is worse than a
     # refusal.
@@ -242,11 +258,18 @@ def set_cc_boundary(chart_id: int, payload: BoundaryPayload,
             "This chart's key has no ED level or critical care line, so the "
             "99285/99291 question does not arise on it")
 
-    key.cc_boundary = value
+    if chart.specialty in EM_KEY_SPECIALTIES:
+        db.execute(text("""
+            UPDATE em_answer_keys
+               SET cc_boundary = :value
+             WHERE chart_id = :chart_id
+        """), {"value": value, "chart_id": chart_id})
+    else:
+        key.cc_boundary = value
     db.commit()
     return {"chart_id": chart_id,
             "chart_number": chart.chart_number if chart else None,
-            "cc_boundary": key.cc_boundary}
+            "cc_boundary": value}
 
 
 @router.get("/keys/status")

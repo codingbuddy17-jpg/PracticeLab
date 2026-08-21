@@ -424,12 +424,11 @@ class AuditScoringConfig(Base):
     mix_poa = Column(Integer, nullable=False, default=2)
     mix_spurious = Column(Integer, nullable=False, default=13)
 
-    # ── E/M level errors, for ED Facility and the E/M specialties ────────────
+    # ── Legacy E/M level weights on the general profile ──────────────────────
     #
-    # Both default to 0 so nothing changes on batches already in use: the mix
-    # renormalises over what a chart can support, so a zero weight is simply
-    # never drawn. Turn them on per deployment once there are ED charts worth
-    # asking the question of.
+    # Kept for older config payloads and databases. New allocation reads
+    # em_mutation_mix for E/M and ED Profee, and forces these to zero for the
+    # general IP/OP profile so E/M tuning cannot disturb other specialties.
     #
     # A level moves ALONG its own ladder — 99284 to 99285 — and never jumps
     # families. A random procedure code where an E/M level belongs is the kind
@@ -446,6 +445,11 @@ class AuditScoringConfig(Base):
     # Move one reasoning level — COPA, Data Review or Risk. The audit judgement
     # an E/M review actually consists of. Off by default like the others.
     mix_mdm_shift = Column(Integer, nullable=False, default=0)
+    # Separate E/M and ED Profee mutation profile. The ordinary mix above is
+    # used by IP/OP coding specialties; this one lets E/M lean on reasoning and
+    # level errors without stealing weight from diagnosis/procedure planting in
+    # the rest of the product.
+    em_mutation_mix = Column(JSON, nullable=True)
 
     # No ceiling applies to manual plantings — a trainer authoring a set has
     # read the chart and has a reason. This caps generation only.

@@ -27,6 +27,7 @@ import { useCodeDescriptions } from '../../hooks/useCodeDescriptions'
 
 const SECTION_LABEL: Record<string, string> = {
   PDx: 'Principal Dx', SDx: 'Secondary Dx', PCS: 'PCS', CPT: 'CPT',
+  MDM: 'MDM',
 }
 
 
@@ -614,6 +615,10 @@ function KeySection({ spec, answerKey, mutations, setMutations }: {
   mutations: Finding[]; setMutations: (f: (m: Finding[]) => Finding[]) => void
 }) {
   const key = spec.key
+  if (key === 'MDM') {
+    return <MdmKeySection spec={spec} answerKey={answerKey}
+      mutations={mutations} setMutations={setMutations} />
+  }
   const isPdx = key === 'PDx'
   const rows: any[] = isPdx
     ? (answerKey?.pdx_code ? [{ code: answerKey.pdx_code, poa: answerKey.pdx_poa }] : [])
@@ -783,6 +788,77 @@ function KeySection({ spec, answerKey, mutations, setMutations }: {
   )
 }
 
+function MdmKeySection({ spec, answerKey, mutations, setMutations }: {
+  spec: any; answerKey: any
+  mutations: Finding[]; setMutations: (f: (m: Finding[]) => Finding[]) => void
+}) {
+  const mdm: Record<string, string> = answerKey?.mdm || {}
+  const values: Record<string, string[]> = spec.field_values || {}
+  const labels: Record<string, string> = spec.field_labels || {}
+  const mine = mutations.filter(m => m.section === 'MDM')
+
+  function revision(field: string) {
+    return mine.find(m => m.action === 'Revise' && (m.field || '') === field)
+  }
+
+  function setWrong(field: string, current: string, value: string) {
+    setMutations(prev => {
+      const rest = prev.filter(m => !(m.section === 'MDM'
+        && m.action === 'Revise' && (m.field || '') === field))
+      if (!value || value === current) return rest
+      return [...rest, {
+        section: 'MDM', action: 'Revise', field, line: 0,
+        claim_value: value, correct_value: current,
+      }]
+    })
+  }
+
+  return (
+    <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden' }}>
+      <div style={{ ...s.panelHead, marginTop: 0 }}>
+        <span style={{ fontWeight: 700, fontSize: 12.5 }}>{SECTION_LABEL.MDM || 'MDM'}</span>
+        <span style={{ fontSize: 11, color: '#9ca3af' }}>reasoning levels on the key</span>
+      </div>
+      <div style={{ padding: '8px 12px', display: 'grid', gap: 8 }}>
+        {spec.fields.map((field: string) => {
+          const current = mdm[field] || ''
+          const r = revision(field)
+          return (
+            <div key={field} style={{
+              display: 'flex', alignItems: 'center', gap: 10, padding: '7px 8px',
+              borderRadius: 7, flexWrap: 'wrap',
+              background: r ? ACTION_BG.Revise : 'transparent',
+              borderLeft: `3px solid ${r ? ACTION_COLORS.Revise : 'transparent'}`,
+            }}>
+              <span style={{ minWidth: 170, fontSize: 12.5, fontWeight: 700, color: '#374151' }}>
+                {labels[field] || field}
+              </span>
+              <span style={s.tag}>{current || 'No level'}</span>
+              <select
+                style={{ ...s.input, width: 150, padding: '4px 8px', fontSize: 12 }}
+                value={r?.claim_value || ''}
+                disabled={!current}
+                onChange={e => setWrong(field, current, e.target.value)}
+                title={`Show a wrong ${labels[field] || field} level on the claim`}
+              >
+                <option value="">No planted error</option>
+                {(values[field] || []).filter(v => v !== current).map(v => (
+                  <option key={v} value={v}>{v}</option>
+                ))}
+              </select>
+              {r && (
+                <span style={{ fontSize: 11, color: ACTION_COLORS.Revise, fontWeight: 600 }}>
+                  auditor should change {r.claim_value} to {r.correct_value}
+                </span>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function ClaimPreview({ preview }: { preview: any }) {
   const c = preview.claim || {}
   return (
@@ -798,6 +874,10 @@ function ClaimPreview({ preview }: { preview: any }) {
           <code key={i} style={{ marginRight: 6 }}>{r.code}</code>)}</div>
         {(c.pcs || []).length > 0 && <div><strong>PCS</strong> {c.pcs.map((r: any, i: number) => <code key={i} style={{ marginRight: 6 }}>{r.code}</code>)}</div>}
         {(c.cpt || []).length > 0 && <div><strong>CPT</strong> {c.cpt.map((r: any, i: number) => <code key={i} style={{ marginRight: 6 }}>{r.code}{r.modifier ? `-${r.modifier}` : ''}</code>)}</div>}
+        {c.mdm && Object.keys(c.mdm).length > 0 && (
+          <div><strong>MDM</strong> {Object.entries(c.mdm).map(([k, v]: any) =>
+            <span key={k} style={{ marginRight: 8 }}>{k}: <code>{v || '—'}</code></span>)}</div>
+        )}
       </div>
     </div>
   )

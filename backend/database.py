@@ -701,6 +701,8 @@ def _run_migrations():
              "INTEGER NOT NULL DEFAULT 0", "INTEGER NOT NULL DEFAULT 0")
     _add_col("audit_scoring_configs", "mix_mdm_shift",
              "INTEGER NOT NULL DEFAULT 0", "INTEGER NOT NULL DEFAULT 0")
+    _add_col("audit_scoring_configs", "em_mutation_mix",
+             "JSONB", "TEXT")
     _add_col("answer_keys", "cc_boundary", "VARCHAR(20)", "TEXT")
 
     # ── PCS axis titles: widen to TEXT ───────────────────────────────────────

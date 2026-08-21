@@ -423,6 +423,10 @@ def apply_manual_set(key, key_set) -> tuple[dict, list[dict]]:
         if section == "PDx":
             current = claim.get("pdx_poa" if fld == "poa" else "pdx_code")
             claim["pdx_poa" if fld == "poa" else "pdx_code"] = m.get("claim_value")
+        elif section == "MDM":
+            mdm = claim.setdefault("mdm", {})
+            current = mdm.get(fld)
+            mdm[fld] = m.get("claim_value")
         elif rows is None or line is None or not (0 <= line < len(rows)):
             continue
         else:

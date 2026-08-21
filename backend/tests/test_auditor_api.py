@@ -13,6 +13,7 @@ wiring between them, and three rules that live only at this layer:
     into an explicit claim rather than an absence.
 """
 import pytest
+from sqlalchemy import text
 
 from models import (
     AnswerKey, AuditAssignment, AuditKeySet, AuditSession, AuditSource, Chart,
@@ -469,6 +470,12 @@ class TestConfig:
         assert c["query_missed_pct"] == c["query_unnecessary_pct"] == 20
         assert c["pass_threshold"] == 90
         assert c["mix_total"] == 100
+        assert c["em_mix_total"] == 100
+        assert {"mix_level_shift", "mix_cc_boundary", "mix_mdm_shift"} <= set(c["mix"])
+        assert {"mix_level_shift", "mix_cc_boundary", "mix_mdm_shift"} <= set(c["em_mix"])
+        assert c["mix"]["mix_level_shift"] == 0
+        assert c["mix"]["mix_cc_boundary"] == 0
+        assert c["mix"]["mix_mdm_shift"] == 0
 
     def test_component_weights_must_total_100(self, client, db):
         r = client.put("/auditor/config", json={
@@ -487,6 +494,105 @@ class TestConfig:
         r = client.put("/auditor/config", json={
             "pass_threshold": 50, "updated_by": "T", "passphrase": "nope"})
         assert r.status_code == 403
+
+    def test_em_specific_planting_weights_are_separate_from_general_config(
+            self, client, db):
+        r = client.put("/auditor/config", json={
+            "updated_by": "T",
+            "passphrase": PASS,
+            "em_mix": {
+                "mix_omit_sdx": 5,
+                "mix_omit_proc": 5,
+                "mix_modifier_missing": 5,
+                "mix_modifier_wrong": 5,
+                "mix_substitute": 5,
+                "mix_spurious": 5,
+                "mix_level_shift": 10,
+                "mix_cc_boundary": 20,
+                "mix_mdm_shift": 40,
+            },
+        })
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["mix"]["mix_level_shift"] == 0
+        assert body["mix"]["mix_cc_boundary"] == 0
+        assert body["mix"]["mix_mdm_shift"] == 0
+        assert body["em_mix"]["mix_level_shift"] == 10
+        assert body["em_mix"]["mix_cc_boundary"] == 20
+        assert body["em_mix"]["mix_mdm_shift"] == 40
+
+        from routers.auditor_pkg.shared import mutation_config
+        general = mutation_config(db, Specialty.IP_DRG)
+        em = mutation_config(db, Specialty.EM)
+        assert general.mix_level_shift == 0
+        assert general.mix_cc_boundary == 0
+        assert general.mix_mdm_shift == 0
+        assert em.mix_level_shift == 10
+        assert em.mix_cc_boundary == 20
+        assert em.mix_mdm_shift == 40
+
+    def test_em_mutation_mix_must_total_100(self, client, db):
+        r = client.put("/auditor/config", json={
+            "em_mix": {"mix_mdm_shift": 90},
+            "updated_by": "T",
+            "passphrase": PASS,
+        })
+        assert r.status_code == 400
+        assert "E/M mutation weights must total 100" in r.json()["detail"]
+
+    def test_em_allocation_uses_the_em_profile_not_the_general_profile(
+            self, client, db):
+        chart = Chart(chart_number="EMCFG001", specialty=Specialty.EM,
+                      category="Office", difficulty=Difficulty.INTERMEDIATE,
+                      status=ChartStatus.ACTIVE, uploaded_by="t")
+        db.add(chart)
+        db.flush()
+        db.execute(text("""
+            INSERT INTO em_answer_keys
+              (chart_id, em_code, em_modifier, level_method, em_category,
+               dx_codes, procedure_cpts, copa_level, dr_level, risk_level,
+               copa_level_overridden, dr_level_overridden,
+               risk_level_overridden, entered_by)
+            VALUES (:chart_id, '99214', '', 'MDM', 'office',
+                    '["J18.9","E11.9"]', '[]', 'Moderate', 'Moderate', 'High',
+                    0, 0, 1, 'QA')
+        """), {"chart_id": chart.id})
+        db.commit()
+
+        r = client.put("/auditor/config", json={
+            "updated_by": "T",
+            "passphrase": PASS,
+            "mix": {
+                "mix_omit_sdx": 35,
+                "mix_omit_proc": 18,
+                "mix_modifier_missing": 8,
+                "mix_modifier_wrong": 7,
+                "mix_substitute": 7,
+                "mix_substitute_pcs": 5,
+                "mix_swap_pdx": 5,
+                "mix_poa": 2,
+                "mix_spurious": 13,
+            },
+            "em_mix": {
+                "mix_omit_sdx": 0,
+                "mix_omit_proc": 0,
+                "mix_modifier_missing": 0,
+                "mix_modifier_wrong": 0,
+                "mix_substitute": 0,
+                "mix_spurious": 0,
+                "mix_level_shift": 0,
+                "mix_cc_boundary": 0,
+                "mix_mdm_shift": 100,
+            },
+        })
+        assert r.status_code == 200, r.text
+
+        batch_id = make_batch(client, specialty="E/M", charts_per=1,
+                              clean_share=0, allocation_mode="auto")
+        allocate(client, batch_id)
+        plantings = client.get(f"/auditor/batches/{batch_id}/plantings").json()
+        gt = plantings["plantings"][0]["ground_truth"]
+        assert gt and gt[0]["kind"] == "mdm_shift"
 
 
 # ── planting what coders really got wrong ────────────────────────────────────
@@ -1015,6 +1121,75 @@ class TestSubmissionIntegrity:
         assert r.status_code == 400
         assert "must say what is wrong" in r.json()["detail"]["message"]
 
+    def test_needs_changes_uses_each_charts_visible_sections(
+            self, client, db, monkeypatch):
+        """
+        E/M batches can mix charts that do and do not expose MDM. The empty
+        verdict guard must validate against each chart's own sections, not the
+        last chart in the session.
+        """
+        from routers.auditor_pkg import batches as batch_router
+
+        def ordered_draw(pool, _seen_counts, _prior_sets, want):
+            return sorted(pool, key=lambda c: c.chart_number)[:want], {
+                "state": "healthy", "message": "", "unseen_left": len(pool),
+                "round": 1,
+            }
+
+        monkeypatch.setattr(batch_router, "draw_for_person", ordered_draw)
+
+        office = Chart(chart_number="EM-A-MDM", specialty=Specialty.EM,
+                       category="Office", difficulty=Difficulty.INTERMEDIATE,
+                       status=ChartStatus.ACTIVE, uploaded_by="t")
+        preventive = Chart(chart_number="EM-Z-PREV", specialty=Specialty.EM,
+                           category="Preventive", difficulty=Difficulty.INTERMEDIATE,
+                           status=ChartStatus.ACTIVE, uploaded_by="t")
+        db.add_all([office, preventive])
+        db.flush()
+        for chart, category, code in (
+                (office, "office", "99214"),
+                (preventive, "preventive", "99396")):
+            db.execute(text("""
+                INSERT INTO em_answer_keys
+                  (chart_id, em_code, em_modifier, level_method, em_category,
+                   dx_codes, procedure_cpts, copa_level, dr_level, risk_level,
+                   copa_level_overridden, dr_level_overridden,
+                   risk_level_overridden, entered_by)
+                VALUES (:chart_id, :code, '', 'MDM', :category,
+                        '["E11.9"]', '[]', 'Moderate', 'Minimal', 'Moderate',
+                        0, 0, 0, 'QA')
+            """), {"chart_id": chart.id, "code": code, "category": category})
+        db.commit()
+
+        batch_id = make_batch(client, charts_per=2, specialty="E/M",
+                              allocation_mode="manual", clean_share=0)
+        token = allocate(client, batch_id, manual_chart_ids=[
+            office.id, preventive.id,
+        ])["access_codes"][0]["token"]
+        payload = client.get(f"/auditor/sessions/by-token/{token}").json()
+        by_num = {c["chart_number"]: c for c in payload["charts"]}
+        assert "MDM" in by_num["EM-A-MDM"]["sections"]
+        assert "MDM" not in by_num["EM-Z-PREV"]["sections"]
+
+        work = []
+        for chart in payload["charts"]:
+            verdicts = {s: "no_changes" for s in chart["sections"]}
+            if chart["chart_number"] == "EM-A-MDM":
+                verdicts["MDM"] = "needs_changes"
+            work.append({"chart_id": chart["chart_id"],
+                         "section_verdicts": verdicts,
+                         "findings": []})
+
+        r = client.post(f"/auditor/sessions/{payload['session_id']}/submit",
+                        json={"charts": work})
+        assert r.status_code == 400
+        detail = r.json()["detail"]
+        assert "must say what is wrong" in detail["message"]
+        assert detail["charts"] == [{
+            "chart_id": by_num["EM-A-MDM"]["chart_id"],
+            "sections": ["MDM"],
+        }]
+
     def test_a_half_written_finding_is_refused(self, client, db, library):
         """
         A finding with no code cannot match anything, so it scored as an
@@ -1166,12 +1341,23 @@ class TestDeepReviewFixes:
     against the running code before being fixed.
     """
 
-    def test_guided_quotas_control_the_authored_split(self, client, db, library):
+    def test_guided_quotas_control_the_authored_split(
+            self, client, db, library, monkeypatch):
         """
         Only the CLEAN quota was ever honoured. "Yours = 2" fell through to
         "authored if the chart happens to have a version", so Guided told a
         trainer they were choosing the mix while the pool chose it.
         """
+        from routers.auditor_pkg import batches as batch_router
+
+        def ordered_draw(pool, _seen_counts, _prior_sets, want):
+            return sorted(pool, key=lambda c: c.chart_number)[:want], {
+                "state": "healthy", "message": "", "unseen_left": len(pool),
+                "round": 1,
+            }
+
+        monkeypatch.setattr(batch_router, "draw_for_person", ordered_draw)
+
         for c in library[:4]:
             client.post(f"/auditor/keys/chart/{c.id}", json={
                 "name": "Curated", "authored_by": "T", "passphrase": PASS,

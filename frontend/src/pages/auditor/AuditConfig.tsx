@@ -14,8 +14,6 @@ const MIX_LABELS: Record<string, string> = {
   mix_swap_pdx: 'Swap principal with a secondary',
   mix_poa: 'Flip a POA indicator',
   mix_spurious: 'Add a spurious code',
-  // E/M. All three ship at 0 so existing batches plant what they always did;
-  // give them a share here to turn them on, remembering the mix must total 100.
   mix_level_shift: 'Shift an E/M level (99284 → 99285)',
   mix_cc_boundary: 'Critical care boundary (99285 vs 99291)',
   mix_mdm_shift: 'Shift an MDM level (COPA, data, risk)',
@@ -26,10 +24,13 @@ const MIX_LABELS: Record<string, string> = {
 // over what each chart can support, so a weight here is an upper bound rather
 // than a promise.
 const MIX_NOTES: Record<string, string> = {
-  mix_level_shift: 'E/M levels only — ED Facility, E/M, ED Profee',
+  mix_level_shift: 'E/M and ED Profee only',
   mix_cc_boundary: 'Only on charts marked a close call on the audit-key screen',
   mix_mdm_shift: 'E/M and ED Profee only, where the declared category is MDM-levelled',
 }
+
+const EM_MIX_FIELDS = ['mix_level_shift', 'mix_cc_boundary', 'mix_mdm_shift']
+const GENERAL_MIX_FIELDS = Object.keys(MIX_LABELS).filter(f => !EM_MIX_FIELDS.includes(f))
 
 const REVENUE_ELEMENTS = [
   { key: 'pdx', label: 'Principal diagnosis' },
@@ -55,12 +56,17 @@ export function AuditConfig({ trainer }: { trainer: string }) {
   const componentTotal = cfg.add_weight + cfg.revise_weight + cfg.delete_weight
   const mixTotal = Object.values(cfg.mix as Record<string, number>)
     .reduce((a, b) => a + (b || 0), 0)
+  const emMixTotal = Object.values((cfg.em_mix || {}) as Record<string, number>)
+    .reduce((a, b) => a + (b || 0), 0)
 
   function set(field: string, value: unknown) {
     setCfg((c: any) => ({ ...c, [field]: value }))
   }
   function setMix(field: string, value: number) {
     setCfg((c: any) => ({ ...c, mix: { ...c.mix, [field]: value } }))
+  }
+  function setEmMix(field: string, value: number) {
+    setCfg((c: any) => ({ ...c, em_mix: { ...c.em_mix, [field]: value } }))
   }
   function toggleRevenue(key: string) {
     const cur: string[] = cfg.revenue_elements || []
@@ -70,7 +76,8 @@ export function AuditConfig({ trainer }: { trainer: string }) {
   async function save() {
     if (!passphrase.trim()) return toast.error('Passphrase required')
     if (componentTotal !== 100) return toast.error(`Add + Revise + Delete must total 100 (currently ${componentTotal})`)
-    if (mixTotal !== 100) return toast.error(`Error weights must total 100 (currently ${mixTotal})`)
+    if (mixTotal !== 100) return toast.error(`General planting weights must total 100 (currently ${mixTotal})`)
+    if (emMixTotal !== 100) return toast.error(`E/M planting weights must total 100 (currently ${emMixTotal})`)
     setBusy(true)
     try {
       setCfg(await updateAuditConfig({ ...cfg, updated_by: trainer, passphrase }))
@@ -153,28 +160,33 @@ export function AuditConfig({ trainer }: { trainer: string }) {
         </div>
       </Block>
 
-      <Block title="How the system introduces errors"
+      <Block title="General chart planting mix"
         note="Weighted from observed audit practice: omissions dominate, and secondary
-              diagnoses are what coders rush. Must total 100; renormalised per chart over
-              the errors that chart can actually support.">
+              diagnoses are what coders rush. Used for IP and OP coding specialties,
+              not E/M or ED Profee. Must total 100; renormalised per chart over the
+              errors that chart can actually support.">
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 10 }}>
-          {Object.keys(MIX_LABELS).map(f => (
-            <div key={f} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <input style={{ ...s.input, width: 64 }} type="number" min={0}
-                value={cfg.mix[f] ?? 0}
-                onChange={e => setMix(f, parseInt(e.target.value) || 0)} />
-              <span style={{ fontSize: 12.5, color: '#374151' }}>
-                {MIX_LABELS[f]}
-                {MIX_NOTES[f] && (
-                  <span style={{ display: 'block', fontSize: 11, color: '#6b7280' }}>
-                    {MIX_NOTES[f]}
-                  </span>
-                )}
-              </span>
-            </div>
+          {GENERAL_MIX_FIELDS.map(f => (
+            <MixNum key={f} field={f} values={cfg.mix} onChange={setMix} />
           ))}
         </div>
         <div style={{ marginTop: 10 }}><Total n={mixTotal} /></div>
+      </Block>
+
+      <Block title="E/M and ED Profee planting mix"
+        note="Used only for E/M and ED Profee audit batches. Tuning these weights does
+              not change IP, SDS, Surgery, ED Facility, ED Single Path, or Ancillary
+              auto-planting. Must total 100 on its own.">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 10 }}>
+          {EM_MIX_FIELDS.map(f => (
+            <MixNum key={f} field={f} values={cfg.em_mix || {}} onChange={setEmMix} />
+          ))}
+          {['mix_omit_sdx', 'mix_omit_proc', 'mix_modifier_missing',
+            'mix_modifier_wrong', 'mix_substitute', 'mix_spurious'].map(f => (
+              <MixNum key={f} field={f} values={cfg.em_mix || {}} onChange={setEmMix} />
+            ))}
+        </div>
+        <div style={{ marginTop: 10 }}><Total n={emMixTotal} /></div>
       </Block>
 
       <Block title="Density and sources"
@@ -206,6 +218,26 @@ export function AuditConfig({ trainer }: { trainer: string }) {
           <Save size={15} /> {busy ? 'Saving…' : 'Save configuration'}
         </button>
       </div>
+    </div>
+  )
+}
+
+function MixNum({ field, values, onChange }: {
+  field: string; values: Record<string, number>; onChange: (field: string, value: number) => void
+}) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      <input style={{ ...s.input, width: 64 }} type="number" min={0}
+        value={values[field] ?? 0}
+        onChange={e => onChange(field, parseInt(e.target.value) || 0)} />
+      <span style={{ fontSize: 12.5, color: '#374151' }}>
+        {MIX_LABELS[field]}
+        {MIX_NOTES[field] && (
+          <span style={{ display: 'block', fontSize: 11, color: '#6b7280' }}>
+            {MIX_NOTES[field]}
+          </span>
+        )}
+      </span>
     </div>
   )
 }

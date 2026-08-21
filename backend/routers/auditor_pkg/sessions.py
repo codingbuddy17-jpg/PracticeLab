@@ -241,6 +241,8 @@ def submit_session(session_id: int, payload: SubmitSession, db: Session = Depend
         work = work_by_chart.get(chart_id)
         verdicts = (work.section_verdicts if work else {}) or {}
         sections = {f.section for f in (work.findings if work else [])}
+        required = sections_for_chart(db, charts_by_id.get(chart_id),
+                                      sess.specialty)
         bare = [s for s in required
                 if verdicts.get(s) == "needs_changes" and s not in sections]
         if bare:
