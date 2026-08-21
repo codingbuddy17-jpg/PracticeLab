@@ -23,7 +23,7 @@ from services.em_levels import CRITICAL_CARE as EM_CRITICAL_CARE
 from services.em_levels import EMERGENCY as EM_EMERGENCY
 from .shared import (
     AUDITABLE_SPECIALTIES, QUERY_SPECIALTIES, audit_key_for, form_spec,
-    require_passphrase, sections_for_chart,
+    require_passphrase, sections_for_chart, sets_by_chart,
 )
 
 router = APIRouter()
@@ -523,6 +523,9 @@ def export_keys(specialty: Optional[str] = None,
     if specialty:
         q = q.filter(Chart.specialty == specialty)
     rows = q.order_by(Chart.chart_number, AuditKeySet.id).all()
+    playable = sets_by_chart(db, [c.id for _s, c in rows])
+    playable_ids = {s.id for sets in playable.values() for s in sets}
+    rows = [(s, c) for s, c in rows if s.id in playable_ids]
     data = export_key_sets([_serialise(s, c) for s, c in rows])
     return StreamingResponse(
         io.BytesIO(data),

@@ -97,6 +97,22 @@ class TestDataExports:
                                      params={"passphrase": PASSPHRASE}))
         assert "IP-DRG" in wb.sheetnames
 
+    def test_answer_key_export_reads_the_current_key_after_replacement(self, client, db):
+        c = _chart(db, "IP602")
+        key = AnswerKey(chart_id=c.id, specialty=Specialty.IP_DRG, pdx_code="J18.9",
+                        pdx_poa="Y", sdx=[], pcs=[], cpt=[], entered_by="t")
+        db.add(key)
+        db.commit()
+        key.pdx_code = "A41.9"
+        db.commit()
+
+        wb = _is_workbook(client.get("/practicelab/answer-key/export",
+                                     params={"passphrase": PASSPHRASE}))
+        ws = wb["IP-DRG"]
+        headers = [c.value for c in ws[1]]
+        pdx_col = headers.index("PDx_Code") + 1
+        assert ws.cell(2, pdx_col).value == "A41.9"
+
     def test_export_keeps_specialty_specific_columns(self, client, db):
         """
         Export used to funnel every non-IP specialty into one generic OP sheet,

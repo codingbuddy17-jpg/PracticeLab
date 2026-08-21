@@ -15,8 +15,8 @@ wiring between them, and three rules that live only at this layer:
 import pytest
 
 from models import (
-    AnswerKey, AuditAssignment, AuditSession, AuditSource, Chart, ChartStatus,
-    Difficulty, Specialty,
+    AnswerKey, AuditAssignment, AuditKeySet, AuditSession, AuditSource, Chart,
+    ChartStatus, Difficulty, Specialty,
 )
 
 PASS = "test-passphrase"
@@ -722,6 +722,29 @@ class TestExports:
         ws = self._sheets(r.content)["Audit_Keys"]
         assert ws.max_row >= 5           # note + blank + header + two errors
         assert "Add" in {c.value for c in ws["D"]}
+
+    def test_the_key_library_export_omits_stale_authored_versions(self, client, db, library):
+        chart = library[0]
+        db.add(AuditKeySet(chart_id=chart.id, name="Old secondary",
+                           authored_by="T",
+                           mutations=[{
+                               "section": "SDx", "action": "Add",
+                               "correct_value": "E11.0",
+                           }]))
+        db.commit()
+        before = client.get("/auditor/keys/export",
+                            params={"passphrase": PASS})
+        before_ws = self._sheets(before.content)["Audit_Keys"]
+        assert "Old secondary" in {c.value for c in before_ws["B"]}
+
+        key = db.query(AnswerKey).filter(AnswerKey.chart_id == chart.id).one()
+        key.sdx = [{"code": "I10", "poa": "Y", "ccmcc": "-"}]
+        db.commit()
+
+        after = client.get("/auditor/keys/export",
+                           params={"passphrase": PASS})
+        after_ws = self._sheets(after.content)["Audit_Keys"]
+        assert "Old secondary" not in {c.value for c in after_ws["B"]}
 
     def test_exports_work_on_an_empty_installation(self, client, db):
         """A trainer clicking Export before any work exists gets a file, not a 500."""
