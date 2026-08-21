@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { Loader } from 'lucide-react'
 import toast from 'react-hot-toast'
 import {
@@ -206,9 +207,24 @@ function Box({ label, value, color, hint }: { label: string; value: any; color?:
 }
 
 export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: number) => void } = {}) {
-  const [tab, setTab] = useState<'overview' | 'specialty' | 'chart' | 'batch' | 'coder' | 'category' | 'teaching' | 'matrix' | 'errors' | 'em_mdm'>(
-    () => (localStorage.getItem(TAB_STORAGE_KEY) as any) || 'overview'
-  )
+  // The view lives in the URL, so "look at the E/M tab" is a link rather than
+  // a sentence. localStorage stays as the fallback for a bare visit — it
+  // remembers where you were — but an address always wins over it.
+  const [params, setParams] = useSearchParams()
+  // TABS is declared further down (it depends on loaded data), so the valid
+  // keys are listed here rather than derived from it.
+  const KEYS = ['overview', 'specialty', 'chart', 'batch', 'coder', 'category',
+                'teaching', 'matrix', 'errors', 'em_mdm']
+  const urlView = params.get('view')
+  const tab = (KEYS.includes(urlView as any)
+    ? urlView
+    : (localStorage.getItem(TAB_STORAGE_KEY) || 'overview')) as
+      'overview' | 'specialty' | 'chart' | 'batch' | 'coder' | 'category' | 'teaching' | 'matrix' | 'errors' | 'em_mdm'
+  const setTab = (t: string) => setParams(prev => {
+    const next = new URLSearchParams(prev)
+    next.set('view', t)
+    return next
+  }, { replace: false })
 
   useEffect(() => { localStorage.setItem(TAB_STORAGE_KEY, tab) }, [tab])
   const [overview, setOverview] = useState<any>(null)
@@ -732,9 +748,12 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
       <div style={{ display: 'flex', border: '1px solid #cbd5e1', borderRadius: 10,
                     overflow: 'hidden', alignSelf: 'flex-start', maxWidth: '100%',
                     flexWrap: 'wrap' as const, background: '#f8fafc' }}>
+        {/* Links: an analytics view is a destination, so it can be opened in a
+            new tab and sent to someone. */}
         {TABS.map(t => (
-          <button key={t.key} title={(t as any).title}
+          <Link key={t.key} title={(t as any).title} to={`?tab=analytics&view=${t.key}`}
             style={{
+              textDecoration: 'none',
               padding: '8px 15px',
               border: 'none',
               cursor: 'pointer',
@@ -745,7 +764,7 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
               background: tab === t.key ? '#334155' : 'transparent',
               color: tab === t.key ? '#fff' : '#64748b',
             }}
-            onClick={() => setTab(t.key as any)}>{t.label}</button>
+            onClick={() => setTab(t.key as any)}>{t.label}</Link>
         ))}
       </div>
 

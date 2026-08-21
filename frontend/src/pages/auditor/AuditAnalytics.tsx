@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
 import { AlertTriangle, Download, FileText, KeyRound, Search, X } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import {
   Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
@@ -59,8 +59,20 @@ const SIGNAL_DEFINITION: Record<string, string> = {
   'Early': 'Fewer than three attempts are available for this chart.',
 }
 
+/** The sub-tab lives in the URL as ?view=, so an analytics view can be linked. */
+const slug = (t: Tab) => t.toLowerCase().replace(/\s+/g, '-')
+
 export function AuditAnalytics() {
-  const [tab, setTab] = useState<Tab>('Overview')
+  // Held in the address bar rather than component state: "look at Error
+  // Patterns" was previously a sentence rather than a link, and Back left the
+  // module instead of returning to the previous view.
+  const [params, setParams] = useSearchParams()
+  const tab: Tab = TABS.find(t => slug(t) === params.get('view')) ?? 'Overview'
+  const setTab = (t: Tab) => setParams(prev => {
+    const next = new URLSearchParams(prev)
+    next.set('view', slug(t))
+    return next
+  }, { replace: false })
   const [overview, setOverview] = useState<any>(null)
   const [specialties, setSpecialties] = useState<any[]>([])
   const [batches, setBatches] = useState<any[]>([])
@@ -233,11 +245,14 @@ export function AuditAnalytics() {
       ) : (
         <>
           <div style={tabBarStyle}>
+            {/* Links, so these can be opened in a new tab and copied. The
+                click still switches in place; React Router leaves modified
+                clicks to the browser. */}
             {TABS.map(t => (
-              <button key={t} onClick={() => setTab(t)}
-                style={tab === t ? tabOnStyle : tabStyle}>
+              <Link key={t} to={`?view=${slug(t)}`}
+                style={{ ...(tab === t ? tabOnStyle : tabStyle), textDecoration: 'none' }}>
                 {t}
-              </button>
+              </Link>
             ))}
           </div>
 

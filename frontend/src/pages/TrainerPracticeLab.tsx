@@ -36,6 +36,10 @@ export function TrainerPracticeLab() {
   const [searchParams] = useSearchParams()
   const urlTab = searchParams.get('tab')
   const urlBatch = searchParams.get('batch')
+  // Scoring Config used to be component state only, so the address bar went on
+  // naming whichever tab you opened it from — a copied link went somewhere
+  // else and a refresh silently changed the page.
+  const urlConfig = searchParams.get('view') === 'scoring-config'
   const [view, setView]                     = useState<View>(
     TABS.some(t => t.key === urlTab) ? (urlTab as Tab) : 'home')
   const [batches, setBatches]               = useState<any[]>([])
@@ -64,6 +68,15 @@ export function TrainerPracticeLab() {
    * source of truth for WHICH view; everything else stays in memory.
    */
   useEffect(() => {
+    if (urlConfig) {
+      if (view !== 'scoring-config') { setNavStack([]); setView('scoring-config') }
+      return
+    }
+    if (view === 'scoring-config') {
+      // Left via Back or a pasted link: fall back to whichever tab the URL names.
+      setView(TABS.some(t => t.key === urlTab) ? (urlTab as Tab) : 'home')
+      return
+    }
     const id = Number(urlBatch)
     if (urlBatch && Number.isFinite(id) && id > 0) {
       if (view !== 'batch-detail' || selectedBatchId !== id) {
@@ -82,7 +95,7 @@ export function TrainerPracticeLab() {
       setNavStack([])
       setView(urlTab as Tab)
     }
-  }, [urlTab, urlBatch])   // eslint-disable-line react-hooks/exhaustive-deps
+  }, [urlTab, urlBatch, urlConfig])   // eslint-disable-line react-hooks/exhaustive-deps
 
   // Debounced: typing a batch name should not fire a request per keystroke.
   useEffect(() => {
@@ -244,7 +257,12 @@ export function TrainerPracticeLab() {
               border: `1px solid ${view === 'scoring-config' ? '#0f766e' : '#e5e7eb'}`,
               background: view === 'scoring-config' ? '#f0fdf4' : 'transparent',
             }}
-            onClick={() => { setNavStack([]); setView(view === 'scoring-config' ? 'home' : 'scoring-config') }}
+            onClick={() => {
+              setNavStack([])
+              navigate(view === 'scoring-config'
+                ? `/trainer/practicelab?tab=${TABS.some(t => t.key === urlTab) ? urlTab : 'home'}`
+                : `/trainer/practicelab?tab=${urlTab || 'home'}&view=scoring-config`)
+            }}
           >
             <Settings size={15} />
           </button>

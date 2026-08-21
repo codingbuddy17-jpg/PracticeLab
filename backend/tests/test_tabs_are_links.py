@@ -77,3 +77,41 @@ class TestTheAddressBarNamesWhatIsOnScreen:
         src = MODULES["PracticeLab"].read_text()
         assert "searchParams.get('batch')" in src
         assert "&batch=${id}" in src, "opening a batch does not reach the URL"
+
+class TestAnalyticsSubTabsAreAddressableToo:
+    """
+    The module tabs were made linkable first; the ~20 analytics views inside
+    them were not, so a trainer could send "Analytics" but not "Analytics →
+    E/M" — and Back left the module rather than returning to the previous view.
+
+    PracticeLab additionally remembered the last view in localStorage, which
+    survives a reload but cannot be sent to anyone. The URL now wins over it.
+    """
+    SUBTABBED = {
+        "Auditor": PAGES / "auditor" / "AuditAnalytics.tsx",
+        "PracticeLab": PAGES / "practicelab" / "PLAnalyticsView.tsx",
+        "Assessment": PAGES / "assessment" / "AnalyticsView.tsx",
+    }
+
+    def test_each_reads_its_view_from_the_url(self):
+        for name, path in self.SUBTABBED.items():
+            src = path.read_text()
+            assert "useSearchParams" in src, "%s keeps its analytics view in state only" % name
+            assert "'view'" in src or '"view"' in src, "%s has no ?view= parameter" % name
+
+    def test_each_renders_those_tabs_as_links(self):
+        import re
+        for name, path in self.SUBTABBED.items():
+            src = path.read_text()
+            m = re.search(r"TABS\.map\(t => \((.{0,260})", src, re.S)
+            assert m, "%s: no tab render block" % name
+            assert "<Link" in m.group(1), (
+                "%s renders analytics tabs as something other than a Link" % name)
+
+    def test_practicelab_scoring_config_is_addressable(self):
+        """
+        It used to show while the address bar still named the tab you opened it
+        from, so a copied link went elsewhere and a refresh changed the page.
+        """
+        src = (PAGES / "TrainerPracticeLab.tsx").read_text()
+        assert "view=scoring-config" in src

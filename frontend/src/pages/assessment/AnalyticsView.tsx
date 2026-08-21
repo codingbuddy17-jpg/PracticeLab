@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { OverviewTab } from './analytics/OverviewTab'
 import { AssessmentDrillTab } from './analytics/AssessmentDrillTab'
 import { CoderHistoryTab } from './analytics/CoderHistoryTab'
@@ -32,7 +33,17 @@ const TABS: { id: AnalyticsTab; label: string; title: string }[] = [
 ]
 
 export function AnalyticsView() {
-  const [tab, setTab] = useState<AnalyticsTab>('overview')
+  // ?view= rather than component state: an analytics view is a destination
+  // somebody sends to a colleague, and Back should return to the previous one
+  // rather than leaving the module.
+  const [params, setParams] = useSearchParams()
+  const tab = (TABS.some(t => t.id === params.get('view'))
+    ? params.get('view') : 'overview') as AnalyticsTab
+  const setTab = (t: AnalyticsTab) => setParams(prev => {
+    const next = new URLSearchParams(prev)
+    next.set('view', t)
+    return next
+  }, { replace: false })
   const [filters, setFilters] = useState<AFilters>({})
 
   return (
@@ -64,11 +75,13 @@ export function AnalyticsView() {
         width: 'fit-content',
       }}>
         {TABS.map(t => (
-          <button
+          <Link
             key={t.id}
             title={t.title}
+            to={`?view=${t.id}`}
             onClick={() => setTab(t.id)}
             style={{
+              textDecoration: 'none',
               padding: '8px 15px',
               border: 'none',
               cursor: 'pointer',
@@ -81,7 +94,7 @@ export function AnalyticsView() {
             }}
           >
             {t.label}
-          </button>
+          </Link>
         ))}
       </div>
 
