@@ -178,10 +178,24 @@ def _write_checks(s, passphrase):
     prove the write path works, not to leave scaffolding behind if the run dies
     halfway.
     """
-    code, charts = call(s.base, "/charts?page=1&page_size=1&specialty=E%2FM")
-    items = (charts or {}).get("items") if isinstance(charts, dict) else None
+    # /charts/search, not /charts — the latter is not a route, and asking for
+    # it 404s. The 404 arrived as "no charts here", so the write half silently
+    # skipped and the run still printed PASS: the script had acquired the exact
+    # failure mode it was written to catch.
+    code, charts = call(s.base, "/charts/search?page=1&page_size=1&specialty=E%2FM")
+    if code != 200 or not isinstance(charts, dict):
+        s.expect("can list E/M charts to write against", False,
+                 "got %s %s" % (code, str(charts)[:160]))
+        return
+    # The list arrives under `results`, beside a `total` for the whole filtered
+    # set. Reading `items` found nothing and looked like an empty environment.
+    items = charts.get("results") or []
     if not items:
-        print("  skip no E/M chart in this environment to write against")
+        # Legal — a fresh environment has no charts. But --write was asked for
+        # and has not happened, so the run must not report PASS: an alarm that
+        # goes green without checking is worse than no alarm.
+        s.expect("an E/M chart exists to write against", False,
+                 "none found, so the write path was NOT verified")
         return
     chart_id = items[0]["id"]
 
@@ -195,9 +209,12 @@ def _write_checks(s, passphrase):
              "got %s %s" % (code, str(body)[:200]))
 
     if code in (200, 201):
+        # In a header, not the query string. This was the last caller in the
+        # project still writing the shared credential into server access logs,
+        # months after the app itself stopped.
         code, body = call(
-            s.base, "/practicelab/em/answer-key/%d?passphrase=%s"
-            % (chart_id, urllib.request.quote(passphrase)), "DELETE")
+            s.base, "/practicelab/em/answer-key/%d" % chart_id, "DELETE",
+            headers={"X-Admin-Passphrase": passphrase})
         s.expect("and removed again", code in (200, 204),
                  "LEFT A ROW BEHIND: %s %s" % (code, str(body)[:160]))
 
