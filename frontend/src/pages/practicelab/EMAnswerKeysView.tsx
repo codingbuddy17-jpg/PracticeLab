@@ -319,6 +319,8 @@ export function EMAnswerKeysView() {
       setDeleteDialog(null)
       setDeletePassphrase('')
       loadList()
+      loadStatuses()
+      loadMissing()
     } catch { toast.error('Delete failed — check passphrase') }
     finally { setDeleting(false) }
   }
@@ -343,6 +345,8 @@ export function EMAnswerKeysView() {
       if (res.not_found.length) parts.push(`${res.not_found.length} not found`)
       toast.success(parts.join(', ') || 'No changes')
       loadList()
+      loadStatuses()
+      loadMissing()
     } catch (err: any) {
       toast.error(err?.response?.data?.detail || 'Upload failed')
     } finally {
