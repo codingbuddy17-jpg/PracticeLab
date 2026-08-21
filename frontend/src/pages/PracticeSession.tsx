@@ -445,6 +445,11 @@ export function PracticeSession() {
       <div style={{ ...s.card, maxWidth: 420, textAlign: 'center', gap: 12 }}>
         <AlertTriangle size={32} color="#dc2626" />
         <div style={{ fontWeight: 700, fontSize: 16 }}>{error}</div>
+        {/* A dead end otherwise: a mistyped code left the coder on a page with
+            nothing to do and no way back to the box they typed it into. */}
+        <a href="/practice" style={{ fontSize: 13, color: '#7c3aed', textDecoration: 'none' }}>
+          ← Try another access code
+        </a>
       </div>
     </div>
   )

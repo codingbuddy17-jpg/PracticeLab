@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Search, BookOpen, Clock, X, ArrowUpDown, Pencil, ExternalLink, Monitor, ClipboardList } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { searchCharts, getCategories, getResources } from '../api'
 import { ChartViewer } from '../components/ChartViewer'
@@ -15,7 +15,11 @@ export function CoderHome() {
   const navigate = useNavigate()
   const [coderName, setCoderName] = useLocalStorage<string>('coder_name', '')
   const [nameInput, setNameInput] = useState('')
-  const [showNamePrompt, setShowNamePrompt] = useState(!coderName)
+  // Skipping is remembered. It used to set component state only, so the card
+  // returned on every visit — the one thing a coder who chose "not now" has
+  // already answered.
+  const [nameAsked, setNameAsked] = useLocalStorage<string>('coder_name_asked', '')
+  const [showNamePrompt, setShowNamePrompt] = useState(!coderName && !nameAsked)
 
   const [query, setQuery] = useState('')
   const [specialty, setSpecialty] = useState<Specialty | ''>('')
@@ -102,17 +106,18 @@ export function CoderHome() {
             placeholder="Your name"
             value={nameInput}
             onChange={e => setNameInput(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter' && nameInput.trim()) { setCoderName(nameInput.trim()); setShowNamePrompt(false) } }}
+            onKeyDown={e => { if (e.key === 'Enter' && nameInput.trim()) { setCoderName(nameInput.trim()); setNameAsked('named'); setShowNamePrompt(false) } }}
             autoFocus
           />
           <button
             style={{ ...styles.primaryBtn, opacity: nameInput.trim() ? 1 : 0.5, width: '100%' }}
             disabled={!nameInput.trim()}
-            onClick={() => { setCoderName(nameInput.trim()); setShowNamePrompt(false) }}
+            onClick={() => { setCoderName(nameInput.trim()); setNameAsked('named'); setShowNamePrompt(false) }}
           >
             Continue
           </button>
-          <button style={styles.skipBtn} onClick={() => setShowNamePrompt(false)}>Skip for now</button>
+          <button style={styles.skipBtn}
+            onClick={() => { setNameAsked('skipped'); setShowNamePrompt(false) }}>Skip for now</button>
         </div>
       </div>
     )
@@ -141,32 +146,37 @@ export function CoderHome() {
           border: none; cursor: pointer; text-align: left;
           border-radius: 10px 0 0 10px;
           padding: 13px 14px;
-          width: 44px; overflow: hidden;
-          transition: width 0.22s ease, box-shadow 0.15s, background 0.15s;
+          transition: box-shadow 0.15s, background 0.15s, transform 0.15s;
           white-space: nowrap;
+          text-decoration: none;
         }
-        .quick-btn:hover { width: 130px; }
+        .quick-btn:hover { transform: translateX(-2px); }
+        /* The labels used to collapse to zero width until hover. These two are
+           a coder's only route to the two things they are here to do, and an
+           unlabelled icon at the edge of the screen is not a route anyone
+           finds. They stay visible. */
         .quick-btn .qb-label {
-          opacity: 0; max-width: 0;
-          font-size: 12px; font-weight: 700; line-height: 1.4;
-          transition: opacity 0.18s ease 0.08s, max-width 0.22s ease;
-          overflow: hidden;
+          font-size: 12px; font-weight: 700; line-height: 1.4; margin-left: 8px;
         }
-        .quick-btn:hover .qb-label { opacity: 1; max-width: 100px; margin-left: 8px; }
         .quick-btn-practice { background: #059669; color: #fff; box-shadow: -2px 2px 10px rgba(5,150,105,0.25); margin-bottom: 4px; }
         .quick-btn-practice:hover { background: #047857; box-shadow: 0 4px 14px rgba(5,150,105,0.35); }
         .quick-btn-assessment { background: #7c3aed; color: #fff; box-shadow: -2px 2px 10px rgba(124,58,237,0.25); }
         .quick-btn-assessment:hover { background: #6d28d9; box-shadow: 0 4px 14px rgba(124,58,237,0.35); }
       `}</style>
       <div style={styles.quickAccess}>
-        <button className="quick-btn quick-btn-practice" onClick={() => window.open('/practice', '_blank')}>
+        {/* Links, not window.open buttons: an anchor can be middle-clicked,
+            copied, or opened where the reader wants it. They still open in a
+            new tab so a half-finished search is not lost. */}
+        <Link className="quick-btn quick-btn-practice" to="/practice" target="_blank"
+              title="Open your practice session in a new tab">
           <Monitor size={15} style={{ flexShrink: 0 }} />
           <span className="qb-label">Practice</span>
-        </button>
-        <button className="quick-btn quick-btn-assessment" onClick={() => window.open('/take-assessment', '_blank')}>
+        </Link>
+        <Link className="quick-btn quick-btn-assessment" to="/take-assessment" target="_blank"
+              title="Open your assessment in a new tab">
           <ClipboardList size={15} style={{ flexShrink: 0 }} />
           <span className="qb-label">Assessment</span>
-        </button>
+        </Link>
       </div>
 
       <div style={styles.main}>

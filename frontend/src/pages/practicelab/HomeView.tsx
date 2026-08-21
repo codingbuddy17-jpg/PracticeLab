@@ -86,7 +86,10 @@ export function HomeView({ batches, directAssignments, overview, loading, onOpen
   const TAB_CFG: { key: StatusFilter; label: string; count: number; color: string; activeBg: string; activeBorder: string }[] = [
     { key: 'open',   label: 'Open',   count: openCount,        color: '#1d4ed8', activeBg: '#eff6ff', activeBorder: '#3b82f6' },
     { key: 'closed', label: 'Closed', count: closedCount,      color: '#15803d', activeBg: '#f0fdf4', activeBorder: '#22c55e' },
-    { key: 'all',    label: 'All',    count: batches.length,   color: '#374151', activeBg: '#f8fafc', activeBorder: '#94a3b8' },
+    // allBatches, not batches: Open and Closed above already count assignments
+    // too, and the list below shows both. Counting formal batches here alone
+    // put "Open 16 · Closed 7 · All 3" on one row.
+    { key: 'all',    label: 'All',    count: allBatches.length, color: '#374151', activeBg: '#f8fafc', activeBorder: '#94a3b8' },
   ]
 
   return (
@@ -95,9 +98,13 @@ export function HomeView({ batches, directAssignments, overview, loading, onOpen
       {overview && overview.total_batches > 0 && (
         <div style={styles.statsRow}>
           {[
-            { label: 'Total Batches',     value: overview.total_batches },
-            { label: 'Open',              value: overview.open_batches ?? openCount,    color: '#2563eb' },
-            { label: 'Closed',            value: overview.complete_batches ?? closedCount, color: '#16a34a' },
+            // The same population as the chips and the list beneath them —
+            // batches and direct assignments together. These read from the
+            // server's batch-only overview, so the strip said 3 while the row
+            // under it said 16 open.
+            { label: 'Batches & Assignments', value: allBatches.length },
+            { label: 'Open',              value: openCount,   color: '#2563eb' },
+            { label: 'Closed',            value: closedCount, color: '#16a34a' },
             { label: 'Total Graded',      value: overview.total_graded },
             { label: 'Overall Pass Rate', value: `${overview.overall_pass_rate}%`,
               color: overview.overall_pass_rate >= 80 ? '#16a34a' : overview.overall_pass_rate >= 60 ? '#d97706' : '#dc2626' },

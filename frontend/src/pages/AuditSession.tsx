@@ -251,6 +251,11 @@ export function AuditSession() {
       <div style={{ ...s.card, maxWidth: 420, textAlign: 'center', gap: 12 }}>
         <AlertTriangle size={32} color="#dc2626" />
         <div style={{ fontWeight: 700, fontSize: 16 }}>{error}</div>
+        {/* Audit codes are entered on the same screen as practice codes, so
+            that is where "back" goes. Without it this page is a dead end. */}
+        <a href="/practice" style={{ fontSize: 13, color: '#4f46e5', textDecoration: 'none' }}>
+          ← Try another access code
+        </a>
       </div>
     </div>
   )
