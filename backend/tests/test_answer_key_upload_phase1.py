@@ -406,6 +406,23 @@ def test_standard_replace_makes_stale_authored_audit_versions_unplayable(client,
     assert replaced.status_code == 200, replaced.text
     assert replaced.json()["replaced"] == ["QAREPAUD"]
     assert sets_by_chart(db, [chart.id]) == {}
+    assert client.get("/auditor/keys", params={
+        "specialty": "SDS",
+    }).json()["count"] == 0
+
+    status = client.get("/auditor/keys/status",
+                        params={"specialty": "SDS"}).json()
+    assert status["auditable"] == 1
+    assert status["curated"] == 0
+    assert status["uncurated"] == 1
+
+    todo = client.get("/auditor/keys/uncurated",
+                      params={"specialty": "SDS"}).json()
+    assert [c["chart_number"] for c in todo["charts"]] == ["QAREPAUD"]
+
+    picker = client.get("/auditor/charts", params={"specialty": "SDS"}).json()
+    assert picker["charts"][0]["has_audit_key"] is False
+    assert picker["charts"][0]["audit_key_sets"] == []
 
 
 def test_standard_upload_fails_clearly_when_chart_number_header_is_missing(client, db):

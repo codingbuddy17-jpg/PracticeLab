@@ -263,8 +263,7 @@ def key_status(specialty: str = Query(...), db: Session = Depends(get_db)):
               .filter(Chart.specialty == specialty, Chart.status == "Active").all())
     chart_ids = [c.id for c in charts]
     keyed = _keyed_chart_ids(db, charts)
-    curated = {k.chart_id for k in db.query(AuditKeySet.chart_id).filter(
-        AuditKeySet.chart_id.in_(chart_ids)).all()} if chart_ids else set()
+    curated = set(sets_by_chart(db, list(keyed)).keys())
 
     auditable = keyed
     return {
@@ -289,9 +288,7 @@ def uncurated_charts(specialty: str = Query(...),
               .filter(Chart.specialty == specialty, Chart.status == "Active")
               .order_by(Chart.chart_number).all())
     keyed = _keyed_chart_ids(db, charts)
-    curated = {row[0] for row in db.query(AuditKeySet.chart_id)
-               .filter(AuditKeySet.chart_id.in_([c.id for c in charts] or [-1]))
-               .distinct().all()}
+    curated = set(sets_by_chart(db, list(keyed)).keys())
     out = [c for c in charts if c.id in keyed and c.id not in curated]
     total = len(out)
     out = out[:limit]
@@ -330,21 +327,17 @@ def auditable_charts(specialty: str = Query(...),
     keyed = _keyed_chart_ids(db, candidates)
     rows = [c for c in candidates if c.id in keyed][:limit]
     chart_ids = [c.id for c in rows]
-    curated_ids = {row[0] for row in db.query(AuditKeySet.chart_id)
-                   .filter(AuditKeySet.chart_id.in_(chart_ids or [-1]))
-                   .distinct().all()}
-    sets = {}
-    if chart_ids:
-        for row in (db.query(AuditKeySet)
-                    .filter(AuditKeySet.chart_id.in_(chart_ids))
-                    .order_by(AuditKeySet.chart_id, AuditKeySet.id)
-                    .all()):
-            sets.setdefault(row.chart_id, []).append({
-                "id": row.id,
-                "name": row.name,
-                "planting_count": len(row.mutations or []),
-                "always_plant": bool(row.always_plant),
-            })
+    playable = sets_by_chart(db, chart_ids)
+    curated_ids = set(playable.keys())
+    sets = {
+        chart_id: [{
+            "id": row.id,
+            "name": row.name,
+            "planting_count": len(row.mutations or []),
+            "always_plant": bool(row.always_plant),
+        } for row in rows_for_chart]
+        for chart_id, rows_for_chart in playable.items()
+    }
     return {"charts": [{
         "id": c.id, "chart_number": c.chart_number, "category": c.category,
         "difficulty": c.difficulty.value if c.difficulty else None,
@@ -364,7 +357,9 @@ def list_sets(specialty: Optional[str] = None,
         q = q.filter(Chart.specialty == specialty)
     rows = q.order_by(Chart.chart_number, AuditKeySet.id).all()
     keyed = _keyed_chart_ids(db, [c for _s, c in rows])
-    rows = [(s, c) for s, c in rows if c.id in keyed][:limit]
+    playable = sets_by_chart(db, list(keyed))
+    playable_ids = {s.id for sets in playable.values() for s in sets}
+    rows = [(s, c) for s, c in rows if s.id in playable_ids][:limit]
     return {"sets": [_serialise(s, c) for s, c in rows], "count": len(rows)}
 
 
