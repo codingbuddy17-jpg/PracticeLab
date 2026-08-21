@@ -11,8 +11,11 @@ class AssessmentSpecialty(str, enum.Enum):
     ED_PROFEE = "ED Profee"
     ANCILLARY = "Ancillary"
     IP_DRG = "IP-DRG"
-    EM = "E&M"
-    EM_MULTI = "E&M - Multispecialty"
+    # E/M with a slash, matching the coding modules and AMA's own spelling.
+    # This module used "E&M" alone, which meant nothing could join on
+    # specialty across the two halves of the product.
+    EM = "E/M"
+    EM_MULTI = "E/M - Multispecialty"
     IVR = "IVR"
     ANESTHESIA = "Anesthesia"
 

@@ -63,7 +63,7 @@ def test_matrix_cells_carry_counts_and_gap_summary(client, db):
     db.commit()
     questions = [
         {"question_id": "M1", "question_text": "IP question", "specialty": "IP-DRG", "topic": "DRG"},
-        {"question_id": "M2", "question_text": "E/M question", "specialty": "E&M", "topic": "MDM"},
+        {"question_id": "M2", "question_text": "E/M question", "specialty": "E/M", "topic": "MDM"},
     ]
     slot = GeneratedAssessmentStudent(assessment_id=a.id, student_label="Alice", questions_json=questions)
     db.add(slot)
@@ -92,7 +92,7 @@ def test_matrix_cells_carry_counts_and_gap_summary(client, db):
     row = client.get("/assessment/analytics/coder-matrix").json()["coders"][0]
 
     assert row["specialty_counts"]["IP-DRG"] == {"correct": 0, "total": 1}
-    assert row["specialty_counts"]["E&M"] == {"correct": 1, "total": 1}
+    assert row["specialty_counts"]["E/M"] == {"correct": 1, "total": 1}
     assert row["gap_count"] == 1
     assert row["weakest_specialty"]["specialty"] == "IP-DRG"
 

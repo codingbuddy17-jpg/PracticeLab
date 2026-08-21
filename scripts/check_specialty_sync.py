@@ -79,5 +79,35 @@ for pre in sorted(set(fe_prefix) & set(be_prefix_vals)):
         check(f"prefix {pre} maps consistently", False,
               f"fe={fe_prefix[pre]!r} be={be_prefix_vals[pre]!r}")
 
+print("\n5. ASSESSMENT SPECIALTIES MATCH THEIR OWN ENUM")
+# The Assessment module keeps a separate list — it covers question topics the
+# coding side has no chart type for (IVR, Anesthesia), so it is deliberately
+# not the coding enum. What it must not do is spell a shared name differently:
+# it said "E&M" for years while every coding screen said "E/M", so nothing
+# could join on specialty across the two halves of the product.
+assess_py = (BE / "models/assessment.py").read_text()
+seg = assess_py[assess_py.index("class AssessmentSpecialty"):]
+seg = seg[:seg.index("class ", 10)]
+be_assess = set(re.findall(r'=\s*"([^"]+)"', seg))
+
+assess_dir = FE / "pages/assessment"
+listed = {}
+for path in sorted(assess_dir.rglob("*.tsx")):
+    text = path.read_text()
+    for m in re.finditer(r"SPECIALTIES[^=]*=\s*\[([^\]]+)\]", text):
+        names = set(re.findall(r"'([^']+)'", m.group(1)))
+        if names:
+            listed[path.name] = names
+
+for name, names in sorted(listed.items()):
+    extra = names - be_assess
+    missing = be_assess - names
+    check(f"{name} ({len(names)})", not extra and not missing,
+          f"not_in_enum={sorted(extra)} missing={sorted(missing)}")
+
+shared = {n for n in be_assess if "/" in n or n in be_specialties}
+wrong = {n for n in be_assess if "&" in n}
+check("no specialty spells E/M with an ampersand", not wrong, f"found={sorted(wrong)}")
+
 print("\n" + ("ALL IN SYNC" if not fails else f"{len(fails)} MISMATCH(ES)"))
 sys.exit(1 if fails else 0)

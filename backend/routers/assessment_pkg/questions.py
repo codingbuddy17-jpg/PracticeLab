@@ -33,8 +33,8 @@ SPECIALTY_PREFIX = {
     "ED Profee": "EDPF",
     "Ancillary": "ANCL",
     "IP-DRG": "IPDR",
-    "E&M": "EMC",
-    "E&M - Multispecialty": "EMMS",
+    "E/M": "EMC",
+    "E/M - Multispecialty": "EMMS",
     "IVR": "IVR",
     "Anesthesia": "ANES",
 }
@@ -455,8 +455,11 @@ def export_all_questions(
             .order_by(AssessmentQuestion.question_id)
             .all()
         )
-        # Tab name: max 31 chars (Excel limit), strip special chars
-        tab_name = sp[:31]
+        # Excel refuses / \ ? * [ ] : in a sheet name and caps it at 31 chars.
+        # The comment claimed to strip them and did not, so the first specialty
+        # carrying one — E/M — raised "Invalid character / found in sheet
+        # title" and the whole export failed rather than one tab.
+        tab_name = re.sub(r"[\\/?*\[\]:]", "-", sp)[:31]
         ws = wb.create_sheet(title=tab_name)
         _write_specialty_sheet(ws, qs)
         total_questions += len(qs)

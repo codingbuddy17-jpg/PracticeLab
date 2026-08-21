@@ -871,6 +871,35 @@ def _run_migrations():
     _add_col("em_answer_keys", "em_category", "VARCHAR(30)", "TEXT")
     _add_col("em_answer_keys", "critical_care_minutes", "INTEGER", "INTEGER")
 
+    # ── E&M becomes E/M ─────────────────────────────────────────────────────
+    #
+    # The assessment module spelled the specialty "E&M" while every coding
+    # module spells it "E/M", so nothing could join on specialty across the two
+    # halves of the product and a trainer saw both spellings depending which
+    # screen they were on. The enum now says E/M; these carry the stored rows
+    # with it.
+    #
+    # Idempotent and safe to re-run: rows already migrated match nothing.
+    _run("UPDATE assessment_questions SET specialty = 'E/M' WHERE specialty = 'E&M'")
+    _run("UPDATE assessment_questions SET specialty = 'E/M - Multispecialty' "
+         "WHERE specialty = 'E&M - Multispecialty'")
+    _run("UPDATE assessment_audit_log SET specialty = 'E/M' WHERE specialty = 'E&M'")
+    _run("UPDATE assessment_audit_log SET specialty = 'E/M - Multispecialty' "
+         "WHERE specialty = 'E&M - Multispecialty'")
+    # specialty_mix holds the same names inside JSON. PostgreSQL will not
+    # assign text to a json column, so the replacement has to be cast back;
+    # SQLite stores JSON as text and needs no cast at all. One REPLACE covers
+    # both "E&M" and "E&M - Multispecialty", since the second contains the
+    # first.
+    if is_sqlite:
+        _run("UPDATE assessment_configs "
+             "SET specialty_mix = REPLACE(specialty_mix, 'E&M', 'E/M') "
+             "WHERE specialty_mix LIKE '%E&M%'")
+    else:
+        _run("UPDATE assessment_configs "
+             "SET specialty_mix = CAST(REPLACE(specialty_mix::text, 'E&M', 'E/M') AS JSON) "
+             "WHERE specialty_mix::text LIKE '%E&M%'")
+
     # ── repair: the em_* tables were created without an id default ──────────
     #
     # They were written as a literal "id INTEGER PRIMARY KEY" rather than

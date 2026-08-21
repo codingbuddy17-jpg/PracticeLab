@@ -7,7 +7,7 @@ import RandomisationStatsCard, { RandomisationStats } from '../../components/Ran
 
 const SPECIALTIES = [
   'ICD10CM', 'Surgery', 'ED Facility', 'ED Profee', 'Ancillary',
-  'IP-DRG', 'E&M', 'E&M - Multispecialty', 'IVR', 'Anesthesia',
+  'IP-DRG', 'E/M', 'E/M - Multispecialty', 'IVR', 'Anesthesia',
 ]
 
 interface SpecialtyMixRow { specialty: string; pct: number; topicFilter: string }
