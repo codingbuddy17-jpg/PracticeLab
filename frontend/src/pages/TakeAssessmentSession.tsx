@@ -33,6 +33,10 @@ export function TakeAssessmentSession() {
   const [timeRemaining, setTimeRemaining] = useState(0)
   const [alertShown, setAlertShown] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  // Final Submit ends the attempt and the paper cannot be reopened, so the
+  // second press is the one that sends it. The count of unanswered questions
+  // is what the confirmation is really about.
+  const [confirmingFinal, setConfirmingFinal] = useState(false)
   const saveQueueRef = useRef<Record<number, ReturnType<typeof setTimeout>>>({})
 
   // ── Load session info on mount ───────────────────────────────────────────────
@@ -305,17 +309,29 @@ export function TakeAssessmentSession() {
               })}
             </div>
 
+            {confirmingFinal && (
+              <div style={{ marginTop: 16, padding: '12px 14px', borderRadius: 10,
+                            background: '#fef2f2', border: '1px solid #fecaca',
+                            fontSize: 13, color: '#b91c1c', lineHeight: 1.5 }}>
+                <strong>This ends your attempt.</strong>{' '}
+                {answeredCount < questions.length
+                  ? `${questions.length - answeredCount} question${questions.length - answeredCount !== 1 ? 's' : ''} will be sent unanswered, and the paper cannot be reopened.`
+                  : 'The paper cannot be reopened once submitted.'}
+              </div>
+            )}
+
             <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
-              <button style={s.btnOutline} onClick={() => setScreen('taking')}>
-                <ChevronLeft size={13} /> Back to Questions
+              <button style={s.btnOutline}
+                onClick={() => confirmingFinal ? setConfirmingFinal(false) : setScreen('taking')}>
+                <ChevronLeft size={13} /> {confirmingFinal ? 'Not yet' : 'Back to Questions'}
               </button>
               <button
                 style={{ ...s.btnSubmit, opacity: submitting ? 0.65 : 1 }}
                 disabled={submitting}
-                onClick={handleSubmit}
+                onClick={() => { if (!confirmingFinal) { setConfirmingFinal(true); return } handleSubmit() }}
               >
                 <Send size={13} />
-                {submitting ? 'Submitting…' : 'Final Submit'}
+                {submitting ? 'Submitting…' : confirmingFinal ? 'Yes, submit my answers' : 'Final Submit'}
               </button>
             </div>
           </div>

@@ -411,6 +411,9 @@ export function PracticeSession() {
   }
 
   // ── Submit ──────────────────────────────────────────────────────────────────
+  // Second press confirms a submission that leaves charts unstarted.
+  const [confirmingSubmit, setConfirmingSubmit] = useState(false)
+
   async function handleSubmit() {
     if (!session) return
     const missingQuery = session.charts.filter(c => queryTextMissing(entries[c.chart_id], ip))
@@ -501,6 +504,9 @@ export function PracticeSession() {
     const complete = charts.filter(c => chartStatus(entries[c.chart_id], ip, ed, em) === 'complete').length
     const partial = charts.filter(c => chartStatus(entries[c.chart_id], ip, ed, em) === 'partial').length
     const empty = charts.filter(c => chartStatus(entries[c.chart_id], ip, ed, em) === 'empty').length
+    // Every chart untouched. Distinct from "some left": there is nothing here
+    // to grade, so submitting can only be an accident.
+    const nothingCoded = empty === charts.length && charts.length > 0
     const flagged = charts.filter(c => entries[c.chart_id]?.flagged).length
     const queried = charts.filter(c => ip && entries[c.chart_id]?.query_flag).length
     const queryGaps = charts.filter(c => queryTextMissing(entries[c.chart_id], ip))
@@ -551,15 +557,51 @@ export function PracticeSession() {
             </div>
           </div>
         )}
+        {/* Nothing coded at all is a mistake, not a decision — a coder who
+            meant to submit an empty session has nothing to be graded on, and
+            submitting cannot be undone. Some charts left is a legitimate
+            choice, so that asks rather than blocks. */}
+        {nothingCoded ? (
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 12,
+                        padding: '12px 14px', borderRadius: 10, background: '#fef2f2', border: '1px solid #fecaca' }}>
+            <AlertTriangle size={16} color="#dc2626" style={{ flexShrink: 0, marginTop: 1 }} />
+            <div style={{ fontSize: 13, color: '#b91c1c', lineHeight: 1.5 }}>
+              <strong>Nothing has been coded yet.</strong>{' '}
+              Open a chart and enter your codes — there is nothing here to grade,
+              and a submitted session cannot be reopened.
+            </div>
+          </div>
+        ) : empty > 0 && !confirmingSubmit ? (
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 12,
+                        padding: '12px 14px', borderRadius: 10, background: '#fffbeb', border: '1px solid #fde68a' }}>
+            <AlertTriangle size={16} color="#b45309" style={{ flexShrink: 0, marginTop: 1 }} />
+            <div style={{ fontSize: 13, color: '#92400e', lineHeight: 1.5 }}>
+              <strong>{empty} chart{empty !== 1 ? 's' : ''} not started.</strong>{' '}
+              {empty === 1 ? 'It' : 'They'} will be graded as submitted with no codes.
+            </div>
+          </div>
+        ) : null}
+
         <button
-          onClick={handleSubmit}
-          disabled={submitting || queryGaps.length > 0}
-          style={{ ...s.submitBtn, opacity: submitting || queryGaps.length > 0 ? 0.5 : 1,
-                   cursor: queryGaps.length > 0 ? 'not-allowed' : 'pointer' }}
+          onClick={() => {
+            if (empty > 0 && !confirmingSubmit) { setConfirmingSubmit(true); return }
+            handleSubmit()
+          }}
+          disabled={submitting || queryGaps.length > 0 || nothingCoded}
+          style={{ ...s.submitBtn, opacity: submitting || queryGaps.length > 0 || nothingCoded ? 0.5 : 1,
+                   cursor: queryGaps.length > 0 || nothingCoded ? 'not-allowed' : 'pointer' }}
         >
           <Send size={15} />
-          {submitting ? 'Submitting…' : 'Submit All Charts'}
+          {submitting ? 'Submitting…'
+            : confirmingSubmit ? `Yes, submit with ${empty} not started`
+            : 'Submit All Charts'}
         </button>
+        {confirmingSubmit && !submitting && (
+          <button onClick={() => setConfirmingSubmit(false)}
+            style={{ ...s.backBtn, display: 'block', margin: '10px auto 0' }}>
+            Cancel — let me finish {empty === 1 ? 'it' : 'them'}
+          </button>
+        )}
         <div style={{ fontSize: 12, color: '#9ca3af', textAlign: 'center', marginTop: 10 }}>
           Submissions cannot be edited after submit.
         </div>
@@ -1496,7 +1538,10 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
           <button onClick={addCpt} style={s.addBtn}><Plus size={13} /> Add CPT Code</button>
           <div style={s.hint}>
             5-digit CPT · append modifiers per guidelines where applicable
-            {pointers && ' · Dx pointers: letters from the list above, up to 4, first is primary'}
+            {/* Numbers. The Dx list above is numbered, the parser reads numbers,
+                and the trainer's key editor says numbers — this line was the
+                only place still saying letters. */}
+            {pointers && ' · Dx pointers: numbers from the list above, up to 4, first is primary'}
           </div>
         </Section>
       )}
