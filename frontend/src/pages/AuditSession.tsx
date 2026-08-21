@@ -805,6 +805,7 @@ function PdxRow({ chart, spec, open, revisionOf, setRevision, describe }: {
           revision={revisionOf(0, field)}
           section="PDx"
           field={field}
+          options={field === 'poa' ? POA_VALUES : undefined}
           describe={describe}
           onChange={v => setRevision(0, field, values[field] || '', v)}
         />
@@ -855,6 +856,7 @@ function LineRow({ index, row, fields, open, deleted, canDelete, revisionOf, set
           revision={revisionOf(index, field)}
           section={section}
           field={field}
+          options={field === 'poa' ? POA_VALUES : undefined}
           describe={describe}
           onChange={v => setRevision(index, field, String(row[field] ?? ''), v)}
         />

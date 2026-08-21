@@ -88,7 +88,7 @@ const st: Record<string, React.CSSProperties> = {
     padding: '9px 15px', border: 'none', borderBottom: '2px solid transparent',
     background: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#6b7280',
   },
-  tabOn: { color: '#be185d', borderBottomColor: '#be185d' },
+  tabOn: { color: '#be185d', borderBottom: '2px solid #be185d' },
   settingsBtn: {
     marginLeft: 'auto', marginBottom: 8, display: 'flex', alignItems: 'center',
     gap: 6, padding: '7px 13px', border: '1px solid #e5e7eb', borderRadius: 8,

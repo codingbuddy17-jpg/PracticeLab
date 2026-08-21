@@ -11,7 +11,7 @@ import {
 } from '../../api'
 import api from '../../api/client'
 import { errorMessage } from '../../api/errors'
-import { getPassphrase } from '../../api/assessmentAuth'
+import { getPassphrase, rememberPassphrase } from '../../api/assessmentAuth'
 
 /** Whoever is signed in on this browser, for the audit trail. */
 const trainerName = () => localStorage.getItem('trainer_name')?.trim() || 'Trainer'
@@ -87,6 +87,7 @@ export function SessionsView() {
   // mistake later.
   const [correcting, setCorrecting] = useState<number | null>(null)
   const [reason, setReason] = useState('')
+  const [correctionPassphrase, setCorrectionPassphrase] = useState('')
   const [saving, setSaving] = useState(false)
 
   async function loadAssessments() {
@@ -97,6 +98,8 @@ export function SessionsView() {
     } catch { toast.error('Failed to load assessments') }
     finally { setLoadingAssessments(false) }
   }
+
+  useEffect(() => { loadAssessments() }, [])
 
   async function loadSessions(id: number, targetPage = sessionPage) {
     setLoadingSessions(true)
@@ -206,6 +209,7 @@ export function SessionsView() {
     setReviewSessionId(sessionId)
     setCorrecting(null)
     setReason('')
+    setCorrectionPassphrase('')
     try {
       const { data } = await api.get(`/assessment/${selectedId}/session/${sessionId}/review`)
       setReviewData(data)
@@ -221,17 +225,21 @@ export function SessionsView() {
     if (!selectedId || reviewSessionId == null) return
     const note = reason.trim()
     if (note.length < 5) { toast.error('Enter a justification before correcting.'); return }
+    const passphrase = getPassphrase() || correctionPassphrase.trim()
+    if (!passphrase) { toast.error('Enter the trainer passphrase.'); return }
+    if (correctionPassphrase.trim()) rememberPassphrase(correctionPassphrase.trim())
     setSaving(true)
     try {
       await overrideAssessmentAnswer(Number(selectedId), reviewSessionId, questionIndex, {
         is_correct: isCorrect, reason: note, trainer_name: trainerName(),
-      })
+      }, passphrase)
       // Reload rather than patching locally: the score, the corrections count
       // and the session row all move together, and re-reading is the only way
       // to be sure the screen shows what was actually stored.
       await openReview(reviewSessionId)
       await loadSessions(Number(selectedId), sessionPage)
       toast.success('Correction saved — score updated.')
+      setCorrectionPassphrase('')
     } catch (e) {
       toast.error(errorMessage(e, 'Could not save the correction'))
     } finally { setSaving(false) }
@@ -259,6 +267,7 @@ export function SessionsView() {
             <select
               style={s.select}
               value={selectedId}
+              disabled={loadingAssessments}
               onFocus={() => { if (!assessments.length) loadAssessments() }}
               onChange={e => handleSelectAssessment(e.target.value ? Number(e.target.value) : '')}
             >
@@ -552,15 +561,30 @@ export function SessionsView() {
                             placeholder="e.g. Answer key was wrong — E11.22 sequencing is also defensible; discussed with coder."
                             style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #e9d5ff', fontSize: 12, fontFamily: 'inherit', resize: 'vertical' }}
                           />
+                          {!getPassphrase() && (
+                            <div style={{ marginTop: 8 }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: '#6b21a8', marginBottom: 6 }}>
+                                Trainer passphrase
+                              </div>
+                              <input
+                                type="password"
+                                autoComplete="current-password"
+                                value={correctionPassphrase}
+                                onChange={e => setCorrectionPassphrase(e.target.value)}
+                                placeholder="Required to save correction"
+                                style={{ width: 260, maxWidth: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #e9d5ff', fontSize: 12 }}
+                              />
+                            </div>
+                          )}
                           <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                            <button disabled={saving || reason.trim().length < 5}
+                            <button disabled={saving || reason.trim().length < 5 || (!getPassphrase() && !correctionPassphrase.trim())}
                               onClick={() => saveCorrection(qi, true)}
-                              style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 8, border: 'none', background: reason.trim().length < 5 ? '#e5e7eb' : '#16a34a', color: reason.trim().length < 5 ? '#9ca3af' : '#fff', cursor: reason.trim().length < 5 ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 700 }}>
+                              style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 8, border: 'none', background: (reason.trim().length < 5 || (!getPassphrase() && !correctionPassphrase.trim())) ? '#e5e7eb' : '#16a34a', color: (reason.trim().length < 5 || (!getPassphrase() && !correctionPassphrase.trim())) ? '#9ca3af' : '#fff', cursor: (reason.trim().length < 5 || (!getPassphrase() && !correctionPassphrase.trim())) ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 700 }}>
                               <CheckCircle size={13} /> Mark correct
                             </button>
-                            <button disabled={saving || reason.trim().length < 5}
+                            <button disabled={saving || reason.trim().length < 5 || (!getPassphrase() && !correctionPassphrase.trim())}
                               onClick={() => saveCorrection(qi, false)}
-                              style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 8, border: 'none', background: reason.trim().length < 5 ? '#e5e7eb' : '#dc2626', color: reason.trim().length < 5 ? '#9ca3af' : '#fff', cursor: reason.trim().length < 5 ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 700 }}>
+                              style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 8, border: 'none', background: (reason.trim().length < 5 || (!getPassphrase() && !correctionPassphrase.trim())) ? '#e5e7eb' : '#dc2626', color: (reason.trim().length < 5 || (!getPassphrase() && !correctionPassphrase.trim())) ? '#9ca3af' : '#fff', cursor: (reason.trim().length < 5 || (!getPassphrase() && !correctionPassphrase.trim())) ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 700 }}>
                               <XCircle size={13} /> Mark wrong
                             </button>
                             <span style={{ fontSize: 11, color: '#9ca3af' }}>

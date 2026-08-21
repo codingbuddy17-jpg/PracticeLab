@@ -434,11 +434,12 @@ export async function getAssessmentQuestionSignals(f: AFilters = {}, minAttempts
 export async function overrideAssessmentAnswer(
   assessmentId: number, sessionId: number, questionIndex: number,
   body: { is_correct: boolean; reason: string; trainer_name: string },
+  passphrase?: string,
 ) {
   const { data } = await api.post(
     `/assessment/${assessmentId}/session/${sessionId}/response/${questionIndex}/override`,
     body,
-    adminAuth(getPassphrase()),
+    adminAuth(passphrase ?? getPassphrase()),
   )
   return data as {
     is_correct: boolean; score_pct: number | null

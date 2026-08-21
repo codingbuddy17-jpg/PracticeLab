@@ -198,9 +198,7 @@ def export_analytics(overview: dict, batches: list[dict], auditors: list[dict],
                ["Found but corrected wrongly", overview.get("detected_not_corrected", 0),
                 "reported, not scored"],
                ["Opportunities", overview.get("opportunities", 0), ""],
-           ],
-           note="Audit Score is weighted. Error Detection Rate and Review Score "
-                "are shown separately because they answer different questions.")
+           ])
 
     cols = ["Charts", "Audit Score", "Review Score", "Error Detection Rate",
             "Clean Chart Score", "Opportunity Chart Score",
@@ -227,8 +225,7 @@ def export_analytics(overview: dict, batches: list[dict], auditors: list[dict],
     if specialties is not None:
         _sheet(wb, "By_Specialty", ["Specialty", "Auditors", "Batches"] + cols,
                [[s.get("specialty"), s.get("auditors"), s.get("batches")] + _row(s)
-                for s in specialties],
-               note="Weakest first. Specialties with no scored audit results do not appear.")
+                for s in specialties])
 
     _sheet(wb, "By_Batch", ["Batch", "Specialty", "Status", "Auditors"] + cols,
            [[b.get("name"), b.get("specialty"), b.get("status"), b.get("auditors")]
@@ -236,19 +233,14 @@ def export_analytics(overview: dict, batches: list[dict], auditors: list[dict],
 
     _sheet(wb, "By_Auditor", ["Auditor", "Emp ID", "Batches"] + cols,
            [[a.get("auditor_name"), a.get("emp_id"), a.get("batches")] + _row(a)
-            for a in auditors],
-           note="Weakest first. Component accuracies pool across every batch the "
-                "auditor appears in.")
+            for a in auditors])
 
     _sheet(wb, "Detection_Patterns",
            ["Kind of error", "Introduced", "Caught", "Missed",
             "Corrected wrongly", "Caught %"],
            [[k.get("label"), k.get("planted"), k.get("found"), k.get("missed"),
              k.get("detected_not_corrected"), _na(k.get("accuracy"))]
-            for k in (detection.get("by_kind") or [])],
-           note="Worst first — which errors a cohort cannot see. Only kinds "
-                f"introduced at least {detection.get('min_for_pattern', 5)} times "
-                "are worth acting on.")
+            for k in (detection.get("by_kind") or [])])
 
     # ── clinical axes, one sheet each ────────────────────────────────────────
     #
@@ -265,30 +257,20 @@ def export_analytics(overview: dict, batches: list[dict], auditors: list[dict],
                  _na(r.get("accuracy"))] for r in (rows or [])]
 
     if detection.get("by_chapter"):
-        _sheet(wb, "By_Chapter", _axis_cols, _axis_rows(detection["by_chapter"]),
-               note="Diagnosis errors by ICD-10-CM chapter — which body of "
-                    "knowledge the misses sit in, rather than which mechanic "
-                    "produced them.")
+        _sheet(wb, "By_Chapter", _axis_cols, _axis_rows(detection["by_chapter"]))
     if detection.get("pcs_confusions"):
         _sheet(wb, "PCS_Confusions", _axis_cols,
-               _axis_rows(detection["pcs_confusions"]),
-               note="The specific swap, from comparing the planted code with "
-                    "the correct one. Both are real codes, so the difference "
-                    "can be named rather than implied.")
+               _axis_rows(detection["pcs_confusions"]))
     for axis, rows in (detection.get("pcs_axes") or {}).items():
         if rows:
             _sheet(wb, "PCS_" + axis.replace("_", " ").title().replace(" ", "_"),
-                   _axis_cols, _axis_rows(rows),
-                   note="Read off the CORRECT code — what the procedure "
-                        "actually was.")
+                   _axis_cols, _axis_rows(rows))
 
     _sheet(wb, "Real_vs_Generated",
            ["Source", "Introduced", "Caught", "Missed", "Caught %"],
            [[o.get("label"), o.get("planted"), o.get("found"), o.get("missed"),
              _na(o.get("accuracy"))]
-            for o in (detection.get("by_origin") or [])],
-           note="Errors taken from real coder submissions against ones the system "
-                "generated. Only the first describes the job.")
+            for o in (detection.get("by_origin") or [])])
 
     if chart_signals is not None:
         _sheet(wb, "Chart_Signals",
@@ -300,8 +282,7 @@ def export_analytics(overview: dict, batches: list[dict], auditors: list[dict],
                  c.get("clean_charts"), c.get("opportunity_charts"),
                  c.get("opportunities"), c.get("missed"), c.get("over_calls"),
                  c.get("detected_not_corrected"), c.get("signal")]
-                for c in chart_signals],
-               note="Chart/key QA view, weakest first.")
+                for c in chart_signals])
 
     return _finish(wb)
 
