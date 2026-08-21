@@ -231,10 +231,17 @@ export function EMAnswerKeysView() {
   }
 
   function addDx() { setForm(f => ({ ...f, dx_codes: [...f.dx_codes, ''] })) }
+  function addDxOnEnter(i: number) {
+    if (i === form.dx_codes.length - 1 && String(form.dx_codes[i] || '').trim()) addDx()
+  }
   function removeDx(i: number) { setForm(f => ({ ...f, dx_codes: f.dx_codes.filter((_: any, idx: number) => idx !== i) })) }
   function setDx(i: number, val: string) { setForm(f => { const a = [...f.dx_codes]; a[i] = val; return { ...f, dx_codes: a } }) }
 
   function addCpt() { setForm(f => ({ ...f, procedure_cpts: [...f.procedure_cpts, { code: '', modifier: '', pointers: [], units: '' }] })) }
+  function addCptOnEnter(i: number) {
+    const row = form.procedure_cpts[i]
+    if (i === form.procedure_cpts.length - 1 && String(row?.code || '').trim()) addCpt()
+  }
   function removeCpt(i: number) { setForm(f => ({ ...f, procedure_cpts: f.procedure_cpts.filter((_: any, idx: number) => idx !== i) })) }
   function setCpt(i: number, field: 'code' | 'modifier' | 'pointers' | 'units', val: any) {
     setForm(f => { const a = [...f.procedure_cpts]; a[i] = { ...a[i], [field]: val }; return { ...f, procedure_cpts: a } })
@@ -643,7 +650,8 @@ export function EMAnswerKeysView() {
                   <CodeSuggest style={{ ...styles.input, flex: 1 }}
                     section={i === 0 ? 'PDx' : 'SDx'}
                     placeholder={i === 0 ? 'Primary Dx (e.g. E11.9)' : `Additional Dx ${i + 1}`}
-                    value={code} onChange={v => setDx(i, v)} />
+                    value={code} onChange={v => setDx(i, v)}
+                    onEnter={() => addDxOnEnter(i)} />
                   {form.dx_codes.length > 1 && (
                     <button style={{ ...styles.outlineBtn, color: '#dc2626', borderColor: '#fca5a5', padding: '6px 10px' }}
                       onClick={() => removeDx(i)}><Trash2 size={13} /></button>
@@ -747,10 +755,12 @@ export function EMAnswerKeysView() {
                 <div key={i} style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
                   <CodeSuggest style={{ ...styles.input, flex: 2 }} section="CPT"
                     placeholder={`CPT Code ${i + 1}`}
-                    value={cpt.code} onChange={v => setCpt(i, 'code', v)} />
+                    value={cpt.code} onChange={v => setCpt(i, 'code', v)}
+                    onEnter={() => addCptOnEnter(i)} />
                   <CodeSuggest style={{ ...styles.input, flex: 1 }} section="MODIFIER"
                     placeholder="Modifier"
-                    value={cpt.modifier} onChange={v => setCpt(i, 'modifier', v)} />
+                    value={cpt.modifier} onChange={v => setCpt(i, 'modifier', v)}
+                    onEnter={() => addCptOnEnter(i)} />
                   <input style={{ ...styles.input, width: 74 }} placeholder="Units" inputMode="numeric"
                     title="Leave blank unless the count matters — a blank line is not graded on units."
                     value={cpt.units ?? ''}

@@ -762,6 +762,9 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
     onChange({ sdx })
   }
   function addSdx() { onChange({ sdx: [...entry.sdx, { code: '', poa: '' }] }) }
+  function addSdxOnEnter(idx: number) {
+    if (idx === entry.sdx.length - 1 && entry.sdx[idx]?.code.trim()) addSdx()
+  }
   function removeSdx(idx: number) { onChange({ sdx: entry.sdx.filter((_, i) => i !== idx) }) }
 
   function updatePcs(idx: number, val: string) {
@@ -770,6 +773,9 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
     onChange({ pcs })
   }
   function addPcs() { onChange({ pcs: [...entry.pcs, { code: '' }] }) }
+  function addPcsOnEnter(idx: number) {
+    if (idx === entry.pcs.length - 1 && entry.pcs[idx]?.code.trim()) addPcs()
+  }
   function removePcs(idx: number) { onChange({ pcs: entry.pcs.filter((_, i) => i !== idx) }) }
 
   const pointers = usesPointers(chart.specialty)
@@ -783,7 +789,22 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
     onChange({ cpt })
   }
   function addCpt() { onChange({ cpt: [...entry.cpt, { code: '', modifier: '', pointers: [], units: '1' }] }) }
+  function addCptOnEnter(idx: number) {
+    if (idx === entry.cpt.length - 1 && entry.cpt[idx]?.code.trim()) addCpt()
+  }
   function removeCpt(idx: number) { onChange({ cpt: entry.cpt.filter((_, i) => i !== idx) }) }
+
+  function addEmDxOnEnter(idx: number) {
+    if (idx === emData.em_dx.length - 1 && emData.em_dx[idx]?.code.trim()) {
+      updateEM({ em_dx: [...emData.em_dx, { code: '' }] })
+    }
+  }
+
+  function addEmCptOnEnter(idx: number) {
+    if (idx === emData.em_cpt.length - 1 && emData.em_cpt[idx]?.code.trim()) {
+      updateEM({ em_cpt: [...emData.em_cpt, { code: '', modifier: '', pointers: [], units: '1' }] })
+    }
+  }
 
   const pdxPOAMissing = ip && entry.pdx_code.trim() && !entry.pdx_poa
   const sdxPOAMissing = ip ? entry.sdx.filter(s => s.code.trim() && !s.poa) : []
@@ -1143,6 +1164,7 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
                   cpt[i] = { ...cpt[i], code: v }
                   updateEM({ em_cpt: cpt })
                 }}
+                onEnter={() => addEmCptOnEnter(i)}
               />
               <CodeSuggest
                 style={{ ...s.inputField, flex: 1, marginBottom: 0 }}
@@ -1154,6 +1176,7 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
                   cpt[i] = { ...cpt[i], modifier: v }
                   updateEM({ em_cpt: cpt })
                 }}
+                onEnter={() => addEmCptOnEnter(i)}
               />
               <div style={{ flexBasis: '100%' }}>
                 <CodeSays info={describeCpt(row.code)} />
@@ -1209,6 +1232,7 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
                     dx[i] = { code: v.toUpperCase() }
                     updateEM({ em_dx: dx })
                   }}
+                  onEnter={() => addEmDxOnEnter(i)}
                 />
                 <CodeSays info={describeDx(row.code)} />
               </div>
@@ -1301,6 +1325,9 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
               section="PDx"
               value={entry.pdx_code}
               onChange={v => onChange({ pdx_code: v })}
+              onEnter={() => {
+                if (entry.pdx_code.trim() && entry.sdx.length === 0) addSdx()
+              }}
             />
             <CodeHint check={checkDx(entry.pdx_code)} />
             <CodeSays info={describeDx(entry.pdx_code)} />
@@ -1338,6 +1365,7 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
                 section="SDx"
                 value={row.code}
                 onChange={v => updateSdx(i, 'code', v)}
+                onEnter={() => addSdxOnEnter(i)}
               />
               <CodeHint check={checkDx(row.code)} />
               <CodeSays info={describeDx(row.code)} />
@@ -1377,6 +1405,7 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
                   value={row.code}
                   onChange={v => updatePcs(i, v)}
                   maxLength={10}
+                  onEnter={() => addPcsOnEnter(i)}
                 />
                 <CodeSays info={describePcs(row.code)} />
                 {/* A seven-character string that is not one of the combinations
@@ -1426,6 +1455,7 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
                 placeholder="e.g. 20610"
                 value={row.code}
                 onChange={v => updateCpt(i, 'code', v)}
+                onEnter={() => addCptOnEnter(i)}
               />
               <input
                 style={{ ...s.inputField, flex: 1, marginBottom: 0,
