@@ -90,10 +90,16 @@ exercises the DEPLOYED app. Everything else checks local code, and the gap
 between "the code is correct" and "the running service works" is where this
 project has actually been hurt. **Use `--write`**: this codebase degrades to
 silence, so reads pass against a database that cannot be written to — which is
-exactly how a total E/M outage looked healthy from outside.
+exactly how a total E/M outage looked healthy from outside. A run that asks
+for `--write` and cannot perform one now FAILS rather than skipping: the script
+once asked for `/charts` (not a route), read the 404 as an empty environment,
+skipped the write and printed PASS while nine E/M charts sat there. It is
+stdlib-only, so `python3` runs it without the project's dependencies.
 
 The API's host is `chart-viewer-api-rxrd.onrender.com`. The obvious name
-without the suffix belongs to somebody else and answers in HTML.
+without the suffix does not serve. The UI **is** at the obvious
+`chart-viewer-ui.onrender.com`, so `CORS_ORIGINS` in `render.yaml` is correct —
+only the API service name there lacks the `-rxrd` suffix Render assigned it.
 
 **Boot check** — the only one that catches a total outage, and the one the test
 suite cannot give you, because tests never start the app:
@@ -241,6 +247,16 @@ live screens at once — the IP/OP answer key editor and the assessment Question
 Signals tab, the latter taking two sibling tabs down with it. Neither the type
 checker nor 2,600 tests noticed; only opening the screen did.
 `tests/test_no_conditional_hooks.py` reads the source and fails on any of them.
+
+**A recharts bar that never finishes its entry animation is never painted.**
+Under v3 the geometry is computed and the bars simply do not appear: no error,
+no warning, an empty plot with correct axes and a correct legend, which reads
+as "everyone scored zero" rather than as a bug. It cost the auditor's Clean vs
+Opportunity chart. `isAnimationActive={false}` is the fix. Nothing in the four
+checks can see this — the build passes, the tests pass, the data is right — so
+it is found only by looking at the chart. It was isolated by elimination
+(hardcode the data, add a fill, remove the Cells, disable the animation), which
+is the only way it will be found again.
 
 **A guard must be per FIELD, not per file.** "Does this file mention
 `CodeSuggest`" passes as soon as one branch has it — which is how the E/M

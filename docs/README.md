@@ -98,8 +98,12 @@ Confirm the deployment is actually working, rather than assuming from a green
 build:
 
 ```bash
-python scripts/smoke_deployed.py --base https://chart-viewer-api-rxrd.onrender.com
+python3 scripts/smoke_deployed.py --base https://chart-viewer-api-rxrd.onrender.com
 ```
+
+It uses only the standard library, so any Python 3 will run it — it does not
+need the application's dependencies installed, and can be run from a laptop
+that has never built this project.
 
 That exercises one read per module and checks a code description resolves.
 Add `--write --passphrase "<MASTER_ADMIN_PASSPHRASE>"` to make it perform a
@@ -108,6 +112,14 @@ this application degrades to silence rather than erroring, so reads can pass
 against a database that cannot be written to. That is not hypothetical: it is
 exactly how the entire E/M module was unwritable in production while every
 read-only check passed.
+
+**A run that could not perform the write fails.** If `--write` is asked for and
+there is no chart to write against, or the chart lookup errors, the script
+exits non-zero rather than reporting PASS. This is deliberate and was itself a
+bug once: the script asked for a route that does not exist, read the 404 as an
+empty environment, skipped the write silently and printed PASS — while nine
+charts sat there. An alarm that goes green without checking is worse than no
+alarm, so "could not check" is now a failure, not a skip.
 
 ## Also worth knowing
 
