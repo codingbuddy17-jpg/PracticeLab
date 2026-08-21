@@ -38,14 +38,28 @@ export function TakeAssessmentSession() {
   // is what the confirmation is really about.
   const [confirmingFinal, setConfirmingFinal] = useState(false)
   const saveQueueRef = useRef<Record<number, ReturnType<typeof setTimeout>>>({})
+  // Present only when the trainer turned "Show score to coder" on for this
+  // paper. Null is the normal case and means the done screen says what it
+  // always said.
+  const [result, setResult] = useState<CoderResult | null>(null)
 
-  // ── Load session info on mount ───────────────────────────────────────────────
+  type CoderResult = {
+  score_pct: number
+  correct_count: number
+  total_questions: number
+  pass_threshold: number | null
+  // null when the paper never set a bar — rendered as NA, never as a fail.
+  passed: boolean | null
+}
+
+// ── Load session info on mount ───────────────────────────────────────────────
   useEffect(() => {
     if (!token) { setScreen('error'); setErrorMsg('No Assessment ID provided.'); return }
     getSessionInfo(token)
       .then(info => {
         setSessionInfo(info)
         if (info.status === 'submitted') {
+          setResult(info.result ?? null)
           setScreen('done')
         } else if (info.status === 'in_progress') {
           // Resume — go straight to start
@@ -146,7 +160,8 @@ export function TakeAssessmentSession() {
     toast('Time is up! Submitting your assessment…', { icon: '⏱️', duration: 4000 })
     try {
       await flushPendingSaves(answers)
-      await submitSession(token!, true)
+      const out = await submitSession(token!, true)
+      setResult(out?.result ?? null)
       setScreen('done')
     } catch { /* already submitted or network error */ }
   }
@@ -162,7 +177,8 @@ export function TakeAssessmentSession() {
       return
     }
     try {
-      await submitSession(token!, false)
+      const out = await submitSession(token!, false)
+      setResult(out?.result ?? null)
       setScreen('done')
     } catch (e: unknown) {
       const err = e as { response?: { data?: { detail?: string } } }
@@ -222,9 +238,43 @@ export function TakeAssessmentSession() {
           <div style={{ fontSize: 20, fontWeight: 800, color: '#111' }}>Assessment Submitted</div>
           <div style={{ fontSize: 14, color: '#6b7280', textAlign: 'center', lineHeight: 1.7 }}>
             Thank you, <strong>{sessionInfo?.coder_name}</strong>.<br />
-            Your responses have been recorded.<br />
-            Your trainer will share your results.
+            Your responses have been recorded.
+            {!result && <><br />Your trainer will share your results.</>}
           </div>
+
+          {/* Only when the trainer enabled it on this paper. The mark and the
+              bar, and nothing else — the questions are reused, so which ones
+              were wrong is not the coder's to take away. */}
+          {result && (
+            <div style={{
+              marginTop: 4, padding: '18px 26px', borderRadius: 12, textAlign: 'center',
+              background: '#f8fafc', border: '1px solid #e5e7eb', minWidth: 240,
+            }}>
+              <div style={{ fontSize: 40, fontWeight: 800, color: '#111', lineHeight: 1 }}>
+                {result.score_pct}%
+              </div>
+              <div style={{ fontSize: 13, color: '#6b7280', marginTop: 8 }}>
+                {result.correct_count} of {result.total_questions} correct
+              </div>
+              <div style={{ marginTop: 12, fontSize: 13, color: '#6b7280' }}>
+                {result.passed === null ? (
+                  <>No pass mark was set for this assessment.</>
+                ) : (
+                  <>
+                    <span style={{
+                      display: 'inline-block', padding: '3px 12px', borderRadius: 999,
+                      fontSize: 12, fontWeight: 700, letterSpacing: 0.4,
+                      background: result.passed ? '#dcfce7' : '#fee2e2',
+                      color: result.passed ? '#15803d' : '#b91c1c',
+                    }}>
+                      {result.passed ? 'PASS' : 'DID NOT PASS'}
+                    </span>
+                    <span style={{ marginLeft: 8 }}>pass mark {result.pass_threshold}%</span>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
           <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 4 }}>You may close this window.</div>
         </div>
       </div>

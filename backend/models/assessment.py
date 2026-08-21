@@ -128,6 +128,11 @@ class GeneratedAssessment(Base):
     # which is a punishing mark for MCQs and invisible to the trainer setting
     # the paper. Different assessments legitimately have different bars.
     pass_threshold = Column(Integer, nullable=True)
+    # Off by default, and deliberately so: an MCQ score handed back at the
+    # buzzer is a mark, not coaching, and the trainer is the one who knows
+    # whether this paper is a checkpoint or a diagnostic. PracticeLab and the
+    # auditor module both gate their results the same way.
+    show_results_to_coder = Column(Boolean, nullable=False, default=False)
 
     config = relationship("AssessmentConfig", back_populates="assessments")
     students = relationship("GeneratedAssessmentStudent", back_populates="assessment", cascade="all, delete-orphan")

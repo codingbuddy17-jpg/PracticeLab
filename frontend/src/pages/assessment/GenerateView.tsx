@@ -71,6 +71,10 @@ export function GenerateView({ initialSpecialty, onJump }: {
   const [poolLoading, setPoolLoading] = useState(false)
   const [poolError, setPoolError] = useState('')
   const [passThreshold, setPassThreshold] = useState(90)
+  // Off by default. A coder saw nothing at all before this existed, and the
+  // trainer is the one who knows whether this paper is a checkpoint or a
+  // diagnostic — same switch, same default, as PracticeLab and the auditor.
+  const [showResults, setShowResults] = useState(false)
   const [allowShortPool, setAllowShortPool] = useState(false)
   const [shortfalls, setShortfalls] = useState<
     { specialty: string; topic_filter: string | null; requested: number; available: number }[] | null
@@ -172,6 +176,7 @@ export function GenerateView({ initialSpecialty, onJump }: {
         // The bar this paper is judged against. The backend and analytics have
         // supported it for days; only the screen never asked.
         pass_threshold: passThreshold,
+        show_results_to_coder: showResults,
         allow_short_pool: retryShort || allowShortPool,
       }
       const payload = mode === 'standalone'
@@ -387,6 +392,27 @@ export function GenerateView({ initialSpecialty, onJump }: {
             <input type="number" style={{ ...styles.input, width: 100 }} min={1} max={100}
               value={passThreshold}
               onChange={e => setPassThreshold(Math.min(100, Math.max(1, Number(e.target.value) || 1)))} />
+          </div>
+          <div style={styles.formGroup}>
+            <label style={styles.label}>Show score to coder</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
+              <div
+                onClick={() => setShowResults(r => !r)}
+                style={{
+                  width: 42, height: 24, borderRadius: 12, cursor: 'pointer', position: 'relative',
+                  background: showResults ? '#7c3aed' : '#d1d5db', transition: 'background 0.2s',
+                }}
+              >
+                <div style={{
+                  position: 'absolute', top: 3, left: showResults ? 21 : 3,
+                  width: 18, height: 18, borderRadius: '50%', background: '#fff',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.2)', transition: 'left 0.2s',
+                }} />
+              </div>
+              <span style={{ fontSize: 13, color: '#6b7280' }}>
+                {showResults ? 'Mark shown on submit' : 'Trainer shares results'}
+              </span>
+            </div>
           </div>
           <div style={styles.formGroup}>
             <label style={styles.label}>Randomise per coder</label>

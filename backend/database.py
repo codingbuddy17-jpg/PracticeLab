@@ -399,6 +399,10 @@ def _run_migrations():
     _add_col("generated_assessments", "randomisation_stats", "TEXT")
     _add_col("generated_assessments", "pass_threshold", "INTEGER")
     _add_col("generated_assessments", "is_standalone", "BOOLEAN DEFAULT FALSE")
+    # NOT NULL DEFAULT FALSE: every paper generated before this column existed
+    # was one whose coders were shown nothing, so FALSE is the truthful
+    # backfill, not merely the safe one.
+    _add_col("generated_assessments", "show_results_to_coder", "BOOLEAN NOT NULL DEFAULT FALSE")
 
     # ── generated_assessment_students table ───────────────────────────────────
     _run("""CREATE TABLE IF NOT EXISTS generated_assessment_students (

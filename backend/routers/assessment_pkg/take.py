@@ -15,11 +15,43 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import (
     AssessmentSession, AssessmentResponse, AssessmentResult,
-    GeneratedAssessmentStudent,
+    GeneratedAssessment, GeneratedAssessmentStudent,
 )
 
 router = APIRouter()
 
+
+
+def _coder_score(s: AssessmentSession, db: Session) -> Optional[dict]:
+    """
+    The score this coder is allowed to see, or None.
+
+    Gated on the paper's own show_results_to_coder, which is off unless the
+    trainer turned it on. Returns the mark and the paper's own bar — never the
+    questions, never which ones were wrong: the point of the switch is to hand
+    back a result, and an MCQ paper is reused, so the answers are not the
+    coder's to keep.
+    """
+    paper = db.query(GeneratedAssessment).filter(
+        GeneratedAssessment.id == s.assessment_id).first()
+    if not paper or not paper.show_results_to_coder:
+        return None
+    res = db.query(AssessmentResult).filter(
+        AssessmentResult.session_id == s.id).first()
+    if not res:
+        return None
+    pct = round(res.score_pct, 1)
+    # The paper's own bar, not a module constant — see GeneratedAssessment.
+    threshold = paper.pass_threshold
+    return {
+        "score_pct": pct,
+        "correct_count": res.correct_count,
+        "total_questions": res.total_questions,
+        "pass_threshold": threshold,
+        # NA, not False, when the paper never set a bar. A missing threshold
+        # is an unanswered question, and rendering it as a fail is a lie.
+        "passed": None if threshold is None else pct >= threshold,
+    }
 
 
 def _get_session(token: str, db: Session) -> AssessmentSession:
@@ -89,6 +121,9 @@ def get_session_info(token: str, db: Session = Depends(get_db)):
             "time_limit_ends_at": s.time_limit_ends_at.isoformat() if s.time_limit_ends_at else None,
             "time_remaining_seconds": None,
             "total_questions": 0,
+            # Re-opening the link after submitting shows the same thing the
+            # submit screen did, rather than less.
+            "result": _coder_score(s, db),
         }
 
     if s.status == "pending" and now > as_utc(s.expires_at):
@@ -234,8 +269,12 @@ def submit_session(token: str, payload: SubmitPayload, db: Session = Depends(get
     s.auto_submitted = payload.auto_submitted
     db.commit()
 
+    result = _coder_score(s, db)
     return {
         "submitted": True,
         "auto_submitted": payload.auto_submitted,
-        "message": "Your responses have been recorded. Your trainer will share your results.",
+        "result": result,
+        "message": ("Your responses have been recorded."
+                    if result else
+                    "Your responses have been recorded. Your trainer will share your results."),
     }
