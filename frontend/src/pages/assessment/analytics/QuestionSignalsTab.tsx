@@ -43,13 +43,20 @@ export function QuestionSignalsTab({ filters = NO_FILTERS }: { filters?: AFilter
       .finally(() => setLoading(false))
   }, [filters, minAttempts])
 
+  // Above the early returns: hooks must run in the same order every render.
+  // With `if (loading) return` first, the initial render ran none of these and
+  // the next ran three — React error #310, which crashed this tab and took the
+  // whole analytics view down with it.
+  const all: any[] = data?.questions || []
+  const summary = data?.summary || {}
+  const topics = useMemo(() => Array.from(new Set(all.map((row: any) => row.topic || 'Unknown'))).sort(), [all])
+  const specialties = useMemo(() => Array.from(new Set(all.map((row: any) => row.specialty || 'Unknown'))).sort(), [all])
+
+  // Below every hook this component owns. usePagination lives in QuestionList,
+  // a separate component with its own hook order, so it is unaffected.
   if (loading) return <LoadingSpinner />
   if (!data) return <EmptyState message="No question data available yet." />
 
-  const all: any[] = data.questions || []
-  const summary = data.summary || {}
-  const topics = useMemo(() => Array.from(new Set(all.map((row: any) => row.topic || 'Unknown'))).sort(), [all])
-  const specialties = useMemo(() => Array.from(new Set(all.map((row: any) => row.specialty || 'Unknown'))).sort(), [all])
 
   const q = search.trim().toLowerCase()
   const questions = all.filter((row: any) => {

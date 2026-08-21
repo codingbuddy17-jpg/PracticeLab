@@ -106,6 +106,19 @@ export function AnswerKeyEditor({ chartId, onClose, onSaved }: {
     }
   }
 
+  // These four sit ABOVE the early returns deliberately. Hooks must run in
+  // the same order on every render, and the `if (loading) return` below means
+  // the first render would run none of them and the second four — React error
+  // #310, which crashed this editor for anyone who opened it.
+  // One batched lookup per code system. Asked separately because a modifier
+  // and a procedure share a numeric shape, and a seven-character string must
+  // not be allowed to match something in the wrong table.
+  const describeDx = useCodeDescriptions([pdx, ...sdx.map(x => x.code)], 'SDx')
+  const describePcs = useCodeDescriptions(pcs.map(x => x.code), 'PCS')
+  const describeCpt = useCodeDescriptions(cpt.map(x => x.code), 'CPT')
+  const describeMod = useCodeDescriptions(
+    cpt.flatMap(x => (x.modifier || '').split(/[,\s]+/).filter(Boolean)), 'MODIFIER')
+
   if (loading) {
     return (
       <div style={styles.modalOverlay}>
@@ -117,14 +130,6 @@ export function AnswerKeyEditor({ chartId, onClose, onSaved }: {
   }
   if (!detail) return null
 
-  // One batched lookup per code system. Asked separately because a modifier
-  // and a procedure share a numeric shape, and a seven-character string must
-  // not be allowed to match something in the wrong table.
-  const describeDx = useCodeDescriptions([pdx, ...sdx.map(x => x.code)], 'SDx')
-  const describePcs = useCodeDescriptions(pcs.map(x => x.code), 'PCS')
-  const describeCpt = useCodeDescriptions(cpt.map(x => x.code), 'CPT')
-  const describeMod = useCodeDescriptions(
-    cpt.flatMap(x => (x.modifier || '').split(/[,\s]+/).filter(Boolean)), 'MODIFIER')
   // flexWrap so a description sits on its own full-width line under the row's
   // controls rather than squeezing the code box.
   const rowStyle = { display: 'flex', gap: 8, alignItems: 'center',
