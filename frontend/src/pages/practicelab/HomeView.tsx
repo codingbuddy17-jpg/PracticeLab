@@ -206,7 +206,16 @@ export function HomeView({ batches, directAssignments, overview, loading, onOpen
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {groups.map(({ label, items }) => {
-            const isCollapsed = collapsed[label] !== false
+            // Everything used to be collapsed on arrival, so the default view
+            // of this screen was a stack of headers and no batches at all.
+            // The newest non-empty group opens by default; `groups` has already
+            // dropped the empty ones, so groups[0] is whichever category is
+            // actually the most recent one — This Week, or This Month, or
+            // Older if that is all there is. An explicit toggle still wins,
+            // which is why this reads `undefined` rather than falsy.
+            const isCollapsed = collapsed[label] !== undefined
+              ? collapsed[label]
+              : label !== groups[0]?.label
             return (
               <div key={label}>
                 {/* Group header */}
