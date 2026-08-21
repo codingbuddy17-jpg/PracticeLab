@@ -563,3 +563,56 @@ def test_repeated_lines_and_a_units_column_count_the_same():
 def test_units_are_not_graded_outside_critical_care():
     got = grade_em_chart(_key(), _sub(), CFG)
     assert got.get("critical_care_units_ok") is None
+
+
+# ── the invariant the two screens rely on ─────────────────────────────────────
+
+NON_MDM_CATEGORIES = ["preventive", "critical_care", "other"]
+MDM_CATEGORIES = ["office_new", "office_est", "ed", "consult",
+                  "nursing_facility", "home"]
+
+
+def _right_and_wrong(cat, method):
+    """The same chart graded with MDM correct, and with MDM wrong."""
+    ak = _key(em_category=cat, level_method=method)
+    right = grade_em_chart(ak, _sub(sub_level_method=method,
+                                    sub_copa_stable_chronic=2), CFG)
+    wrong = grade_em_chart(ak, _sub(sub_level_method=method,
+                                    sub_copa_stable_chronic=0,
+                                    sub_copa_threat_to_life=1), CFG)
+    return right, wrong
+
+
+@pytest.mark.parametrize("cat", MDM_CATEGORIES)
+def test_control_mdm_really_does_move_the_score(cat):
+    """
+    The positive control for the test below, and not optional.
+
+    A sweep asserting "MDM changes nothing" passes just as well when the probe
+    never reaches the MDM fields at all — which is exactly what happened the
+    first time this was measured, reporting every category as clean including
+    the six that are graded on MDM. Without this, the next test is decorative.
+    """
+    right, wrong = _right_and_wrong(cat, "MDM")
+    assert right["uses_mdm"] is True
+    assert right["total_score"] > wrong["total_score"]
+
+
+@pytest.mark.parametrize("cat", NON_MDM_CATEGORIES + MDM_CATEGORIES)
+@pytest.mark.parametrize("method", ["MDM", "TIME"])
+def test_mdm_answers_cannot_move_a_chart_not_graded_on_mdm(cat, method):
+    """
+    Both coder and auditor screens decide independently whether to SHOW the MDM
+    section on a chart that is not graded on it — the coder shows the tabs with
+    a note, the auditor hides them. That difference is only safe while what the
+    coder types into those boxes cannot reach the score, so this asserts the
+    grading side directly rather than trusting either screen to keep gating.
+
+    A visit levelled by TIME is not graded on MDM whatever its category, which
+    is why the sweep crosses both.
+    """
+    right, wrong = _right_and_wrong(cat, method)
+    if right["uses_mdm"]:
+        return  # covered by the control above
+    assert right["total_score"] == wrong["total_score"]
+    assert right["reasoning_accuracy_total"] == wrong["reasoning_accuracy_total"]
