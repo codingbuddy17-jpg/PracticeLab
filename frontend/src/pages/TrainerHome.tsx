@@ -337,10 +337,15 @@ export function TrainerHome() {
                 <div style={{ ...styles.bentoPassRateNum, color: '#7c3aed' }}>
                   {assessOverview ? `${assessOverview.overall_pass_rate}%` : '—'}
                 </div>
-                <div style={styles.bentoStatLabel}>Clearance Rate</div>
+                {/* The number above is the PASS rate, measured over submitted
+                    papers. It used to be labelled "Clearance Rate" and captioned
+                    with the completion rate's denominator — "4.7% · 85 of 124
+                    submitted" — which reads as though 4.7% of the 85 passed.
+                    Two different figures; each now carries its own basis. */}
+                <div style={styles.bentoStatLabel}>Pass Rate</div>
                 <div style={styles.bentoStatSub}>
                   {assessOverview
-                    ? `${assessOverview.total_submitted} of ${assessOverview.total_sessions} sessions submitted`
+                    ? `of ${assessOverview.total_submitted} submitted · ${assessOverview.completion_rate}% of ${assessOverview.total_sessions} started`
                     : '—'}
                 </div>
               </div>

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { RefreshCw } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { listAssessmentHistory } from '../../api'
+import { listAssessmentHistory, getAssessmentOverview } from '../../api'
 import { errorMessage } from '../../api/errors'
 import { usePagination } from '../../components/Paginator'
 
@@ -33,6 +33,10 @@ const PAGE_SIZE = 20
 
 export function AssessmentHistoryView() {
   const [records, setRecords] = useState<AssessmentRecord[]>([])
+  // The platform mark, so a paper that sets none can still show the number it
+  // is judged against. The column used to print the word "default", which is
+  // not something a trainer can act on.
+  const [defaultMark, setDefaultMark] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
 
@@ -45,6 +49,11 @@ export function AssessmentHistoryView() {
   }
 
   useEffect(() => { load() }, [])
+  useEffect(() => {
+    getAssessmentOverview()
+      .then(o => setDefaultMark(o.default_pass_threshold))
+      .catch(() => {})   // the column falls back to "platform default"
+  }, [])
 
   const q = search.trim().toLowerCase()
   const visible = q
@@ -115,7 +124,9 @@ export function AssessmentHistoryView() {
                     <td style={{ ...styles.td, fontWeight: 700, textAlign: 'center' as const }}>{r.student_count}</td>
                     <td style={{ ...styles.td, fontWeight: 700, textAlign: 'center' as const }}>{r.questions_per_student}</td>
                     <td style={{ ...styles.td, textAlign: 'center' as const, fontSize: 12, color: '#6b7280' }}>
-                      {r.pass_threshold != null ? `${r.pass_threshold}%` : 'default'}
+                      {r.pass_threshold != null
+                        ? `${r.pass_threshold}%`
+                        : defaultMark != null ? `${defaultMark}%` : 'platform default'}
                     </td>
                     {/* Where it stands, so the list answers "is this finished?"
                         without opening Sessions to find out. */}

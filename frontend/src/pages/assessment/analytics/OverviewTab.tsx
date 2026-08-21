@@ -59,7 +59,9 @@ export function OverviewTab({ filters = NO_FILTERS }: { filters?: AFilters }) {
         {data.pass_thresholds_vary
           ? ' (these differ between assessments).'
           : ` — currently ${data.default_pass_threshold}%.`}
-        {' '}Pass rates are shares of coders, measured against a {PASS_RATE_TARGET}% target.
+        {' '}Pass rate is the share of coders who cleared that mark. It is shaded
+        green once {PASS_RATE_TARGET}% of them do — a cohort target for reading the
+        colour, not a second mark anyone is judged against.
       </div>
 
       {data.per_assessment_pass_rates && data.per_assessment_pass_rates.length > 0 ? (

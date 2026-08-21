@@ -487,5 +487,7 @@ export async function getAssessmentOverview() {
     total_assessments: number; total_sessions: number; total_submitted: number
     unique_coders_assessed: number; overall_pass_rate: number
     avg_score: number; completion_rate: number
+    /** The mark a paper is judged against when it does not set its own. */
+    default_pass_threshold: number
   }
 }
