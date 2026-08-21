@@ -74,7 +74,10 @@ export function TrainerHome() {
           <BookOpen size={22} color="#4f46e5" />
           <span style={styles.logoText}>PracticeLab</span>
         </div>
-        <span style={styles.portalBadge}>Trainer Portal</span>
+        {/* "Portal" named the door rather than the room. This slot holds the
+            coder's name on the coder home, so it answers "where am I" either
+            way — a name means you are working, this means you are running it. */}
+        <span style={styles.portalBadge}>Workspace</span>
       </div>
 
       <div style={styles.content}>
