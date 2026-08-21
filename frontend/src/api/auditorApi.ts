@@ -1,4 +1,6 @@
 import api from './client'
+import { downloadFile } from './download'
+import { adminAuth } from './adminAuth'
 
 // ── shapes ───────────────────────────────────────────────────────────────────
 
@@ -369,11 +371,15 @@ export async function downloadAuditAuditorReportPdf(auditor: string, params: Rec
 
 // Passphrase-gated: this file IS the answers, so it matches the coder
 // answer-key export rather than the ungated batch-results one.
-export function downloadAuditKeys(passphrase: string, specialty?: string) {
-  const base = `${import.meta.env.VITE_API_URL || '/api'}/auditor/keys/export`
-  const q = new URLSearchParams({ passphrase })
-  if (specialty) q.set('specialty', specialty)
-  window.open(base + '?' + q.toString(), '_blank')
+export async function downloadAuditKeys(passphrase: string, specialty?: string) {
+  // Fetched rather than opened: window.open would put the master passphrase in
+  // browser history as well as the server log, and this file IS the answers.
+  await downloadFile(
+    '/auditor/keys/export',
+    specialty ? `Audit_Keys_${specialty.replace(/\W+/g, '_')}.xlsx` : 'Audit_Keys.xlsx',
+    specialty ? { specialty } : undefined,
+    adminAuth(passphrase).headers,
+  )
 }
 
 

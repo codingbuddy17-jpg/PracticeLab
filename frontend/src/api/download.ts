@@ -12,16 +12,21 @@ import api from './client'
  * passphrase in the query string, where it lands in history and server logs;
  * and a blob download keeps the user on the page they were working in.
  *
+ * Pass the master passphrase through `headers` (see adminAuth) rather than
+ * `params`: a query string is written to access logs and, for anything opened
+ * as a URL, to browser history.
+ *
  * Throws with the server's `detail` when the request fails.
  */
 export async function downloadFile(
   path: string,
   filename: string,
   params?: Record<string, string | number | undefined>,
+  headers?: Record<string, string>,
 ) {
   let res
   try {
-    res = await api.get(path, { params, responseType: 'blob' })
+    res = await api.get(path, { params, headers, responseType: 'blob' })
   } catch (e: any) {
     throw new Error(await detailOf(e))
   }

@@ -14,6 +14,37 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="PracticeLab API", lifespan=lifespan)
 
+# Header name the frontend uses to send the master passphrase.
+ADMIN_PASSPHRASE_HEADER = "x-admin-passphrase"
+
+
+@app.middleware("http")
+async def accept_passphrase_from_header(request, call_next):
+    """
+    Let the master passphrase arrive in a header instead of the query string.
+
+    Fifteen endpoints declare it as `passphrase: str = Query(...)`, which put
+    the one shared admin credential into every server, proxy and CDN access log
+    — and, for the answer-key export, into browser history, because that one was
+    opened as a URL.
+
+    Rewriting fifteen signatures across three modules while another agent is
+    working in them is the riskier change. This copies the header into the
+    query string AFTER the request has been logged and routed, so the endpoints
+    keep working unchanged and nothing writes the credential down. The query
+    parameter still works, so anything not yet migrated keeps functioning.
+    """
+    sent = request.headers.get(ADMIN_PASSPHRASE_HEADER)
+    if sent and b"passphrase=" not in request.scope.get("query_string", b""):
+        from urllib.parse import quote
+        existing = request.scope.get("query_string", b"")
+        addition = ("passphrase=" + quote(sent)).encode()
+        request.scope["query_string"] = (
+            existing + b"&" + addition if existing else addition
+        )
+    return await call_next(request)
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,

@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 import api from './client'
+import { adminAuth } from './adminAuth'
 import { getPassphrase, rememberPassphrase } from './assessmentAuth'
 import { downloadFile } from './download'
 
@@ -27,14 +28,14 @@ export interface ListQuestionsParams {
 
 export async function listAssessmentQuestions(params?: ListQuestionsParams) {
   const { data } = await api.get('/assessment/questions',
-    { params: { ...params, passphrase: getPassphrase() } })
+    { params, ...adminAuth(getPassphrase()) })
   return data as { total: number; page: number; page_size: number; results: unknown[] }
 }
 
 export async function verifyAssessmentPassphrase(trainerName: string, passphrase: string): Promise<boolean> {
   try {
     await api.post('/assessment/audit/verify-passphrase', null, {
-      params: { trainer_name: trainerName, passphrase },
+      params: { trainer_name: trainerName }, ...adminAuth(passphrase),
     })
     rememberPassphrase(passphrase)
     return true
@@ -54,7 +55,7 @@ export async function logAssessmentAction(entry: {
 
 export async function getAssessmentAuditLogs(passphrase: string, specialty?: string) {
   const { data } = await api.get('/assessment/audit/logs', {
-    params: { passphrase, specialty: specialty || undefined },
+    params: { specialty: specialty || undefined }, ...adminAuth(passphrase),
   })
   return data as Array<{
     id: number
@@ -166,14 +167,14 @@ export async function updateQuestionStatus(questionId: string, status: string, u
   const { data } = await api.put(
     `/assessment/questions/${encodeURIComponent(questionId)}/status`,
     null,
-    { params: { status, updated_by: updatedBy, passphrase: getPassphrase() } },
+    { params: { status, updated_by: updatedBy }, ...adminAuth(getPassphrase()) },
   )
   return data
 }
 
 export async function updateQuestion(questionId: string, payload: Record<string, unknown>) {
   const { data } = await api.put(`/assessment/questions/${encodeURIComponent(questionId)}`,
-    payload, { params: { passphrase: getPassphrase() } })
+    payload, adminAuth(getPassphrase()))
   return data
 }
 
@@ -422,7 +423,7 @@ export async function overrideAssessmentAnswer(
   const { data } = await api.post(
     `/assessment/${assessmentId}/session/${sessionId}/response/${questionIndex}/override`,
     body,
-    { params: { passphrase: getPassphrase() } },
+    adminAuth(getPassphrase()),
   )
   return data as {
     is_correct: boolean; score_pct: number | null

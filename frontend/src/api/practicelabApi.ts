@@ -1,5 +1,7 @@
 /// <reference types="vite/client" />
 import api from './client'
+import { downloadFile } from './download'
+import { adminAuth } from './adminAuth'
 
 export function downloadAnswerKeyTemplate(specialty: string) {
   window.open(`${import.meta.env.VITE_API_URL || '/api'}/practicelab/answer-key/template?specialty=${specialty}`)
@@ -28,15 +30,25 @@ export async function uploadAnswerKeys(file: File, specialty: string, enteredBy:
   }
 }
 
-export function downloadAnswerKeyExport(passphrase: string, specialty?: string) {
-  const base = import.meta.env.VITE_API_URL || '/api'
-  const params = new URLSearchParams({ passphrase })
-  if (specialty) params.set('specialty', specialty)
-  window.open(`${base}/practicelab/answer-key/export?${params}`)
+/**
+ * Fetched, not opened.
+ *
+ * This used to build the passphrase into a URL and hand it to window.open,
+ * which put the master credential in browser history as well as in the server
+ * log. A blob download carries it in a header instead, and shows a real error
+ * rather than a blank tab full of JSON when the passphrase is wrong.
+ */
+export async function downloadAnswerKeyExport(passphrase: string, specialty?: string) {
+  await downloadFile(
+    '/practicelab/answer-key/export',
+    specialty ? `Answer_Keys_${specialty.replace(/\W+/g, '_')}.xlsx` : 'Answer_Keys.xlsx',
+    specialty ? { specialty } : undefined,
+    adminAuth(passphrase).headers,
+  )
 }
 
 export async function deleteAnswerKey(chartId: number, passphrase: string) {
-  const { data } = await api.delete(`/practicelab/answer-key/${chartId}`, { params: { passphrase } })
+  const { data } = await api.delete(`/practicelab/answer-key/${chartId}`, adminAuth(passphrase))
   return data
 }
 
@@ -357,7 +369,7 @@ export async function getEMAnswerKey(chartId: number) {
 }
 
 export async function deleteEMAnswerKey(chartId: number, passphrase: string) {
-  const { data } = await api.delete(`/practicelab/em/answer-key/${chartId}`, { params: { passphrase } })
+  const { data } = await api.delete(`/practicelab/em/answer-key/${chartId}`, adminAuth(passphrase))
   return data
 }
 

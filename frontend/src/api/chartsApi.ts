@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 import api from './client'
+import { adminAuth } from './adminAuth'
 import type { Chart, ChartWithRationale, SearchResult, BulkUploadResult, BulkUploadMeta } from '../types'
 
 /**
@@ -33,7 +34,7 @@ export async function getChartTrainer(chartId: number): Promise<ChartWithRationa
 }
 
 export async function updateChart(chartId: number, actor: string, payload: Partial<{ category: string; difficulty: string; rationale: string; alias: string }>, passphrase?: string) {
-  const { data } = await api.patch(`/charts/${chartId}`, payload, { params: { actor, passphrase } })
+  const { data } = await api.patch(`/charts/${chartId}`, payload, { params: { actor }, ...adminAuth(passphrase) })
   return data as Chart
 }
 
@@ -53,12 +54,12 @@ export async function deleteResource(id: number) {
 }
 
 export async function retireChart(chartId: number, actor: string, passphrase?: string) {
-  const { data } = await api.post(`/charts/${chartId}/retire`, null, { params: { actor, passphrase } })
+  const { data } = await api.post(`/charts/${chartId}/retire`, null, { params: { actor }, ...adminAuth(passphrase) })
   return data
 }
 
 export async function restoreChart(chartId: number, actor: string, passphrase?: string) {
-  const { data } = await api.post(`/charts/${chartId}/restore`, null, { params: { actor, passphrase } })
+  const { data } = await api.post(`/charts/${chartId}/restore`, null, { params: { actor }, ...adminAuth(passphrase) })
   return data
 }
 
@@ -94,7 +95,7 @@ export async function addFilesToChart(chartId: number, files: File[], uploadedBy
 }
 
 export async function purgeChart(chartId: number, passphrase: string) {
-  const { data } = await api.delete(`/charts/${chartId}/purge`, { params: { passphrase } })
+  const { data } = await api.delete(`/charts/${chartId}/purge`, adminAuth(passphrase))
   return data
 }
 
