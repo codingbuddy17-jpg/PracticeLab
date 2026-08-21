@@ -216,6 +216,12 @@ everyone against it. Key screens come first when extending this, not last.
 
 ## Conventions that keep biting
 
+**The master passphrase never goes in a URL.** It is the single shared
+credential gating retire, delete, force-close and the question bank, and it is
+currently passed as a query parameter in 13 places — query strings are written
+to server, proxy and CDN logs, and `downloadAnswerKeyExport` puts it in a
+`window.open` URL, which reaches browser history. Send it in a header or a body.
+
 **Rates must ship their denominator.** A percentage whose base is unclear has
 already caused one wrong-units bug. Label whether a figure averages or pools:
 audit accuracy *averages* chart scores, component accuracy *pools* findings.
@@ -228,11 +234,24 @@ and fatal at a thousand. Every list endpoint pages, and counts come from the
 whole filtered set rather than the loaded page — counting loaded rows told a
 trainer there were no closed batches whenever they fell past page one.
 
+**No React hook below an early return.** `if (loading) return …` before a
+`useMemo` means the first render runs fewer hooks than the next, which is React
+error #310 and replaces the whole component with an error boundary. It cost two
+live screens at once — the IP/OP answer key editor and the assessment Question
+Signals tab, the latter taking two sibling tabs down with it. Neither the type
+checker nor 2,600 tests noticed; only opening the screen did.
+`tests/test_no_conditional_hooks.py` reads the source and fails on any of them.
+
 **A guard must be per FIELD, not per file.** "Does this file mention
 `CodeSuggest`" passes as soon as one branch has it — which is how the E/M
 diagnosis rows and both key editors were reported as wired while rendering
 plain inputs. Anchor a test on the value being described, then delete it and
 watch the test fail. Same for screens: enumerate them, do not summarise.
+
+**This is a desktop application.** The user confirmed on 2026-08-21 that it is
+never used on a phone or tablet, so responsive layout is not a defect class
+here — do not spend effort on breakpoints, and do not raise findings against
+them.
 
 **Copy earns its place or goes.** The batch screen carried five notices, most
 narrating the next screen or the mode the trainer had just chosen. Keep what a
