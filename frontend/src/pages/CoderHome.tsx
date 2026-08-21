@@ -304,7 +304,8 @@ export function CoderHome() {
                       <div style={{ ...styles.listAccent, background: sc.bg }} />
                       <div style={styles.listChartNum}>
                         {chart.chart_number}
-                        {chart.alias && <div style={{ fontSize: 10, fontWeight: 500, color: '#6b7280', marginTop: 1 }}>{chart.alias}</div>}
+                        {chart.alias && <div title={chart.alias} style={{ fontSize: 10, fontWeight: 500, color: '#6b7280', marginTop: 1,
+                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{chart.alias}</div>}
                       </div>
                       <div style={{ ...styles.listSpecBadge, background: sc.light, color: sc.bg }}>{chart.specialty}</div>
                       <div style={styles.listCategory}>{chart.category}</div>
@@ -418,7 +419,12 @@ const styles: Record<string, React.CSSProperties> = {
   list: { display: 'flex', flexDirection: 'column', gap: 0, background: 'rgba(255,255,255,0.62)', backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)', border: '1px solid rgba(255,255,255,0.5)', borderRadius: 12, overflow: 'hidden', boxShadow: '0 4px 24px rgba(0,0,0,0.07)' },
   listRow: { display: 'flex', alignItems: 'center', gap: 14, padding: '12px 16px', background: 'transparent', border: 'none', borderBottom: '1px solid rgba(243,244,246,0.8)', cursor: 'pointer', textAlign: 'left', transition: 'background 0.1s', width: '100%' },
   listAccent: { width: 4, height: 36, borderRadius: 2, flexShrink: 0 },
-  listChartNum: { fontWeight: 800, fontSize: 15, color: '#111', minWidth: 72, letterSpacing: -0.3 },
+  // A fixed column, not a minimum. With minWidth alone a long alias grew this
+  // cell and pushed the specialty badge and category right, so no two rows
+  // lined up — the chip landed anywhere from 242px to 414px across a page of
+  // results. Every trainer-facing table is a grid; this is the coder's.
+  listChartNum: { fontWeight: 800, fontSize: 15, color: '#111', width: 150,
+                  flexShrink: 0, letterSpacing: -0.3, overflow: 'hidden' },
   listSpecBadge: { fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, textTransform: 'uppercase' as const, letterSpacing: 0.4, whiteSpace: 'nowrap' as const, minWidth: 80, textAlign: 'center' as const },
   listCategory: { fontSize: 13, color: '#374151', flex: 1 },
   listDiffBadge: { fontSize: 11, padding: '2px 9px', borderRadius: 20, fontWeight: 600, whiteSpace: 'nowrap' as const },

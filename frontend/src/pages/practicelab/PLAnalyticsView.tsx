@@ -3185,7 +3185,11 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
             )}
           </div>
 
-          {!emBatchId && (
+          {/* Only when there is genuinely nothing on screen. It used to sit
+              above four populated tiles, telling a trainer to pick a batch to
+              see figures they were already looking at — the cumulative view
+              across all batches is a real answer, not an empty state. */}
+          {!emBatchId && !emBreakdown?.has_data && (
             <div style={styles.emptyState}>Select an E/M or ED Profee batch above to see MDM component analytics.</div>
           )}
 
@@ -3275,19 +3279,31 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                 {/* MDM Component accuracy bar chart */}
                 <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '16px 20px' }}>
                   <div style={{ fontSize: 14, fontWeight: 700, color: '#111', marginBottom: 16 }}>MDM Component Level Accuracy — % of charts where derived level matched answer key</div>
+                  {/* An empty axis reads as "everyone scored zero". Preventive
+                      and time-levelled charts are not graded on MDM at all, so
+                      when none of the batch was, say that instead of drawing
+                      a grid with nothing in it. */}
+                  {t.mdm_charts === 0 ? (
+                    <div style={{ ...styles.emptyState, margin: 0 }}>
+                      No chart here is graded on medical decision making —
+                      {' '}these are preventive or time-levelled visits, which are
+                      {' '}scored on the code, diagnoses and procedures only.
+                    </div>
+                  ) : (
                   <ResponsiveContainer width="100%" height={200}>
                     <BarChart data={componentData} margin={{ top: 0, right: 20, left: 0, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} />
                       <XAxis dataKey="name" tick={{ fontSize: 12 }} />
                       <YAxis domain={[0, 100]} tickFormatter={v => `${v}%`} tick={{ fontSize: 11 }} width={40} />
                       <Tooltip formatter={(v: any) => [`${v}%`, 'Match Rate']} />
-                      <Bar dataKey="pct" radius={[4, 4, 0, 0]}>
+                      <Bar dataKey="pct" isAnimationActive={false} radius={[4, 4, 0, 0]}>
                         {componentData.map((entry, i) => (
                           <Cell key={i} fill={entry.fill} />
                         ))}
                       </Bar>
                     </BarChart>
                   </ResponsiveContainer>
+                  )}
                 </div>
 
                 {/* Per-coder table */}

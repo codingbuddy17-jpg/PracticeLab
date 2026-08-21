@@ -26,7 +26,14 @@ export function TrainerCharts() {
 
   const [editing, setEditing] = useState<Chart | null>(null)
   const [editForm, setEditForm] = useState<{ category: string; difficulty: Difficulty; rationale: string }>({ category: '', difficulty: 'Beginner', rationale: '' })
-  const [actor, setActor] = useState(trainerName)
+  // Seeded from the shared trainer_name and written back, so a name typed here
+  // is remembered the way it is on the upload screens rather than being asked
+  // for again every time an edit or a retirement needs attributing.
+  const [actor, setActorState] = useState(trainerName)
+  const setActor = (v: string) => {
+    setActorState(v)
+    if (v.trim()) localStorage.setItem('trainer_name', v.trim())
+  }
   const [editPassphrase, setEditPassphrase] = useState('')
   const [addFilesPassphrase, setAddFilesPassphrase] = useState('')
   const [saving, setSaving] = useState(false)

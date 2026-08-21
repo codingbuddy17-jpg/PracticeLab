@@ -124,7 +124,9 @@ export function PoolSummaryView({ onJump, initialSpecialty }: {
         <div style={s.emptyState}>
           <BarChart2 size={36} color="#d1d5db" />
           <div style={{ marginTop: 12, fontSize: 14, color: '#9ca3af' }}>Select a specialty to view pool readiness</div>
-          <div style={{ fontSize: 12, color: '#d1d5db', marginTop: 4 }}>No question content is shown here — counts only</div>
+          {/* Was #d1d5db, roughly 1.5:1 against this ground — below the 4.5:1
+              a body-size caption needs, and effectively invisible. */}
+          <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>No question content is shown here — counts only</div>
         </div>
       )}
 

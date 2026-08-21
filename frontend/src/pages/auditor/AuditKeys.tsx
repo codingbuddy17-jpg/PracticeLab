@@ -331,6 +331,18 @@ function ChartKeyEditor({ chartId, trainer, onBack }: {
     }
   }
 
+  // Above the guard below, and reading through data?. — hooks must run in the
+  // same order on every render. My own test caught this one being written the
+  // wrong way round, which is what it is for.
+  const keyForCodes = data?.answer_key
+  const describeKeyDx = useCodeDescriptions(
+    [keyForCodes?.pdx_code || '',
+     ...((keyForCodes?.sdx || []).map((r: any) => r.code))], 'SDx')
+  const describeKeyPcs = useCodeDescriptions(
+    (keyForCodes?.pcs || []).map((r: any) => r.code), 'PCS')
+  const describeKeyCpt = useCodeDescriptions(
+    (keyForCodes?.cpt || []).map((r: any) => r.code), 'CPT')
+
   if (!data) return <div style={s.empty}>Loading…</div>
 
   const atCap = data.sets.length >= (data.max_versions || 3)
@@ -402,12 +414,30 @@ function ChartKeyEditor({ chartId, trainer, onBack }: {
       {key && (
         <div style={s.panel}>
           <div style={s.panelHead}><span style={{ fontWeight: 700, fontSize: 13 }}>Answer key</span></div>
-          <div style={{ padding: '12px 16px', fontSize: 12.5, color: '#374151', lineHeight: 1.8 }}>
-            <div><strong>PDx</strong> <code>{key.pdx_code || '—'}</code> {key.pdx_poa && `(POA ${key.pdx_poa})`}</div>
-            <div><strong>SDx</strong> {(key.sdx || []).map((r: any, i: number) =>
-              <code key={i} style={{ marginRight: 6 }}>{r.code}{r.ccmcc && r.ccmcc !== '-' ? `·${r.ccmcc}` : ''}</code>) || '—'}</div>
-            {(key.pcs || []).length > 0 && <div><strong>PCS</strong> {key.pcs.map((r: any, i: number) => <code key={i} style={{ marginRight: 6 }}>{r.code}</code>)}</div>}
-            {(key.cpt || []).length > 0 && <div><strong>CPT</strong> {key.cpt.map((r: any, i: number) => <code key={i} style={{ marginRight: 6 }}>{r.code}{r.modifier ? `-${r.modifier}` : ''}</code>)}</div>}
+          {/* One code per line, each saying what it is. This panel is the
+              first thing a trainer reads on the screen where they author
+              planted errors, and it used to show bare codes on a run-on line
+              while the editor below described the same codes — so the check
+              was available everywhere except where the reading starts. */}
+          <div style={{ padding: '12px 16px', fontSize: 12.5, color: '#374151',
+                        display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <KeyLine label="PDx" code={key.pdx_code} describe={describeKeyDx}
+              tag={key.pdx_poa ? `POA ${key.pdx_poa}` : ''} system="ICD10CM" />
+            {(key.sdx || []).map((r: any, i: number) => (
+              <KeyLine key={`sdx${i}`} label={i === 0 ? 'SDx' : ''} code={r.code}
+                describe={describeKeyDx} system="ICD10CM"
+                // "-" and "NONE" both mean the key stated no severity. The
+                // second was printed literally, as E18.3-NONE.
+                tag={r.ccmcc && !['-', 'NONE', 'None'].includes(r.ccmcc) ? r.ccmcc : ''} />
+            ))}
+            {(key.pcs || []).map((r: any, i: number) => (
+              <KeyLine key={`pcs${i}`} label={i === 0 ? 'PCS' : ''} code={r.code}
+                describe={describeKeyPcs} system="ICD10PCS" />
+            ))}
+            {(key.cpt || []).map((r: any, i: number) => (
+              <KeyLine key={`cpt${i}`} label={i === 0 ? 'CPT' : ''} code={r.code}
+                describe={describeKeyCpt} tag={r.modifier || ''} />
+            ))}
           </div>
         </div>
       )}
@@ -610,6 +640,47 @@ const ACTION_LEGEND = [
 const SECTION_ROWS: Record<string, string> = { SDx: 'sdx', PCS: 'pcs', CPT: 'cpt' }
 
 /** One coding section of the answer key, with an action beside every line. */
+/**
+ * One line of the answer key: the code, what it is, and any tag it carries.
+ *
+ * The label is printed on the first row of each group only, so four secondary
+ * diagnoses read as a list rather than four repetitions of "SDx".
+ */
+function KeyLine({ label, code, describe, tag, system }: {
+  label: string
+  code?: string
+  describe: ((c: string) => any) & { knownAbsent?: (c: string, system: string) => boolean }
+  tag?: string
+  system?: string
+}) {
+  if (!code) {
+    return label
+      ? <div style={{ display: 'flex', gap: 8 }}>
+          <span style={{ fontWeight: 700, width: 34, flexShrink: 0 }}>{label}</span>
+          <span style={{ color: '#9ca3af' }}>—</span>
+        </div>
+      : null
+  }
+  return (
+    <div style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
+      <span style={{ fontWeight: 700, width: 34, flexShrink: 0 }}>{label}</span>
+      <code style={{ flexShrink: 0 }}>{code}</code>
+      {tag && <span style={{ ...s.tag, flexShrink: 0 }}>{tag}</span>}
+      {/* Plain text rather than CodeCaption: that draws a bordered box, which
+          is right under an input and wrong inside a one-line summary row. */}
+      <span style={{ color: '#6b7280', fontSize: 12, minWidth: 0,
+                     overflow: 'hidden', textOverflow: 'ellipsis',
+                     whiteSpace: 'nowrap' }}
+            title={describe(code)?.description || ''}>
+        {describe(code)?.description
+          || (system && describe.knownAbsent?.(code, system)
+              ? <span style={{ color: '#b45309' }}>not in the published list</span>
+              : '')}
+      </span>
+    </div>
+  )
+}
+
 function KeySection({ spec, answerKey, mutations, setMutations }: {
   spec: any; answerKey: any
   mutations: Finding[]; setMutations: (f: (m: Finding[]) => Finding[]) => void
