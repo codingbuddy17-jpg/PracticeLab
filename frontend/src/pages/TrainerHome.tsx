@@ -278,9 +278,14 @@ export function TrainerHome() {
             <div style={styles.bentoPassRateRow}>
               <div>
                 <div style={{ ...styles.bentoPassRateNum, color: '#be185d' }}>
-                  {auditStats?.accuracy != null ? `${auditStats.accuracy}%` : '—'}
+                  {/* One decimal, like every other figure on this page. This
+                      was the only one showing two (56.88%). */}
+                  {auditStats?.accuracy != null ? `${Math.round(auditStats.accuracy * 10) / 10}%` : '—'}
                 </div>
-                <div style={styles.bentoStatLabel}>Audit Accuracy</div>
+                {/* "Score", not "Accuracy" — the auditor module reports an
+                    Audit Score everywhere else, and two names for one figure
+                    is how people conclude they are two figures. */}
+                <div style={styles.bentoStatLabel}>Audit Score</div>
                 <div style={styles.bentoStatSub}>
                   {auditStats?.charts ? `${auditStats.charts} chart(s) scored` : 'nothing scored yet'}
                 </div>

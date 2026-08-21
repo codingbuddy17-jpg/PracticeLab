@@ -335,6 +335,14 @@ export function TrainerCharts() {
           title={actionModal.action === 'retire' ? `Retire ${actionModal.chart.chart_number}` : `Restore ${actionModal.chart.chart_number}`}
           onClose={() => setActionModal(null)}
         >
+          {/* The dialog asked for a name and a passphrase without ever saying
+              what the action does. Retiring is reversible and the chart is not
+              deleted, but a trainer could only learn that by doing it. */}
+          <div style={{ fontSize: 13, color: '#4b5563', lineHeight: 1.5 }}>
+            {actionModal.action === 'retire'
+              ? 'Coders will no longer see this chart. Nothing is deleted, and existing batches and results keep it — you can restore it at any time.'
+              : 'This chart becomes visible to coders again and can be allocated to new batches.'}
+          </div>
           <Field label="Your Name">
             <input style={styles.input} value={actionModal.name}
               onChange={e => setActionModal(m => m ? { ...m, name: e.target.value } : null)}
