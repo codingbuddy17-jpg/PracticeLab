@@ -136,7 +136,6 @@ export function TrainerHome() {
         {/* Chart Management bento */}
         <div style={styles.bentoGrid}>
           <Link to="/trainer/chart-management" style={{ ...styles.bentoCell, ...styles.bentoCellMain, background: 'linear-gradient(145deg, #4f46e5 0%, #0891b2 100%)' }}>
-            <div style={styles.bentoTag}>Chart Library Engine</div>
             <div style={styles.bentoTitle}>
               <FileText size={20} style={{ flexShrink: 0 }} />
               Chart Management
@@ -198,7 +197,6 @@ export function TrainerHome() {
         {/* PracticeLab bento */}
         <div style={styles.bentoGrid}>
           <Link to="/trainer/practicelab" style={{ ...styles.bentoCell, ...styles.bentoCellMain, background: 'linear-gradient(145deg, #0d9488 0%, #0891b2 100%)' }}>
-            <div style={styles.bentoTag}>Chart Coding Engine</div>
             <div style={styles.bentoTitle}>
               <GraduationCap size={20} style={{ flexShrink: 0 }} />
               PracticeLab
@@ -248,7 +246,6 @@ export function TrainerHome() {
             everywhere else in this app. */}
         <div style={{ ...styles.bentoGrid, marginTop: 10 }}>
           <Link to="/trainer/auditor" style={{ ...styles.bentoCell, ...styles.bentoCellMain, background: 'linear-gradient(145deg, #be185d 0%, #9333ea 100%)' }}>
-            <div style={styles.bentoTag}>Chart Audit Engine</div>
             <div style={styles.bentoTitle}>
               <ClipboardCheck size={20} style={{ flexShrink: 0 }} />
               PracticeLab — Auditor
@@ -312,7 +309,6 @@ export function TrainerHome() {
         {/* Assessment Management bento */}
         <div style={styles.bentoGrid}>
           <Link to="/trainer/assessment" style={{ ...styles.bentoCell, ...styles.bentoCellMain, background: 'linear-gradient(145deg, #7c3aed 0%, #4f46e5 100%)' }}>
-            <div style={styles.bentoTag}>MCQ Assessment Engine</div>
             <div style={styles.bentoTitle}>
               <ClipboardList size={20} style={{ flexShrink: 0 }} />
               Assessments
@@ -410,11 +406,6 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: 'space-between',
     minHeight: 180,
     border: 'none',
-  },
-  bentoTag: {
-    fontSize: 10, fontWeight: 700, letterSpacing: 1.2,
-    textTransform: 'uppercase' as const,
-    color: 'rgba(255,255,255,0.55)', alignSelf: 'flex-start',
   },
   bentoTitle: {
     display: 'flex', alignItems: 'center', gap: 10,
