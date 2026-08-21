@@ -461,3 +461,52 @@ class TestTheStoredTotalIsTheGradersTotal:
             {"em_code": "99215", "total_time": 45},
             {"em_code": "99215", "total_time": 45}, {"em_level_weight": 23.33})
         assert not [i for i in items if i["issue"].startswith("CPT")]
+
+
+class TestTheChartLibrarySeesEmKeys:
+    """
+    The chart library's Answer Key badge and its key-status filter both read
+    answer_keys. E/M keys are not there, so a library holding five of them
+    showed "No Key" against every one — and "Missing Answer Key" listed charts
+    that were fully keyed.
+    """
+
+    def test_an_em_chart_with_a_key_reads_as_keyed(self, client, db):
+        chart = make_chart(db, specialty="E/M")
+        db.commit()
+        _em_key(db, chart.id)
+
+        rows = client.get("/charts/search", params={"specialty": "E/M"}).json()["results"]
+        row = [r for r in rows if r["id"] == chart.id][0]
+        assert row["has_answer_key"] is True
+
+    def test_an_em_chart_without_one_still_reads_as_unkeyed(self, client, db):
+        chart = make_chart(db, specialty="E/M")
+        db.commit()
+        rows = client.get("/charts/search", params={"specialty": "E/M"}).json()["results"]
+        assert [r for r in rows if r["id"] == chart.id][0]["has_answer_key"] is False
+
+    def test_the_missing_key_filter_does_not_list_a_keyed_em_chart(self, client, db):
+        chart = make_chart(db, specialty="E/M")
+        db.commit()
+        _em_key(db, chart.id)
+
+        missing = client.get("/charts/search", params={"answer_key_status": "missing_key"}).json()
+        assert chart.id not in [r["id"] for r in missing["results"]]
+
+    def test_the_with_key_filter_lists_it(self, client, db):
+        chart = make_chart(db, specialty="E/M")
+        db.commit()
+        _em_key(db, chart.id)
+
+        with_key = client.get("/charts/search", params={"answer_key_status": "with_key"}).json()
+        assert chart.id in [r["id"] for r in with_key["results"]]
+
+    def test_an_ordinary_chart_is_unaffected(self, client, db):
+        chart = make_chart(db, specialty="IP-DRG")
+        db.add(AnswerKey(chart_id=chart.id, specialty=Specialty.IP_DRG,
+                         pdx_code="J18.9", pdx_poa="Y", sdx=[], pcs=[], cpt=[],
+                         entered_by="t"))
+        db.commit()
+        rows = client.get("/charts/search", params={"specialty": "IP-DRG"}).json()["results"]
+        assert [r for r in rows if r["id"] == chart.id][0]["has_answer_key"] is True

@@ -7,6 +7,7 @@ from database import get_db
 from models import Chart, ChartFile, ChartStatus, Specialty, Difficulty, AnswerKey, GradingResult, ChartFeedback, FeedbackStatus
 from schemas import ChartOut, ChartWithRationale, ChartUpdate
 from services.chart_service import get_chart_pages, increment_view, log_audit
+from services.em_audit_key import chart_ids_with_keys as em_key_chart_ids
 from services.storage import open_object
 from config import settings
 
@@ -76,19 +77,32 @@ def search_charts(
         query = query.filter(Chart.category.ilike(f"%{category}%"))
     if difficulty:
         query = query.filter(Chart.difficulty == difficulty)
-    if answer_key_status == "with_key":
-        query = query.filter(Chart.id.in_(db.query(AnswerKey.chart_id)))
-    elif answer_key_status == "missing_key":
-        query = query.filter(~Chart.id.in_(db.query(AnswerKey.chart_id)))
+    if answer_key_status in ("with_key", "missing_key"):
+        # Both tables, for the same reason as the badge below: filtering on
+        # answer_keys alone puts every keyed E/M chart under "Missing".
+        em_keyed = em_key_chart_ids(db, [c.id for c in query.with_entities(Chart.id).all()])
+        keyed = db.query(AnswerKey.chart_id)
+        if answer_key_status == "with_key":
+            query = query.filter(or_(Chart.id.in_(keyed),
+                                     Chart.id.in_(em_keyed or [-1])))
+        else:
+            query = query.filter(~Chart.id.in_(keyed),
+                                 ~Chart.id.in_(em_keyed or [-1]))
 
     total = query.count()
     results = query.order_by(Chart.chart_number).offset((page - 1) * page_size).limit(page_size).all()
+    page_ids = [c.id for c in results]
     keyed_ids = {
         row[0]
         for row in db.query(AnswerKey.chart_id)
-        .filter(AnswerKey.chart_id.in_([c.id for c in results] or [-1]))
+        .filter(AnswerKey.chart_id.in_(page_ids or [-1]))
         .all()
     }
+    # E/M and ED Profee keep their key in em_answer_keys — no ORM model, no row
+    # in answer_keys — so the join above reports every E/M chart as unkeyed.
+    # That told a trainer who had just entered five keys that the library held
+    # none of them.
+    keyed_ids |= em_key_chart_ids(db, page_ids)
 
     return {
         "total": total,
