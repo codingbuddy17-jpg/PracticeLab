@@ -17,7 +17,10 @@ router = APIRouter()
 
 
 @router.get("/history")
-def list_assessment_history(db: Session = Depends(get_db)):
+def list_assessment_history(search: Optional[str] = None,
+                            page: Optional[int] = Query(default=None, ge=1),
+                            page_size: int = Query(default=50, ge=1, le=200),
+                            db: Session = Depends(get_db)):
     """
     Every generated assessment, with enough context to act on it.
 
@@ -29,9 +32,17 @@ def list_assessment_history(db: Session = Depends(get_db)):
     """
     import json
 
-    assessments = db.query(GeneratedAssessment).order_by(
-        GeneratedAssessment.generated_at.desc()
-    ).all()
+    q = db.query(GeneratedAssessment)
+    if search and search.strip():
+        needle = f"%{search.strip()}%"
+        q = q.filter((GeneratedAssessment.assessment_name.ilike(needle)) |
+                     (GeneratedAssessment.batch_name.ilike(needle)) |
+                     (GeneratedAssessment.generated_by.ilike(needle)))
+    total = q.count()
+    q = q.order_by(GeneratedAssessment.generated_at.desc())
+    if page is not None:
+        q = q.offset((page - 1) * page_size).limit(page_size)
+    assessments = q.all()
     ids = [a.id for a in assessments] or [-1]
 
     # One slot per assessment, read in a single pass, for the question count.
@@ -84,6 +95,8 @@ def list_assessment_history(db: Session = Depends(get_db)):
             "status_counts": counts,
         })
 
+    if page is not None:
+        return {"total": total, "page": page, "page_size": page_size, "results": results}
     return results
 
 

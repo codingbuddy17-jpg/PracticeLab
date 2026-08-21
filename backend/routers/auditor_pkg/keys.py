@@ -301,6 +301,8 @@ def key_status(specialty: str = Query(...), db: Session = Depends(get_db)):
 
 @router.get("/keys/uncurated")
 def uncurated_charts(specialty: str = Query(...),
+                     search: Optional[str] = None,
+                     page: Optional[int] = Query(default=None, ge=1),
                      limit: int = Query(200, le=500),
                      db: Session = Depends(get_db)):
     """
@@ -313,9 +315,19 @@ def uncurated_charts(specialty: str = Query(...),
     keyed = _keyed_chart_ids(db, charts)
     curated = set(sets_by_chart(db, list(keyed)).keys())
     out = [c for c in charts if c.id in keyed and c.id not in curated]
+    if search and search.strip():
+        needle = search.strip().lower()
+        out = [c for c in out if needle in (c.chart_number or "").lower()
+               or needle in (c.category or "").lower()
+               or needle in ((c.difficulty.value if c.difficulty else "")).lower()]
     total = len(out)
-    out = out[:limit]
-    return {"total": total, "charts": [{
+    if page is not None:
+        page_size = max(1, min(limit, 500))
+        out = out[(page - 1) * page_size:page * page_size]
+    else:
+        page_size = limit
+        out = out[:limit]
+    return {"total": total, "page": page or 1, "page_size": page_size, "charts": [{
         "chart_id": c.id, "chart_number": c.chart_number,
         "category": c.category,
         "difficulty": c.difficulty.value if c.difficulty else None,
@@ -372,6 +384,8 @@ def auditable_charts(specialty: str = Query(...),
 
 @router.get("/keys")
 def list_sets(specialty: Optional[str] = None,
+              search: Optional[str] = None,
+              page: Optional[int] = Query(default=None, ge=1),
               limit: int = Query(200, le=500),
               db: Session = Depends(get_db)):
     """The library at a glance — which charts have been curated, and how much."""
@@ -382,8 +396,22 @@ def list_sets(specialty: Optional[str] = None,
     keyed = _keyed_chart_ids(db, [c for _s, c in rows])
     playable = sets_by_chart(db, list(keyed))
     playable_ids = {s.id for sets in playable.values() for s in sets}
-    rows = [(s, c) for s, c in rows if s.id in playable_ids][:limit]
-    return {"sets": [_serialise(s, c) for s, c in rows], "count": len(rows)}
+    rows = [(s, c) for s, c in rows if s.id in playable_ids]
+    if search and search.strip():
+        needle = search.strip().lower()
+        rows = [(s, c) for s, c in rows if needle in (c.chart_number or "").lower()
+                or needle in (c.category or "").lower()
+                or needle in (s.name or "").lower()
+                or needle in (s.authored_by or "").lower()]
+    total = len(rows)
+    if page is not None:
+        page_size = max(1, min(limit, 500))
+        rows = rows[(page - 1) * page_size:page * page_size]
+    else:
+        page_size = limit
+        rows = rows[:limit]
+    return {"sets": [_serialise(s, c) for s, c in rows], "count": len(rows),
+            "total": total, "page": page or 1, "page_size": page_size}
 
 
 @router.post("/keys/chart/{chart_id}")

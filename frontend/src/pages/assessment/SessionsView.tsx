@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Trash2, RefreshCw, Copy, Clock, AlertCircle, Download, Eye, X, CheckCircle, XCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import {
@@ -26,6 +26,8 @@ const STATUS_STYLE: Record<string, { bg: string; text: string; label: string }> 
 }
 
 interface Assessment { id: number; assessment_name: string; config_name?: string | null; student_count?: number; generated_by?: string; generated_at?: string | null; questions_per_student?: number; randomisation_stats?: RandomisationStats | null }
+const SESSION_PAGE_SIZE = 50
+const EMPTY_COUNTS = { pending: 0, in_progress: 0, submitted: 0, expired: 0, auto_submitted: 0 }
 
 interface ReviewQuestion {
   index: number
@@ -68,6 +70,9 @@ export function SessionsView() {
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
+  const [sessionPage, setSessionPage] = useState(1)
+  const [sessionTotal, setSessionTotal] = useState(0)
+  const [sessionCounts, setSessionCounts] = useState(EMPTY_COUNTS)
 
   /** Colour a SCORE against this paper's own mark. */
   function scoreColour(pct: number | null): string {
@@ -93,41 +98,66 @@ export function SessionsView() {
     finally { setLoadingAssessments(false) }
   }
 
-  async function loadSessions(id: number) {
+  async function loadSessions(id: number, targetPage = sessionPage) {
     setLoadingSessions(true)
     try {
-      const data = await listAssessmentSessions(id)
+      const data = await listAssessmentSessions(id, {
+        search: search.trim() || undefined,
+        status: statusFilter || undefined,
+        page: targetPage,
+        page_size: SESSION_PAGE_SIZE,
+      })
       setSessions(data.sessions)
       setPassThreshold(data.pass_threshold ?? 90)
+      setSessionTotal(data.total ?? data.sessions.length)
+      setSessionPage(data.page ?? targetPage)
+      setSessionCounts({ ...EMPTY_COUNTS, ...(data.status_counts || {}) })
       setLastRefreshed(new Date())
     } catch (e) { toast.error(errorMessage(e, 'Failed to load sessions')) }
     finally { setLoadingSessions(false) }
   }
 
-  const q = search.trim().toLowerCase()
-  const visible = sessions.filter(row => {
-    if (statusFilter && row.status !== statusFilter) return false
-    if (q && !`${row.coder_name} ${row.employee_id || ''}`.toLowerCase().includes(q)) return false
-    return true
-  })
+  useEffect(() => {
+    if (!selectedId) return
+    loadSessions(Number(selectedId), sessionPage)
+  }, [selectedId, sessionPage, search, statusFilter])
 
   /**
    * The ids still worth sending. Copying ALL of them re-sends codes to coders
    * who have already sat the paper, which is noise at best and an invitation to
    * a second attempt at worst.
    */
-  function copyPendingTokens() {
-    const pending = sessions.filter(r => r.status === 'pending')
-    if (!pending.length) { toast.error('No pending Assessment IDs to copy.'); return }
-    navigator.clipboard.writeText(
-      pending.map(r => `${r.coder_name}\t${r.employee_id || ''}\t${r.session_token}`).join('\n'))
-    toast.success(`${pending.length} pending Assessment ID${pending.length > 1 ? 's' : ''} copied`)
+  async function copyPendingTokens() {
+    if (!selectedId) return
+    try {
+      const pending: SessionRow[] = []
+      let page = 1
+      let total = 0
+      do {
+        const data = await listAssessmentSessions(Number(selectedId), {
+          status: 'pending',
+          page,
+          page_size: 200,
+        })
+        pending.push(...data.sessions.filter(r => r.status === 'pending'))
+        total = data.total
+        page += 1
+      } while (pending.length < total)
+      if (!pending.length) { toast.error('No pending Assessment IDs to copy.'); return }
+      navigator.clipboard.writeText(
+        pending.map(r => `${r.coder_name}\t${r.employee_id || ''}\t${r.session_token}`).join('\n'))
+      toast.success(`${pending.length} pending Assessment ID${pending.length > 1 ? 's' : ''} copied`)
+    } catch (e) {
+      toast.error(errorMessage(e, 'Could not copy pending Assessment IDs'))
+    }
   }
 
   function handleSelectAssessment(id: number | '') {
     setSelectedId(id)
     setSessions([])
-    if (id) loadSessions(id as number)
+    setSessionTotal(0)
+    setSessionCounts(EMPTY_COUNTS)
+    setSessionPage(1)
   }
 
   async function handleDelete() {
@@ -136,6 +166,8 @@ export function SessionsView() {
     try {
       await deleteAssessmentSessions(selectedId as number)
       setSessions([])
+      setSessionTotal(0)
+      setSessionCounts(EMPTY_COUNTS)
       toast.success('Sessions deleted')
     } catch (e: unknown) {
       const err = e as { response?: { data?: { detail?: string } } }
@@ -198,7 +230,7 @@ export function SessionsView() {
       // and the session row all move together, and re-reading is the only way
       // to be sure the screen shows what was actually stored.
       await openReview(reviewSessionId)
-      await loadSessions(Number(selectedId))
+      await loadSessions(Number(selectedId), sessionPage)
       toast.success('Correction saved — score updated.')
     } catch (e) {
       toast.error(errorMessage(e, 'Could not save the correction'))
@@ -211,9 +243,9 @@ export function SessionsView() {
   }
 
   const hasSessions = sessions.length > 0
-  const pending = sessions.filter(s => s.status === 'pending').length
-  const inProgress = sessions.filter(s => s.status === 'in_progress').length
-  const submitted = sessions.filter(s => s.status === 'submitted' || s.status === 'auto_submitted').length
+  const pending = sessionCounts.pending
+  const inProgress = sessionCounts.in_progress
+  const submitted = sessionCounts.submitted + (sessionCounts.auto_submitted || 0)
   const selectedAssessment = assessments.find(a => a.id === selectedId) ?? null
 
   return (
@@ -238,7 +270,7 @@ export function SessionsView() {
           </div>
           {selectedId && (
             <>
-              <button style={s.btnOutline} onClick={() => loadSessions(selectedId as number)} disabled={loadingSessions}>
+              <button style={s.btnOutline} onClick={() => loadSessions(selectedId as number, sessionPage)} disabled={loadingSessions}>
                 <RefreshCw size={13} style={loadingSessions ? { animation: 'spin 1s linear infinite' } : {}} />
                 Refresh
               </button>
@@ -272,16 +304,16 @@ export function SessionsView() {
         </div>
       </div>
 
-      {hasSessions && (
+      {(hasSessions || (selectedId && (search || statusFilter))) && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' as const }}>
           <input
             value={search}
-            onChange={e => setSearch(e.target.value)}
+            onChange={e => { setSearch(e.target.value); setSessionPage(1) }}
             onKeyDown={e => { if (e.key === 'Escape') setSearch('') }}
             placeholder="Find a coder or employee ID…"
             style={{ ...s.select, maxWidth: 240 }}
           />
-          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
+          <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setSessionPage(1) }}
             style={{ ...s.select, maxWidth: 170 }}>
             <option value="">All statuses</option>
             <option value="pending">Pending</option>
@@ -289,9 +321,9 @@ export function SessionsView() {
             <option value="submitted">Submitted</option>
             <option value="expired">Expired</option>
           </select>
-          {(search || statusFilter) && (
+          {(search || statusFilter || sessionTotal > SESSION_PAGE_SIZE) && (
             <span style={{ fontSize: 11, color: '#6b7280' }}>
-              {visible.length} of {sessions.length}
+              {sessions.length} on this page · {sessionTotal} total
             </span>
           )}
           {/* Sessions change while a trainer watches — a coder submits, a clock
@@ -313,12 +345,12 @@ export function SessionsView() {
       )}
 
       {/* Sessions table */}
-      {hasSessions && (
+      {hasSessions ? (
         <>
           {/* Summary stats */}
           <div style={{ display: 'flex', gap: 12 }}>
             {[
-              { label: 'Total', value: sessions.length, bg: 'rgba(255,255,255,0.85)', color: '#374151', border: '1px solid #d1d5db' },
+              { label: 'Total', value: sessionTotal, bg: 'rgba(255,255,255,0.85)', color: '#374151', border: '1px solid #d1d5db' },
               { label: 'Pending', value: pending, bg: '#fef9c3', color: '#854d0e', border: '1px solid #fde68a' },
               { label: 'In Progress', value: inProgress, bg: '#bfdbfe', color: '#1e40af', border: '1px solid #93c5fd' },
               { label: 'Submitted', value: submitted, bg: '#dcfce7', color: '#15803d', border: '1px solid #86efac' },
@@ -340,7 +372,7 @@ export function SessionsView() {
                 </tr>
               </thead>
               <tbody>
-                {visible.map(row => {
+                {sessions.map(row => {
                   const ast = STATUS_STYLE[row.status] || STATUS_STYLE.pending
                   const timeTaken = row.time_taken_seconds
                     ? `${Math.floor(row.time_taken_seconds / 60)}m ${row.time_taken_seconds % 60}s`
@@ -424,13 +456,18 @@ export function SessionsView() {
               </tbody>
             </table>
           </div>
+          {sessionTotal > SESSION_PAGE_SIZE && (
+            <Pager page={sessionPage} total={sessionTotal} pageSize={SESSION_PAGE_SIZE} onPage={setSessionPage} />
+          )}
 
           <div style={{ fontSize: 12, color: '#9ca3af', display: 'flex', alignItems: 'center', gap: 6 }}>
             <AlertCircle size={12} />
             Share Assessment IDs with coders. They access the assessment at <strong>/take-assessment</strong> on this portal.
           </div>
         </>
-      )}
+      ) : selectedId && !loadingSessions && (search || statusFilter) ? (
+        <div style={s.emptyState}>No session matches the current filter.</div>
+      ) : null}
 
       {/* Review Modal */}
       {(reviewLoading || reviewData) && (
@@ -577,6 +614,30 @@ export function SessionsView() {
   )
 }
 
+function Pager({ page, total, pageSize, onPage }: {
+  page: number
+  total: number
+  pageSize: number
+  onPage: (page: number) => void
+}) {
+  const pages = Math.max(1, Math.ceil(total / pageSize))
+  const start = total === 0 ? 0 : (page - 1) * pageSize + 1
+  const end = Math.min(total, page * pageSize)
+  return (
+    <div style={s.pager}>
+      <button style={s.btnOutline} disabled={page <= 1}
+        onClick={() => onPage(Math.max(1, page - 1))}>
+        Previous
+      </button>
+      <span style={{ fontSize: 11, color: '#6b7280' }}>{start}-{end} of {total}</span>
+      <button style={s.btnOutline} disabled={page >= pages}
+        onClick={() => onPage(Math.min(pages, page + 1))}>
+        Next
+      </button>
+    </div>
+  )
+}
+
 const s: Record<string, React.CSSProperties> = {
   card: { background: 'rgba(255,255,255,0.72)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)', border: '1px solid rgba(255,255,255,0.7)', borderRadius: 16, padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: 14, boxShadow: '0 4px 24px rgba(124,58,237,0.06), 0 1px 4px rgba(0,0,0,0.04)' },
   cardTitle: { fontSize: 13, fontWeight: 800, color: '#374151', paddingLeft: 10, borderLeft: '3px solid #7c3aed' },
@@ -587,10 +648,12 @@ const s: Record<string, React.CSSProperties> = {
   btnOutline: { display: 'flex', alignItems: 'center', gap: 5, padding: '7px 12px', border: '1px solid #e5e7eb', borderRadius: 8, background: 'rgba(255,255,255,0.7)', cursor: 'pointer', fontSize: 12, fontWeight: 600, color: '#374151' },
   btnDanger: { display: 'flex', alignItems: 'center', gap: 5, padding: '7px 12px', background: '#fee2e2', color: '#dc2626', border: '1px solid #fca5a5', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600 },
   statBox: { flex: 1, borderRadius: 10, padding: '12px 16px', textAlign: 'center' as const },
+  emptyState: { padding: 30, border: '1px dashed #e5e7eb', borderRadius: 14, color: '#9ca3af', textAlign: 'center' as const, background: 'rgba(255,255,255,0.5)', fontSize: 13 },
   tableWrap: { background: 'rgba(255,255,255,0.6)', backdropFilter: 'blur(14px)', border: '1px solid rgba(255,255,255,0.65)', borderRadius: 14, overflow: 'auto', maxHeight: '60vh' },
   table: { width: '100%', borderCollapse: 'collapse', fontSize: 13 },
   thead: { background: 'rgba(249,250,251,0.8)' },
   th: { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.4, borderBottom: '1px solid #f3f4f6', whiteSpace: 'nowrap' },
   tr: { borderBottom: '1px solid #f3f4f6' },
   td: { padding: '10px 14px', color: '#374151', verticalAlign: 'middle' },
+  pager: { display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, marginTop: 10 },
 }

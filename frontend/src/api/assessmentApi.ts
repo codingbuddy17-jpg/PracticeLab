@@ -220,9 +220,7 @@ export async function deleteAssessment(
   return data as { deleted: number; sessions_removed: number; completed_removed: number }
 }
 
-export async function listAssessmentHistory() {
-  const { data } = await api.get('/assessment/history')
-  return data as Array<{
+export type AssessmentHistoryRow = {
     id: number
     assessment_name: string
     config_name: string | null
@@ -234,7 +232,15 @@ export async function listAssessmentHistory() {
     generated_by: string
     generated_at: string | null
     status_counts?: { pending: number; in_progress: number; submitted: number; expired: number }
-  }>
+  }
+
+export async function listAssessmentHistory(): Promise<AssessmentHistoryRow[]>
+export async function listAssessmentHistory(params: { search?: string; page: number; page_size?: number }): Promise<{
+  total: number; page: number; page_size: number; results: AssessmentHistoryRow[]
+}>
+export async function listAssessmentHistory(params?: { search?: string; page?: number; page_size?: number }) {
+  const { data } = await api.get('/assessment/history', { params })
+  return data
 }
 
 /** Open, like the other two Sessions-tab downloads. */
@@ -261,9 +267,18 @@ export async function createAssessmentSessions(
   return data
 }
 
-export async function listAssessmentSessions(assessmentId: number) {
-  const { data } = await api.get(`/assessment/${assessmentId}/sessions`)
-  return data as { sessions: SessionRow[]; pass_threshold: number }
+export async function listAssessmentSessions(assessmentId: number, params?: {
+  search?: string; status?: string; page?: number; page_size?: number
+}) {
+  const { data } = await api.get(`/assessment/${assessmentId}/sessions`, { params })
+  return data as {
+    sessions: SessionRow[]
+    pass_threshold: number
+    total: number
+    page: number
+    page_size: number
+    status_counts?: { pending: number; in_progress: number; submitted: number; expired: number; auto_submitted?: number }
+  }
 }
 
 /** Per-question responses for every coder. */

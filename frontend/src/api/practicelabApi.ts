@@ -57,14 +57,23 @@ export async function getAnswerKeyStatus(specialty?: string) {
   return data as { total_charts: number; with_answer_key: number; without_answer_key: number }
 }
 
-export async function getAnswerKeyList(specialty?: string) {
-  const { data } = await api.get('/practicelab/answer-key/list', { params: { specialty } })
-  return data as { chart_id: number; chart_number: string; specialty: string; category: string; entered_by: string; created_at: string | null }[]
+type AnswerKeyListRow = { chart_id: number; chart_number: string; specialty: string; category: string; entered_by: string; created_at: string | null }
+type Paged<T> = { total: number; page: number; page_size: number; results: T[] }
+
+export async function getAnswerKeyList(specialty?: string): Promise<AnswerKeyListRow[]>
+export async function getAnswerKeyList(specialty: string | undefined, opts: { search?: string; page: number; page_size?: number }): Promise<Paged<AnswerKeyListRow>>
+export async function getAnswerKeyList(specialty?: string, opts: { search?: string; page?: number; page_size?: number } = {}) {
+  const { data } = await api.get('/practicelab/answer-key/list', { params: { specialty, ...opts } })
+  return data
 }
 
-export async function getChartsMissingKeys(specialty?: string) {
-  const { data } = await api.get('/practicelab/answer-key/missing', { params: { specialty } })
-  return data as { chart_id: number; chart_number: string; specialty: string; category: string; can_purge: boolean }[]
+type MissingKeyChartRow = { chart_id: number; chart_number: string; specialty: string; category: string; can_purge: boolean }
+
+export async function getChartsMissingKeys(specialty?: string): Promise<MissingKeyChartRow[]>
+export async function getChartsMissingKeys(specialty: string | undefined, opts: { search?: string; page: number; page_size?: number }): Promise<Paged<MissingKeyChartRow>>
+export async function getChartsMissingKeys(specialty?: string, opts: { search?: string; page?: number; page_size?: number } = {}) {
+  const { data } = await api.get('/practicelab/answer-key/missing', { params: { specialty, ...opts } })
+  return data
 }
 
 export async function getPoolPreview(specialty: string, categories?: string, difficulties?: string) {
@@ -352,9 +361,11 @@ export async function getPLChartDetail(chartNumber: string) {
 // ── E/M MDM API ──────────────────────────────────────────────────────────────
 
 
-export async function listEMAnswerKeys() {
-  const { data } = await api.get('/practicelab/em/answer-key/list')
-  return data as any[]
+export async function listEMAnswerKeys(): Promise<any[]>
+export async function listEMAnswerKeys(opts: { search?: string; page: number; page_size?: number }): Promise<Paged<any>>
+export async function listEMAnswerKeys(opts: { search?: string; page?: number; page_size?: number } = {}) {
+  const { data } = await api.get('/practicelab/em/answer-key/list', { params: opts })
+  return data
 }
 
 export async function upsertEMAnswerKey(payload: Record<string, any>) {

@@ -12,6 +12,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
 import openpyxl
@@ -186,11 +187,36 @@ async def parse_coder_file(file: UploadFile = File(...)):
 
 
 @router.get("/{assessment_id}/sessions")
-def list_sessions(assessment_id: int, db: Session = Depends(get_db)):
+def list_sessions(assessment_id: int,
+                  search: Optional[str] = None,
+                  status: Optional[str] = None,
+                  page: Optional[int] = Query(default=None, ge=1),
+                  page_size: int = Query(default=50, ge=1, le=200),
+                  db: Session = Depends(get_db)):
     """List all sessions for an assessment with current status and scores."""
-    sessions = db.query(AssessmentSession).filter(
+    q = db.query(AssessmentSession).filter(
         AssessmentSession.assessment_id == assessment_id
-    ).order_by(AssessmentSession.coder_name).all()
+    )
+    now = datetime.now(timezone.utc)
+    if status:
+        if status == "expired":
+            q = q.filter(or_(
+                AssessmentSession.status == "expired",
+                and_(AssessmentSession.status == "pending",
+                     AssessmentSession.expires_at.isnot(None),
+                     AssessmentSession.expires_at < now),
+            ))
+        else:
+            q = q.filter(AssessmentSession.status == status)
+    if search and search.strip():
+        needle = f"%{search.strip()}%"
+        q = q.filter((AssessmentSession.coder_name.ilike(needle)) |
+                     (AssessmentSession.employee_id.ilike(needle)))
+    total = q.count()
+    q = q.order_by(AssessmentSession.coder_name)
+    if page is not None:
+        q = q.offset((page - 1) * page_size).limit(page_size)
+    sessions = q.all()
 
     # Which sessions carry a trainer correction, in one query rather than per
     # row — the badge is on every row, so a per-row lookup would be an N+1.
@@ -201,7 +227,6 @@ def list_sessions(assessment_id: int, db: Session = Depends(get_db)):
         .distinct().all()
     }
 
-    now = datetime.now(timezone.utc)
     rows = []
     for s in sessions:
         # The sweep persists this now, so the status on the row is the status.
@@ -241,10 +266,31 @@ def list_sessions(assessment_id: int, db: Session = Depends(get_db)):
     pass_threshold = float(assessment.pass_threshold) if (
         assessment and assessment.pass_threshold) else 90.0
 
+    status_counts = {
+        "pending": 0,
+        "in_progress": 0,
+        "submitted": 0,
+        "expired": 0,
+        "auto_submitted": 0,
+    }
+    for raw_status, expires_at in db.query(
+        AssessmentSession.status, AssessmentSession.expires_at
+    ).filter(AssessmentSession.assessment_id == assessment_id).all():
+        effective = "expired" if (
+            raw_status == "pending" and expires_at is not None
+            and now > as_utc(expires_at)
+        ) else raw_status
+        if effective in status_counts:
+            status_counts[effective] += 1
+
     return {
         "assessment_id": assessment_id,
         "pass_threshold": pass_threshold,
         "sessions": rows,
+        "total": total,
+        "page": page or 1,
+        "page_size": page_size,
+        "status_counts": status_counts,
     }
 
 

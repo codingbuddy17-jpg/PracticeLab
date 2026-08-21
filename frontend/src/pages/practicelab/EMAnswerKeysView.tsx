@@ -66,6 +66,8 @@ import {
 // Codes with a CPT total-time band. ED visit codes have none.
 const EM_TIME_ELIGIBLE = ['99202','99203','99204','99205','99212','99213','99214','99215']
 const EM_CODES = ['99202','99203','99204','99205','99211','99212','99213','99214','99215','99281','99282','99283','99284','99285']
+const EM_PAGE_SIZE = 50
+const EM_KEY_SPECIALTIES = ['E/M', 'ED Profee'] as const
 
 // ── Empty form state ──────────────────────────────────────────────────────────
 
@@ -114,6 +116,9 @@ function emptyFormForChart(chart: any) {
 
 export function EMAnswerKeysView() {
   const [akList, setAkList] = useState<any[]>([])
+  const [akTotal, setAkTotal] = useState(0)
+  const [akPage, setAkPage] = useState(1)
+  const [akSearch, setAkSearch] = useState('')
   const [loading, setLoading] = useState(false)
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState<Record<string, any>>(emptyForm())
@@ -137,29 +142,47 @@ export function EMAnswerKeysView() {
   // rather than making the trainer search for a chart number they have to
   // already know is unkeyed.
   const [missing, setMissing] = useState<any[]>([])
+  const [missingTotal, setMissingTotal] = useState(0)
+  const [missingPage, setMissingPage] = useState(1)
+  const [missingSearch, setMissingSearch] = useState('')
+  const [missingSpec, setMissingSpec] = useState<typeof EM_KEY_SPECIALTIES[number]>('E/M')
 
-  useEffect(() => { loadList(); loadStatuses(); loadMissing() }, [])
+  useEffect(() => { loadStatuses() }, [])
+  useEffect(() => { loadList() }, [akPage, akSearch])
+  useEffect(() => { loadMissing() }, [missingSpec, missingPage, missingSearch])
 
   async function loadList() {
     setLoading(true)
-    try { setAkList(await listEMAnswerKeys()) } catch { toast.error('Could not load E/M answer keys') }
+    try {
+      const res = await listEMAnswerKeys({
+        search: akSearch.trim() || undefined,
+        page: akPage,
+        page_size: EM_PAGE_SIZE,
+      })
+      setAkList(res.results)
+      setAkTotal(res.total)
+    } catch { toast.error('Could not load E/M answer keys') }
     finally { setLoading(false) }
   }
 
   async function loadMissing() {
-    const rows: any[] = []
-    await Promise.all(['E/M', 'ED Profee'].map(async s => {
-      try {
-        const r = await getChartsMissingKeys(s)
-        rows.push(...r.map((c: any) => ({ ...c, specialty: s })))
-      } catch { /* leave absent */ }
-    }))
-    setMissing(rows)
+    try {
+      const res = await getChartsMissingKeys(missingSpec, {
+        search: missingSearch.trim() || undefined,
+        page: missingPage,
+        page_size: EM_PAGE_SIZE,
+      })
+      setMissing(res.results.map((c: any) => ({ ...c, specialty: missingSpec })))
+      setMissingTotal(res.total)
+    } catch {
+      setMissing([])
+      setMissingTotal(0)
+    }
   }
 
   async function loadStatuses() {
     const out: Record<string, any> = {}
-    await Promise.all(['E/M', 'ED Profee'].map(async s => {
+    await Promise.all(EM_KEY_SPECIALTIES.map(async s => {
       try { out[s] = await getAnswerKeyStatus(s) } catch { /* leave absent */ }
     }))
     setStatuses(out)
@@ -363,7 +386,7 @@ export function EMAnswerKeysView() {
           are MDM-graded but keyed and practised separately — and it makes
           "ED Profee has no charts yet" visible instead of silent. */}
       <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' as const }}>
-        {['E/M', 'ED Profee'].map(spec => {
+        {EM_KEY_SPECIALTIES.map(spec => {
           const s = statuses[spec]
           if (!s) return null
           return (
@@ -828,13 +851,32 @@ export function EMAnswerKeysView() {
       {/* Charts still needing a key — same shape and placement as the IP/OP tab,
           so a trainer moving between the two sees one layout, and can start a
           key from the chart rather than searching for it. */}
-      {missing.length > 0 && (
+      {(missing.length > 0 || missingSearch || missingTotal > 0) && (
         <div style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: '#374151', marginBottom: 8 }}>
-            Charts without answer keys
-            <span style={{ fontWeight: 400, color: '#9ca3af', marginLeft: 6 }}>({missing.length})</span>
+          <div style={pagerHeaderStyle}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#374151' }}>
+                Charts without answer keys <span style={{ fontWeight: 400, color: '#9ca3af' }}>({missingTotal})</span>
+              </span>
+              {EM_KEY_SPECIALTIES.map(spec => (
+                <button key={spec}
+                  style={missingSpec === spec ? activeMiniBtn : miniBtn}
+                  onClick={() => { setMissingSpec(spec); setMissingPage(1) }}>
+                  {spec}
+                </button>
+              ))}
+            </div>
+            <input
+              style={{ ...styles.input, width: 230, fontSize: 12, margin: 0 }}
+              placeholder="Search missing-key charts..."
+              value={missingSearch}
+              onChange={e => { setMissingSearch(e.target.value); setMissingPage(1) }}
+              onKeyDown={e => { if (e.key === 'Escape') setMissingSearch('') }}
+            />
           </div>
-          <div style={styles.table}>
+          {missing.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 24, color: '#9ca3af', fontSize: 13 }}>No missing-key charts match.</div>
+          ) : <div style={styles.table}>
             <div style={{ ...styles.tableHeader, gridTemplateColumns: '130px 120px 1fr 100px' }}>
               <span>Chart</span><span>Specialty</span><span>Category</span><span></span>
             </div>
@@ -862,11 +904,26 @@ export function EMAnswerKeysView() {
                 </span>
               </div>
             ))}
-          </div>
+          </div>}
+          {missingTotal > EM_PAGE_SIZE && (
+            <Pager page={missingPage} total={missingTotal} pageSize={EM_PAGE_SIZE} onPage={setMissingPage} />
+          )}
         </div>
       )}
 
       {/* Answer Key List */}
+      <div style={pagerHeaderStyle}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#374151' }}>
+          E/M answer keys <span style={{ fontWeight: 400, color: '#9ca3af' }}>({akTotal})</span>
+        </div>
+        <input
+          style={{ ...styles.input, width: 240, fontSize: 12, margin: 0 }}
+          placeholder="Search chart, category, code..."
+          value={akSearch}
+          onChange={e => { setAkSearch(e.target.value); setAkPage(1) }}
+          onKeyDown={e => { if (e.key === 'Escape') setAkSearch('') }}
+        />
+      </div>
       {loading ? (
         <div style={{ textAlign: 'center', padding: 40, color: '#9ca3af' }}>Loading...</div>
       ) : akList.length === 0 ? (
@@ -874,7 +931,7 @@ export function EMAnswerKeysView() {
           No E/M answer keys yet. Click "Add Answer Key" to enter the first one.
         </div>
       ) : (
-        <div style={styles.table}>
+	        <div style={styles.table}>
           <div style={{ ...styles.tableHeader, gridTemplateColumns: '110px 1fr 80px 80px 80px 100px 80px 76px' }}>
             <div>Chart</div><div>Category</div>
             <div>COPA</div><div>Data Rev.</div><div>Risk</div>
@@ -918,7 +975,10 @@ export function EMAnswerKeysView() {
               </div>
             </div>
           ))}
-        </div>
+	        </div>
+	      )}
+      {akTotal > EM_PAGE_SIZE && (
+        <Pager page={akPage} total={akTotal} pageSize={EM_PAGE_SIZE} onPage={setAkPage} />
       )}
 
       {/* Delete dialog */}
@@ -944,6 +1004,43 @@ export function EMAnswerKeysView() {
 }
 
 // ── Local style helpers ───────────────────────────────────────────────────────
+
+function Pager({ page, total, pageSize, onPage }: {
+  page: number; total: number; pageSize: number; onPage: (page: number) => void
+}) {
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  const first = total === 0 ? 0 : (page - 1) * pageSize + 1
+  const last = Math.min(total, page * pageSize)
+  return (
+    <div style={pagerStyle}>
+      <button style={styles.outlineBtn} disabled={page === 1}
+        onClick={() => onPage(Math.max(1, page - 1))}>Prev</button>
+      <span style={pagerInfoStyle}>{first}-{last} of {total} · Page {page} of {totalPages}</span>
+      <button style={styles.outlineBtn} disabled={page >= totalPages}
+        onClick={() => onPage(Math.min(totalPages, page + 1))}>Next</button>
+    </div>
+  )
+}
+
+const pagerHeaderStyle: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+  gap: 10, marginBottom: 8, flexWrap: 'wrap',
+}
+const pagerStyle: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
+  gap: 10, marginTop: 10,
+}
+const pagerInfoStyle: React.CSSProperties = {
+  fontSize: 12, color: '#6b7280', fontWeight: 600,
+}
+const miniBtn: React.CSSProperties = {
+  border: '1px solid #e5e7eb', background: '#fff', color: '#374151',
+  borderRadius: 999, padding: '3px 9px', fontSize: 11, fontWeight: 700,
+  cursor: 'pointer',
+}
+const activeMiniBtn: React.CSSProperties = {
+  ...miniBtn, background: '#ede9fe', color: '#6d28d9', borderColor: '#c4b5fd',
+}
 
 const stepperBtn: React.CSSProperties = {
   width: 28, height: 28, borderRadius: 6, border: '1px solid #d1d5db',

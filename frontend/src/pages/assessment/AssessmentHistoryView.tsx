@@ -3,7 +3,6 @@ import { RefreshCw } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { listAssessmentHistory, getAssessmentOverview } from '../../api'
 import { errorMessage } from '../../api/errors'
-import { usePagination } from '../../components/Paginator'
 
 /**
  * A read-only record of what has been generated.
@@ -39,31 +38,33 @@ export function AssessmentHistoryView() {
   const [defaultMark, setDefaultMark] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [page, setPage] = useState(1)
+  const [total, setTotal] = useState(0)
 
-  function load() {
+  function load(targetPage = page) {
     setLoading(true)
-    listAssessmentHistory()
-      .then(setRecords)
+    listAssessmentHistory({
+      search: search.trim() || undefined,
+      page: targetPage,
+      page_size: PAGE_SIZE,
+    })
+      .then(res => {
+        setRecords(res.results)
+        setTotal(res.total)
+        setPage(res.page)
+      })
       .catch(e => toast.error(errorMessage(e, 'Failed to load history')))
       .finally(() => setLoading(false))
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load(page) }, [page, search])
   useEffect(() => {
     getAssessmentOverview()
       .then(o => setDefaultMark(o.default_pass_threshold))
       .catch(() => {})   // the column falls back to "platform default"
   }, [])
 
-  const q = search.trim().toLowerCase()
-  const visible = q
-    ? records.filter(r => `${r.assessment_name} ${r.batch_name || ''} ${r.generated_by}`
-        .toLowerCase().includes(q))
-    : records
-
-  // The list only grows. Search finds a named paper; paging keeps the rest off
-  // the screen without hiding it.
-  const { pageData, Paginator } = usePagination(visible, PAGE_SIZE)
+  const q = search.trim()
 
   if (loading) {
     return (
@@ -77,11 +78,11 @@ export function AssessmentHistoryView() {
     <div>
       {/* Above the table, so a search that matches nothing keeps the box that
           would clear it. */}
-      {records.length > 0 && (
+      {(records.length > 0 || q) && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
           <input
             value={search}
-            onChange={e => setSearch(e.target.value)}
+            onChange={e => { setSearch(e.target.value); setPage(1) }}
             onKeyDown={e => { if (e.key === 'Escape') setSearch('') }}
             placeholder="Find by name, batch, or who generated it…"
             autoComplete="off"
@@ -89,17 +90,18 @@ export function AssessmentHistoryView() {
             style={{ padding: '7px 11px', borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 12, minWidth: 260 }}
           />
           <span style={{ fontSize: 11, color: '#6b7280' }}>
-            {q ? `${visible.length} of ${records.length}` : `${records.length} assessment${records.length === 1 ? '' : 's'}`}
+            {q ? `${records.length} on this page · ${total} match${total === 1 ? '' : 'es'}`
+              : `${total} assessment${total === 1 ? '' : 's'}`}
           </span>
-          <button style={styles.refreshBtn} onClick={load} title="Reload">
+          <button style={styles.refreshBtn} onClick={() => load(page)} title="Reload">
             <RefreshCw size={13} /> Refresh
           </button>
         </div>
       )}
 
-      {records.length === 0 ? (
+      {records.length === 0 && !q ? (
         <div style={styles.empty}>No assessments generated yet. Go to Generate tab to create your first assessment.</div>
-      ) : visible.length === 0 ? (
+      ) : records.length === 0 ? (
         <div style={styles.empty}>No assessment matches “{search}”.</div>
       ) : (
         <>
@@ -113,7 +115,7 @@ export function AssessmentHistoryView() {
                 </tr>
               </thead>
               <tbody>
-                {pageData.map(r => (
+                {records.map(r => (
                   <tr key={r.id} style={styles.tr}>
                     <td style={{ ...styles.td, fontWeight: 700 }}>{r.assessment_name}</td>
                     <td style={{ ...styles.td, color: '#6b7280', fontSize: 12 }}>{r.batch_name || '—'}</td>
@@ -149,12 +151,36 @@ export function AssessmentHistoryView() {
               </tbody>
             </table>
           </div>
-          <Paginator />
+          <Pager page={page} total={total} pageSize={PAGE_SIZE} onPage={setPage} />
           <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 10 }}>
             A read-only record. Papers, the answer key and per-question responses download from the Sessions tab.
           </div>
         </>
       )}
+    </div>
+  )
+}
+
+function Pager({ page, total, pageSize, onPage }: {
+  page: number
+  total: number
+  pageSize: number
+  onPage: (page: number) => void
+}) {
+  const pages = Math.max(1, Math.ceil(total / pageSize))
+  const start = total === 0 ? 0 : (page - 1) * pageSize + 1
+  const end = Math.min(total, page * pageSize)
+  return (
+    <div style={styles.pager}>
+      <button style={styles.refreshBtn} disabled={page <= 1}
+        onClick={() => onPage(Math.max(1, page - 1))}>
+        Previous
+      </button>
+      <span style={{ fontSize: 11, color: '#6b7280' }}>{start}-{end} of {total}</span>
+      <button style={styles.refreshBtn} disabled={page >= pages}
+        onClick={() => onPage(Math.min(pages, page + 1))}>
+        Next
+      </button>
     </div>
   )
 }
@@ -188,5 +214,9 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '6px 12px', border: '1px solid #e5e7eb',
     borderRadius: 8, background: '#fff', cursor: 'pointer',
     fontSize: 12, fontWeight: 600, color: '#4b5563',
+  },
+  pager: {
+    display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
+    gap: 8, marginTop: 10,
   },
 }

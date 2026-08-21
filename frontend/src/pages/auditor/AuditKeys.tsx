@@ -29,6 +29,7 @@ const SECTION_LABEL: Record<string, string> = {
   PDx: 'Principal Dx', SDx: 'Secondary Dx', PCS: 'PCS', CPT: 'CPT',
   MDM: 'MDM',
 }
+const KEY_PAGE_SIZE = 50
 
 
 /**
@@ -49,8 +50,14 @@ export function AuditKeys({ trainer }: { trainer: string }) {
   const [specialty, setSpecialty] = useState(linkedSpecialty || 'IP-DRG')
   const [chartId, setChartId] = useState<number | null>(linkedChart)
   const [sets, setSets] = useState<Record<string, any>[]>([])
+  const [setsTotal, setSetsTotal] = useState(0)
+  const [setsPage, setSetsPage] = useState(1)
+  const [setsSearch, setSetsSearch] = useState('')
   const [status, setStatus] = useState<any>(null)
   const [uncurated, setUncurated] = useState<Record<string, any>[]>([])
+  const [uncuratedTotal, setUncuratedTotal] = useState(0)
+  const [uncuratedPage, setUncuratedPage] = useState(1)
+  const [uncuratedSearch, setUncuratedSearch] = useState('')
   const [showUncurated, setShowUncurated] = useState(false)
   const [loading, setLoading] = useState(false)
   const [exportPass, setExportPass] = useState('')
@@ -59,19 +66,34 @@ export function AuditKeys({ trainer }: { trainer: string }) {
     setLoading(true)
     try {
       const [k, st] = await Promise.all([
-        listAuditKeySets(specialty), getAuditKeyStatus(specialty),
+        listAuditKeySets(specialty, {
+          search: setsSearch.trim() || undefined,
+          page: setsPage,
+          limit: KEY_PAGE_SIZE,
+        }), getAuditKeyStatus(specialty),
       ])
       setSets(k.sets)
+      setSetsTotal(k.total ?? k.count ?? k.sets.length)
       setStatus(st)
     } catch { toast.error('Could not load audit keys') }
     finally { setLoading(false) }
-  }, [specialty])
+  }, [specialty, setsPage, setsSearch])
   useEffect(() => { load() }, [load])
 
   useEffect(() => {
     if (!showUncurated) return
-    getUncuratedCharts(specialty).then(r => setUncurated(r.charts)).catch(() => setUncurated([]))
-  }, [showUncurated, specialty, sets.length])
+    getUncuratedCharts(specialty, {
+      search: uncuratedSearch.trim() || undefined,
+      page: uncuratedPage,
+      limit: KEY_PAGE_SIZE,
+    }).then(r => {
+      setUncurated(r.charts)
+      setUncuratedTotal(r.total ?? r.charts.length)
+    }).catch(() => {
+      setUncurated([])
+      setUncuratedTotal(0)
+    })
+  }, [showUncurated, specialty, sets.length, uncuratedPage, uncuratedSearch])
 
   if (chartId !== null) {
     return <ChartKeyEditor chartId={chartId} trainer={trainer}
@@ -97,7 +119,11 @@ export function AuditKeys({ trainer }: { trainer: string }) {
       <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap', marginTop: 16, marginBottom: 16 }}>
         <div>
           <label style={s.label}>Specialty type</label>
-          <select style={s.select} value={specialty} onChange={e => setSpecialty(e.target.value)}>
+          <select style={s.select} value={specialty} onChange={e => {
+            setSpecialty(e.target.value)
+            setSetsPage(1)
+            setUncuratedPage(1)
+          }}>
             {AUDITABLE.map(x => <option key={x}>{x}</option>)}
           </select>
         </div>
@@ -145,42 +171,63 @@ export function AuditKeys({ trainer }: { trainer: string }) {
 
       {loading ? (
         <div style={s.empty}>Loading…</div>
-      ) : sets.length === 0 ? (
+      ) : sets.length === 0 && !setsSearch ? (
         <div style={s.emptyState}>
           No authored errors for {specialty} yet. Every chart in this specialty is
           audited with system-generated errors.
         </div>
       ) : (
-        <div style={s.table}>
-          <div style={{ ...s.tableHeader, gridTemplateColumns: COLS }}>
-            <span>Chart</span><span>Version</span><span>Errors</span>
-            <span>Authored By</span><span />
-          </div>
-          {sets.map((k, i) => (
-            <div key={k.id as number} className={i % 2 === 1 ? 'pl-tr-alt' : 'pl-tr'}
-              style={{ ...s.tableRow, gridTemplateColumns: COLS }}>
-              <span style={{ fontWeight: 700, fontSize: 13 }}>{k.chart_number as string}</span>
-              <span style={{ fontSize: 12.5 }}>
-                {k.name as string}
-                {k.always_plant ? <span style={{ ...s.tag, marginLeft: 6, background: '#fef2f2', color: '#dc2626' }}>always used</span> : null}
-                {k.query_expected !== null && k.query_expected !== undefined
-                  ? <span style={{ ...s.tag, marginLeft: 6, background: '#fffbeb', color: '#b45309' }}>
-                      query {k.query_expected ? 'expected' : 'not needed'}
-                    </span>
-                  : null}
-              </span>
-              <span style={{ fontSize: 12 }}>{k.planting_count as number}</span>
-              <span style={{ fontSize: 12, color: '#6b7280' }}>{k.authored_by as string}</span>
-              <span style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
-                <button style={{ ...s.outlineBtn, padding: '4px 10px', fontSize: 12 }}
-                  title={`Edit the errors on ${k.chart_number}`}
-                  onClick={() => setChartId(k.chart_id as number)}>
-                  Edit
-                </button>
-              </span>
+        <>
+          <div style={pagerHeaderStyle}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#374151' }}>
+              Authored error versions <span style={pagerMuted}>({setsTotal})</span>
             </div>
-          ))}
-        </div>
+            <input
+              style={{ ...s.input, width: 260, fontSize: 12 }}
+              placeholder="Search chart, version, author..."
+              value={setsSearch}
+              onChange={e => { setSetsSearch(e.target.value); setSetsPage(1) }}
+              onKeyDown={e => { if (e.key === 'Escape') setSetsSearch('') }}
+            />
+          </div>
+          <div style={s.table}>
+            <div style={{ ...s.tableHeader, gridTemplateColumns: COLS }}>
+              <span>Chart</span><span>Version</span><span>Errors</span>
+              <span>Authored By</span><span />
+            </div>
+            {sets.length === 0 ? (
+              <div style={{ padding: 18, fontSize: 12, color: '#9ca3af' }}>
+                No authored error version matches “{setsSearch}”.
+              </div>
+            ) : sets.map((k, i) => (
+                <div key={k.id as number} className={i % 2 === 1 ? 'pl-tr-alt' : 'pl-tr'}
+                  style={{ ...s.tableRow, gridTemplateColumns: COLS }}>
+                  <span style={{ fontWeight: 700, fontSize: 13 }}>{k.chart_number as string}</span>
+                  <span style={{ fontSize: 12.5 }}>
+                    {k.name as string}
+                    {k.always_plant ? <span style={{ ...s.tag, marginLeft: 6, background: '#fef2f2', color: '#dc2626' }}>always used</span> : null}
+                    {k.query_expected !== null && k.query_expected !== undefined
+                      ? <span style={{ ...s.tag, marginLeft: 6, background: '#fffbeb', color: '#b45309' }}>
+                          query {k.query_expected ? 'expected' : 'not needed'}
+                        </span>
+                      : null}
+                  </span>
+                  <span style={{ fontSize: 12 }}>{k.planting_count as number}</span>
+                  <span style={{ fontSize: 12, color: '#6b7280' }}>{k.authored_by as string}</span>
+                  <span style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
+                    <button style={{ ...s.outlineBtn, padding: '4px 10px', fontSize: 12 }}
+                      title={`Edit the errors on ${k.chart_number}`}
+                      onClick={() => setChartId(k.chart_id as number)}>
+                      Edit
+                    </button>
+                  </span>
+                </div>
+              ))}
+          </div>
+          {setsTotal > KEY_PAGE_SIZE && (
+            <Pager page={setsPage} total={setsTotal} pageSize={KEY_PAGE_SIZE} onPage={setSetsPage} />
+          )}
+        </>
       )}
 
       {/* The curation to-do list — the equivalent of "charts without keys" on
@@ -196,33 +243,87 @@ export function AuditKeys({ trainer }: { trainer: string }) {
           <span style={{ flex: 1, height: 1, background: '#f3f4f6' }} />
         </button>
         {showUncurated && (
-          uncurated.length === 0 ? (
+          uncurated.length === 0 && !uncuratedSearch ? (
             <div style={s.emptyState}>Every auditable chart in {specialty} has authored errors.</div>
           ) : (
-            <div style={s.table}>
-              <div style={{ ...s.tableHeader, gridTemplateColumns: '130px 1fr 1fr 150px' }}>
-                <span>Chart</span><span>Category</span><span>Difficulty</span><span /></div>
-              {uncurated.map((c, i) => (
-                <div key={c.chart_id as number} className={i % 2 === 1 ? 'pl-tr-alt' : 'pl-tr'}
-                  style={{ ...s.tableRow, gridTemplateColumns: '130px 1fr 1fr 150px' }}>
-                  <span style={{ fontWeight: 700, fontSize: 13 }}>{c.chart_number as string}</span>
-                  <span style={{ fontSize: 12, color: '#6b7280' }}>{(c.category as string) || '—'}</span>
-                  <span style={{ fontSize: 12, color: '#6b7280' }}>{(c.difficulty as string) || '—'}</span>
-                  <span style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                    <button style={{ ...s.outlineBtn, padding: '4px 10px', fontSize: 12 }}
-                      onClick={() => setChartId(c.chart_id as number)}>
-                      <Plus size={13} /> Author errors
-                    </button>
-                  </span>
-                </div>
-              ))}
-            </div>
+            <>
+              <div style={pagerHeaderStyle}>
+                <input
+                  style={{ ...s.input, width: 260, fontSize: 12 }}
+                  placeholder="Search generated-error charts..."
+                  value={uncuratedSearch}
+                  onChange={e => { setUncuratedSearch(e.target.value); setUncuratedPage(1) }}
+                  onKeyDown={e => { if (e.key === 'Escape') setUncuratedSearch('') }}
+                />
+                <span style={pagerInfoStyle}>{uncuratedTotal} chart{uncuratedTotal !== 1 ? 's' : ''}</span>
+              </div>
+              <div style={s.table}>
+                <div style={{ ...s.tableHeader, gridTemplateColumns: '130px 1fr 1fr 150px' }}>
+                  <span>Chart</span><span>Category</span><span>Difficulty</span><span /></div>
+                {uncurated.length === 0 ? (
+                  <div style={{ padding: 18, fontSize: 12, color: '#9ca3af' }}>
+                    No generated-error chart matches “{uncuratedSearch}”.
+                  </div>
+                ) : uncurated.map((c, i) => (
+                    <div key={c.chart_id as number} className={i % 2 === 1 ? 'pl-tr-alt' : 'pl-tr'}
+                      style={{ ...s.tableRow, gridTemplateColumns: '130px 1fr 1fr 150px' }}>
+                      <span style={{ fontWeight: 700, fontSize: 13 }}>{c.chart_number as string}</span>
+                      <span style={{ fontSize: 12, color: '#6b7280' }}>{(c.category as string) || '—'}</span>
+                      <span style={{ fontSize: 12, color: '#6b7280' }}>{(c.difficulty as string) || '—'}</span>
+                      <span style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                        <button style={{ ...s.outlineBtn, padding: '4px 10px', fontSize: 12 }}
+                          onClick={() => setChartId(c.chart_id as number)}>
+                          <Plus size={13} /> Author errors
+                        </button>
+                      </span>
+                    </div>
+                  ))}
+              </div>
+              {uncuratedTotal > KEY_PAGE_SIZE && (
+                <Pager page={uncuratedPage} total={uncuratedTotal} pageSize={KEY_PAGE_SIZE} onPage={setUncuratedPage} />
+              )}
+            </>
           )
         )}
       </div>
     </div>
   )
 }
+
+function Pager({ page, total, pageSize, onPage }: {
+  page: number
+  total: number
+  pageSize: number
+  onPage: (page: number) => void
+}) {
+  const pages = Math.max(1, Math.ceil(total / pageSize))
+  const start = total === 0 ? 0 : (page - 1) * pageSize + 1
+  const end = Math.min(total, page * pageSize)
+  return (
+    <div style={pagerStyle}>
+      <button style={s.outlineBtn} disabled={page <= 1}
+        onClick={() => onPage(Math.max(1, page - 1))}>
+        <ChevronLeft size={13} /> Prev
+      </button>
+      <span style={pagerInfoStyle}>{start}-{end} of {total}</span>
+      <button style={s.outlineBtn} disabled={page >= pages}
+        onClick={() => onPage(Math.min(pages, page + 1))}>
+        Next <ChevronRight size={13} />
+      </button>
+    </div>
+  )
+}
+
+const pagerHeaderStyle: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+  gap: 10, flexWrap: 'wrap', marginBottom: 8,
+}
+const pagerStyle: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
+  gap: 8, marginTop: 10,
+}
+const pagerInfoStyle: React.CSSProperties = { fontSize: 11.5, color: '#6b7280' }
+const pagerMuted: React.CSSProperties = { color: '#9ca3af', fontWeight: 600 }
 
 // ── one chart ────────────────────────────────────────────────────────────────
 

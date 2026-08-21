@@ -418,14 +418,27 @@ def export_answer_keys(
 
 
 @router.get("/answer-key/list")
-def list_answer_keys(specialty: Optional[str] = None, db: Session = Depends(get_db)):
+def list_answer_keys(specialty: Optional[str] = None,
+                     search: Optional[str] = None,
+                     page: Optional[int] = Query(default=None, ge=1),
+                     page_size: int = Query(default=50, ge=1, le=200),
+                     db: Session = Depends(get_db)):
     """Return every chart that has an answer key, with metadata for the admin list view."""
     q = db.query(AnswerKey, Chart).join(Chart, Chart.id == AnswerKey.chart_id)
     spec = _parse_chart_specialty(specialty)
     if spec:
         q = q.filter(Chart.specialty == spec)
-    rows = q.order_by(Chart.chart_number).all()
-    return [
+    if search and search.strip():
+        needle = f"%{search.strip()}%"
+        q = q.filter((Chart.chart_number.ilike(needle)) |
+                     (Chart.category.ilike(needle)) |
+                     (AnswerKey.entered_by.ilike(needle)))
+    total = q.count()
+    q = q.order_by(Chart.chart_number)
+    if page is not None:
+        q = q.offset((page - 1) * page_size).limit(page_size)
+    rows = q.all()
+    results = [
         {
             "chart_id": chart.id,
             "chart_number": chart.chart_number,
@@ -436,6 +449,9 @@ def list_answer_keys(specialty: Optional[str] = None, db: Session = Depends(get_
         }
         for ak, chart in rows
     ]
+    if page is not None:
+        return {"total": total, "page": page, "page_size": page_size, "results": results}
+    return results
 
 
 @router.delete("/answer-key/{chart_id}")
@@ -486,7 +502,11 @@ def reset_all_data(payload: ResetPayload, db: Session = Depends(get_db)):
 
 
 @router.get("/answer-key/missing")
-def list_charts_without_keys(specialty: Optional[str] = None, db: Session = Depends(get_db)):
+def list_charts_without_keys(specialty: Optional[str] = None,
+                             search: Optional[str] = None,
+                             page: Optional[int] = Query(default=None, ge=1),
+                             page_size: int = Query(default=50, ge=1, le=200),
+                             db: Session = Depends(get_db)):
     """Return active charts that have no answer key — purge candidates during testing."""
     from models import GradingResult
     q = (db.query(Chart)
@@ -498,7 +518,7 @@ def list_charts_without_keys(specialty: Optional[str] = None, db: Session = Depe
         # Edits/Denials charts are keyless permanently and by design — listing
         # them as "missing a key" presents a gap that can never be closed.
         if _is_ed(spec):
-            return []
+            return {"total": 0, "page": page, "page_size": page_size, "results": []} if page is not None else []
         q = q.filter(Chart.specialty == spec)
         # E/M and ED Profee keys live in em_answer_keys. The outer join above is
         # against answer_keys, so an E/M chart that HAS a key still came back as
@@ -510,7 +530,15 @@ def list_charts_without_keys(specialty: Optional[str] = None, db: Session = Depe
                 q = q.filter(~Chart.id.in_(keyed))
     else:
         q = q.filter(~Chart.specialty.in_(ED_SPECIALTIES))
-    charts = q.order_by(Chart.chart_number).all()
+    if search and search.strip():
+        needle = f"%{search.strip()}%"
+        q = q.filter((Chart.chart_number.ilike(needle)) |
+                     (Chart.category.ilike(needle)))
+    total = q.count()
+    q = q.order_by(Chart.chart_number)
+    if page is not None:
+        q = q.offset((page - 1) * page_size).limit(page_size)
+    charts = q.all()
     result = []
     for c in charts:
         has_grading = db.query(GradingResult).filter(GradingResult.chart_id == c.id).first() is not None
@@ -521,6 +549,8 @@ def list_charts_without_keys(specialty: Optional[str] = None, db: Session = Depe
             "category": c.category,
             "can_purge": not has_grading,
         })
+    if page is not None:
+        return {"total": total, "page": page, "page_size": page_size, "results": result}
     return result
 
 

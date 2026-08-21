@@ -230,8 +230,8 @@ export async function getAuditReview(sessionId: number) {
   return data
 }
 
-export async function listAuditKeySets(specialty?: string) {
-  const { data } = await api.get('/auditor/keys', { params: specialty ? { specialty } : {} })
+export async function listAuditKeySets(specialty?: string, opts: { search?: string; page?: number; limit?: number } = {}) {
+  const { data } = await api.get('/auditor/keys', { params: specialty ? { specialty, ...opts } : opts })
   return data
 }
 
@@ -250,9 +250,9 @@ export async function getAuditKeyStatus(specialty: string) {
   }
 }
 
-export async function getUncuratedCharts(specialty: string) {
-  const { data } = await api.get('/auditor/keys/uncurated', { params: { specialty } })
-  return data as { charts: Record<string, any>[] }
+export async function getUncuratedCharts(specialty: string, opts: { search?: string; page?: number; limit?: number } = {}) {
+  const { data } = await api.get('/auditor/keys/uncurated', { params: { specialty, ...opts } })
+  return data as { total: number; page: number; page_size: number; charts: Record<string, any>[] }
 }
 
 export async function getAuditKeysForChart(chartId: number) {

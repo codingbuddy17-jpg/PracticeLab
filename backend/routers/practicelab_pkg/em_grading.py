@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -800,8 +800,32 @@ class EMScoringConfigPayload(BaseModel):
 # ── Answer key endpoints ──────────────────────────────────────────────────────
 
 @router.get("/em/answer-key/list")
-def list_em_answer_keys(db: Session = Depends(get_db)):
-    rows = db.execute(text("""
+def list_em_answer_keys(search: Optional[str] = None,
+                        page: Optional[int] = Query(default=None, ge=1),
+                        page_size: int = Query(default=50, ge=1, le=200),
+                        db: Session = Depends(get_db)):
+    where = ""
+    params = {}
+    if search and search.strip():
+        where = """
+        WHERE LOWER(c.chart_number) LIKE :needle
+           OR LOWER(c.category) LIKE :needle
+           OR LOWER(eak.em_code) LIKE :needle
+           OR LOWER(eak.entered_by) LIKE :needle
+        """
+        params["needle"] = f"%{search.strip().lower()}%"
+    total = db.execute(text(f"""
+        SELECT COUNT(*)
+        FROM em_answer_keys eak
+        JOIN charts c ON c.id = eak.chart_id
+        {where}
+    """), params).scalar() or 0
+    limit_clause = ""
+    if page is not None:
+        limit_clause = " LIMIT :limit OFFSET :offset"
+        params["limit"] = page_size
+        params["offset"] = (page - 1) * page_size
+    rows = db.execute(text(f"""
         SELECT eak.chart_id, c.chart_number, c.category, c.specialty,
                eak.em_code, eak.copa_level, eak.dr_level, eak.risk_level,
                eak.entered_by, eak.entered_at,
@@ -811,8 +835,10 @@ def list_em_answer_keys(db: Session = Depends(get_db)):
                eak.copa_level_overridden, eak.dr_level_overridden, eak.risk_level_overridden
         FROM em_answer_keys eak
         JOIN charts c ON c.id = eak.chart_id
+        {where}
         ORDER BY c.chart_number
-    """)).mappings().fetchall()
+        {limit_clause}
+    """), params).mappings().fetchall()
 
     out = []
     for r in rows:
@@ -828,6 +854,8 @@ def list_em_answer_keys(db: Session = Depends(get_db)):
         d["em_category"] = category
         d["uses_mdm"] = bool(category_uses_mdm(category) and method != "TIME")
         out.append(d)
+    if page is not None:
+        return {"total": total, "page": page, "page_size": page_size, "results": out}
     return out
 
 

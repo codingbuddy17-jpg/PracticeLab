@@ -14,6 +14,7 @@ import { trainerName, SPECIALTIES } from './shared'
 // them here let a trainer push them through the OP template and parser.
 const EM_GRADED = ['E/M', 'ED Profee']
 const IP_OP_SPECIALTIES = SPECIALTIES.filter(s => !EM_GRADED.includes(s))
+const KEY_PAGE_SIZE = 50
 import styles from './styles'
 import { AnswerKeyEditor } from './AnswerKeyEditor'
 import { EMAnswerKeysView } from './EMAnswerKeysView'
@@ -43,6 +44,9 @@ export function AnswerKeysView() {
   const [keysVersion, setKeysVersion] = useState(0)
   const [uploading, setUploading] = useState(false)
   const [akList, setAkList] = useState<AKRow[]>([])
+  const [akTotal, setAkTotal] = useState(0)
+  const [akPage, setAkPage] = useState(1)
+  const [akSearch, setAkSearch] = useState('')
   const [listLoading, setListLoading] = useState(false)
   const [dialog, setDialog] = useState<PassphraseDialog | null>(null)
   const [passphrase, setPassphrase] = useState('')
@@ -93,13 +97,21 @@ export function AnswerKeysView() {
   const replaceRef = useRef<HTMLInputElement>(null)
   const ppRef = useRef<HTMLInputElement>(null)
 
-  useEffect(() => { loadAll() }, [specialty])
+  useEffect(() => { loadAll() }, [specialty, akPage, akSearch])
   useEffect(() => { if (dialog) setTimeout(() => ppRef.current?.focus(), 50) }, [dialog])
 
   async function loadAll() {
     try { setStatus(await getAnswerKeyStatus(specialty)) } catch { toast.error('Could not load status') }
     setListLoading(true)
-    try { setAkList(await getAnswerKeyList(specialty)) } catch { toast.error('Could not load answer key list') }
+    try {
+      const res = await getAnswerKeyList(specialty, {
+        search: akSearch.trim() || undefined,
+        page: akPage,
+        page_size: KEY_PAGE_SIZE,
+      })
+      setAkList(res.results)
+      setAkTotal(res.total)
+    } catch { toast.error('Could not load answer key list') }
     finally { setListLoading(false) }
   }
 
@@ -202,7 +214,7 @@ export function AnswerKeysView() {
         <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <div>
             <label style={styles.label}>Specialty type</label>
-            <select style={styles.select} value={specialty} onChange={e => setSpecialty(e.target.value)}>
+            <select style={styles.select} value={specialty} onChange={e => { setSpecialty(e.target.value); setAkPage(1) }}>
               {IP_OP_SPECIALTIES.map(s => <option key={s}>{s}</option>)}
             </select>
           </div>
@@ -383,8 +395,17 @@ export function AnswerKeysView() {
       {isED ? null : <>
 
       {/* Per-chart list */}
-      <div style={{ fontSize: 13, fontWeight: 700, color: '#374151', marginBottom: 8 }}>
-        Charts with answer keys {akList.length > 0 && <span style={{ fontWeight: 400, color: '#9ca3af' }}>({akList.length})</span>}
+      <div style={pagerHeaderStyle}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#374151' }}>
+          Charts with answer keys <span style={{ fontWeight: 400, color: '#9ca3af' }}>({akTotal})</span>
+        </div>
+        <input
+          style={{ ...styles.input, width: 240, fontSize: 12, margin: 0 }}
+          placeholder="Search chart, category, trainer..."
+          value={akSearch}
+          onChange={e => { setAkSearch(e.target.value); setAkPage(1) }}
+          onKeyDown={e => { if (e.key === 'Escape') setAkSearch('') }}
+        />
       </div>
 
       {listLoading ? (
@@ -422,6 +443,9 @@ export function AnswerKeysView() {
             </div>
           ))}
         </div>
+      )}
+      {akTotal > KEY_PAGE_SIZE && (
+        <Pager page={akPage} total={akTotal} pageSize={KEY_PAGE_SIZE} onPage={setAkPage} />
       )}
 
       {/* Charts without keys — purge candidates */}
@@ -504,52 +528,119 @@ function ChartsWithoutKeys({ specialty, onPurge, onCreate, refreshKey }: {
   refreshKey: number
 }) {
   const [charts, setCharts] = useState<{ chart_id: number; chart_number: string; category: string; can_purge: boolean }[]>([])
+  const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(1)
+  const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    setPage(1)
+  }, [specialty, search, refreshKey])
+
+  useEffect(() => {
     setLoading(true)
-    getChartsMissingKeys(specialty).then(setCharts).catch(() => {}).finally(() => setLoading(false))
-  }, [specialty, refreshKey])
+    getChartsMissingKeys(specialty, {
+      search: search.trim() || undefined,
+      page,
+      page_size: KEY_PAGE_SIZE,
+    }).then(res => {
+      setCharts(res.results)
+      setTotal(res.total)
+    }).catch(() => {}).finally(() => setLoading(false))
+  }, [specialty, refreshKey, page, search])
 
   if (loading) return <div style={{ padding: '12px 0' }}><Loader size={18} /></div>
-  if (charts.length === 0) return null
 
   return (
-    <div style={styles.table}>
-      <div style={{ ...styles.tableHeader, gridTemplateColumns: '130px 1fr 1fr 150px' }}>
-        <span>Chart</span><span>Category</span><span>Purgeable</span><span></span>
+    <>
+      <div style={pagerHeaderStyle}>
+        <input
+          style={{ ...styles.input, width: 240, fontSize: 12, margin: 0 }}
+          placeholder="Search missing-key charts..."
+          value={search}
+          onChange={e => { setSearch(e.target.value); setPage(1) }}
+          onKeyDown={e => { if (e.key === 'Escape') setSearch('') }}
+        />
+        <span style={pagerInfoStyle}>{total} chart{total !== 1 ? 's' : ''}</span>
       </div>
-      {charts.map((c, i) => (
-        <div key={c.chart_id} className={i % 2 === 1 ? 'pl-tr-alt' : 'pl-tr'}
-          style={{ ...styles.tableRow, gridTemplateColumns: '130px 1fr 1fr 150px' }}>
-          <span style={{ fontWeight: 700, fontSize: 13 }}>{c.chart_number}</span>
-          <span style={{ fontSize: 12, color: '#6b7280' }}>{c.category || '—'}</span>
-          <span style={{ fontSize: 12 }}>
-            {c.can_purge
-              ? <span style={{ color: '#16a34a', fontWeight: 600 }}>Yes</span>
-              : <span style={{ color: '#d97706' }} title="Has grading history — retire instead">Has history</span>
-            }
-          </span>
-          <span style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
-            {/* Bulk Excel was the only way to key these; the editor already
-                supported creation, it just had no entry point outside E/M. */}
-            <button
-              style={{ ...styles.outlineBtn, padding: '4px 10px', fontSize: 12 }}
-              title={`Create the answer key for ${c.chart_number}`}
-              onClick={() => onCreate(c.chart_id)}>
-              <Plus size={13} /> Key
-            </button>
-            {c.can_purge && (
-              <button
-                style={{ ...styles.destructiveOutlineBtn, padding: '4px 10px', fontSize: 12 }}
-                title={`Permanently delete ${c.chart_number}`}
-                onClick={() => onPurge('purge-chart', c.chart_id, c.chart_number)}>
-                <Trash2 size={13} />
-              </button>
-            )}
-          </span>
+      {charts.length === 0 ? (
+        <div style={styles.emptyState}>No missing-key charts match.</div>
+      ) : (
+        <div style={styles.table}>
+          <div style={{ ...styles.tableHeader, gridTemplateColumns: '130px 1fr 1fr 150px' }}>
+            <span>Chart</span><span>Category</span><span>Purgeable</span><span></span>
+          </div>
+          {charts.map((c, i) => (
+            <div key={c.chart_id} className={i % 2 === 1 ? 'pl-tr-alt' : 'pl-tr'}
+              style={{ ...styles.tableRow, gridTemplateColumns: '130px 1fr 1fr 150px' }}>
+              <span style={{ fontWeight: 700, fontSize: 13 }}>{c.chart_number}</span>
+              <span style={{ fontSize: 12, color: '#6b7280' }}>{c.category || '—'}</span>
+              <span style={{ fontSize: 12 }}>
+                {c.can_purge
+                  ? <span style={{ color: '#16a34a', fontWeight: 600 }}>Yes</span>
+                  : <span style={{ color: '#d97706' }} title="Has grading history — retire instead">Has history</span>
+                }
+              </span>
+              <span style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
+                <button
+                  style={{ ...styles.outlineBtn, padding: '4px 10px', fontSize: 12 }}
+                  title={`Create the answer key for ${c.chart_number}`}
+                  onClick={() => onCreate(c.chart_id)}>
+                  <Plus size={13} /> Key
+                </button>
+                {c.can_purge && (
+                  <button
+                    style={{ ...styles.destructiveOutlineBtn, padding: '4px 10px', fontSize: 12 }}
+                    title={`Permanently delete ${c.chart_number}`}
+                    onClick={() => onPurge('purge-chart', c.chart_id, c.chart_number)}>
+                    <Trash2 size={13} />
+                  </button>
+                )}
+              </span>
+            </div>
+          ))}
         </div>
-      ))}
+      )}
+      {total > KEY_PAGE_SIZE && (
+        <Pager page={page} total={total} pageSize={KEY_PAGE_SIZE} onPage={setPage} />
+      )}
+    </>
+  )
+}
+
+function Pager({ page, total, pageSize, onPage }: {
+  page: number; total: number; pageSize: number; onPage: (page: number) => void
+}) {
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  const first = total === 0 ? 0 : (page - 1) * pageSize + 1
+  const last = Math.min(total, page * pageSize)
+  return (
+    <div style={pagerStyle}>
+      <button
+        style={styles.outlineBtn}
+        disabled={page === 1}
+        onClick={() => onPage(Math.max(1, page - 1))}>
+        Prev
+      </button>
+      <span style={pagerInfoStyle}>{first}-{last} of {total} · Page {page} of {totalPages}</span>
+      <button
+        style={styles.outlineBtn}
+        disabled={page >= totalPages}
+        onClick={() => onPage(Math.min(totalPages, page + 1))}>
+        Next
+      </button>
     </div>
   )
+}
+
+const pagerHeaderStyle: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+  gap: 10, marginBottom: 8, flexWrap: 'wrap',
+}
+const pagerStyle: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
+  gap: 10, marginTop: 10,
+}
+const pagerInfoStyle: React.CSSProperties = {
+  fontSize: 12, color: '#6b7280', fontWeight: 600,
 }
