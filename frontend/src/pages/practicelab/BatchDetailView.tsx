@@ -4,7 +4,7 @@ import toast from 'react-hot-toast'
 import RandomisationStatsCard from '../../components/RandomisationStatsCard'
 import { CoderPicker } from '../../components/CoderPicker'
 import {
-  getBatch, closeBatch, addBatchNote,
+  getBatch, closeBatch, reopenBatch, addBatchNote,
   downloadBatchResultsExcel,
   getBatchInsights, runAllocation, searchChartsForBatch, getCategories,
   addCodersToBatch, gradeEDChart, getEDGrades, EDRubricPayload,
@@ -465,6 +465,11 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
   }, [batch?.id, batch?.allocation_cycles?.length, batch?.status, panelPinned])
   const [closing, setClosing] = useState(false)
   const [confirmingClose, setConfirmingClose] = useState(false)
+  // Reopening restores a closed batch. The endpoint has existed since
+  // force-close, but nothing called it, so closing behaved as permanent.
+  const [reopening, setReopening] = useState(false)
+  const [reopenPass, setReopenPass] = useState('')
+  const [showReopen, setShowReopen] = useState(false)
   const [showNoteBox, setShowNoteBox] = useState(false)
   const [showAddCoder, setShowAddCoder] = useState(false)
   const [newCoders, setNewCoders] = useState([{ name: '', emp_id: '' }])
@@ -493,6 +498,19 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
       toast.error(msg)
       loadBatch()
     } finally { setClosing(false) }
+  }
+
+  async function handleReopen() {
+    if (!reopenPass.trim()) { toast.error('Passphrase required to reopen'); return }
+    setReopening(true)
+    try {
+      await reopenBatch(batchId, trainerName(), reopenPass)
+      toast.success('Batch reopened')
+      setShowReopen(false); setReopenPass('')
+      loadBatch()
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail || 'Could not reopen this batch')
+    } finally { setReopening(false) }
   }
 
   async function handleAddNote() {
@@ -542,7 +560,9 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
   const closingDiscardsWork = isDirectAssignment && !hasResults && totalAssigned > 0
   const closePrompt = closingDiscardsWork
     ? `${totalAssigned} chart${totalAssigned === 1 ? '' : 's'} assigned, nothing submitted. Close anyway?`
-    : isDirectAssignment ? 'Mark this assignment as complete?' : 'Lock all results?'
+    : isDirectAssignment
+      ? 'Mark this assignment as complete? Results are locked; you can reopen it with the passphrase.'
+      : 'Lock all results? Nothing more can be graded until it is reopened, which needs the passphrase.'
 
   // Progression steps. Same underlying states either way — the direct flow just
   // has fewer of them to show: no DRG review gate, no ED grading branch, and
@@ -664,7 +684,12 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
         {showAllocationPanel && isOpen && <AllocationPanel batch={batch} onDone={() => { setPanelPinned(true); setShowAllocationPanel(false); loadBatch() }} />}
         {(batch.allocation_cycles || []).length === 0 && !showAllocationPanel && (
           <div style={{ fontSize: 13, color: '#6b7280', padding: '14px 16px', background: '#f8fafc', borderRadius: 8, border: '1px dashed #e5e7eb' }}>
-            {isDirectAssignment
+            {/* On a closed batch the button this points at is gone, so the
+                instruction was telling a trainer to click something that is not
+                there. Closed says what the state is instead. */}
+            {!isOpen
+              ? <>Nothing was assigned before this {isDirectAssignment ? 'assignment' : 'batch'} was closed. Reopen it to assign charts.</>
+              : isDirectAssignment
               ? <>No charts assigned yet. Click <strong>{V.assignAgain}</strong> above to pick the charts for this coder.</>
               : <>No cycles yet. Click <strong>{V.assignAgain}</strong> above to assign charts to coders{isED ? ' — then grade each case using the rubric below.' : ' — coders complete charts in their practice sessions.'}</>}
           </div>
@@ -708,11 +733,15 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
       )}
 
       <div style={styles.actionRow}>
+        {/* Outside the hasResults gate deliberately. The banner above announces
+            pending DRG reviews from batch.pending_drg_review while this button
+            was gated on the submitted count — when those two disagreed the page
+            advertised work and hid the only way to reach it. */}
+        {pendingDRG && (
+          <button style={styles.warningBtn} onClick={onDRGReview}>DRG Review Required</button>
+        )}
         {hasResults && (
           <>
-            {pendingDRG && (
-              <button style={styles.warningBtn} onClick={onDRGReview}>DRG Review Required</button>
-            )}
             <button style={styles.outlineBtn} onClick={onResults}><BarChart2 size={15} /> View Results</button>
             <button style={{ ...styles.outlineBtn, color: '#4f46e5', borderColor: '#a5b4fc' }}
               onClick={() => {
@@ -726,6 +755,27 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
                 onClick={() => downloadBatchResultsExcel(batchId)}><Download size={15} /> Export Results (.xlsx)</button>
             )}
           </>
+        )}
+        {!isOpen && !showReopen && (
+          <button style={{ ...styles.outlineBtn, marginLeft: 'auto' }}
+            onClick={() => setShowReopen(true)}>Reopen</button>
+        )}
+        {!isOpen && showReopen && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 'auto',
+                        background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '6px 12px' }}>
+            <span style={{ fontSize: 12, color: '#1e40af', fontWeight: 600 }}>
+              Reopening makes graded results editable again.
+            </span>
+            <input style={{ ...styles.input, width: 150, marginBottom: 0, padding: '5px 8px', fontSize: 12 }}
+              type="password" placeholder="Passphrase" value={reopenPass}
+              onChange={e => setReopenPass(e.target.value)} />
+            <button style={{ ...styles.primaryBtn, padding: '5px 12px', fontSize: 12 }}
+              disabled={reopening} onClick={handleReopen}>
+              {reopening ? 'Reopening…' : 'Reopen'}
+            </button>
+            <button style={{ ...styles.outlineBtn, padding: '5px 12px', fontSize: 12 }}
+              onClick={() => { setShowReopen(false); setReopenPass('') }}>Cancel</button>
+          </div>
         )}
         {isOpen && closeBlockers.length === 0 && !confirmingClose && (
           <button style={{ ...styles.destructiveOutlineBtn, marginLeft: 'auto' }} onClick={() => setConfirmingClose(true)}>✕ {isDirectAssignment ? 'Close Assignment' : 'Close Batch'}</button>
@@ -823,7 +873,7 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
         })}
       </div>
 
-      <PracticeTokensSection batchId={batchId} isDirect={isDirectAssignment} awaitingCodes={hasCycles} />
+      <PracticeTokensSection batchId={batchId} isDirect={isDirectAssignment} awaitingCodes={hasCycles} batchOpen={isOpen} />
 
       <div style={styles.cycleSection}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
@@ -854,8 +904,8 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
 
 // ── Practice Tokens Section ────────────────────────────────────────────────────
 
-function PracticeTokensSection({ batchId, isDirect, awaitingCodes }: {
-  batchId: number; isDirect?: boolean; awaitingCodes?: boolean
+function PracticeTokensSection({ batchId, isDirect, awaitingCodes, batchOpen = true }: {
+  batchId: number; isDirect?: boolean; awaitingCodes?: boolean; batchOpen?: boolean
 }) {
   const V = vocab(isDirect)
   const [tokens, setTokens] = useState<{ coder_name: string; token: string; reused: boolean }[] | null>(null)
@@ -964,11 +1014,17 @@ function PracticeTokensSection({ batchId, isDirect, awaitingCodes }: {
           </label>
           {/* The single button for this. It grows a ring while it is the
               outstanding step, rather than being duplicated by a second one. */}
+          {/* Codes are not issued for a closed batch: a coder who received one
+              could not work in it, and the existing list stays visible so the
+              record of who was issued what is still readable. */}
           <button
             onClick={generateTokens}
-            disabled={loading}
-            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 700, opacity: loading ? 0.7 : 1,
-              boxShadow: (awaitingCodes && existing.length === 0 && !loading) ? '0 0 0 3px #ddd6fe' : 'none' }}
+            disabled={loading || !batchOpen}
+            title={batchOpen ? undefined : 'Reopen the batch to issue access codes'}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700,
+              boxShadow: (awaitingCodes && existing.length === 0 && !loading && batchOpen) ? '0 0 0 3px #ddd6fe' : 'none',
+              opacity: batchOpen ? (loading ? 0.7 : 1) : 0.45,
+              cursor: batchOpen ? 'pointer' : 'not-allowed' }}
           >
             <Key size={12} /> {loading ? 'Generating…' : existing.length ? V.remakeCodes : V.makeCodes}
           </button>

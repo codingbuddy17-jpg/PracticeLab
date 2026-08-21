@@ -450,6 +450,21 @@ export async function getAnswerKeyImpact(chartId: number) {
   return data as AnswerKeyImpact
 }
 
+/**
+ * Reopen a closed batch.
+ *
+ * The endpoint has existed since force-close was added — a batch closed with
+ * work outstanding would otherwise strand that work permanently — but nothing
+ * in the UI called it, which made closing a one-way door. Passphrase-gated,
+ * because reopening makes graded results editable again.
+ */
+export async function reopenBatch(batchId: number, reopenedBy: string,
+                                  passphrase: string, reason = '') {
+  const { data } = await api.post(`/practicelab/batches/${batchId}/reopen`,
+    { reopened_by: reopenedBy, passphrase, reason })
+  return data
+}
+
 export async function saveAnswerKeyInline(chartId: number, payload: {
   pdx_code: string; pdx_poa?: string
   sdx: Array<{ code: string; poa?: string; ccmcc?: string }>
