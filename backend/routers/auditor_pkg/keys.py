@@ -18,11 +18,12 @@ from database import get_db
 from models import AnswerKey, AuditKeySet, Chart
 from services.audit_allocation import apply_manual_set
 from services.code_check import ccmcc_mismatches
+from services.em_audit_key import EM_KEY_SPECIALTIES, chart_ids_with_keys
 from services.em_levels import CRITICAL_CARE as EM_CRITICAL_CARE
 from services.em_levels import EMERGENCY as EM_EMERGENCY
 from .shared import (
-    AUDITABLE_SPECIALTIES, QUERY_SPECIALTIES, form_spec, require_passphrase,
-    sections_for_chart,
+    AUDITABLE_SPECIALTIES, QUERY_SPECIALTIES, audit_key_for, form_spec,
+    require_passphrase, sections_for_chart,
 )
 
 router = APIRouter()
@@ -125,6 +126,26 @@ def _serialise(row: AuditKeySet, chart: Optional[Chart] = None) -> dict:
     }
 
 
+def _keyed_chart_ids(db: Session, charts: list[Chart]) -> set[int]:
+    """
+    Charts with current answer truth, regardless of which key table owns it.
+
+    Classic IP/OP specialties live in answer_keys. E/M and ED Profee live in
+    em_answer_keys. Audit curation has to follow the same truth source as
+    allocation and scoring, especially after a coder key is deleted.
+    """
+    if not charts:
+        return set()
+    ordinary_ids = [c.id for c in charts if c.specialty not in EM_KEY_SPECIALTIES]
+    em_ids = [c.id for c in charts if c.specialty in EM_KEY_SPECIALTIES]
+    keyed: set[int] = set()
+    if ordinary_ids:
+        keyed.update(row[0] for row in db.query(AnswerKey.chart_id)
+                     .filter(AnswerKey.chart_id.in_(ordinary_ids)).all())
+    keyed.update(chart_ids_with_keys(db, em_ids))
+    return keyed
+
+
 @router.get("/keys/chart/{chart_id}")
 def list_sets_for_chart(chart_id: int, db: Session = Depends(get_db)):
     """
@@ -134,7 +155,7 @@ def list_sets_for_chart(chart_id: int, db: Session = Depends(get_db)):
     chart = db.query(Chart).filter(Chart.id == chart_id).first()
     if not chart:
         raise HTTPException(404, "Chart not found")
-    key = db.query(AnswerKey).filter(AnswerKey.chart_id == chart_id).first()
+    key = audit_key_for(db, chart)
     rows = (db.query(AuditKeySet)
             .filter(AuditKeySet.chart_id == chart_id)
             .order_by(AuditKeySet.id).all())
@@ -241,8 +262,7 @@ def key_status(specialty: str = Query(...), db: Session = Depends(get_db)):
     charts = (db.query(Chart)
               .filter(Chart.specialty == specialty, Chart.status == "Active").all())
     chart_ids = [c.id for c in charts]
-    keyed = {k.chart_id for k in db.query(AnswerKey.chart_id).filter(
-        AnswerKey.chart_id.in_(chart_ids)).all()} if chart_ids else set()
+    keyed = _keyed_chart_ids(db, charts)
     curated = {k.chart_id for k in db.query(AuditKeySet.chart_id).filter(
         AuditKeySet.chart_id.in_(chart_ids)).all()} if chart_ids else set()
 
@@ -265,16 +285,16 @@ def uncurated_charts(specialty: str = Query(...),
     Charts that could carry authored errors but do not yet — the curation
     to-do list. They still get audited; the system generates their errors.
     """
-    # Excluded in SQL. Loading every curated chart id to filter in Python meant
-    # a full scan of the key library to render one page of a to-do list.
-    curated = db.query(AuditKeySet.chart_id).distinct().subquery()
-    q = (db.query(Chart)
-         .join(AnswerKey, AnswerKey.chart_id == Chart.id)
-         .outerjoin(curated, curated.c.chart_id == Chart.id)
-         .filter(Chart.specialty == specialty, Chart.status == "Active",
-                 curated.c.chart_id.is_(None)))
-    total = q.count()
-    out = q.order_by(Chart.chart_number).limit(limit).all()
+    charts = (db.query(Chart)
+              .filter(Chart.specialty == specialty, Chart.status == "Active")
+              .order_by(Chart.chart_number).all())
+    keyed = _keyed_chart_ids(db, charts)
+    curated = {row[0] for row in db.query(AuditKeySet.chart_id)
+               .filter(AuditKeySet.chart_id.in_([c.id for c in charts] or [-1]))
+               .distinct().all()}
+    out = [c for c in charts if c.id in keyed and c.id not in curated]
+    total = len(out)
+    out = out[:limit]
     return {"total": total, "charts": [{
         "chart_id": c.id, "chart_number": c.chart_number,
         "category": c.category,
@@ -298,19 +318,21 @@ def auditable_charts(specialty: str = Query(...),
     join the allocation pool uses, so what you can pick is exactly what you can
     allocate.
     """
-    curated = db.query(AuditKeySet.chart_id).distinct().subquery()
-    query = (db.query(Chart, curated.c.chart_id)
-             .join(AnswerKey, AnswerKey.chart_id == Chart.id)
-             .outerjoin(curated, curated.c.chart_id == Chart.id)
-             .filter(Chart.specialty == specialty, Chart.status == "Active"))
+    query = db.query(Chart).filter(Chart.specialty == specialty,
+                                   Chart.status == "Active")
     if q:
         query = query.filter(Chart.chart_number.ilike(f"%{q.strip()}%"))
     if category:
         query = query.filter(Chart.category.ilike(f"%{category.strip()}%"))
     if difficulty:
         query = query.filter(Chart.difficulty == difficulty)
-    rows = query.order_by(Chart.chart_number).limit(limit).all()
-    chart_ids = [c.id for c, _curated_id in rows]
+    candidates = query.order_by(Chart.chart_number).all()
+    keyed = _keyed_chart_ids(db, candidates)
+    rows = [c for c in candidates if c.id in keyed][:limit]
+    chart_ids = [c.id for c in rows]
+    curated_ids = {row[0] for row in db.query(AuditKeySet.chart_id)
+                   .filter(AuditKeySet.chart_id.in_(chart_ids or [-1]))
+                   .distinct().all()}
     sets = {}
     if chart_ids:
         for row in (db.query(AuditKeySet)
@@ -327,9 +349,9 @@ def auditable_charts(specialty: str = Query(...),
         "id": c.id, "chart_number": c.chart_number, "category": c.category,
         "difficulty": c.difficulty.value if c.difficulty else None,
         # So the picker can show which charts carry errors you wrote.
-        "has_audit_key": curated_id is not None,
+        "has_audit_key": c.id in curated_ids,
         "audit_key_sets": sets.get(c.id, []),
-    } for c, curated_id in rows]}
+    } for c in rows]}
 
 
 @router.get("/keys")
@@ -340,7 +362,9 @@ def list_sets(specialty: Optional[str] = None,
     q = db.query(AuditKeySet, Chart).join(Chart, Chart.id == AuditKeySet.chart_id)
     if specialty:
         q = q.filter(Chart.specialty == specialty)
-    rows = q.order_by(Chart.chart_number, AuditKeySet.id).limit(limit).all()
+    rows = q.order_by(Chart.chart_number, AuditKeySet.id).all()
+    keyed = _keyed_chart_ids(db, [c for _s, c in rows])
+    rows = [(s, c) for s, c in rows if c.id in keyed][:limit]
     return {"sets": [_serialise(s, c) for s, c in rows], "count": len(rows)}
 
 
@@ -352,7 +376,7 @@ def create_set(chart_id: int, payload: KeySetPayload, db: Session = Depends(get_
         raise HTTPException(404, "Chart not found")
     if chart.specialty not in AUDITABLE_SPECIALTIES:
         raise HTTPException(400, f"{chart.specialty.value} cannot be audited")
-    key = db.query(AnswerKey).filter(AnswerKey.chart_id == chart_id).first()
+    key = audit_key_for(db, chart)
     if not key:
         raise HTTPException(
             400, "This chart has no answer key — there is no truth to introduce errors into")
@@ -407,8 +431,11 @@ def update_set(set_id: int, payload: KeySetPayload, db: Session = Depends(get_db
     if not row:
         raise HTTPException(404, "Audit key set not found")
     chart = db.query(Chart).filter(Chart.id == row.chart_id).first()
-    _validate(chart, payload.mutations,
-              db.query(AnswerKey).filter(AnswerKey.chart_id == row.chart_id).first())
+    key = audit_key_for(db, chart)
+    if not key:
+        raise HTTPException(
+            400, "This chart has no answer key — there is no truth to introduce errors into")
+    _validate(chart, payload.mutations, key)
 
     row.name = payload.name.strip() or row.name
     row.mutations = [m.model_dump() for m in payload.mutations]
@@ -452,7 +479,7 @@ def preview_set(chart_id: int, payload: PreviewPayload, db: Session = Depends(ge
     chart = db.query(Chart).filter(Chart.id == chart_id).first()
     if not chart:
         raise HTTPException(404, "Chart not found")
-    key = db.query(AnswerKey).filter(AnswerKey.chart_id == chart_id).first()
+    key = audit_key_for(db, chart)
     if not key:
         raise HTTPException(400, "This chart has no answer key")
     _validate(chart, payload.mutations)

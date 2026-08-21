@@ -152,6 +152,7 @@ export function AnswerKeysView() {
       if (dialog.mode === 'delete-ak') {
         await deleteAnswerKey(dialog.chartId, passphrase)
         toast.success(`Answer key for ${dialog.chartNumber} deleted`)
+        setKeysVersion(v => v + 1)
       } else {
         await purgeChart(dialog.chartId, passphrase)
         toast.success(`Chart ${dialog.chartNumber} permanently deleted`)

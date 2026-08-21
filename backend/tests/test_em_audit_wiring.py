@@ -20,7 +20,7 @@ import pytest
 from sqlalchemy import text
 
 from conftest import make_chart
-from models import AnswerKey, Specialty
+from models import AnswerKey, AuditKeySet, Specialty
 from models.charts import Specialty as Sp
 from routers.auditor_pkg.shared import audit_key_for, chart_pool, form_spec
 from services.audit_mutation import MUTATION_KINDS, MutationConfig, generate
@@ -96,6 +96,68 @@ class TestTheKeyComesFromTheEmTable:
                            status=BatchStatus.OPEN)
         db.add(batch); db.commit()
         assert [c.id for c in chart_pool(db, batch)] == [chart.id]
+
+    def test_audit_key_status_counts_em_keys(self, client, db):
+        chart = make_chart(db, specialty="E/M")
+        db.commit()
+        _em_key(db, chart.id)
+
+        body = client.get("/auditor/keys/status", params={"specialty": "E/M"}).json()
+        assert body["auditable"] == 1
+        assert body["uncurated"] == 1
+        assert body["no_answer_key"] == 0
+
+    def test_the_uncurated_list_includes_em_charts_with_em_keys(self, client, db):
+        chart = make_chart(db, specialty="E/M")
+        db.commit()
+        _em_key(db, chart.id)
+
+        body = client.get("/auditor/keys/uncurated", params={"specialty": "E/M"}).json()
+        assert body["total"] == 1
+        assert body["charts"][0]["chart_id"] == chart.id
+
+    def test_the_picker_includes_em_charts_with_em_keys(self, client, db):
+        chart = make_chart(db, specialty="E/M")
+        db.commit()
+        _em_key(db, chart.id)
+
+        body = client.get("/auditor/charts", params={"specialty": "E/M"}).json()
+        assert [c["id"] for c in body["charts"]] == [chart.id]
+
+    def test_an_em_chart_can_receive_an_authored_audit_version(self, client, db):
+        chart = make_chart(db, specialty="E/M")
+        db.commit()
+        _em_key(db, chart.id)
+
+        r = client.post(f"/auditor/keys/chart/{chart.id}", json={
+            "name": "Missed secondary",
+            "authored_by": "T",
+            "passphrase": "test-passphrase",
+            "mutations": [{
+                "section": "SDx", "action": "Add", "correct_value": "E11.9",
+                "line": 0,
+            }],
+        })
+        assert r.status_code == 200, r.text
+        assert r.json()["planting_count"] == 1
+
+    def test_stale_authored_sets_do_not_show_after_the_em_key_is_deleted(self, client, db):
+        chart = make_chart(db, specialty="E/M")
+        db.commit()
+        _em_key(db, chart.id)
+        db.add(AuditKeySet(chart_id=chart.id, name="Curated", mutations=[],
+                           authored_by="T"))
+        db.commit()
+
+        assert client.get("/auditor/keys", params={"specialty": "E/M"}).json()["count"] == 1
+        db.execute(text("DELETE FROM em_answer_keys WHERE chart_id = :c"), {"c": chart.id})
+        db.commit()
+
+        body = client.get("/auditor/keys", params={"specialty": "E/M"}).json()
+        status = client.get("/auditor/keys/status", params={"specialty": "E/M"}).json()
+        assert body["count"] == 0
+        assert status["auditable"] == 0
+        assert status["no_answer_key"] == 1
 
     def test_an_em_chart_without_a_key_stays_out_of_the_pool(self, client, db):
         from models import AuditBatch, BatchStatus

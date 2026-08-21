@@ -53,6 +53,16 @@ def test_coder_answer_key_editors_keep_enter_row_entry():
     assert "v.trim() && sdx.length === 0" in standard
 
 
+def test_coder_answer_key_delete_refreshes_the_missing_key_list():
+    src = read("pages/practicelab/AnswerKeysView.tsx")
+
+    delete_pos = src.index("await deleteAnswerKey(dialog.chartId, passphrase)")
+    refresh_pos = src.index("setKeysVersion(v => v + 1)", delete_pos)
+    reload_pos = src.index("loadAll()", delete_pos)
+
+    assert delete_pos < refresh_pos < reload_pos
+
+
 def test_auditor_add_finding_fields_keep_enter_confirmation_and_poa_requirement():
     src = read("pages/AuditSession.tsx")
 
