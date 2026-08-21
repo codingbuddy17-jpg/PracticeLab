@@ -779,6 +779,7 @@ def _run_migrations():
         em_modifier VARCHAR(10),
         dx_codes TEXT NOT NULL DEFAULT '[]',
         procedure_cpts TEXT NOT NULL DEFAULT '[]',
+        cc_boundary VARCHAR(20),
         entered_by VARCHAR(100) NOT NULL,
         entered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )""")
@@ -870,6 +871,7 @@ def _run_migrations():
     # schema change and leaves every stored row valid.
     _add_col("em_answer_keys", "em_category", "VARCHAR(30)", "TEXT")
     _add_col("em_answer_keys", "critical_care_minutes", "INTEGER", "INTEGER")
+    _add_col("em_answer_keys", "cc_boundary", "VARCHAR(20)", "TEXT")
 
     # ── E&M becomes E/M ─────────────────────────────────────────────────────
     #
@@ -895,10 +897,24 @@ def _run_migrations():
         _run("UPDATE assessment_configs "
              "SET specialty_mix = REPLACE(specialty_mix, 'E&M', 'E/M') "
              "WHERE specialty_mix LIKE '%E&M%'")
+        _run("UPDATE generated_assessment_students "
+             "SET questions_json = REPLACE(questions_json, '\"E&M', '\"E/M') "
+             "WHERE questions_json LIKE '%E&M%'")
     else:
         _run("UPDATE assessment_configs "
              "SET specialty_mix = CAST(REPLACE(specialty_mix::text, 'E&M', 'E/M') AS JSON) "
              "WHERE specialty_mix::text LIKE '%E&M%'")
+        _run("UPDATE generated_assessment_students "
+             "SET questions_json = CAST(REPLACE(questions_json::text, '\"E&M', '\"E/M') AS JSON) "
+             "WHERE questions_json::text LIKE '%E&M%'")
+
+    # Why the snapshots are rewritten too. Each generated paper freezes the
+    # questions it asked, specialty label included, and the analytics overview
+    # counts specialties from those snapshots rather than from the live bank.
+    # Left alone they would report "E&M" and "E/M" as two different specialties
+    # forever — the exact split this rename exists to remove. The match is
+    # anchored on the opening quote so it can only hit a specialty VALUE, never
+    # the phrase "E&M" inside a question's own text.
 
     # ── repair: the em_* tables were created without an id default ──────────
     #
