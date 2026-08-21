@@ -12,9 +12,10 @@ from openpyxl import Workbook, load_workbook
 from sqlalchemy import text
 
 from conftest import make_chart
-from models import AnswerKey, AuditBatch, BatchStatus, Specialty
+from models import AnswerKey, AuditBatch, AuditKeySet, BatchStatus, Specialty
 from routers.auditor_pkg.shared import audit_key_for
 from routers.auditor_pkg.shared import chart_pool
+from routers.auditor_pkg.shared import sets_by_chart
 from routers.practicelab_pkg.chart_grading import _grade_chart_for_sp
 from routers.practicelab_pkg.em_grading import grade_em_chart
 from routers.practicelab_pkg.shared import (
@@ -382,6 +383,31 @@ def test_standard_duplicate_key_is_skipped_then_replaced_with_passphrase(client,
     assert db.query(AnswerKey).filter_by(chart_id=chart.id).one().pdx_code == "J18.9"
 
 
+def test_standard_replace_makes_stale_authored_audit_versions_unplayable(client, db):
+    chart = make_chart(db, specialty="SDS", chart_number="QAREPAUD")
+    db.commit()
+    first = _standard_key_file(Specialty.SDS, chart.chart_number)
+    assert _upload_standard(client, Specialty.SDS, first).json()["stored"] == ["QAREPAUD"]
+    db.add(AuditKeySet(chart_id=chart.id, name="Missed I10", authored_by="QA",
+                       mutations=[{
+                           "section": "SDx", "action": "Add",
+                           "correct_value": "I10",
+                       }]))
+    db.commit()
+    assert sets_by_chart(db, [chart.id])[chart.id][0].name == "Missed I10"
+
+    second = _fill(_template(Specialty.SDS), {
+        "Chart_Number": chart.chart_number,
+        "PDx_Code": "J18.9",
+        "CPT_1": "11042",
+    })
+    replaced = _upload_standard(client, Specialty.SDS, second, replace=True)
+
+    assert replaced.status_code == 200, replaced.text
+    assert replaced.json()["replaced"] == ["QAREPAUD"]
+    assert sets_by_chart(db, [chart.id]) == {}
+
+
 def test_standard_upload_fails_clearly_when_chart_number_header_is_missing(client, db):
     make_chart(db, specialty="SDS", chart_number="QAMISS")
     db.commit()
@@ -482,6 +508,28 @@ def test_em_upload_with_missing_em_code_skips_without_storing(client, db):
     assert db.execute(text(
         "SELECT COUNT(*) FROM em_answer_keys WHERE chart_id=:c"
     ), {"c": chart.id}).scalar() == 0
+
+
+def test_em_replace_makes_stale_authored_audit_versions_unplayable(client, db):
+    chart = make_chart(db, specialty="E/M", chart_number="QAEMREPAUD")
+    db.commit()
+    assert _upload_em(client, _em_key_file(chart.chart_number, Specialty.EM)).json()["stored"] == [chart.chart_number]
+    db.add(AuditKeySet(chart_id=chart.id, name="Missed I10", authored_by="QA",
+                       mutations=[{
+                           "section": "SDx", "action": "Add",
+                           "correct_value": "I10",
+                       }]))
+    db.commit()
+    assert sets_by_chart(db, [chart.id])[chart.id][0].name == "Missed I10"
+
+    headers, values = _em_values(chart.chart_number, "99214")
+    fields = [field for field, _header in EM_KEY_COLUMNS]
+    values[fields.index("dx_2")] = ""
+    replaced = _upload_em(client, _workbook(headers, values), replace=True)
+
+    assert replaced.status_code == 200, replaced.text
+    assert replaced.json()["replaced"] == [chart.chart_number]
+    assert sets_by_chart(db, [chart.id]) == {}
 
 
 def test_em_upload_sanitises_weird_method_and_category_values(client, db):

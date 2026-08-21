@@ -292,11 +292,29 @@ def audit_key_for(db: Session, chart):
 def sets_by_chart(db: Session, chart_ids: list[int]) -> dict[int, list[AuditKeySet]]:
     if not chart_ids:
         return {}
+    charts = {
+        c.id: c for c in db.query(Chart).filter(Chart.id.in_(chart_ids)).all()
+    }
+    keys = {chart_id: audit_key_for(db, chart)
+            for chart_id, chart in charts.items()}
     rows = (db.query(AuditKeySet)
             .filter(AuditKeySet.chart_id.in_(chart_ids))
             .order_by(AuditKeySet.id)
             .all())
     out: dict[int, list[AuditKeySet]] = {}
     for row in rows:
+        key = keys.get(row.chart_id)
+        if key is None:
+            continue
+        # A coder key can be replaced after a trainer authored audit errors.
+        # If that replacement removes or reorders the referenced line, the old
+        # version must not be allocated: apply_manual_set would quietly drop the
+        # unusable mutation and hand out a different exercise than the trainer
+        # wrote. Keep the stored version editable in Audit Keys, but do not
+        # treat it as playable.
+        from services.audit_allocation import apply_manual_set
+        _claim, truth = apply_manual_set(key, row)
+        if len(truth) != len(row.mutations or []):
+            continue
         out.setdefault(row.chart_id, []).append(row)
     return out
