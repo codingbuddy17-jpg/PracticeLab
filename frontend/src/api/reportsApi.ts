@@ -6,7 +6,7 @@ export async function getReportSummary() {
   return data as { active: number; retired: number; total: number }
 }
 
-export async function getReportCharts(params: Record<string, string | undefined>) {
+export async function getReportCharts(params: Record<string, string | number | undefined>) {
   const { data } = await api.get('/reports/charts', { params })
   return data
 }

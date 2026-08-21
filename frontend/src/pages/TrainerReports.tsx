@@ -4,12 +4,14 @@ import { ChevronLeft, Download } from 'lucide-react'
 import { getReportSummary, getReportCharts, buildExportUrl } from '../api'
 import type { Specialty, Difficulty, ChartStatus } from '../types'
 import { SPECIALTIES, DIFFICULTIES } from '../types'
+const PAGE_SIZE = 50
 
 export function TrainerReports() {
   const goBack = useSmartBack('/trainer/chart-management')
   const [summary, setSummary] = useState<{ active: number; retired: number; total: number } | null>(null)
   const [results, setResults] = useState<any[]>([])
   const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(1)
 
   const [specialty, setSpecialty] = useState<Specialty | ''>('')
   const [difficulty, setDifficulty] = useState<Difficulty | ''>('')
@@ -24,8 +26,10 @@ export function TrainerReports() {
       difficulty: difficulty || undefined,
       status: status || undefined,
       uploaded_by: uploadedBy || undefined,
+      page,
+      page_size: PAGE_SIZE,
     }).then(d => { setResults(d.results); setTotal(d.total) })
-  }, [specialty, difficulty, status, uploadedBy])
+  }, [specialty, difficulty, status, uploadedBy, page])
 
   const exportUrl = buildExportUrl({
     specialty: specialty || undefined,
@@ -33,6 +37,9 @@ export function TrainerReports() {
     status: status || undefined,
     uploaded_by: uploadedBy || undefined,
   })
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const firstShown = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1
+  const lastShown = Math.min(total, page * PAGE_SIZE)
 
   return (
     <div style={styles.container}>
@@ -52,21 +59,24 @@ export function TrainerReports() {
         )}
 
         <div style={styles.filterRow}>
-          <select style={styles.select} value={specialty} onChange={e => setSpecialty(e.target.value as Specialty | '')}>
+          <select style={styles.select} value={specialty} onChange={e => { setSpecialty(e.target.value as Specialty | ''); setPage(1) }}>
             <option value="">All Specialties</option>
             {SPECIALTIES.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
-          <select style={styles.select} value={difficulty} onChange={e => setDifficulty(e.target.value as Difficulty | '')}>
+          <select style={styles.select} value={difficulty} onChange={e => { setDifficulty(e.target.value as Difficulty | ''); setPage(1) }}>
             <option value="">All Difficulties</option>
             {DIFFICULTIES.map(d => <option key={d} value={d}>{d}</option>)}
           </select>
-          <select style={styles.select} value={status} onChange={e => setStatus(e.target.value as ChartStatus | '')}>
+          <select style={styles.select} value={status} onChange={e => { setStatus(e.target.value as ChartStatus | ''); setPage(1) }}>
             <option value="">All Statuses</option>
             <option value="Active">Active</option>
             <option value="Retired">Retired</option>
           </select>
-          <input style={styles.input} placeholder="Uploaded by" value={uploadedBy} onChange={e => setUploadedBy(e.target.value)} />
-          <span style={styles.count}>{total} result{total !== 1 ? 's' : ''}</span>
+          <input style={styles.input} placeholder="Uploaded by" value={uploadedBy} onChange={e => { setUploadedBy(e.target.value); setPage(1) }} />
+          <span style={styles.count}>
+            {total} result{total !== 1 ? 's' : ''}
+            {total > 0 && <span style={styles.range}> · {firstShown}-{lastShown}</span>}
+          </span>
         </div>
 
         <div style={styles.tableWrap}>
@@ -93,6 +103,13 @@ export function TrainerReports() {
             </tbody>
           </table>
         </div>
+        {totalPages > 1 && (
+          <div style={styles.pagination}>
+            <button style={styles.pageBtn} disabled={page === 1} onClick={() => setPage(p => Math.max(1, p - 1))}>Prev</button>
+            <span style={styles.pageInfo}>Page {page} of {totalPages}</span>
+            <button style={styles.pageBtn} disabled={page >= totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>Next</button>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -113,9 +130,13 @@ const styles: Record<string, React.CSSProperties> = {
   select: { padding: '8px 12px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 13, background: '#fff' },
   input: { padding: '8px 12px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 13 },
   count: { fontSize: 13, color: '#6b7280', marginLeft: 'auto' },
+  range: { color: '#9ca3af' },
   tableWrap: { overflowX: 'auto', background: '#fff', borderRadius: 8, border: '1px solid #e5e7eb' },
   table: { width: '100%', borderCollapse: 'collapse' },
   th: { padding: '10px 14px', textAlign: 'left', fontSize: 12, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', borderBottom: '1px solid #e5e7eb', background: '#f9fafb' },
   tr: { borderBottom: '1px solid #f3f4f6' },
   td: { padding: '10px 14px', fontSize: 13, color: '#374151' },
+  pagination: { display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10 },
+  pageBtn: { border: '1px solid #e5e7eb', background: '#fff', borderRadius: 7, padding: '6px 12px', cursor: 'pointer', fontSize: 12, fontWeight: 600, color: '#374151' },
+  pageInfo: { fontSize: 12, color: '#6b7280', fontWeight: 600 },
 }
