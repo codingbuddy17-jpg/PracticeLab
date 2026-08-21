@@ -120,6 +120,49 @@ class TestTheListSaysWhereMdmDoesNotApply:
                 % (category, method, row["uses_mdm"], graded))
 
 
+class TestEMScoringConfigValidation:
+    def _payload(self, **overrides):
+        payload = {
+            "line1_weight": 70.0,
+            "line2_weight": 30.0,
+            "em_level_weight": 23.33,
+            "cpt_weight": 23.33,
+            "dx_weight": 23.34,
+            "copa_weight": 10.0,
+            "dr_weight": 10.0,
+            "risk_weight": 10.0,
+            "pass_threshold": 80.0,
+            "overcoding_penalty": True,
+            "updated_by": "QA",
+            "passphrase": PASS,
+        }
+        payload.update(overrides)
+        return payload
+
+    def test_line_weights_must_sum_to_100_on_the_backend(self, client, db):
+        r = client.put("/practicelab/em/scoring-config",
+                       json=self._payload(line1_weight=80, line2_weight=30))
+
+        assert r.status_code == 400
+        assert "sum to 100" in r.json()["detail"]
+
+    def test_coding_metric_weights_must_sum_to_line1(self, client, db):
+        r = client.put("/practicelab/em/scoring-config",
+                       json=self._payload(em_level_weight=30, cpt_weight=30,
+                                          dx_weight=30))
+
+        assert r.status_code == 400
+        assert "Coding Accuracy metric weights" in r.json()["detail"]
+
+    def test_reasoning_metric_weights_must_sum_to_line2(self, client, db):
+        r = client.put("/practicelab/em/scoring-config",
+                       json=self._payload(copa_weight=15, dr_weight=15,
+                                          risk_weight=15))
+
+        assert r.status_code == 400
+        assert "Reasoning Accuracy metric weights" in r.json()["detail"]
+
+
 class TestEditing:
     def test_a_stored_key_can_be_read_back_whole(self, client, db):
         """

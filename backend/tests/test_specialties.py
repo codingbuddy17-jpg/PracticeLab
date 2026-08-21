@@ -22,6 +22,7 @@ from services.grading_engine import (
     grade_ed_single_path, EDSinglePathAnswerKey, EDSinglePathSubmission,
     DEFAULT_EDSP_CFG, EDSinglePathCfg, cfg_from_db,
     grade_op, OPAnswerKey, OPSubmission, DEFAULT_OP_CFG,
+    IPScoringCfg, OPScoringCfg,
 )
 
 
@@ -200,6 +201,56 @@ class TestEDSinglePath:
         assert cfg.profee_level_weight == 30
         assert cfg.pass_threshold == 85
         assert not cfg.overcoding_penalty
+
+
+class TestScoringConfigMapping:
+    def test_ip_zero_weights_are_preserved_from_db(self):
+        class Row:
+            specialty_type = "IP"
+            pdx_weight = 100
+            sdx_weight = 0
+            pcs_weight = 0
+            drg_weight = 0
+            pass_threshold = 85
+            overcoding_penalty = True
+            drg_triggers = []
+
+        cfg = cfg_from_db(Row())
+
+        assert isinstance(cfg, IPScoringCfg)
+        assert (cfg.pdx_weight, cfg.sdx_weight,
+                cfg.pcs_weight, cfg.drg_weight) == (100, 0, 0, 0)
+
+    def test_op_zero_cpt_weight_is_preserved_from_db(self):
+        class Row:
+            specialty_type = "OP"
+            pdx_weight = 60
+            sdx_weight = 40
+            cpt_weight = 0
+            pass_threshold = 85
+            overcoding_penalty = True
+
+        cfg = cfg_from_db(Row())
+
+        assert isinstance(cfg, OPScoringCfg)
+        assert cfg.cpt_weight == 0
+
+    def test_edsp_zero_level_weights_are_preserved_from_db(self):
+        class Row:
+            specialty_type = "EDSP"
+            pdx_weight = 60
+            sdx_weight = 40
+            facility_level_weight = 0
+            profee_level_weight = 0
+            cpt_weight = 0
+            pass_threshold = 85
+            overcoding_penalty = True
+
+        cfg = cfg_from_db(Row())
+
+        assert isinstance(cfg, EDSinglePathCfg)
+        assert (cfg.facility_level_weight, cfg.profee_level_weight,
+                cfg.cpt_weight) == (0, 0, 0)
 
 
 class TestAncillaryDxOnly:

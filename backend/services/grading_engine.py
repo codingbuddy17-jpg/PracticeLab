@@ -870,12 +870,16 @@ def compute_dpo_ed_single_path(
 
 def cfg_from_db(db_row) -> "IPScoringCfg | OPScoringCfg | EDSinglePathCfg":
     """Convert a ScoringConfig DB row to the appropriate config dataclass."""
+    def _value(name: str, default):
+        v = getattr(db_row, name, None)
+        return default if v is None else v
+
     if db_row.specialty_type == "IP":
         return IPScoringCfg(
             pdx_weight=db_row.pdx_weight,
             sdx_weight=db_row.sdx_weight,
-            pcs_weight=db_row.pcs_weight or 20,
-            drg_weight=db_row.drg_weight or 40,
+            pcs_weight=_value("pcs_weight", 20),
+            drg_weight=_value("drg_weight", 40),
             pass_threshold=db_row.pass_threshold,
             overcoding_penalty=db_row.overcoding_penalty,
             drg_triggers=db_row.drg_triggers or [],
@@ -884,16 +888,16 @@ def cfg_from_db(db_row) -> "IPScoringCfg | OPScoringCfg | EDSinglePathCfg":
         return EDSinglePathCfg(
             pdx_weight=db_row.pdx_weight,
             sdx_weight=db_row.sdx_weight,
-            facility_level_weight=getattr(db_row, "facility_level_weight", None) or 20,
-            profee_level_weight=getattr(db_row, "profee_level_weight", None) or 20,
-            cpt_weight=db_row.cpt_weight or 20,
+            facility_level_weight=_value("facility_level_weight", 20),
+            profee_level_weight=_value("profee_level_weight", 20),
+            cpt_weight=_value("cpt_weight", 20),
             pass_threshold=db_row.pass_threshold,
             overcoding_penalty=db_row.overcoding_penalty,
         )
     return OPScoringCfg(
         pdx_weight=db_row.pdx_weight,
         sdx_weight=db_row.sdx_weight,
-        cpt_weight=db_row.cpt_weight or 50,
+        cpt_weight=_value("cpt_weight", 50),
         pass_threshold=db_row.pass_threshold,
         overcoding_penalty=db_row.overcoding_penalty,
     )

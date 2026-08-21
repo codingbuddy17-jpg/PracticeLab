@@ -1085,6 +1085,25 @@ def update_em_scoring_config(payload: EMScoringConfigPayload, db: Session = Depe
     if payload.passphrase != MASTER_PASSPHRASE:
         raise HTTPException(status_code=403, detail="Invalid passphrase")
     d = payload.dict()
+    if abs((payload.line1_weight + payload.line2_weight) - 100.0) > 0.1:
+        raise HTTPException(
+            status_code=400,
+            detail="Coding Accuracy and Reasoning Accuracy weights must sum to 100",
+        )
+    if abs((payload.em_level_weight + payload.cpt_weight + payload.dx_weight)
+           - payload.line1_weight) > 0.5:
+        raise HTTPException(
+            status_code=400,
+            detail=(f"Coding Accuracy metric weights must sum to "
+                    f"{payload.line1_weight:g}"),
+        )
+    if abs((payload.copa_weight + payload.dr_weight + payload.risk_weight)
+           - payload.line2_weight) > 0.5:
+        raise HTTPException(
+            status_code=400,
+            detail=(f"Reasoning Accuracy metric weights must sum to "
+                    f"{payload.line2_weight:g}"),
+        )
     d.pop("passphrase")
     d["updated_at"] = "CURRENT_TIMESTAMP"
     db.execute(text("""

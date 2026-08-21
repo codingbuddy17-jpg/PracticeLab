@@ -90,8 +90,8 @@ export function AuditConfig({ trainer }: { trainer: string }) {
     <div style={{ maxWidth: 760 }}>
       <div style={s.h1}>Audit Scoring</div>
       <div style={s.sub}>
-        Changes apply to audits scored afterwards. Results already stored keep the scores
-        they were given, so tuning a weight can never restate a closed batch.
+        Submitted chart results keep their recorded detection and review counts.
+        Analytics and report rollups use the current blend weights and pass threshold.
       </div>
 
       <Block title="What the score is made of"
