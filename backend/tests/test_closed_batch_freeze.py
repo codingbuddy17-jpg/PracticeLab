@@ -52,7 +52,7 @@ def _session(db, batch, chart, coder="Asha R", specialty="IP-DRG"):
         {"s": sid, "c": chart.id, "sp": specialty})
     db.execute(text("""INSERT INTO practice_chart_drafts
         (session_id, chart_id, pdx_code, sdx, pcs, cpt, flagged)
-        VALUES (:s,:c,'J18.9','[]','[]','[]',0)"""), {"s": sid, "c": chart.id})
+        VALUES (:s,:c,'J18.9','[]','[]','[]',FALSE)"""), {"s": sid, "c": chart.id})
     db.commit()
     return sid
 
