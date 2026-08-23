@@ -27,6 +27,32 @@ def _run(client, batch_id, find_everything=True, auditor_index=0):
     return r.json()
 
 
+def _parents(db, specialty):
+    """
+    Real batch, chart and session rows for a hand-built AuditResult.
+
+    These tests craft AuditResult directly so they can pin exact detection and
+    review numbers without running a whole audit — which is fair — but they
+    used to point session_id, assignment_id and batch_id at a literal 1.
+    SQLite does not enforce foreign keys unless asked, so the orphans inserted
+    happily; PostgreSQL rejected every one of them. assignment_id is nullable,
+    so it is left null rather than given another invented id.
+    """
+    from conftest import make_chart
+    from models.auditor import AuditBatch, AuditSession
+    import uuid
+    chart = make_chart(db, specialty=specialty.value)
+    batch = AuditBatch(name="Analytics scaffold", specialty=specialty,
+                       created_by="test")
+    db.add(batch)
+    db.flush()
+    sess = AuditSession(batch_id=batch.id, auditor_name="scaffold",
+                        specialty=specialty, token=uuid.uuid4().hex[:20])
+    db.add(sess)
+    db.flush()
+    return batch.id, chart.id, sess.id
+
+
 class TestOverview:
 
     def test_an_empty_installation_does_not_divide_by_zero(self, client, db):
@@ -263,8 +289,10 @@ class TestDetectionPatterns:
         from models import AuditResult
         from models.charts import Specialty
 
+        batch_id, chart_id, session_id = _parents(db, Specialty.EM)
         db.add(AuditResult(
-            session_id=1, assignment_id=1, chart_id=1, batch_id=1,
+            session_id=session_id, assignment_id=None, chart_id=chart_id,
+            batch_id=batch_id,
             auditor_name="Asha", emp_id="E1", specialty=Specialty.EM,
             is_clean=False, audit_accuracy=0.0,
             revise_planted=2, revise_found=1, revise_accuracy=50.0,
@@ -919,8 +947,10 @@ class TestWeakestFirstOrdering:
         from datetime import datetime
         from models import AuditResult
         from models.charts import Specialty
+        batch_id, real_chart_id, session_id = _parents(db, Specialty.IP_DRG)
         db.add(AuditResult(
-            session_id=1, assignment_id=chart_id, chart_id=chart_id, batch_id=1,
+            session_id=session_id, assignment_id=None, chart_id=real_chart_id,
+            batch_id=batch_id,
             auditor_name=name, emp_id=name, specialty=Specialty.IP_DRG,
             is_clean=False, audit_accuracy=detection,
             review_correct=review_correct, review_total=review_total,

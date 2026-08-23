@@ -555,7 +555,7 @@ class TestConfig:
                risk_level_overridden, entered_by)
             VALUES (:chart_id, '99214', '', 'MDM', 'office',
                     '["J18.9","E11.9"]', '[]', 'Moderate', 'Moderate', 'High',
-                    0, 0, 1, 'QA')
+                    FALSE, FALSE, TRUE, 'QA')
         """), {"chart_id": chart.id})
         db.commit()
 
@@ -1157,7 +1157,7 @@ class TestSubmissionIntegrity:
                    risk_level_overridden, entered_by)
                 VALUES (:chart_id, :code, '', 'MDM', :category,
                         '["E11.9"]', '[]', 'Moderate', 'Minimal', 'Moderate',
-                        0, 0, 0, 'QA')
+                        FALSE, FALSE, FALSE, 'QA')
             """), {"chart_id": chart.id, "code": code, "category": category})
         db.commit()
 

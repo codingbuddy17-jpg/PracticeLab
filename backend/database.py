@@ -724,6 +724,9 @@ def _run_migrations():
         for col in ("section", "body_system", "root_operation", "body_part",
                     "approach", "device", "qualifier"):
             _run(f"ALTER TABLE pcs_code_axes ALTER COLUMN {col} TYPE TEXT")
+        # grading_feedback.detail holds prose. varchar->text is metadata-only
+        # in PostgreSQL, so this is cheap even on a populated table.
+        _run("ALTER TABLE grading_feedback ALTER COLUMN detail TYPE TEXT")
 
 
     # ── E/M MDM answer keys ───────────────────────────────────────────────────

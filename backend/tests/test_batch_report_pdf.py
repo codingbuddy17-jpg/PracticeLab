@@ -87,7 +87,11 @@ class TestAwkwardContent:
 
     def test_very_long_batch_chart_and_coder_names(self, client, db):
         b = _batch(db, "Quarterly Inpatient DRG Validation Wave 3 — Northeast Region Coding Team 2026")
-        c = _chart(db, "IP-VERYLONGCHARTNUMBER-000002",
+        # 20 characters, the column's actual limit and already far longer than
+        # any real chart number — the point is a wide value in the PDF, and
+        # chart_number is a generated identifier rather than prose, so the
+        # column is right and the old 29-character value was not.
+        c = _chart(db, "IP-LONGCHARTNO-00002",
                    cat="Sepsis with Acute Organ Dysfunction and Septic Shock Complications")
         _result(db, b, c, "Bartholomew Fitzgerald-Winchester III", 55)
         _pdf(client, b.id)

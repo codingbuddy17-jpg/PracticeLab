@@ -48,7 +48,7 @@ def _session(db, batch, chart, coder="Asha R", specialty="IP-DRG"):
                      {"b": batch.id}).fetchone()[0]
     db.execute(text("""INSERT INTO practice_results
         (session_id, chart_id, specialty, total_score, pass_fail, drg_flag, feedback)
-        VALUES (:s,:c,:sp,60,'FAIL',1,'[]')"""),
+        VALUES (:s,:c,:sp,60,'FAIL',TRUE,'[]')"""),
         {"s": sid, "c": chart.id, "sp": specialty})
     db.execute(text("""INSERT INTO practice_chart_drafts
         (session_id, chart_id, pdx_code, sdx, pcs, cpt, flagged)

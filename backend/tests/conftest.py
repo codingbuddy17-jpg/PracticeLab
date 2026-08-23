@@ -69,6 +69,16 @@ def engine():
     eng = create_engine("sqlite:///:memory:",
                         connect_args={"check_same_thread": False},
                         poolclass=StaticPool)
+    # SQLite ignores foreign keys unless asked, and production does not. Two
+    # analytics tests inserted audit_results pointing at session_id=1 with no
+    # such session; they passed here for months and failed every night against
+    # PostgreSQL. Turning enforcement on makes that class visible locally, and
+    # it costs nothing: switching it on found those two and broke nothing else.
+    from sqlalchemy import event as _ev
+
+    @_ev.listens_for(eng, "connect")
+    def _enforce_foreign_keys(dbapi_con, _):
+        dbapi_con.execute("PRAGMA foreign_keys=ON")
     Base.metadata.create_all(eng)
     _migrate(eng, strict=False)
     yield eng

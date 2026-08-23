@@ -296,7 +296,11 @@ class GradingFeedback(Base):
     issue_type = Column(SAEnum(IssueType), nullable=False)
     ak_code = Column(String(50), nullable=True)
     coder_code = Column(String(50), nullable=True)
-    detail = Column(String(200), nullable=True)
+    # Text, not String(200): this is prose the grader writes, and SQLite does
+    # not enforce the length, so the ceiling was invisible until PostgreSQL
+    # rejected a row. Today's messages are short ("3 extra code(s) submitted"),
+    # which is exactly why a bigger number would only move the day it happens.
+    detail = Column(Text, nullable=True)
 
     result = relationship("GradingResult", back_populates="feedback")
 
