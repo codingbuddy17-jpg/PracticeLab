@@ -10,6 +10,7 @@ made sense while it was being built.
 | 1 | [PROJECT_SUMMARY.md](PROJECT_SUMMARY.md) | What the application is for, how it is put together, how to run it locally |
 | 2 | [DATABASE_MIGRATION_RUNBOOK.md](DATABASE_MIGRATION_RUNBOOK.md) | Moving it to your own infrastructure: dump and restore, environment variables, what happens on first boot, verification, the reference code sets, ongoing operations |
 | 3 | [DATA_STORAGE_MODEL.md](DATA_STORAGE_MODEL.md) | Where the data actually lives — what is in PostgreSQL, what is in object storage, and how to size both |
+| 4 | [CONTAINER_DEPLOYMENT.md](CONTAINER_DEPLOYMENT.md) | Running it as a container: building the image, the nine environment variables, what happens at startup, how to verify it actually works, and how to ship an update |
 
 The runbook is the operational one. If you read only part of anything, read
 **§5 (what happens on first boot)** and **§8 (the reference code sets)** — those
