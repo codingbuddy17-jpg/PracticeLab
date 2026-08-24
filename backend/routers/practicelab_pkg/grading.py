@@ -6,6 +6,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 from pydantic import BaseModel
 from database import get_db
 from models import (
@@ -81,6 +82,32 @@ def submit_drg_decision(result_id: int, payload: DRGDecision, db: Session = Depe
     gr.drg_score = drg_score
     gr.total_score = total
     gr.pass_fail = pass_fail
+
+    # Coder-facing released results read practice_results, while trainer
+    # reports read grading_results. Keep them in lockstep so a DRG decision
+    # cannot show one score to the coder and a different score in reports.
+    db.execute(text("""
+        UPDATE practice_results
+        SET drg_reviewed=TRUE,
+            drg_override=:override,
+            drg_reviewed_by=:reviewer,
+            drg_reviewed_at=CURRENT_TIMESTAMP,
+            total_score=:total,
+            pass_fail=:pass_fail
+        WHERE chart_id=:chart_id
+          AND session_id IN (
+            SELECT id FROM practice_sessions
+            WHERE batch_id=:batch_id AND coder_name=:coder_name
+          )
+    """), {
+        "override": gr.drg_override,
+        "reviewer": payload.reviewer,
+        "total": total,
+        "pass_fail": pass_fail,
+        "chart_id": gr.chart_id,
+        "batch_id": gr.batch_id,
+        "coder_name": gr.coder_name,
+    })
     db.commit()
 
     pending = (db.query(GradingResult)

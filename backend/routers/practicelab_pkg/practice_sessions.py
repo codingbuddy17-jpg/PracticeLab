@@ -17,7 +17,7 @@ from database import get_db
 from models import (
     Chart, AnswerKey, Batch, BatchCoder, BatchChart,
     BatchAllocationCycle, GradingResult,
-    GradingFeedback, ScoringConfig, Specialty,
+    GradingFeedback, ScoringConfig, Specialty, PassFail,
 )
 from services.grading_engine import (
     grade_ip, grade_op, finalize_ip_score, cfg_from_db,
@@ -1236,7 +1236,7 @@ def drg_review_practice_chart(
         raise HTTPException(status_code=404, detail="Result not found")
 
     _sess_batch = db.execute(text(
-        "SELECT batch_id FROM practice_sessions WHERE id=:s"
+        "SELECT batch_id, coder_name FROM practice_sessions WHERE id=:s"
     ), {"s": session_id}).fetchone()
     if _sess_batch:
         assert_batch_open(db, _sess_batch[0], "record a DRG decision")
@@ -1262,13 +1262,31 @@ def drg_review_practice_chart(
     db.execute(text("""
         UPDATE practice_results SET
           drg_reviewed=TRUE, drg_reviewed_by=:rb,
+          drg_override=:override,
           drg_reviewed_at=CURRENT_TIMESTAMP,
           total_score=:tot, pass_fail=:pf
         WHERE session_id=:s AND chart_id=:c
     """), {
-        "rb": payload.reviewed_by, "tot": new_total,
+        "rb": payload.reviewed_by,
+        "override": "Y" if payload.drg_error else "N",
+        "tot": new_total,
         "pf": new_pf, "s": session_id, "c": chart_id,
     })
+
+    if _sess_batch:
+        gr = (db.query(GradingResult)
+              .filter(GradingResult.batch_id == _sess_batch[0],
+                      GradingResult.coder_name == _sess_batch[1],
+                      GradingResult.chart_id == chart_id)
+              .first())
+        if gr:
+            gr.drg_reviewed = True
+            gr.drg_override = "Y" if payload.drg_error else "N"
+            gr.drg_reviewed_by = payload.reviewed_by
+            gr.drg_reviewed_at = datetime.utcnow()
+            gr.drg_score = drg_score
+            gr.total_score = new_total
+            gr.pass_fail = PassFail(new_pf)
     db.commit()
     return {"reviewed": True, "drg_error": payload.drg_error, "total_score": new_total, "pass_fail": new_pf}
 

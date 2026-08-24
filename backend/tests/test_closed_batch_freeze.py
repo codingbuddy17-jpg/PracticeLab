@@ -123,6 +123,54 @@ class TestOpenBatchesAreUnaffected:
         assert saved.drg_reviewed_by == "Trainer"
         assert saved.pass_fail == PassFail.PASS
 
+    def test_standalone_drg_review_syncs_released_coder_results(self, client, db):
+        b, c = _batch(db, "Open DRG Sync", status=BatchStatus.OPEN), _chart(db, "IP812")
+        sid = _session(db, b, c)
+        gr = GradingResult(
+            batch_id=b.id, coder_name="Asha R", chart_id=c.id,
+            specialty=Specialty.IP_DRG, pdx_score=20, sdx_score=20,
+            pcs_score=20, total_score=60, pass_fail=PassFail.FAIL,
+            drg_flag=True, drg_reviewed=False,
+        )
+        db.add(gr); db.commit()
+
+        r = client.post(f"/practicelab/results/{gr.id}/drg-decision",
+                        json={"drg_error": False, "reviewer": "Trainer"})
+
+        assert r.status_code == 200, r.text
+        released = db.execute(text("""
+            SELECT total_score, pass_fail, drg_reviewed, drg_override
+            FROM practice_results WHERE session_id=:s AND chart_id=:c
+        """), {"s": sid, "c": c.id}).fetchone()
+        assert released == (100, "PASS", True, "N")
+
+    def test_session_drg_review_syncs_reporting_results(self, client, db):
+        b, c = _batch(db, "Open Session DRG Sync", status=BatchStatus.OPEN), _chart(db, "IP813")
+        sid = _session(db, b, c)
+        db.execute(text("""
+            UPDATE practice_results SET total_score=100, pass_fail='PASS'
+            WHERE session_id=:s AND chart_id=:c
+        """), {"s": sid, "c": c.id})
+        gr = GradingResult(
+            batch_id=b.id, coder_name="Asha R", chart_id=c.id,
+            specialty=Specialty.IP_DRG, pdx_score=20, sdx_score=20,
+            pcs_score=20, drg_score=40, total_score=100, pass_fail=PassFail.PASS,
+            drg_flag=True, drg_reviewed=False,
+        )
+        db.add(gr); db.commit()
+
+        r = client.post(
+            f"/practicelab/practice-sessions/{sid}/chart/{c.id}/drg-review",
+            json={"drg_error": True, "reviewed_by": "Trainer"})
+
+        assert r.status_code == 200, r.text
+        db.expire_all()
+        saved = db.query(GradingResult).filter(GradingResult.id == gr.id).first()
+        assert saved.drg_reviewed is True
+        assert saved.drg_override == "Y"
+        assert saved.drg_score == 0
+        assert saved.total_score == 60
+
 
 class TestReopen:
     """force-close can close a batch with work outstanding — without a way back
