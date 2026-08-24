@@ -165,3 +165,69 @@ class TestReopen:
         r = client.post(f"/practicelab/batches/{b.id}/reopen",
                         json={"reopened_by": "trainer", "passphrase": PASSPHRASE})
         assert r.status_code == 400
+
+
+class TestTheCoderTokenExpiresWithTheBatch:
+    """
+    Closing a batch is what ends a coder's session, rather than a clock.
+
+    Practice tokens have no expiry column and never have. A timer would be the
+    obvious fix and the wrong one: tokens are handed out days before the work,
+    a batch runs for days rather than a sitting, and any duration would either
+    fire mid-batch or be so long it protected nothing. Closing is a deliberate
+    trainer action that already means "the work is done", so it is the honest
+    place to end access.
+
+    Only the trainer-side writes enforced this. The coder's own submit did not,
+    so a token could still write results into a batch whose results had already
+    become the record.
+    """
+
+    def _open_session(self, db):
+        """A session on an OPEN batch, not yet submitted."""
+        b = _batch(db, "Still open", status=BatchStatus.OPEN)
+        c = _chart(db, "IPX01")
+        db.execute(text("""INSERT INTO practice_sessions
+            (batch_id, coder_name, specialty, token, chart_ids, status)
+            VALUES (:b,:n,'IP-DRG',:t,:ci,'in_progress')"""),
+            {"b": b.id, "n": "Asha R", "t": f"OPEN{b.id}", "ci": json.dumps([c.id])})
+        db.commit()
+        sid = db.execute(text(
+            "SELECT id FROM practice_sessions WHERE batch_id=:b"), {"b": b.id}).fetchone()[0]
+        return b, c, sid
+
+    def _submit(self, client, sid, chart_id):
+        return client.post(f"/practicelab/practice-sessions/{sid}/submit", json={
+            "entries": [{"chart_id": chart_id, "pdx_code": "J18.9", "pdx_poa": "Y",
+                         "sdx": [], "pcs": [], "cpt": []}]})
+
+    def test_a_coder_can_submit_while_the_batch_is_open(self, client, db):
+        """The control. Without it the test below passes for the wrong reason."""
+        b, c, sid = self._open_session(db)
+        assert self._submit(client, sid, c.id).status_code == 200
+
+    def test_a_coder_cannot_submit_once_the_batch_is_closed(self, client, db):
+        b, c, sid = self._open_session(db)
+        db.execute(text("UPDATE batches SET status='CLOSED' WHERE id=:b"), {"b": b.id})
+        db.commit()
+        r = self._submit(client, sid, c.id)
+        assert r.status_code == 409, r.text
+        assert "closed" in r.text.lower()
+
+    def test_closing_does_not_take_away_the_coders_own_results(self, client, db):
+        """
+        The write is what ends, not the reading.
+
+        A coder who can no longer see how they did has lost the point of the
+        exercise, so an expired token must still open its own feedback. This is
+        the half that stops the change being an annoyance.
+        """
+        b, c, sid = self._open_session(db)
+        assert self._submit(client, sid, c.id).status_code == 200
+        db.execute(text("UPDATE batches SET status='CLOSED' WHERE id=:b"), {"b": b.id})
+        db.commit()
+        token = db.execute(text(
+            "SELECT token FROM practice_sessions WHERE id=:s"), {"s": sid}).fetchone()[0]
+        r = client.get(f"/practicelab/practice-sessions/by-token/{token}")
+        assert r.status_code == 200, r.text
+        assert r.json()["status"] == "submitted"

@@ -537,6 +537,20 @@ def submit_practice_session(session_id: int, payload: SubmitPracticeSession, db:
     if sess[5] == "submitted":
         raise HTTPException(status_code=400, detail="Already submitted")
 
+    # A closed batch is the end of the work, and the token is the credential
+    # for it — so closing is what expires a coder's access, rather than a clock
+    # that would have to be guessed and would fire mid-batch.
+    #
+    # Only the trainer-side writes checked this: scoring a chart, a DRG
+    # decision, a query decision and a re-grade. The coder's own submit did
+    # not, so a token could still write results into a batch whose results had
+    # already become the record.
+    #
+    # It gates the WRITE only. Reading a session and its feedback stays open
+    # after closing, because a coder losing sight of their own result is a
+    # training loss, not a security gain.
+    assert_batch_open(db, sess[1], "submit this session")
+
     sess_id, batch_id, coder_name, specialty_str, show_results, _ = sess
     specialty = Specialty(specialty_str)
 
