@@ -18,8 +18,26 @@ import { AUDITABLE } from './constants'
 const TABS = ['Overview', 'Review Metrics', 'Auditors', 'Batches', 'Specialties', 'Error Patterns', 'Chart Signals'] as const
 type Tab = typeof TABS[number]
 type Filters = { from_date?: string; to_date?: string; specialty?: string }
+type ScoreKind = 'audit' | 'review' | 'detection'
 
 const ROW_CAP = 40
+const SCORE_FIELD: Record<ScoreKind, { label: string; field: string; title: string }> = {
+  audit: {
+    label: 'Audit Score',
+    field: 'audit_score',
+    title: 'Weighted score used for the auditor training verdict.',
+  },
+  review: {
+    label: 'Review Score',
+    field: 'review_score',
+    title: 'Code-line review score: how often audited lines were judged correctly.',
+  },
+  detection: {
+    label: 'Error Detection Rate',
+    field: 'audit_accuracy',
+    title: 'Introduced findings caught by auditors. This is not the weighted Audit Score.',
+  },
+}
 
 const keyLinkStyle: React.CSSProperties = {
   display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11,
@@ -399,12 +417,9 @@ function OverviewTab({ overview, trend, cleanOpportunity, threshold }: {
     <div style={stackStyle}>
       <div style={metricGridStyle}>
         <Metric label="Auditors Tested" value={overview.auditors || 0} tone="#475569" />
-        <Metric label="Overall Audit Score" value={pct(overview.audit_score)}
-          tone={tone(overview.audit_score, threshold)} />
-        <Metric label="Error Detection Rate" value={pct(overview.audit_accuracy)}
-          tone={tone(overview.audit_accuracy, threshold)} />
-        <Metric label="Review Score" value={pct(overview.review_score)}
-          tone={tone(overview.review_score, threshold)} />
+        <ScoreMetric row={overview} kind="audit" threshold={threshold} label="Overall Audit Score" />
+        <ScoreMetric row={overview} kind="detection" threshold={threshold} />
+        <ScoreMetric row={overview} kind="review" threshold={threshold} />
         <Metric label="Clean Chart Score" value={pct(overview.clean_accuracy)} tone="#2563eb" />
         <Metric label="Opp Chart Score" value={pct(overview.opportunity_accuracy)} tone="#7c3aed" />
         <Metric label="Total Pass Rate" value={pct(overview.pass_rate)}
@@ -490,10 +505,8 @@ function ReviewMetricsTab({ overview, specialties, threshold }: {
 
       <div style={metricGridStyle}>
         <Metric label="Charts Reviewed" value={scoped.charts || 0} tone="#475569" />
-        <Metric label="Review Score" value={pct(scoped.review_score)}
-          tone={tone(scoped.review_score, threshold)} />
-        <Metric label="Error Detection Rate" value={pct(scoped.audit_accuracy)}
-          tone={tone(scoped.audit_accuracy, threshold)} />
+        <ScoreMetric row={scoped} kind="review" threshold={threshold} />
+        <ScoreMetric row={scoped} kind="detection" threshold={threshold} />
       </div>
 
       <div style={chartGridStyle}>
@@ -742,14 +755,11 @@ function AuditorsTab({ rows, matched, query, setQuery, selected, setSelected, pr
           {!profile ? <div style={s.empty}>Loading profile...</div> : (
             <div style={stackStyle}>
               <div style={metricGridStyle}>
-                <Metric label="Audit Score" value={pct(profile.overview.audit_score)}
-                  tone={tone(profile.overview.audit_score, threshold)}
+                <ScoreMetric row={profile.overview} kind="audit" threshold={threshold}
                   sub={<Versus mine={profile.overview.audit_score} cohort={cohort?.audit_score} />} />
-                <Metric label="Review Score" value={pct(profile.overview.review_score)}
-                  tone={tone(profile.overview.review_score, threshold)}
+                <ScoreMetric row={profile.overview} kind="review" threshold={threshold}
                   sub={<Versus mine={profile.overview.review_score} cohort={cohort?.review_score} />} />
-                <Metric label="Error Detection Rate" value={pct(profile.overview.audit_accuracy)}
-                  tone={tone(profile.overview.audit_accuracy, threshold)}
+                <ScoreMetric row={profile.overview} kind="detection" threshold={threshold}
                   sub={<Versus mine={profile.overview.audit_accuracy} cohort={cohort?.audit_accuracy} />} />
                 <Metric label="Clean Chart Score" value={pct(profile.overview.clean_accuracy)} tone="#2563eb"
                   sub={<Versus mine={profile.overview.clean_accuracy} cohort={cohort?.clean_accuracy} />} />
@@ -1090,9 +1100,9 @@ function ScoreTable({ rows, nameKey, threshold = 90 }: {
 }) {
   const { shown: visible, control } = useShowMore(rows)
   const headerDefs: Record<string, string> = {
-    'Audit Score': 'Weighted score used for the auditor training verdict.',
-    'Review Score': 'Code-line review score: how often audited lines were judged correctly.',
-    'Error Detection Rate': 'Introduced findings caught by auditors. This is not the weighted Audit Score.',
+    'Audit Score': SCORE_FIELD.audit.title,
+    'Review Score': SCORE_FIELD.review.title,
+    'Error Detection Rate': SCORE_FIELD.detection.title,
     'Clean Chart Score': 'Performance on charts with no introduced errors.',
     'Opportunity Chart Score': 'Performance on charts with introduced errors.',
     'PCS/CPT Score': 'Procedure-family score: PCS for IP-DRG, CPT for outpatient specialties.',
@@ -1114,9 +1124,9 @@ function ScoreTable({ rows, nameKey, threshold = 90 }: {
                 <td style={td}>{r.charts}</td>
                 <td style={td}>{r.auditors}</td>
                 <td style={td}>{r.batches}</td>
-                <td style={{ ...td, fontWeight: 800, color: tone(r.audit_score, threshold) }}>{pct(r.audit_score)}</td>
-                <td style={{ ...td, fontWeight: 800, color: tone(r.review_score, threshold) }}>{pct(r.review_score)}</td>
-                <td style={{ ...td, fontWeight: 800, color: tone(r.audit_accuracy, threshold) }}>{pct(r.audit_accuracy)}</td>
+                <ScoreCell row={r} kind="audit" threshold={threshold} />
+                <ScoreCell row={r} kind="review" threshold={threshold} />
+                <ScoreCell row={r} kind="detection" threshold={threshold} />
                 <td style={td}>{pct(r.clean_accuracy)}</td>
                 <td style={td}>{pct(r.opportunity_accuracy)}</td>
                 <td style={td}><ProcedureCell row={r} /></td>
@@ -1148,9 +1158,9 @@ function CompactBatchTable({ rows, showActions = false, threshold = 90 }: {
               <td style={td}>{r.specialty}</td>
               <td style={td}>{r.auditors}</td>
               <td style={td}>{r.charts}</td>
-              <td style={{ ...td, fontWeight: 800, color: tone(r.audit_score, threshold) }}>{pct(r.audit_score)}</td>
-              <td style={{ ...td, fontWeight: 800, color: tone(r.review_score, threshold) }}>{pct(r.review_score)}</td>
-              <td style={{ ...td, fontWeight: 800, color: tone(r.audit_accuracy, threshold) }}>{pct(r.audit_accuracy)}</td>
+              <ScoreCell row={r} kind="audit" threshold={threshold} />
+              <ScoreCell row={r} kind="review" threshold={threshold} />
+              <ScoreCell row={r} kind="detection" threshold={threshold} />
               <td style={td}>{pct(r.clean_accuracy)}</td>
               <td style={td}>{pct(r.opportunity_accuracy)}</td>
               <td style={td}><ProcedureCell row={r} /></td>
@@ -1502,6 +1512,33 @@ function Metric({ label, value, tone: color, sub, title }: {
       <div style={{ marginTop: 5, fontSize: 11, fontWeight: 800, color: '#6b7280' }}>{label}</div>
       {sub && <div style={muted}>{sub}</div>}
     </div>
+  )
+}
+
+function scoreValue(row: any, kind: ScoreKind) {
+  return row?.[SCORE_FIELD[kind].field]
+}
+
+function ScoreMetric({ row, kind, threshold, label, sub }: {
+  row: any; kind: ScoreKind; threshold: number; label?: string; sub?: React.ReactNode
+}) {
+  const def = SCORE_FIELD[kind]
+  const value = scoreValue(row, kind)
+  return (
+    <Metric label={label || def.label} value={pct(value)}
+      tone={tone(value, threshold)} title={def.title} sub={sub} />
+  )
+}
+
+function ScoreCell({ row, kind, threshold }: {
+  row: any; kind: ScoreKind; threshold: number
+}) {
+  const def = SCORE_FIELD[kind]
+  const value = scoreValue(row, kind)
+  return (
+    <td style={{ ...td, fontWeight: 800, color: tone(value, threshold) }} title={def.title}>
+      {pct(value)}
+    </td>
   )
 }
 

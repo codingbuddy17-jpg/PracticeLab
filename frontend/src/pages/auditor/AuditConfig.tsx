@@ -207,7 +207,8 @@ export function AuditConfig({ trainer }: { trainer: string }) {
           your own coders actually made on it, where any have been recorded. 100 takes
           as many as the chart offers; generated errors still fill whatever is left, so
           a chart with no recorded mistakes is unaffected. Setting it to 0 turns the
-          observed source off entirely.
+          observed source off entirely. Auto-generated charts are capped at 6 errors even
+          if this field is set higher; trainer-authored versions are not capped.
         </div>
       </Block>
 

@@ -62,6 +62,8 @@ ROOT_OPERATION_CONFUSIONS = [
 
 # Every mutation kind the generator can draw, with the config field holding its
 # weight. Order is fixed so a seed reproduces the same draw across releases.
+MAX_GENERATED_PLANTINGS = 6
+
 MUTATION_KINDS = [
     ("omit_sdx",         "mix_omit_sdx"),
     ("omit_proc",        "mix_omit_proc"),
@@ -111,7 +113,7 @@ class MutationConfig:
     mix_level_shift: int = 0
     mix_cc_boundary: int = 0
     mix_mdm_shift: int = 0
-    max_auto_plantings: int = 10
+    max_auto_plantings: int = MAX_GENERATED_PLANTINGS
     # How much of a chart's budget prefers real coder mistakes over
     # synthetic ones, where any have been observed. 100 means take as
     # many as the chart offers; synthetic still fills whatever is left.
@@ -299,15 +301,17 @@ def planting_budget(claim: dict, cfg: MutationConfig, rng: random.Random) -> int
 
     Scaled by total codes rather than fixed: a chart with twelve secondaries
     can lose three without comment, a chart with two cannot lose one. Capped
-    at max_auto_plantings — a chart needs 30-40 codes to reach 10, so the cap
-    binds rarely, which is the intent.
+    at max_auto_plantings and at the platform's hard cap. Manual authored sets
+    are not capped here; generation is, because random plantings should stay
+    believable even on very large charts.
 
     No ceiling applies to MANUAL plantings; this governs generation only.
     """
     n = total_codes(claim)
     if n <= 0:
         return 0
-    ceiling = max(1, min(cfg.max_auto_plantings, int(n * cfg.max_section_share / 100)))
+    configured_cap = max(1, min(cfg.max_auto_plantings, MAX_GENERATED_PLANTINGS))
+    ceiling = max(1, min(configured_cap, int(n * cfg.max_section_share / 100)))
     low = 1 if n < 8 else 2
     return rng.randint(min(low, ceiling), ceiling)
 

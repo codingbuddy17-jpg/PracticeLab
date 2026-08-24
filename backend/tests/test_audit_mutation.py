@@ -140,14 +140,23 @@ class TestConstraints:
                              seed=seed, cfg=cfg, corpus=CORPUS)
             assert len(gt) <= 3
 
-    def test_a_rich_chart_can_reach_the_cap_of_ten(self):
-        """10 is meant to be reachable but rare — it needs 30-40 codes."""
+    def test_a_rich_chart_can_reach_the_generation_cap_of_six(self):
+        """Auto generation has an absolute ceiling; manual authored versions do not."""
         best = max(
             len(generate(ip_key(n_sdx=30, n_pcs=12), Specialty.IP_DRG,
                          seed=s, corpus=CORPUS)[1])
             for s in range(40)
         )
-        assert best == 10
+        assert best == 6
+
+    def test_the_budget_never_exceeds_the_platform_cap_even_if_config_is_higher(self):
+        cfg = MutationConfig(max_auto_plantings=12, max_section_share=90)
+        best = max(
+            len(generate(ip_key(n_sdx=30, n_pcs=12), Specialty.IP_DRG,
+                         seed=s, cfg=cfg, corpus=CORPUS)[1])
+            for s in range(40)
+        )
+        assert best == 6
 
 
 # ── ground truth is usable ───────────────────────────────────────────────────
