@@ -5,6 +5,8 @@ This file exercises the workflow routes, not just the grading engines:
 batch -> allocation -> access token -> draft/submit -> stored results.
 """
 
+import json
+
 import pytest
 from sqlalchemy import text
 
@@ -223,6 +225,22 @@ def test_coder_em_submit_uses_em_key_and_mirrors_result(client, db, spec):
     ).one()
     assert mirrored.total_score == 100
     assert mirrored.specialty == spec
+
+    stored = db.execute(text("""
+        SELECT sdx_submitted, sdx_answer_key, cpt_submitted, cpt_answer_key, feedback
+        FROM practice_results
+        WHERE session_id=:s AND chart_id=:c
+    """), {"s": session["session_id"], "c": chart.id}).mappings().one()
+    assert json.loads(stored["sdx_submitted"]) == [{"code": "E11.9"}, {"code": "I10"}]
+    assert json.loads(stored["sdx_answer_key"]) == [{"code": "E11.9"}, {"code": "I10"}]
+    assert json.loads(stored["cpt_submitted"]) == [
+        {"code": "20610", "modifier": "RT", "pointers": ["1"], "units": 1}
+    ]
+    assert json.loads(stored["cpt_answer_key"]) == [
+        {"code": "20610", "modifier": "RT", "pointers": ["1"], "units": 1}
+    ]
+    cpt_feedback = [f for f in json.loads(stored["feedback"]) if f["issue"].startswith("CPT:")]
+    assert cpt_feedback and cpt_feedback[0]["ak_code"] != "" and cpt_feedback[0]["coder_code"] != ""
 
 
 def _audit_chart(db, n: int):

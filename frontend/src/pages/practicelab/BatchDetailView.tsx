@@ -700,13 +700,13 @@ export function BatchDetailView({ batchId, onDRGReview, onResults }: any) {
               <div style={styles.cycleBadge}>{c.cycle_number === 0 ? 'Legacy' : `Cycle ${c.cycle_number}`}</div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span>{c.assigned_count} assignment{c.assigned_count !== 1 ? 's' : ''}{c.assigned_count > 0 ? ` · ${c.charts_per_coder} charts/coder` : ' — pool exhausted'}</span>
+                  <span>{c.assigned_count} assignment{c.assigned_count !== 1 ? 's' : ''}{c.assigned_count > 0 ? ` · ${c.charts_per_coder} target charts/coder` : ' — pool exhausted'}</span>
                   {/* A short allocation used to be visible only as a toast, so a
                       cycle that shorted three coders looked identical to a clean
                       one the next time anyone opened the batch. */}
                   {(c.warnings || []).length > 0 && (
                     <span style={{ fontSize: 11, fontWeight: 700, background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d', borderRadius: 20, padding: '1px 9px' }}>
-                      ⚠️ {c.warnings.length} allocated short
+                      ⚠️ {c.warnings.length} pool note{c.warnings.length !== 1 ? 's' : ''}
                     </span>
                   )}
                 </div>

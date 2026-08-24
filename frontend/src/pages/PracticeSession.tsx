@@ -204,7 +204,12 @@ function dxLabelList(codes: string[]) {
     .slice(0, 12)
 }
 
-const EMPTY_EM_DATA = () => ({
+function defaultEMCategory(specialty?: string) {
+  const sp = (specialty || '').toUpperCase()
+  return sp.includes('ED_PROFEE') || sp.includes('ED PROFEE') ? 'emergency' : 'office'
+}
+
+const EMPTY_EM_DATA = (specialty?: string) => ({
   copa_self_limited: 0, copa_stable_chronic: 0, copa_stable_acute: 0,
   copa_acute_uncomplicated: 0, copa_chronic_exacerbation: 0, copa_undiagnosed_new: 0,
   copa_acute_systemic: 0, copa_acute_complicated_injury: 0, copa_threat_to_life: 0, copa_chronic_severe: 0,
@@ -216,9 +221,7 @@ const EMPTY_EM_DATA = () => ({
   risk_emergency_major_surgery: false, risk_hospitalization_escalation: false,
   risk_dnr_deescalate: false, risk_parenteral_controlled: false,
   em_code: '', em_modifier: '', patient_type: 'NA' as 'NEW' | 'ESTABLISHED' | 'NA',
-  // Office is the commonest encounter and the one the MDM tables were written
-  // for, so it is the least surprising place to start.
-  em_category: 'office' as string,
+  em_category: defaultEMCategory(specialty),
   critical_care_minutes: '' as number | string,
   level_method: 'MDM' as 'MDM' | 'TIME', total_time: '',
   em_dx: [] as Array<{ code: string }>, em_cpt: [] as Array<{ code: string; modifier: string; pointers?: string[]; units?: number | string }>,
@@ -333,7 +336,7 @@ export function PracticeSession() {
           flagged: draft?.flagged || false,
           coder_notes: draft?.coder_notes || '',
           query_flag: draft?.query_flag || false,
-          em_data: savedEm ? { ...EMPTY_EM_DATA(), ...savedEm } : EMPTY_EM_DATA(),
+          em_data: savedEm ? { ...EMPTY_EM_DATA(data.specialty), ...savedEm } : EMPTY_EM_DATA(data.specialty),
         }
       }
       setEntries(initial)

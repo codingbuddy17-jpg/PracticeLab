@@ -3,6 +3,7 @@ In-browser practice session endpoints.
 Handles token generation, session start, per-chart save, submit, and
 trainer-facing submission review.
 """
+import json
 import random
 import string
 from datetime import datetime
@@ -23,7 +24,7 @@ from services.grading_engine import (
     IPAnswerKey, OPAnswerKey, IPSubmission, OPSubmission,
     DEFAULT_IP_CFG, DEFAULT_OP_CFG, DEFAULT_EDSP_CFG, norm_units,
 )
-from .em_grading import _LEVEL_ORDER, derive_mdm_level, em_code_to_level
+from .em_grading import _LEVEL_ORDER, derive_mdm_level, em_code_to_level, normalise_cpts
 from .shared import _is_ip, _is_ed, MASTER_PASSPHRASE, assert_batch_open
 from .chart_grading import _grade_chart_for_sp
 
@@ -134,6 +135,14 @@ def _em_submission_dict(em_data: dict) -> dict:
     return sub
 
 
+def _em_result_mirror(entry):
+    em = entry.em_data or {}
+    sub = _em_submission_dict(em)
+    dx_rows = [{"code": c} for c in sub.get("sub_dx_codes", []) if c]
+    cpt_rows = sub.get("sub_procedure_cpts", [])
+    return dx_rows, cpt_rows
+
+
 def _em_answer_key(db, chart_id: int):
     """
     Fetch an E/M answer key keyed by real column name.
@@ -214,10 +223,12 @@ def _em_feedback_items(scoring: dict, ak: dict, em: dict, cfg: dict) -> list:
     # "CPT: 0.0/0.0 pts", which looks like a component the coder lost rather
     # than one that does not apply.
     if (scoring.get("applied_weights") or {}).get("cpt"):
+        ak_cpts = normalise_cpts(ak.get("procedure_cpts", "[]"))
+        sub_cpts = normalise_cpts(_em_submission_dict(em).get("sub_procedure_cpts", []))
         items.append({
             "section": "Coding Accuracy",
             "issue": f"CPT: {scoring.get('cpt_score', 0):.1f}/{scoring['applied_weights']['cpt']:.1f} pts",
-            "ak_code": "", "coder_code": "",
+            "ak_code": json.dumps(ak_cpts), "coder_code": json.dumps(sub_cpts),
         })
 
     # The three MDM levels, ONLY where the chart is graded on them.
@@ -621,8 +632,16 @@ def submit_practice_session(session_id: int, payload: SubmitPracticeSession, db:
             pf = "PASS" if total >= cfg["pass_threshold"] else "FAIL"
             # Build feedback items from scoring breakdown for results display
             em_feedback = _em_feedback_items(scoring, ak, em, cfg)
+            em_dx_ak = [{"code": c} for c in (json.loads(ak.get("dx_codes") or "[]")) if c]
+            em_cpt_ak = normalise_cpts(ak.get("procedure_cpts", "[]"))
             _upsert_practice_result(db, session_id, entry, specialty, graded=True,
-                                    result_kwargs={"weighted_score": total, "pass_fail": pf, "drg_flag": False},
+                                    result_kwargs={
+                                        "weighted_score": total,
+                                        "pass_fail": pf,
+                                        "drg_flag": False,
+                                        "em_dx_ak": em_dx_ak,
+                                        "em_cpt_ak": em_cpt_ak,
+                                    },
                                     feedback_items=em_feedback, ak_rec=None)
     else:
         # IP / OP: auto-grade against answer key
@@ -792,18 +811,19 @@ def _upsert_practice_result(db, session_id, entry, specialty, graded=False,
         pdx_ak = ak_rec.pdx_code if ak_rec else None
         pdx_ok = (entry.pdx_code or "").strip().upper().replace(".", "") == \
                  (pdx_ak or "").strip().upper().replace(".", "") if pdx_ak else None
+        em_dx_sub, em_cpt_sub = _em_result_mirror(entry) if entry.em_data else (None, None)
         vals = {
             "s": session_id, "c": entry.chart_id, "sp": specialty.value,
             "tot": r.get("weighted_score"), "pf": r.get("pass_fail"),
             "drg_f": bool(r.get("drg_flag", False)),
             "fb": json.dumps(fb),
             "pdx_sub": entry.pdx_code, "pdx_ak": pdx_ak, "pdx_ok": pdx_ok,
-            "sdx_sub": json.dumps(entry.sdx),
-            "sdx_ak": json.dumps(ak_rec.sdx or []) if ak_rec else "[]",
+            "sdx_sub": json.dumps(em_dx_sub if em_dx_sub is not None else entry.sdx),
+            "sdx_ak": json.dumps((r.get("em_dx_ak") or []) if entry.em_data else (ak_rec.sdx or []) if ak_rec else []),
             "pcs_sub": json.dumps(entry.pcs),
             "pcs_ak": json.dumps(ak_rec.pcs or []) if ak_rec else "[]",
-            "cpt_sub": json.dumps(entry.cpt),
-            "cpt_ak": json.dumps(ak_rec.cpt or []) if ak_rec else "[]",
+            "cpt_sub": json.dumps(em_cpt_sub if em_cpt_sub is not None else entry.cpt),
+            "cpt_ak": json.dumps((r.get("em_cpt_ak") or []) if entry.em_data else (ak_rec.cpt or []) if ak_rec else []),
             "qf": bool(entry.query_flag),
         }
     else:
