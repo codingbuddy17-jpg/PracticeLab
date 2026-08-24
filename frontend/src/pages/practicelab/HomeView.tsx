@@ -314,7 +314,13 @@ function BatchRow({ b, onOpen, statusColor }: any) {
           <span style={{ ...s.specialtyBadge, background: sc?.light || '#f1f5f9', color: sc?.bg || '#475569' }}>
             {b.specialty}
           </span>
-          {b._direct && <span style={{ ...s.hint, color: '#7c3aed', background: '#ede9fe' }}>Direct</span>}
+          {/* Type, not specialty — so it must not compete in the specialty
+              hue space. It used to be #7c3aed on #ede9fe, which was byte for
+              byte the Edits specialty chip; a direct assignment and an Edits
+              batch were the same chip. A neutral outline instead of a tint
+              keeps it distinguishable from all ten, and from any added later,
+              without needing an eleventh hue nobody has left. */}
+          {b._direct && <span style={s.typeChip}>Direct</span>}
           {hint && <span style={s.hint}>{hint}</span>}
           {b.force_closed && <span style={{ ...s.metaItem, color: '#dc2626', fontWeight: 700 }}>force-closed</span>}
         </div>
@@ -415,6 +421,10 @@ const s: Record<string, React.CSSProperties> = {
   nameRow: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' as const, minWidth: 0 },
   name:    { fontWeight: 700, fontSize: 13, color: '#111', lineHeight: 1.3 },
   hint:    { fontSize: 10, fontWeight: 700, color: '#4f46e5', background: '#eef2ff', padding: '1px 7px', borderRadius: 8 },
+  // Outlined and neutral, so it reads as a different KIND of label from the
+  // filled specialty chips beside it rather than as an eleventh specialty.
+  typeChip:{ fontSize: 10, fontWeight: 700, color: '#475569', background: 'transparent',
+             border: '1px solid #cbd5e1', padding: '0 6px', borderRadius: 8, letterSpacing: 0.2 },
 
   metaItem:{ fontSize: 11, color: '#9ca3af' },
   specialtyBadge: {
