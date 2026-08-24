@@ -103,6 +103,8 @@ def _matches(planting: dict, finding: dict) -> bool:
         if finding.get("line") is not None and finding.get("line") == planting.get("line"):
             return True
         return _bare(finding.get("claim_value")) == _bare(planting.get("claim_value"))
+    if (planting.get("section") or "").upper() == "MDM":
+        return (finding.get("field") or "code") == (planting.get("field") or "code")
     # Revise: same line, and the same field.
     return (finding.get("line") == planting.get("line")
             and (finding.get("field") or "code") == (planting.get("field") or "code"))

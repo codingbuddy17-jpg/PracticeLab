@@ -289,6 +289,30 @@ class TestCorrectionRequired:
         assert s.over_calls == 0
         assert s.review_attributes["MDM"]["score"] == 100.0
 
+    def test_mdm_revisions_ignore_legacy_line_noise(self):
+        """
+        Early/manual MDM versions could carry line=0 even though MDM is not a
+        code-line section. Match on field so authored versions and auditor
+        findings do not miss each other because one side has that legacy noise.
+        """
+        s = score_chart(
+            [{**mdm("risk", "Low", "High"), "line": 0}],
+            [{"section": "MDM", "action": "Revise", "field": "risk",
+              "correct_value": "High"}],
+            claim={"mdm": {"copa": "Moderate", "dr": "Moderate", "risk": "Low"}},
+        )
+        assert s.revise_accuracy == 100.0
+        assert s.over_calls == 0
+
+        s = score_chart(
+            [mdm("risk", "Low", "High")],
+            [{"section": "MDM", "action": "Revise", "field": "risk",
+              "line": 0, "correct_value": "High"}],
+            claim={"mdm": {"copa": "Moderate", "dr": "Moderate", "risk": "Low"}},
+        )
+        assert s.revise_accuracy == 100.0
+        assert s.over_calls == 0
+
     def test_a_missed_mdm_finding_is_visible_in_the_mdm_review_score(self):
         """
         MDM stays outside the code-line denominator, but it cannot disappear.

@@ -979,7 +979,7 @@ function MdmKeySection({ spec, answerKey, mutations, setMutations }: {
         && m.action === 'Revise' && (m.field || '') === field))
       if (!value || value === current) return rest
       return [...rest, {
-        section: 'MDM', action: 'Revise', field, line: 0,
+        section: 'MDM', action: 'Revise', field,
         claim_value: value, correct_value: current,
       }]
     })
