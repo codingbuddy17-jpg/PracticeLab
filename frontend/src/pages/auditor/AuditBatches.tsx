@@ -222,17 +222,13 @@ export function AuditBatches({ trainer }: { trainer: string }) {
                           background: b.status === 'Open' ? '#eff6ff' : '#f3f4f6',
                           color: b.status === 'Open' ? '#1d4ed8' : '#6b7280',
                         }}>{b.status as string}</span>
-                        {b.days_open != null && (
-                          <span style={{
-                            fontSize: 11, fontWeight: 600,
-                            color: Number(b.days_open) > 14 ? '#d97706' : '#9ca3af',
-                          }}>
-                            {b.days_open as number}d open
-                          </span>
-                        )}
+                        {/* "Nd open" duplicated the date grouping these rows
+                            already sit under, and the auditor count is a
+                            detail-view fact. What a trainer scanning this list
+                            actually wants is whether there is anything left to
+                            do, which is one number, not three. */}
                         <span style={{ marginLeft: 'auto', fontSize: 12, color: '#6b7280' }}>
-                          {b.auditors as number} auditor(s) · {b.assigned as number} assigned ·{' '}
-                          {b.scored as number} scored
+                          {b.scored as number} of {b.assigned as number} scored
                         </span>
                       </button>
                     ))}

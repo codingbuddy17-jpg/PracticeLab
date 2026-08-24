@@ -270,11 +270,12 @@ function BatchRow({ b, onOpen, statusColor }: any) {
   const isOpen = b.status === 'Open'
   const graded = b.graded_count ?? 0
 
-  let hint = ''
-  if (isOpen) {
-    if ((b.allocation_cycles ?? 0) === 0) hint = 'Run first cycle'
-    else if (b.days_open != null && b.days_open > 0) hint = 'Awaiting submissions'
-  }
+  // "Awaiting submissions" was shown for every open batch that had run a cycle,
+  // which is nearly all of them — a label that appears on everything carries no
+  // information and only makes the row harder to read. "Run first cycle" stays:
+  // it is rare, it is actionable, and it is the one state where the batch
+  // exists but nothing has been handed out.
+  const hint = isOpen && (b.allocation_cycles ?? 0) === 0 ? 'Run first cycle' : ''
 
   return (
     <div
@@ -292,24 +293,16 @@ function BatchRow({ b, onOpen, statusColor }: any) {
           {b._direct && <span style={{ ...s.hint, color: '#7c3aed', background: '#ede9fe' }}>Direct</span>}
           {hint && <span style={s.hint}>{hint}</span>}
         </div>
+        {/* A list exists to find and pick a batch, so a row carries identity,
+            state and anything actionable — and nothing else. Coder count and
+            cycle count are detail-view facts. "Nd open" duplicated the date
+            grouping the rows already sit under. created_by was the same trainer
+            on every row of their own screen. force-closed stays: it is rare, so
+            it is informative, and it explains a closed batch nobody closed. */}
         <div style={s.meta}>
           <span style={{ ...s.specialtyBadge, background: sc?.light || '#f1f5f9', color: sc?.bg || '#475569' }}>
             {b.specialty}
           </span>
-          <span style={s.dot}>·</span>
-          <span style={s.metaItem}>{b.coder_count} coder{b.coder_count !== 1 ? 's' : ''}</span>
-          <span style={s.dot}>·</span>
-          <span style={s.metaItem}>{b.allocation_cycles ?? 0} cycle{b.allocation_cycles !== 1 ? 's' : ''}</span>
-          {b.days_open != null && (
-            <>
-              <span style={s.dot}>·</span>
-              <span style={{ ...s.metaItem, color: b.days_open > 14 ? '#d97706' : '#9ca3af' }}>
-                {b.days_open}d open
-              </span>
-            </>
-          )}
-          <span style={s.dot}>·</span>
-          <span style={s.metaItem}>{b.created_by}</span>
           {b.force_closed && <><span style={s.dot}>·</span><span style={{ ...s.metaItem, color: '#dc2626', fontWeight: 700 }}>force-closed</span></>}
         </div>
       </div>
