@@ -831,8 +831,8 @@ def generate_audit_auditor_report_pdf(data: dict) -> bytes:
         (str(summary.get("detected_not_corrected", 0)), "Found, Corrected Wrongly"),
     ]))
 
-    _audit_section_heading(elements, "Component Accuracy")
-    elements.append(_audit_data_table(["Component", "Accuracy", "Basis"],
+    _audit_section_heading(elements, "Finding Detection")
+    elements.append(_audit_data_table(["Component", "Detection Rate", "Basis"],
                                       _audit_component_rows(summary, pt), [2, 1, 1.2]))
 
     detection = data.get("detection") or {}
@@ -901,8 +901,8 @@ def generate_audit_batch_report_pdf(data: dict) -> bytes:
         (_pct(summary.get("opportunity_accuracy")), "Opportunity Chart Score"),
     ]))
 
-    _audit_section_heading(elements, "Component Accuracy")
-    elements.append(_audit_data_table(["Component", "Accuracy", "Basis"],
+    _audit_section_heading(elements, "Finding Detection")
+    elements.append(_audit_data_table(["Component", "Detection Rate", "Basis"],
                                       _audit_component_rows(summary, pt), [2, 1, 1.2]))
 
     auditors = data.get("auditors") or []

@@ -7,8 +7,8 @@ into a deck nobody can tell which they are reading — so the counts travel with
 the percentages rather than being left behind on the screen they came from.
 
 NA is written as the literal text "NA", never as 0 or a blank. A cohort that
-has never met a spurious code has no Delete accuracy, and both alternatives say
-something false about them.
+has never met a spurious code has no Delete Detection Rate, and both alternatives
+say something false about them.
 """
 
 import io
@@ -27,6 +27,12 @@ NOTE_FONT = Font(italic=True, size=9, color="6B7280")
 def _na(value: Optional[float]) -> Any:
     """None means the opportunity never existed — say so rather than imply zero."""
     return "NA" if value is None else value
+
+
+def _audit_headline(row: dict):
+    """Audit Score, falling back for older rows scored before review existed."""
+    score = row.get("audit_score")
+    return score if score is not None else row.get("audit_accuracy")
 
 
 def _sheet(wb: Workbook, title: str, headers: list[str], rows: list[list],
@@ -78,22 +84,24 @@ def export_batch_results(batch_name: str, charts: list[dict],
         _sheet(wb, "Summary",
                ["Measure", "Value", "Basis"],
                [
-                   ["Audit accuracy", _na(summary.get("audit_accuracy")),
-                    "average of chart scores"],
+                   ["Audit Score", _na(_audit_headline(summary)),
+                    "weighted score used for verdict"],
+                   ["Error Detection Rate", _na(summary.get("audit_accuracy")),
+                    "introduced errors caught"],
                    ["Clean charts", summary.get("clean_charts", 0), "no errors introduced"],
-                   ["Clean accuracy", _na(summary.get("clean_accuracy")), "restraint"],
+                   ["Clean Chart Score", _na(summary.get("clean_accuracy")), "restraint"],
                    ["Opportunity charts", summary.get("opportunity_charts", 0), ""],
-                   ["Opportunity accuracy", _na(summary.get("opportunity_accuracy")),
+                   ["Opportunity Chart Score", _na(summary.get("opportunity_accuracy")),
                     "detection"],
-                   ["Add accuracy", _na(summary.get("add_accuracy")),
+                   ["Add Detection Rate", _na(summary.get("add_accuracy")),
                     f"{summary.get('add_found', 0)}/{summary.get('add_planted', 0)} pooled"],
-                   ["Revise accuracy", _na(summary.get("revise_accuracy")),
+                   ["Revise Detection Rate", _na(summary.get("revise_accuracy")),
                     f"{summary.get('revise_found', 0)}/{summary.get('revise_planted', 0)} pooled"],
-                   ["Delete accuracy", _na(summary.get("delete_accuracy")),
+                   ["Delete Detection Rate", _na(summary.get("delete_accuracy")),
                     f"{summary.get('delete_found', 0)}/{summary.get('delete_planted', 0)} pooled"],
-                   ["DRG-impacting accuracy", _na(summary.get("drg_accuracy")),
+                   ["DRG-impacting Detection Rate", _na(summary.get("drg_accuracy")),
                     f"{summary.get('drg_found', 0)}/{summary.get('drg_planted', 0)} pooled"],
-                   ["Query accuracy", _na(summary.get("query_accuracy")),
+                   ["Query Detection Rate", _na(summary.get("query_accuracy")),
                     f"{summary.get('query_correct', 0)}/{summary.get('query_charts', 0)} charts"],
                    ["Findings on correct items", summary.get("over_calls", 0), ""],
                    ["Found but corrected wrongly", summary.get("detected_not_corrected", 0),
@@ -105,7 +113,7 @@ def export_batch_results(batch_name: str, charts: list[dict],
                note=f"Audit batch: {batch_name}")
 
     _sheet(wb, "Chart_Results",
-           ["Auditor", "Emp ID", "Chart", "Chart type", "Audit accuracy %",
+           ["Auditor", "Emp ID", "Chart", "Chart type", "Error Detection Rate %",
             "Add found", "Add total", "Add %",
             "Revise found", "Revise total", "Revise %",
             "Delete found", "Delete total", "Delete %",
@@ -127,7 +135,7 @@ def export_batch_results(batch_name: str, charts: list[dict],
                _bool(c.get("query_correct")),
                c.get("detected_not_corrected"),
            ] for c in charts],
-           note="Accuracy columns show found and total beside the percentage. "
+           note="Detection-rate columns show found and total beside the percentage. "
                 "NA means nothing of that kind was in the chart.")
 
     detail = []
@@ -184,15 +192,15 @@ def export_analytics(overview: dict, batches: list[dict], auditors: list[dict],
                 f"{overview.get('clean_charts', 0)} charts — restraint"],
                ["Opportunity Chart Score", _na(overview.get("opportunity_accuracy")),
                 f"{overview.get('opportunity_charts', 0)} charts — detection"],
-               ["Add accuracy", _na((overview.get("add") or {}).get("accuracy")),
+               ["Add Detection Rate", _na((overview.get("add") or {}).get("accuracy")),
                 _pooled(overview.get("add"))],
-               ["Revise accuracy", _na((overview.get("revise") or {}).get("accuracy")),
+               ["Revise Detection Rate", _na((overview.get("revise") or {}).get("accuracy")),
                 _pooled(overview.get("revise"))],
-               ["Delete accuracy", _na((overview.get("delete") or {}).get("accuracy")),
+               ["Delete Detection Rate", _na((overview.get("delete") or {}).get("accuracy")),
                 _pooled(overview.get("delete"))],
-               ["DRG-impacting accuracy", _na(overview.get("drg_accuracy")),
+               ["DRG-impacting Detection Rate", _na(overview.get("drg_accuracy")),
                 f"{overview.get('drg_found', 0)}/{overview.get('drg_planted', 0)}"],
-               ["Query accuracy", _na(overview.get("query_accuracy")),
+               ["Query Detection Rate", _na(overview.get("query_accuracy")),
                 f"{overview.get('query_correct', 0)}/{overview.get('query_charts', 0)} charts"],
                ["Findings on correct items", overview.get("over_calls", 0), ""],
                ["Found but corrected wrongly", overview.get("detected_not_corrected", 0),
@@ -205,7 +213,7 @@ def export_analytics(overview: dict, batches: list[dict], auditors: list[dict],
             "Add found", "Add total", "Add %",
             "Revise found", "Revise total", "Revise %",
             "Delete found", "Delete total", "Delete %",
-            "DRG %", "Over-calls", "Opportunities", "Verdict"]
+            "DRG-impacting Detection Rate", "Over-calls", "Opportunities", "Verdict"]
 
     def _row(r: dict) -> list:
         return [
@@ -274,7 +282,7 @@ def export_analytics(overview: dict, batches: list[dict], auditors: list[dict],
 
     if chart_signals is not None:
         _sheet(wb, "Chart_Signals",
-               ["Chart", "Specialty", "Category", "Attempts", "Audit %",
+               ["Chart", "Specialty", "Category", "Attempts", "Error Detection Rate %",
                 "Clean", "Opportunity", "Opportunities", "Missed", "Over-calls",
                 "Found but corrected wrongly", "Signal"],
                [[c.get("chart_number"), c.get("specialty"), c.get("category"),
