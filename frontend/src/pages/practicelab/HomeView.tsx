@@ -118,7 +118,16 @@ export function HomeView({ batches, directAssignments, overview, loading, onOpen
       )}
 
       {/* ── Filter bar ── */}
-      {batches.length > 0 && (
+      {/* Never hide this as a RESULT of filtering. It was gated on
+          batches.length, and `batches` is the server-filtered list — so a
+          search matching no batch NAME unmounted the search box itself.
+          Direct assignments come from a different call and are not server
+          filtered, so they kept rendering: rows on screen, no search box, and
+          the empty-state "Clear search" button absent because the list was not
+          empty. The query became unclearable without reloading the page.
+          A live search keeps the bar regardless, because the control that
+          created a state must remain available to undo it. */}
+      {(allBatches.length > 0 || !!search?.trim()) && (
         <div style={s.filterBar}>
           {/* Coloured status tabs */}
           <div style={s.tabGroup}>

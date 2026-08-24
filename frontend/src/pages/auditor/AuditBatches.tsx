@@ -3,7 +3,7 @@ import toast from 'react-hot-toast'
 import {
   AlertTriangle, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, Copy,
   Download, Eye, FileSearch, Loader, Plus, RefreshCw, Search, Shuffle, Square,
-  Upload,
+  Upload, X,
 } from 'lucide-react'
 import { AuditReview } from './AuditReview'
 import {
@@ -177,15 +177,41 @@ export function AuditBatches({ trainer }: { trainer: string }) {
             </button>
           )
         })}
-        <input style={{ ...s.input, width: 220, marginLeft: 'auto' }}
-          placeholder="Search by name or specialty…"
-          value={search} onChange={e => setSearch(e.target.value)} />
+        {/* The control that created a state has to be able to undo it. This
+            had no clear action anywhere: not on the field, and not in the
+            empty state below, so a search that matched nothing left you
+            retyping or reloading. */}
+        <div style={{ marginLeft: 'auto', position: 'relative', display: 'flex', alignItems: 'center' }}>
+          <input style={{ ...s.input, width: 220, paddingRight: search ? 28 : undefined }}
+            placeholder="Search by name or specialty…"
+            value={search} onChange={e => setSearch(e.target.value)} />
+          {search && (
+            <button
+              title="Clear search"
+              onClick={() => setSearch('')}
+              style={{
+                position: 'absolute', right: 6, display: 'flex', alignItems: 'center',
+                background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', padding: 2,
+              }}>
+              <X size={13} />
+            </button>
+          )}
+        </div>
       </div>
 
       {filtered.length === 0 ? (
         <div style={s.empty}>
           {counts.all === 0 ? 'No audit batches yet.'
-            : `No ${statusFilter === 'all' ? '' : statusFilter} batches match.`}
+            : search.trim()
+              ? `No batches match "${search.trim()}".`
+              : `No ${statusFilter === 'all' ? '' : statusFilter} batches.`}
+          {search.trim() && (
+            <div style={{ marginTop: 10 }}>
+              <button style={{ ...s.outlineBtn, fontSize: 12 }} onClick={() => setSearch('')}>
+                Clear search
+              </button>
+            </div>
+          )}
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 16 }}>
