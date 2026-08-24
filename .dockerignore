@@ -1,0 +1,17 @@
+# Keep the build context small and the image clean. node_modules alone is
+# 172MB and would be copied in only to be discarded.
+**/node_modules
+**/dist
+**/__pycache__
+**/*.pyc
+.venv
+.git
+.github
+docs
+scripts
+backend/tests
+frontend/src/**/*.test.*
+*.tar.gz
+*.dump
+*.db
+.DS_Store
