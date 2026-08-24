@@ -6,7 +6,10 @@ const {
 } = require('docx');
 
 const SCHEMA = JSON.parse(fs.readFileSync('schema.json', 'utf8'));
-const DOCS = JSON.parse(fs.readFileSync('tabledocs.json', 'utf8'));
+// tabledocs.json lives in docs/, not here: it is hand-written prose, the one
+// build input that cannot be regenerated from the schema. The figures and
+// schema.json can both be rebuilt; this cannot, so it is kept in the repo.
+const DOCS = JSON.parse(fs.readFileSync('../tabledocs.json', 'utf8'));
 
 // Counted from the schema rather than typed into the prose. These were written
 // by hand and were wrong the day the Auditor module landed, then wrong again

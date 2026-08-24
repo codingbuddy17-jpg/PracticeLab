@@ -41,9 +41,12 @@ Then:
 
 ```bash
 cd docs
-python _schema_json_build.py          # refresh figures/schema.json
-cd figures && node ../_schema_docx_build.js && node ../_spec_docx_build.js
-mv *.docx ..
+git checkout a323acc^ -- docs/figures/   # the eight diagrams, dropped from the repo
+npm --prefix /tmp/docxbuild install docx  # build-time only, not an app dependency
+python _schema_json_build.py            # rebuild figures/schema.json from the live schema
+cd figures && NODE_PATH=/tmp/docxbuild/node_modules \
+  node ../_schema_docx_build.js && node ../_spec_docx_build.js
+mv *.docx .. && cd .. && rm -rf figures
 ```
 
 Note that only `schema.json` and three of the eight diagrams can be rebuilt
