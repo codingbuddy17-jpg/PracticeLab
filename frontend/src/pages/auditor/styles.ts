@@ -65,7 +65,7 @@ const auditorOnly: Record<string, CSSProperties> = {
     textAlign: 'left', padding: '11px 14px', border: '1.5px solid #d1d5db',
     borderRadius: 10, background: '#fff', cursor: 'pointer', width: '100%',
   },
-  modeCardOn: { borderColor: '#4f46e5', background: '#ede9fe' },
+  modeCardOn: { border: '1.5px solid #4f46e5', background: '#ede9fe' },
 
   groupHead: {
     display: 'flex', alignItems: 'center', gap: 8, width: '100%',

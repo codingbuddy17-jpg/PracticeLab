@@ -512,7 +512,7 @@ function CreateAuditBatch({ trainer, onDone, onCancel }: {
       {pool && (
         <div style={{
           ...s.infoBox, marginBottom: 16,
-          ...(shortfall > 0 ? { background: '#fffbeb', borderColor: '#fde68a', color: '#92400e' } : {}),
+          ...(shortfall > 0 ? { background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e' } : {}),
         }}>
           <div>
             <strong>Pool preview:</strong> {pool.total_matching} matching chart(s)
@@ -620,7 +620,7 @@ function CreateAuditBatch({ trainer, onDone, onCancel }: {
                 {auditors.length} auditor{auditors.length !== 1 ? 's' : ''} ready
               </span>
               <button
-                style={{ ...s.ghostBtn, fontSize: 12, padding: '4px 10px', color: '#dc2626', borderColor: '#fca5a5' }}
+                style={{ ...s.ghostBtn, fontSize: 12, padding: '4px 10px', color: '#dc2626', border: '1px solid #fca5a5' }}
                 onClick={() => setAuditors([])}>Clear all</button>
             </div>
           </>

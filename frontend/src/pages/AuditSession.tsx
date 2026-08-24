@@ -557,16 +557,25 @@ function SectionBlock({ spec, chart, state, onVerdict, onUpsert }: {
   const adds = mine.filter(f => f.action === 'Add')
 
   const deletedLines = new Set(mine.filter(f => f.action === 'Delete').map(f => f.line))
-  function revisionOf(line: number, field: string) {
-    return mine.find(f => f.action === 'Revise' && f.line === line && (f.field || 'code') === field)
+  function revisionOf(line: number | null, field: string) {
+    return mine.find(f => f.action === 'Revise'
+      && (f.line ?? null) === line
+      && (f.field || 'code') === field)
   }
 
-  function setRevision(line: number, field: string, claimValue: string, value: string) {
+  function setRevision(line: number | null, field: string, claimValue: string, value: string) {
     const match = (f: Finding) => f.section === key && f.action === 'Revise'
-      && f.line === line && (f.field || 'code') === field
+      && (f.line ?? null) === line && (f.field || 'code') === field
     const changed = value.trim() && value.trim().toUpperCase() !== (claimValue || '').trim().toUpperCase()
     onUpsert(match, changed
-      ? { section: key, action: 'Revise', field, line, claim_value: claimValue, correct_value: value.trim() }
+      ? {
+          section: key,
+          action: 'Revise',
+          field,
+          ...(line === null ? {} : { line }),
+          claim_value: claimValue,
+          correct_value: value.trim(),
+        }
       : null)
   }
 
@@ -756,8 +765,8 @@ function MdmRow({ chart, spec, open, revisionOf, setRevision }: {
   chart: AuditChart
   spec: SectionSpec
   open: boolean
-  revisionOf: (line: number, field: string) => Finding | undefined
-  setRevision: (line: number, field: string, claimValue: string, value: string) => void
+  revisionOf: (line: number | null, field: string) => Finding | undefined
+  setRevision: (line: number | null, field: string, claimValue: string, value: string) => void
 }) {
   const mdm: Record<string, string> = (chart.claim as any).mdm || {}
   const values: Record<string, string[]> = (spec as any).field_values || {}
@@ -770,11 +779,11 @@ function MdmRow({ chart, spec, open, revisionOf, setRevision }: {
           label={labels[field] || FIELD_LABEL[field] || field}
           value={mdm[field] || ''}
           open={open}
-          revision={revisionOf(0, field)}
+          revision={revisionOf(null, field)}
           section="MDM"
           field={field}
           options={values[field]}
-          onChange={v => setRevision(0, field, mdm[field] || '', v)}
+          onChange={v => setRevision(null, field, mdm[field] || '', v)}
         />
       ))}
       {!open && <span style={s.lockedNote}>Reviewed as documented</span>}
@@ -787,8 +796,8 @@ function PdxRow({ chart, spec, open, revisionOf, setRevision, describe }: {
   spec: SectionSpec
   open: boolean
   describe?: (code: string) => CodeInfo | null
-  revisionOf: (line: number, field: string) => Finding | undefined
-  setRevision: (line: number, field: string, claimValue: string, value: string) => void
+  revisionOf: (line: number | null, field: string) => Finding | undefined
+  setRevision: (line: number | null, field: string, claimValue: string, value: string) => void
 }) {
   const values: Record<string, string> = {
     code: chart.claim.pdx_code || '',
