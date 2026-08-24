@@ -48,6 +48,20 @@ a:hover > div { box-shadow: 0 4px 16px rgba(0,0,0,0.1); transform: translateY(-1
 ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
 
+/* Placeholders are a hint, not content.
+   Left to the browser, a placeholder renders near #757575 — about 4.6:1 on
+   white, which is the contrast of this app's own caption text. A form of
+   format examples then reads as a form already filled in, and the example
+   competes with what the user is typing. This has to live here: ::placeholder
+   is a pseudo-element and cannot be reached from an inline style object,
+   which is why 152 placeholders were never styled at all.
+   opacity:1 is required — Firefox applies its own opacity on top of colour. */
+input::placeholder,
+textarea::placeholder {
+  color: #9ca3af;
+  opacity: 1;
+}
+
 /* Search input focus */
 input:focus, select:focus { border-color: #a5b4fc !important; outline: none; box-shadow: 0 0 0 3px rgba(99,102,241,0.1); }
 
