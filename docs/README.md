@@ -22,6 +22,7 @@ two describe things that will not announce themselves if you skip them.
 |---|---|
 | `PracticeLab_Data_Architecture_and_Migration.docx` | the summary and runbook, formatted for circulation |
 | `PracticeLab_Database_Schema_Reference.docx` | every table and column, with a one-line description each |
+| `PracticeLab_Container_Deployment.docx` | the container deployment guide, for the team that will run it |
 
 **These are generated, not written.** Edit the Markdown or the builders below,
 never the `.docx` — a hand edit is lost on the next build.
@@ -68,6 +69,7 @@ typed once and were wrong within a month, twice.
 | `_schema_figures_build.py` | regenerates three of the ERDs as SVG |
 | `_schema_docx_build.js` | builds the schema reference `.docx` |
 | `_spec_docx_build.js` | builds the architecture and migration `.docx` |
+| `_container_docx_build.js` | builds the container deployment `.docx` (needs no figures or schema.json) |
 
 `tabledocs.json` — the one-line description of each table — is hand-written and
 is the one input worth editing by hand. It lives in the restored `figures/`
