@@ -139,6 +139,14 @@ function usesUnits(specialty: string) {
     || sp.includes('EDITS') || sp.includes('DENIALS'))
 }
 
+function isDxOnlySpecialty(specialty: string) {
+  return specialty.toUpperCase().includes('ANCILLARY')
+}
+
+function usesCptSection(specialty: string) {
+  return !isIP(specialty) && !isED(specialty) && !isEM(specialty) && !isDxOnlySpecialty(specialty)
+}
+
 /**
  * Parse "1,2" into ['1','2'] — max 4 per line, first is primary.
  *
@@ -253,7 +261,7 @@ function queryTextMissing(entry: CodeEntry | undefined, ip: boolean): boolean {
   return !!(ip && entry?.query_flag && !(entry.coder_notes || '').trim())
 }
 
-function chartStatus(entry: CodeEntry, ip: boolean, ed: boolean, em: boolean): 'complete' | 'partial' | 'empty' {
+function chartStatus(entry: CodeEntry, chartSpecialty: string, ip: boolean, ed: boolean, em: boolean): 'complete' | 'partial' | 'empty' {
   if (em) {
     const d = entry.em_data
     if (!d) return 'empty'
@@ -268,6 +276,9 @@ function chartStatus(entry: CodeEntry, ip: boolean, ed: boolean, em: boolean): '
     return hasAll ? 'complete' : 'partial'
   }
   if (!entry.pdx_code.trim()) return 'empty'
+  if (isSinglePath(chartSpecialty) && (!entry.facility_level?.trim() || !entry.profee_level?.trim())) {
+    return 'partial'
+  }
   if (ip) {
     const missingPOA = !entry.pdx_poa || entry.sdx.some(s => s.code.trim() && !s.poa)
     if (missingPOA) return 'partial'
@@ -509,9 +520,9 @@ export function PracticeSession() {
   // ── Pre-submit review view ──────────────────────────────────────────────────
   if (view === 'review') {
     const charts = session.charts
-    const complete = charts.filter(c => chartStatus(entries[c.chart_id], ip, ed, em) === 'complete').length
-    const partial = charts.filter(c => chartStatus(entries[c.chart_id], ip, ed, em) === 'partial').length
-    const empty = charts.filter(c => chartStatus(entries[c.chart_id], ip, ed, em) === 'empty').length
+    const complete = charts.filter(c => chartStatus(entries[c.chart_id], c.specialty, ip, ed, em) === 'complete').length
+    const partial = charts.filter(c => chartStatus(entries[c.chart_id], c.specialty, ip, ed, em) === 'partial').length
+    const empty = charts.filter(c => chartStatus(entries[c.chart_id], c.specialty, ip, ed, em) === 'empty').length
     // Every chart untouched. Distinct from "some left": there is nothing here
     // to grade, so submitting can only be an accident.
     const nothingCoded = empty === charts.length && charts.length > 0
@@ -535,7 +546,7 @@ export function PracticeSession() {
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 28 }}>
           {charts.map(c => {
-            const st = chartStatus(entries[c.chart_id], ip, ed, em)
+            const st = chartStatus(entries[c.chart_id], c.specialty, ip, ed, em)
             const fl = entries[c.chart_id]?.flagged
             const qGap = queryTextMissing(entries[c.chart_id], ip)
             const qOn = ip && entries[c.chart_id]?.query_flag
@@ -636,7 +647,7 @@ export function PracticeSession() {
           </div>
           <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2, marginLeft: 24 }}>{session.specialty}</div>
           {(() => {
-            const done = charts.filter(c => chartStatus(entries[c.chart_id], ip, ed, em) === 'complete').length
+            const done = charts.filter(c => chartStatus(entries[c.chart_id], c.specialty, ip, ed, em) === 'complete').length
             const total = charts.length
             const pct = total ? Math.round((done / total) * 100) : 0
             return (
@@ -655,7 +666,7 @@ export function PracticeSession() {
 
         <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
           {charts.map(c => {
-            const st = chartStatus(entries[c.chart_id], ip, ed, em)
+            const st = chartStatus(entries[c.chart_id], c.specialty, ip, ed, em)
             const fl = entries[c.chart_id]?.flagged
             const active = c.chart_id === activeChartId
             return (
@@ -831,6 +842,7 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
   const pointers = usesPointers(chart.specialty)
   const singlePath = isSinglePath(chart.specialty)
   const units = usesUnits(chart.specialty)
+  const cptSection = usesCptSection(chart.specialty)
   const dxLabels = dxLabelList([entry.pdx_code, ...entry.sdx.map(sx => sx.code)])
 
   function updateCpt(idx: number, field: 'code' | 'modifier' | 'pointers' | 'units', val: string) {
@@ -1479,7 +1491,7 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
       )}
 
       {/* CPT Procedures (OP only) */}
-      {!ip && (
+      {cptSection && (
         <Section title="CPT Procedures" type="procedure">
           {/* Professional claims (CMS-1500) show the Dx list with its numbers,
               so the coder can see what each pointer letter refers to. */}
