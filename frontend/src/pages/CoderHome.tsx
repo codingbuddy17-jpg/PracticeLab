@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Search, BookOpen, Clock, X, ArrowUpDown, Pencil, ExternalLink, Monitor, ClipboardList } from 'lucide-react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
-import { searchCharts, getCategories, getResources } from '../api'
+import { searchCharts, getCategories, getResources, getChart } from '../api'
 import { ChartViewer } from '../components/ChartViewer'
 import { useLocalStorage } from '../hooks/useLocalStorage'
 import type { Chart, Specialty } from '../types'
@@ -13,6 +13,7 @@ type SortOption = 'chart_number' | 'recent'
 
 export function CoderHome() {
   const navigate = useNavigate()
+  const [params, setParams] = useSearchParams()
   const [coderName, setCoderName] = useLocalStorage<string>('coder_name', '')
   const [nameInput, setNameInput] = useState('')
   // Skipping is remembered. It used to set component state only, so the card
@@ -84,10 +85,52 @@ export function CoderHome() {
     setTotal(0)
   }
 
+  // ── The open chart is in the URL ──────────────────────────────────────────
+  // It was state alone, so an open chart could not be linked to, a reload
+  // dropped you back to search, and Back left the library altogether rather
+  // than closing the chart.
   const openChart = (chart: Chart) => {
     setSelectedChart(chart)
     setRecentlyViewed([chart, ...recentlyViewed.filter(c => c.id !== chart.id)].slice(0, 10))
+    const next = new URLSearchParams(params)
+    next.set('chart', String(chart.id))
+    setParams(next)          // a history entry, so Back closes the chart
   }
+
+  const closeChart = () => {
+    setSelectedChart(null)
+    const next = new URLSearchParams(params)
+    next.delete('chart')
+    setParams(next, { replace: true })
+  }
+
+  // Follow the URL, in both directions. Covers the cold link and the reload,
+  // where the chart is not in the loaded results and has to be fetched, and
+  // also the Back button, which changes the parameter without touching state.
+  const chartParam = params.get('chart')
+  useEffect(() => {
+    if (!chartParam) {
+      setSelectedChart(null)
+      return
+    }
+    if (selectedChart && String(selectedChart.id) === chartParam) return
+    const id = Number(chartParam)
+    if (!Number.isFinite(id)) return
+    const known = results.find(c => c.id === id) || recentlyViewed.find(c => c.id === id)
+    if (known) { setSelectedChart(known); return }
+    let cancelled = false
+    getChart(id)
+      .then(c => { if (!cancelled) setSelectedChart(c) })
+      .catch(() => {
+        if (cancelled) return
+        toast.error('That chart could not be opened. It may have been retired.')
+        const next = new URLSearchParams(params)
+        next.delete('chart')
+        setParams(next, { replace: true })
+      })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chartParam, results])
 
   const sortedResults = [...results].sort((a, b) => {
     if (sort === 'recent') return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
@@ -381,7 +424,7 @@ export function CoderHome() {
         <ChartViewer
           chart={selectedChart}
           viewerName={coderName || 'anonymous'}
-          onClose={() => setSelectedChart(null)}
+          onClose={closeChart}
         />
       )}
     </div>

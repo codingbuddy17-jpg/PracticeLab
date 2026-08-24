@@ -473,7 +473,16 @@ const styles: Record<string, React.CSSProperties> = {
   pageInfo: { fontSize: 13, color: '#374151', fontWeight: 600 },
   rationaleSubtitle: { fontSize: 12, color: '#6b7280' },
   rationaleBody: { padding: 14, border: '1px solid #e5e7eb', borderRadius: 8, minHeight: 100, fontSize: 14, lineHeight: 1.7, background: '#fafafa', overflowY: 'auto' as const, maxHeight: 360 },
-  modalActions: { display: 'flex', gap: 10, paddingTop: 4 },
+  // Pinned to the bottom of the scrolling body rather than scrolling with it.
+  // The body caps at 75vh, so on a short window the primary action sat below
+  // the fold and the dialog looked like it had no way to confirm. `bottom: -20`
+  // cancels the body's own padding so it sits flush.
+  modalActions: {
+    display: 'flex', gap: 10,
+    position: 'sticky' as const, bottom: -20,
+    background: '#fff', padding: '14px 0 20px', marginTop: 4,
+    borderTop: '1px solid #f1f5f9',
+  },
   primaryBtn: { padding: '10px 20px', background: '#4f46e5', color: '#fff', border: 'none', borderRadius: 7, cursor: 'pointer', fontWeight: 700, fontSize: 14 },
   cancelBtn: { padding: '10px 20px', background: '#fff', border: '1px solid #e5e7eb', borderRadius: 7, cursor: 'pointer', fontSize: 14 },
   input: { padding: '9px 11px', border: '1px solid #e5e7eb', borderRadius: 7, fontSize: 13 },

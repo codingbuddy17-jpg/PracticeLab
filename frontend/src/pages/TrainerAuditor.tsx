@@ -80,15 +80,28 @@ const st: Record<string, React.CSSProperties> = {
   },
   back: { display: 'flex', alignItems: 'center', gap: 3, color: '#6b7280', fontSize: 13, textDecoration: 'none' },
   brand: { fontSize: 16, fontWeight: 800, color: '#111' },
+  // Same tab treatment as PracticeLab and the auditor. The accent colour
+  // differs per module — that is identity — but the shape must not: three
+  // different tab designs for one control read as three different products.
+  // The 3px rule and the faint wash come from PracticeLab, where a 2px line
+  // proved easy to miss against the bar's own 1px bottom border.
   tabs: {
-    display: 'flex', gap: 6, padding: '12px 26px 0', background: '#fff',
-    borderBottom: '1px solid #e5e7eb', flexWrap: 'wrap', alignItems: 'center',
+    display: 'flex', gap: 0, padding: '0 24px', alignItems: 'flex-end',
+    background: 'rgba(255,255,255,0.6)', backdropFilter: 'blur(8px)',
+    borderBottom: '1px solid #e5e7eb', flexWrap: 'wrap',
   },
   tab: {
-    padding: '9px 15px', border: 'none', borderBottom: '2px solid transparent',
-    background: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#6b7280',
+    position: 'relative' as const, padding: '13px 22px 11px',
+    fontSize: 14, fontWeight: 700, letterSpacing: -0.1, color: '#64748b',
+    background: 'none', border: 'none', cursor: 'pointer',
+    borderBottom: '3px solid transparent',
+    transition: 'color 0.15s, background 0.15s',
   },
-  tabOn: { color: '#be185d', borderBottom: '2px solid #be185d' },
+  tabOn: {
+    color: '#be185d', borderBottom: '3px solid #be185d',
+    background: 'rgba(190,24,93,0.07)',
+    borderTopLeftRadius: 8, borderTopRightRadius: 8,
+  },
   settingsBtn: {
     marginLeft: 'auto', marginBottom: 8, display: 'flex', alignItems: 'center',
     gap: 6, padding: '7px 13px', border: '1px solid #e5e7eb', borderRadius: 8,

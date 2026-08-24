@@ -28,6 +28,15 @@ export async function searchInChart(chartId: number, q: string) {
   return data as { query: string; matching_pages: number[]; total_matches: number }
 }
 
+/**
+ * One chart by id. Needed to open the viewer from a link, where the chart is
+ * not already in the loaded search results — a shared URL, or a reload.
+ */
+export async function getChart(chartId: number): Promise<Chart> {
+  const { data } = await api.get(`/charts/${chartId}`)
+  return data
+}
+
 export async function getChartTrainer(chartId: number): Promise<ChartWithRationale> {
   const { data } = await api.get(`/charts/${chartId}/trainer`)
   return data
