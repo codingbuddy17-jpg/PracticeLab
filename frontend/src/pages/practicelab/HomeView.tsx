@@ -295,24 +295,28 @@ function BatchRow({ b, onOpen, statusColor }: any) {
       {/* Left accent */}
       <div style={{ ...s.accent, background: sc?.bg || '#94a3b8' }} />
 
-      {/* Main info */}
+      {/* Main info — one line.
+          The second line existed to carry five metadata items; four of them
+          have gone, and a whole line for one badge is height that costs you
+          batches on screen. Identity stays left (what this is), state and
+          actions stay right (where it stands, what you can do) — moving the
+          badges right would crowd the action cluster and leave the name
+          stranded on an empty row. */}
       <div style={s.info}>
         <div style={s.nameRow}>
           <span style={s.name}>{b.name}</span>
-          {b._direct && <span style={{ ...s.hint, color: '#7c3aed', background: '#ede9fe' }}>Direct</span>}
-          {hint && <span style={s.hint}>{hint}</span>}
-        </div>
         {/* A list exists to find and pick a batch, so a row carries identity,
             state and anything actionable — and nothing else. Coder count and
             cycle count are detail-view facts. "Nd open" duplicated the date
             grouping the rows already sit under. created_by was the same trainer
             on every row of their own screen. force-closed stays: it is rare, so
             it is informative, and it explains a closed batch nobody closed. */}
-        <div style={s.meta}>
           <span style={{ ...s.specialtyBadge, background: sc?.light || '#f1f5f9', color: sc?.bg || '#475569' }}>
             {b.specialty}
           </span>
-          {b.force_closed && <><span style={s.dot}>·</span><span style={{ ...s.metaItem, color: '#dc2626', fontWeight: 700 }}>force-closed</span></>}
+          {b._direct && <span style={{ ...s.hint, color: '#7c3aed', background: '#ede9fe' }}>Direct</span>}
+          {hint && <span style={s.hint}>{hint}</span>}
+          {b.force_closed && <span style={{ ...s.metaItem, color: '#dc2626', fontWeight: 700 }}>force-closed</span>}
         </div>
       </div>
 
@@ -406,14 +410,12 @@ const s: Record<string, React.CSSProperties> = {
   },
   rowDirect: {},
   accent: { width: 3, alignSelf: 'stretch', flexShrink: 0 },
-  info:   { flex: 1, padding: '10px 14px', display: 'flex', flexDirection: 'column' as const, gap: 3 },
+  info:   { flex: 1, padding: '10px 14px', display: 'flex', alignItems: 'center', minWidth: 0 },
 
-  nameRow: { display: 'flex', alignItems: 'center', gap: 8 },
+  nameRow: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' as const, minWidth: 0 },
   name:    { fontWeight: 700, fontSize: 13, color: '#111', lineHeight: 1.3 },
   hint:    { fontSize: 10, fontWeight: 700, color: '#4f46e5', background: '#eef2ff', padding: '1px 7px', borderRadius: 8 },
 
-  meta:    { display: 'flex', flexWrap: 'wrap' as const, alignItems: 'center', gap: 4 },
-  dot:     { fontSize: 10, color: '#d1d5db' },
   metaItem:{ fontSize: 11, color: '#9ca3af' },
   specialtyBadge: {
     fontSize: 10, fontWeight: 700, padding: '1px 7px',
