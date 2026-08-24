@@ -258,6 +258,19 @@ it is found only by looking at the chart. It was isolated by elimination
 (hardcode the data, add a fill, remove the Cells, disable the animation), which
 is the only way it will be found again.
 
+**A session's life is the batch's life, and only the WRITE ends.** Practice
+and audit tokens have no expiry column and never have, so the credential is
+permanent. A clock is the obvious fix and the wrong one: tokens are handed out
+days before the work, a batch runs for days rather than a sitting, and any
+duration either fires mid-batch or is long enough to protect nothing. Closing
+is already a deliberate trainer action meaning the work is done, so
+`assert_batch_open` is the expiry. It gates submitting; reading a session and
+its own feedback stays open afterwards, because a coder who cannot see how they
+did has lost the point of the exercise and nothing is protected by hiding it
+from them. The auditor module had this from the start; PracticeLab's four
+checks were all trainer-side and the coder's own submit was ungated until
+2026-08-24.
+
 **A guard must be per FIELD, not per file.** "Does this file mention
 `CodeSuggest`" passes as soon as one branch has it — which is how the E/M
 diagnosis rows and both key editors were reported as wired while rendering
