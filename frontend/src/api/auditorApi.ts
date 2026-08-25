@@ -219,6 +219,15 @@ export async function closeAuditBatch(batchId: number, closedBy: string) {
   return data
 }
 
+export async function forceCloseAuditBatch(
+  batchId: number, closedBy: string, reason: string, passphrase: string,
+) {
+  const { data } = await api.post(`/auditor/batches/${batchId}/force-close`, {
+    closed_by: closedBy, reason, passphrase,
+  })
+  return data
+}
+
 export async function reopenAuditBatch(batchId: number, reopenedBy: string, passphrase: string) {
   const { data } = await api.post(`/auditor/batches/${batchId}/reopen`,
     { reopened_by: reopenedBy, passphrase })

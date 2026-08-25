@@ -312,8 +312,20 @@ def sets_by_chart(db: Session, chart_ids: list[int]) -> dict[int, list[AuditKeyS
     charts = {
         c.id: c for c in db.query(Chart).filter(Chart.id.in_(chart_ids)).all()
     }
-    keys = {chart_id: audit_key_for(db, chart)
-            for chart_id, chart in charts.items()}
+    # audit_key_for issues a query per chart, and this called it once per chart
+    # — free against a local file, seconds of sequential round trips against a
+    # remote database. The ordinary keys come back in ONE query; only the E/M
+    # and ED Profee charts still need their own lookup, because their truth
+    # lives in a second table with no ORM model, and they are a minority of any
+    # pool rather than all of it.
+    ordinary = {k.chart_id: k for k in db.query(AnswerKey)
+                .filter(AnswerKey.chart_id.in_(chart_ids)).all()}
+    keys = {}
+    for chart_id, chart in charts.items():
+        if chart.specialty in EM_KEY_SPECIALTIES:
+            keys[chart_id] = audit_key_for(db, chart)
+        else:
+            keys[chart_id] = ordinary.get(chart_id)
     rows = (db.query(AuditKeySet)
             .filter(AuditKeySet.chart_id.in_(chart_ids))
             .order_by(AuditKeySet.id)

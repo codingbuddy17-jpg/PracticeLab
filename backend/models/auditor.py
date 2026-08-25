@@ -148,6 +148,12 @@ class AuditBatch(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     closed_at = Column(DateTime(timezone=True), nullable=True)
     closed_by = Column(String(100), nullable=True)
+    # Closed with work still outstanding. PracticeLab has had this since it was
+    # built; the auditor module refused instead, which left a batch permanently
+    # open when an auditor never sat their session. The reason is required, so
+    # a forced close explains itself later.
+    force_closed = Column(Boolean, nullable=False, default=False)
+    force_close_reason = Column(Text, nullable=True)
     force_closed = Column(Boolean, nullable=False, default=False)
     force_close_reason = Column(Text, nullable=True)
     notes = Column(JSON, nullable=True, default=list)

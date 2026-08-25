@@ -403,6 +403,11 @@ def _run_migrations():
     # was one whose coders were shown nothing, so FALSE is the truthful
     # backfill, not merely the safe one.
     _add_col("generated_assessments", "show_results_to_coder", "BOOLEAN NOT NULL DEFAULT FALSE")
+    # Force-close on audit batches. PracticeLab batches have had these for a
+    # long time; the auditor module had no way to close a batch with an
+    # unsubmitted session at all.
+    _add_col("audit_batches", "force_closed", "BOOLEAN NOT NULL DEFAULT FALSE")
+    _add_col("audit_batches", "force_close_reason", "TEXT")
 
     # ── generated_assessment_students table ───────────────────────────────────
     _run("""CREATE TABLE IF NOT EXISTS generated_assessment_students (

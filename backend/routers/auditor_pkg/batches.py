@@ -23,7 +23,7 @@ from models import (
     Chart,
 )
 from services.allocation import draw_for_person
-from services.audit_observations import load_observations, summarise
+from services.audit_observations import load_observations_bulk, summarise
 from services.audit_allocation import (
     assign_intents, build_assignment, build_corpus, new_token, resolve_quotas,
     resolve_source,
@@ -423,8 +423,10 @@ def run_allocation(batch_id: int, payload: AllocationRun, db: Session = Depends(
     # CURRENT answer key so a key that has since been corrected cannot
     # resurrect a stale "error". Harvested once per cycle rather than per
     # auditor — the observations are a property of the chart.
-    observed = {c.id: load_observations(db, c.id, keys.get(c.id))
-                for c in pool if keys.get(c.id)}
+    # One query for the whole pool. This was one per chart, which is free
+    # against a local file and seconds of sequential round trips against a
+    # remote database — the reason "Run allocation" sat greyed out.
+    observed = load_observations_bulk(db, [c.id for c in pool], keys)
 
     total, notes, issued = 0, [], []
     for auditor in auditors:
@@ -717,6 +719,43 @@ def close_batch(batch_id: int, payload: BatchClose, db: Session = Depends(get_db
     batch.closed_by = payload.closed_by
     db.commit()
     return {"closed": True, "batch_id": batch_id}
+
+
+class BatchForceClose(BaseModel):
+    closed_by: str
+    reason: str
+    passphrase: str
+
+
+@router.post("/batches/{batch_id}/force-close")
+def force_close_batch(batch_id: int, payload: BatchForceClose,
+                      db: Session = Depends(get_db)):
+    """
+    Close a batch with sessions still outstanding.
+
+    The ordinary close refuses while any assigned chart is unsubmitted, which
+    is right — closing turns scores into the record, and a batch closed with
+    half its work missing reports a cohort that never happened. But refusing
+    was the ONLY behaviour, so an auditor who left, or simply never sat their
+    session, left the batch open permanently with no way out. PracticeLab has
+    had force-close since it was built; this is the same escape hatch.
+
+    Passphrase-gated and the reason is required, because a forced close has to
+    explain itself to whoever reads the analytics later.
+    """
+    require_passphrase(payload.passphrase, "force-close an audit batch")
+    if not payload.reason.strip():
+        raise HTTPException(400, "A reason is required to force-close a batch")
+    batch = get_batch_or_404(db, batch_id)
+    if batch.status == BatchStatus.CLOSED:
+        raise HTTPException(400, "Already closed")
+    batch.status = BatchStatus.CLOSED
+    batch.closed_at = datetime.utcnow()
+    batch.closed_by = payload.closed_by
+    batch.force_closed = True
+    batch.force_close_reason = payload.reason.strip()
+    db.commit()
+    return {"closed": True, "forced": True, "batch_id": batch_id}
 
 
 class BatchReopen(BaseModel):

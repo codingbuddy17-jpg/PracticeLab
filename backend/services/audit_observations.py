@@ -176,6 +176,45 @@ def _compare_fields(note, section: str, key_row: dict, sub_row: dict) -> None:
                  correct_value=key_row.get(fld) or "")
 
 
+def load_observations_bulk(db, chart_ids, keys) -> dict:
+    """
+    Observations for many charts in ONE query.
+
+    load_observations below issues a query per chart, and allocation called it
+    once per chart in the pool. That is invisible against a local SQLite file
+    and expensive against a remote database, where the cost is round trips
+    rather than work: a 120-chart pool meant 120 sequential round trips before
+    a single assignment was built.
+
+    `keys` maps chart_id -> key. Charts with no key are skipped, as before.
+    """
+    from sqlalchemy import text
+
+    wanted = [cid for cid in chart_ids if keys.get(cid)]
+    if not wanted:
+        return {}
+
+    grouped: dict = {cid: [] for cid in wanted}
+    # Chunked so a very large pool cannot build an unbounded IN list.
+    for i in range(0, len(wanted), 500):
+        chunk = wanted[i:i + 500]
+        placeholders = ", ".join(":c%d" % n for n in range(len(chunk)))
+        params = {"c%d" % n: cid for n, cid in enumerate(chunk)}
+        rows = db.execute(text("""
+            SELECT chart_id, pdx_submitted, sdx_submitted, pcs_submitted, cpt_submitted
+            FROM practice_results
+            WHERE chart_id IN (%s) AND total_score IS NOT NULL
+        """ % placeholders), params).fetchall()
+        for r in rows:
+            grouped[r[0]].append({
+                "pdx_submitted": r[1], "sdx_submitted": r[2],
+                "pcs_submitted": r[3], "cpt_submitted": r[4],
+            })
+
+    return {cid: observations_for_chart(subs, keys[cid])
+            for cid, subs in grouped.items()}
+
+
 def load_observations(db, chart_id: int, key,
                       exclude_auditor_facing: bool = True) -> list[Observation]:
     """

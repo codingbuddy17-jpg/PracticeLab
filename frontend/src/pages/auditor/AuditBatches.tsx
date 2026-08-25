@@ -7,7 +7,7 @@ import {
 } from 'lucide-react'
 import { AuditReview } from './AuditReview'
 import {
-  closeAuditBatch, createAuditBatch, getAuditableCharts, getAuditBatch,
+  closeAuditBatch, createAuditBatch, forceCloseAuditBatch, getAuditableCharts, getAuditBatch,
   getAuditPlantings,
   downloadAuditBatchReportPdf, downloadAuditBatchResults, listAuditBatches, regenerateAssignment,
   reopenAuditBatch, runAuditAllocation,
@@ -707,6 +707,9 @@ function AuditBatchDetail({ batchId, trainer, onBack, onReview }: {
   const [searching, setSearching] = useState(false)
   const [confirmingClose, setConfirmingClose] = useState(false)
   const [closing, setClosing] = useState(false)
+  const [forcing, setForcing] = useState(false)
+  const [forcePass, setForcePass] = useState('')
+  const [forceReason, setForceReason] = useState('')
   const [reopenPass, setReopenPass] = useState('')
 
   const load = useCallback(async () => {
@@ -776,6 +779,22 @@ function AuditBatchDetail({ batchId, trainer, onBack, onReview }: {
       const err = e as { response?: { data?: { detail?: string } } }
       toast.error(err?.response?.data?.detail || 'Could not reroll')
     }
+  }
+
+  async function forceClose() {
+    if (!forcePass.trim()) return toast.error('Passphrase required to force-close')
+    if (!forceReason.trim()) return toast.error('A reason is required')
+    setClosing(true)
+    try {
+      await forceCloseAuditBatch(batchId, trainer, forceReason, forcePass)
+      toast.success('Batch force-closed')
+      setForcing(false); setForcePass(''); setForceReason('')
+      load()
+    } catch (e) {
+      const err = e as { response?: { data?: { detail?: string } } }
+      toast.error(err?.response?.data?.detail || 'Could not force-close the batch')
+    }
+    setClosing(false)
   }
 
   async function close() {
@@ -877,12 +896,48 @@ function AuditBatchDetail({ batchId, trainer, onBack, onReview }: {
                 </button>
               </>
             )}
-            {!confirmingClose ? (
+            {/* The button was disabled whenever anything was outstanding, with
+                the reason only in a hover title — so it read as a button that
+                does nothing. The count is on screen now, and there is a way
+                through: refusing was previously the ONLY behaviour, which left
+                a batch open forever when an auditor never sat their session. */}
+            {batch.pending_scoring > 0 && !forcing ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: 12, color: '#92400e' }}>
+                  Cannot close — <strong>{batch.pending_scoring}</strong> assigned
+                  chart{batch.pending_scoring === 1 ? '' : 's'} not yet submitted.
+                </span>
+                <button style={{ ...s.destructiveOutlineBtn, padding: '5px 12px', fontSize: 12 }}
+                  onClick={() => setForcing(true)}>
+                  Force close…
+                </button>
+              </div>
+            ) : forcing ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+                            background: '#fff7ed', border: '1px solid #fed7aa',
+                            borderRadius: 8, padding: '8px 12px' }}>
+                <span style={{ fontSize: 12, color: '#92400e', fontWeight: 600 }}>
+                  Closing with {batch.pending_scoring} unsubmitted. Scores become the record.
+                </span>
+                <input style={{ ...s.input, width: 210 }} value={forceReason}
+                  placeholder="Reason (recorded on the batch)"
+                  onChange={e => setForceReason(e.target.value)} />
+                <input style={{ ...s.input, width: 150 }} type="password"
+                  autoComplete="new-password" value={forcePass}
+                  placeholder="Master passphrase"
+                  onChange={e => setForcePass(e.target.value)} />
+                <button style={{ ...s.destructiveBtn, padding: '5px 12px', fontSize: 12 }}
+                  disabled={closing} onClick={forceClose}>
+                  {closing ? 'Closing…' : 'Force close'}
+                </button>
+                <button style={{ ...s.outlineBtn, padding: '5px 12px', fontSize: 12 }}
+                  onClick={() => { setForcing(false); setForcePass(''); setForceReason('') }}>
+                  Cancel
+                </button>
+              </div>
+            ) : !confirmingClose ? (
               <button style={s.destructiveOutlineBtn}
-                disabled={batch.pending_scoring > 0}
-                title={batch.pending_scoring > 0
-                  ? `${batch.pending_scoring} assigned chart(s) have not been submitted yet`
-                  : 'Close this batch'}
+                title="Close this batch"
                 onClick={() => setConfirmingClose(true)}>
                 ✕ Close Batch
               </button>
