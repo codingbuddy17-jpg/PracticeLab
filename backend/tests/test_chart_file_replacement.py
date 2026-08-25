@@ -69,7 +69,8 @@ def _chart_with_history(db):
 
 
 def _post(client, chart_id, **form):
-    body = {"uploaded_by": "Trainer", "reason": "PHI on page 2"}
+    body = {"uploaded_by": "Trainer", "reason": "PHI on page 2",
+            "passphrase": PASSPHRASE}
     body.update(form)
     return client.post("/upload/%d/replace-files" % chart_id,
                        files=[("files", ("fixed.pdf", b"x", "application/pdf"))],
@@ -84,11 +85,17 @@ class TestReplaceChartFiles:
         assert r.status_code == 400
         assert "reason" in r.text.lower()
 
-    def test_someone_else_needs_the_passphrase(self, client, db, stub_ingest):
+    def test_the_passphrase_is_always_required(self, client, db, stub_ingest):
+        """
+        Unlike add-files, which only asks when the chart belongs to somebody
+        else. Appending can be undone by deleting what was added; this destroys
+        the only copy of the original pages and cannot be undone by anyone.
+        """
         c = _chart_with_history(db)
-        assert _post(client, c.id, uploaded_by="Someone Else").status_code == 403
-        assert _post(client, c.id, uploaded_by="Someone Else",
-                     passphrase=PASSPHRASE).status_code == 200
+        # The chart's own uploader, who add-files would let through unchallenged.
+        assert _post(client, c.id, passphrase="").status_code == 403
+        assert _post(client, c.id, passphrase="wrong").status_code == 403
+        assert _post(client, c.id).status_code == 200
 
     def test_the_old_pages_go_and_the_new_ones_are_numbered_from_zero(self, client, db, stub_ingest):
         c = _chart_with_history(db)
@@ -132,3 +139,60 @@ class TestReplaceChartFiles:
         assert entry is not None, "a replacement left no audit trail"
         assert "PHI on page 2" in entry.details
         assert "1 existing grading result" in entry.details
+
+
+class TestReplacingTwice:
+    """
+    Replacing the same chart twice must not destroy it.
+
+    ingest_file bakes the page index into the storage key. The first version of
+    this endpoint started every ingest at a constant offset, so a second
+    replacement with the same filename wrote to exactly the keys it was then
+    about to delete — leaving rows pointing at objects that no longer existed.
+    A broken chart, produced by the cleanup step that was supposed to be
+    careful about precisely this.
+    """
+
+    def test_a_second_replacement_leaves_every_page_fetchable(self, client, db, monkeypatch):
+        import routers.upload as up
+
+        store = set()
+
+        def fake_ingest(db_, cid, fn, data, by, page_order_start=0):
+            for i in range(2):
+                key = "charts/%d/%04d_%s.png" % (cid, page_order_start + i, fn)
+                store.add(key)
+                db_.add(ChartFile(chart_id=cid, storage_key=key, original_filename=fn,
+                                  page_order=page_order_start + i, total_pages=2,
+                                  uploaded_by=by))
+            db_.flush()
+            return 2
+
+        monkeypatch.setattr(up, "ingest_file", fake_ingest)
+        monkeypatch.setattr(up, "delete_object", lambda k: store.discard(k))
+
+        c = Chart(chart_number="IP701", specialty=Specialty.IP_DRG, category="Cardio",
+                  difficulty=Difficulty.INTERMEDIATE, status=ChartStatus.ACTIVE,
+                  uploaded_by="Trainer")
+        db.add(c); db.flush()
+        for i in range(2):
+            key = "charts/%d/%04d_orig.pdf.png" % (c.id, i)
+            store.add(key)
+            db.add(ChartFile(chart_id=c.id, storage_key=key, original_filename="orig.pdf",
+                             page_order=i, total_pages=2, uploaded_by="Trainer"))
+        db.commit()
+
+        # The same filename both times, which is what made the keys collide.
+        for attempt in (1, 2):
+            r = client.post("/upload/%d/replace-files" % c.id,
+                            files=[("files", ("fixed.pdf", b"x", "application/pdf"))],
+                            data={"uploaded_by": "Trainer", "reason": "PHI",
+                                  "passphrase": PASSPHRASE})
+            assert r.status_code == 200, r.text
+            db.expire_all()
+            rows = db.query(ChartFile).filter(ChartFile.chart_id == c.id).all()
+            missing = [f.storage_key for f in rows if f.storage_key not in store]
+            assert not missing, (
+                "after replacement %d, %d page(s) point at objects that were "
+                "deleted: %s" % (attempt, len(missing), missing))
+            assert len(rows) == 2

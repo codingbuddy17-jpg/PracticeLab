@@ -159,10 +159,14 @@ export function TrainerCharts() {
   const handleAddFiles = async (files: FileList | null) => {
     if (!files || !addingFiles || !actor.trim()) return
     const needsPassphrase = addingFiles.uploaded_by !== actor
-    if (needsPassphrase && !addFilesPassphrase.trim()) { toast.error('Master admin passphrase required'); return }
+    // Replace always needs it, even from the chart's own uploader: appending
+    // can be undone by deleting what was added, replacing destroys the only
+    // copy of the original pages.
+    const passRequired = needsPassphrase || filesMode === 'replace'
+    if (passRequired && !addFilesPassphrase.trim()) { toast.error('Master admin passphrase required'); return }
     if (filesMode === 'replace' && !replaceReason.trim()) { toast.error('A reason is required to replace pages'); return }
     try {
-      const pass = needsPassphrase ? addFilesPassphrase : undefined
+      const pass = passRequired ? addFilesPassphrase : undefined
       const res = filesMode === 'replace'
         ? await replaceChartFiles(addingFiles.id, Array.from(files), actor, replaceReason, pass)
         : await addFilesToChart(addingFiles.id, Array.from(files), actor, pass)
@@ -424,12 +428,12 @@ export function TrainerCharts() {
                 placeholder="e.g. PHI visible on page 2" />
             </Field>
           )}
-          {addingFiles.uploaded_by !== actor && (
+          {addingFiles.uploaded_by !== actor && filesMode === 'append' && (
             <div style={{ background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 7, padding: '10px 12px', fontSize: 13, color: '#78350f' }}>
               This chart was uploaded by <strong>{addingFiles.uploaded_by}</strong>. Master admin passphrase required.
             </div>
           )}
-          {addingFiles.uploaded_by !== actor && (
+          {(addingFiles.uploaded_by !== actor || filesMode === 'replace') && (
             <Field label="Master Admin Passphrase">
               <input style={styles.input} type="password" autoComplete="new-password" value={addFilesPassphrase}
                 onChange={e => setAddFilesPassphrase(e.target.value)}

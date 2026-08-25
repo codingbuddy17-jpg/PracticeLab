@@ -182,16 +182,27 @@ def replace_chart_files(
     if not reason.strip():
         raise HTTPException(status_code=400, detail="A reason is required to replace chart pages")
 
+    # Always, not only for a chart somebody else uploaded — which is the rule
+    # add-files uses. Appending is additive and undoable by deleting what was
+    # added; this destroys the only copy of the original pages and cannot be
+    # undone by anyone. It is also rare, so the friction is affordable, and it
+    # matches purge, the other operation that destroys source material.
+    if passphrase != settings.MASTER_ADMIN_PASSPHRASE:
+        raise HTTPException(status_code=403, detail="Master admin passphrase required to replace chart pages")
+
     chart = db.query(Chart).filter(Chart.id == chart_id).first()
     if not chart:
         raise HTTPException(status_code=404, detail="Chart not found")
-    if chart.uploaded_by != uploaded_by:
-        if passphrase != settings.MASTER_ADMIN_PASSPHRASE:
-            raise HTTPException(status_code=403, detail="Invalid passphrase")
 
     existing = db.query(ChartFile).filter(ChartFile.chart_id == chart_id).all()
-    old_keys = [f.storage_key for f in existing if f.storage_key]
+    old_ids = {f.id for f in existing}
+    old_keys = {f.storage_key for f in existing if f.storage_key}
     old_pages = len(existing)
+    # Start above the highest page currently held. ingest_file bakes the page
+    # index into the storage key, so starting from a constant meant a second
+    # replacement of the same chart, with the same filename, wrote to the keys
+    # it was about to delete.
+    next_order = max((f.page_order for f in existing), default=-1) + 1
     graded = db.query(GradingResult).filter(
         GradingResult.chart_id == chart_id).count()
 
@@ -201,9 +212,17 @@ def replace_chart_files(
     for upload_file in files:
         filename = upload_file.filename or "unknown"
         added += ingest_file(db, chart_id, filename, upload_file.file.read(),
-                             uploaded_by, page_order_start=1000 + added)
+                             uploaded_by, page_order_start=next_order + added)
     if added == 0:
         raise HTTPException(status_code=400, detail="No pages could be read from the upload")
+
+    # Whatever the new pages actually landed on. A key the replacement now uses
+    # must never be deleted, however the naming worked out — a stale object
+    # costs storage, a row pointing at a deleted object is a broken chart.
+    new_keys = {f.storage_key for f in db.query(ChartFile)
+                .filter(ChartFile.chart_id == chart_id).all()
+                if f.id not in old_ids and f.storage_key}
+    stale_keys = old_keys - new_keys
 
     for row in existing:
         db.delete(row)
@@ -222,7 +241,7 @@ def replace_chart_files(
 
     # Only once the database is consistent. An orphaned object costs storage;
     # a deleted object with a row still pointing at it is a broken chart.
-    for key in old_keys:
+    for key in stale_keys:
         try:
             delete_object(key)
         except Exception:  # noqa: BLE001 - storage cleanup must not fail the swap
