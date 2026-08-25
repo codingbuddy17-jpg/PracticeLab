@@ -228,6 +228,11 @@ def list_sessions(assessment_id: int,
     }
 
     rows = []
+    # One query for the page rather than one per session.
+    results_by_session = {r.session_id: r for r in db.query(AssessmentResult)
+        .filter(AssessmentResult.session_id.in_([s.id for s in sessions])).all()} \
+        if sessions else {}
+
     for s in sessions:
         # The sweep persists this now, so the status on the row is the status.
         # Computing it here as well was how "expired" came to exist on one
@@ -239,7 +244,7 @@ def list_sessions(assessment_id: int,
             and now > as_utc(s.expires_at)
         ) else s.status
 
-        result = db.query(AssessmentResult).filter(AssessmentResult.session_id == s.id).first()
+        result = results_by_session.get(s.id)
         rows.append({
             "session_id": s.id,
             "session_token": s.session_token,

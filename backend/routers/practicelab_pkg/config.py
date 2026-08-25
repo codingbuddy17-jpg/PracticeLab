@@ -539,9 +539,14 @@ def list_charts_without_keys(specialty: Optional[str] = None,
     if page is not None:
         q = q.offset((page - 1) * page_size).limit(page_size)
     charts = q.all()
+    # One query for the page rather than one per chart. Bounded by page size,
+    # so this was ~25-50 sequential round trips on every page load.
+    graded_ids = {r[0] for r in db.query(GradingResult.chart_id)
+                  .filter(GradingResult.chart_id.in_([c.id for c in charts]))
+                  .distinct().all()} if charts else set()
     result = []
     for c in charts:
-        has_grading = db.query(GradingResult).filter(GradingResult.chart_id == c.id).first() is not None
+        has_grading = c.id in graded_ids
         result.append({
             "chart_id": c.id,
             "chart_number": c.chart_number,
