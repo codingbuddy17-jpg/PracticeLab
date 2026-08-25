@@ -30,10 +30,10 @@ from services.audit_allocation import (
 )
 from services.code_enrichment import (ccmcc_label, chapter_label,
                                       enrich_codes, lookup, pcs_axis_labels)
-from .shared import (audit_key_for,
-
-    chart_pool, get_batch_or_404, mutation_config, parse_specialty,
-    require_passphrase, scoring_config, sets_by_chart,
+from .shared import (
+    audit_key_for, audit_keys_for_charts, chart_pool, get_batch_or_404,
+    mutation_config, parse_specialty, require_passphrase, scoring_config,
+    sets_by_chart,
 )
 
 router = APIRouter()
@@ -412,8 +412,10 @@ def run_allocation(batch_id: int, payload: AllocationRun, db: Session = Depends(
 
     # Per chart rather than one query, because E/M charts read a different
     # table. audit_key_for is the single place that knows which.
-    keys = {c.id: audit_key_for(db, c) for c in pool}
-    keys = {cid: k for cid, k in keys.items() if k is not None}
+    # One query for the ordinary keys rather than one per chart. This was the
+    # third of three N+1 loops in this function, and the first one to run.
+    keys = {cid: k for cid, k in audit_keys_for_charts(db, pool).items()
+            if k is not None}
     corpus = build_corpus(db.query(AnswerKey).filter(
         AnswerKey.specialty == batch.specialty).all(), db)
     mcfg = mutation_config(db, batch.specialty)

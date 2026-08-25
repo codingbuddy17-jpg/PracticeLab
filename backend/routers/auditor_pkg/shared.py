@@ -306,26 +306,41 @@ def audit_key_for(db: Session, chart):
     return db.query(AnswerKey).filter(AnswerKey.chart_id == chart.id).first()
 
 
+def audit_keys_for_charts(db: Session, charts) -> dict:
+    """
+    audit_key_for, for many charts, without a query each.
+
+    The ordinary keys come back in ONE query. Only E/M and ED Profee charts
+    still need an individual lookup, because their truth lives in a second
+    table with no ORM model — and they are a minority of any pool rather than
+    all of it.
+
+    Returns chart_id -> key, including None for charts nobody has keyed, which
+    is a legal state; callers filter it themselves as they always did.
+    """
+    charts = list(charts)
+    if not charts:
+        return {}
+    ids = [c.id for c in charts]
+    ordinary = {}
+    for i in range(0, len(ids), 500):
+        chunk = ids[i:i + 500]
+        ordinary.update({k.chart_id: k for k in db.query(AnswerKey)
+                         .filter(AnswerKey.chart_id.in_(chunk)).all()})
+    out = {}
+    for c in charts:
+        out[c.id] = (audit_key_for(db, c) if c.specialty in EM_KEY_SPECIALTIES
+                     else ordinary.get(c.id))
+    return out
+
+
 def sets_by_chart(db: Session, chart_ids: list[int]) -> dict[int, list[AuditKeySet]]:
     if not chart_ids:
         return {}
     charts = {
         c.id: c for c in db.query(Chart).filter(Chart.id.in_(chart_ids)).all()
     }
-    # audit_key_for issues a query per chart, and this called it once per chart
-    # — free against a local file, seconds of sequential round trips against a
-    # remote database. The ordinary keys come back in ONE query; only the E/M
-    # and ED Profee charts still need their own lookup, because their truth
-    # lives in a second table with no ORM model, and they are a minority of any
-    # pool rather than all of it.
-    ordinary = {k.chart_id: k for k in db.query(AnswerKey)
-                .filter(AnswerKey.chart_id.in_(chart_ids)).all()}
-    keys = {}
-    for chart_id, chart in charts.items():
-        if chart.specialty in EM_KEY_SPECIALTIES:
-            keys[chart_id] = audit_key_for(db, chart)
-        else:
-            keys[chart_id] = ordinary.get(chart_id)
+    keys = audit_keys_for_charts(db, charts.values())
     rows = (db.query(AuditKeySet)
             .filter(AuditKeySet.chart_id.in_(chart_ids))
             .order_by(AuditKeySet.id)
