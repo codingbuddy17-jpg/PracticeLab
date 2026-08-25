@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useSmartBack } from '../hooks/useSmartBack'
 import { ChevronLeft, Edit2, Archive, RotateCcw, PlusCircle, Eye, BookOpen, ChevronRight, Search } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { searchCharts, updateChart, retireChart, restoreChart, addFilesToChart, getChartTrainer } from '../api'
+import { searchCharts, updateChart, retireChart, restoreChart, addFilesToChart, replaceChartFiles, getChartTrainer } from '../api'
 import { RationaleEditor } from '../components/RationaleEditor'
 import { useLocalStorage } from '../hooks/useLocalStorage'
 import type { Chart, ChartStatus, Specialty, Difficulty } from '../types'
@@ -38,6 +38,11 @@ export function TrainerCharts() {
   const [addFilesPassphrase, setAddFilesPassphrase] = useState('')
   const [saving, setSaving] = useState(false)
   const [addingFiles, setAddingFiles] = useState<Chart | null>(null)
+  // Append leaves the existing pages and adds to them; replace swaps them.
+  // Replace exists for PHI that survived de-identification: appending a
+  // corrected copy would leave the original pages sitting in the chart.
+  const [filesMode, setFilesMode] = useState<'append' | 'replace'>('append')
+  const [replaceReason, setReplaceReason] = useState('')
   const [viewingRationale, setViewingRationale] = useState<{ chart: Chart; rationale: string } | null>(null)
   const [actionModal, setActionModal] = useState<{
     chart: Chart; action: 'retire' | 'restore'; name: string; passphrase: string; loading: boolean
@@ -147,17 +152,27 @@ export function TrainerCharts() {
     } catch { toast.error('Could not load rationale') }
   }
 
+  const closeFilesModal = () => {
+    setAddingFiles(null); setAddFilesPassphrase(''); setReplaceReason(''); setFilesMode('append')
+  }
+
   const handleAddFiles = async (files: FileList | null) => {
     if (!files || !addingFiles || !actor.trim()) return
     const needsPassphrase = addingFiles.uploaded_by !== actor
     if (needsPassphrase && !addFilesPassphrase.trim()) { toast.error('Master admin passphrase required'); return }
+    if (filesMode === 'replace' && !replaceReason.trim()) { toast.error('A reason is required to replace pages'); return }
     try {
-      const res = await addFilesToChart(addingFiles.id, Array.from(files), actor, needsPassphrase ? addFilesPassphrase : undefined)
+      const pass = needsPassphrase ? addFilesPassphrase : undefined
+      const res = filesMode === 'replace'
+        ? await replaceChartFiles(addingFiles.id, Array.from(files), actor, replaceReason, pass)
+        : await addFilesToChart(addingFiles.id, Array.from(files), actor, pass)
       toast.success(res.message)
-      setAddingFiles(null)
-      setAddFilesPassphrase('')
+      closeFilesModal()
       load(page)
-    } catch (err: any) { toast.error(err?.response?.data?.detail || 'Failed to add files') }
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail
+        || (filesMode === 'replace' ? 'Failed to replace pages' : 'Failed to add files'))
+    }
   }
 
   const toggleSelect = (id: number) => {
@@ -374,8 +389,41 @@ export function TrainerCharts() {
 
       {/* Add files modal */}
       {addingFiles && (
-        <Modal title={`Add Files to ${addingFiles.chart_number}`} onClose={() => setAddingFiles(null)}>
+        <Modal
+          title={`${filesMode === 'replace' ? 'Replace pages of' : 'Add files to'} ${addingFiles.chart_number}`}
+          onClose={closeFilesModal}>
+          {/* One place for "change this chart's pages", two things it can do.
+              Appending was the only option, so a chart with PHI on a page could
+              be corrected only by leaving the original page in it. */}
+          <div style={{ display: 'flex', gap: 6 }}>
+            {(['append', 'replace'] as const).map(m => (
+              <button key={m} onClick={() => setFilesMode(m)}
+                style={{
+                  flex: 1, padding: '7px 10px', fontSize: 12, fontWeight: 700,
+                  borderRadius: 7, cursor: 'pointer',
+                  border: `1px solid ${filesMode === m ? '#4f46e5' : '#e5e7eb'}`,
+                  background: filesMode === m ? '#eef2ff' : '#fff',
+                  color: filesMode === m ? '#4f46e5' : '#6b7280',
+                }}>
+                {m === 'append' ? 'Add pages' : 'Replace all pages'}
+              </button>
+            ))}
+          </div>
+          {filesMode === 'replace' && (
+            <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 7,
+                          padding: '10px 12px', fontSize: 13, color: '#92400e' }}>
+              Every existing page is deleted and replaced. The chart number, answer key
+              and all grading results stay attached — only the images change.
+            </div>
+          )}
           <Field label="Your Name"><input style={styles.input} value={actor} onChange={e => setActor(e.target.value)} placeholder="Your name" /></Field>
+          {filesMode === 'replace' && (
+            <Field label="Reason">
+              <input style={styles.input} value={replaceReason}
+                onChange={e => setReplaceReason(e.target.value)}
+                placeholder="e.g. PHI visible on page 2" />
+            </Field>
+          )}
           {addingFiles.uploaded_by !== actor && (
             <div style={{ background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 7, padding: '10px 12px', fontSize: 13, color: '#78350f' }}>
               This chart was uploaded by <strong>{addingFiles.uploaded_by}</strong>. Master admin passphrase required.
@@ -388,11 +436,11 @@ export function TrainerCharts() {
                 placeholder="Enter passphrase" />
             </Field>
           )}
-          <Field label="Select Files to Append">
+          <Field label={filesMode === 'replace' ? 'Select the replacement file(s)' : 'Select files to append'}>
             <input type="file" multiple accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.tiff" onChange={e => handleAddFiles(e.target.files)} />
           </Field>
           <div style={styles.modalActions}>
-            <button style={styles.cancelBtn} onClick={() => setAddingFiles(null)}>Cancel</button>
+            <button style={styles.cancelBtn} onClick={closeFilesModal}>Cancel</button>
           </div>
         </Modal>
       )}

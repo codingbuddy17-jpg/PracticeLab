@@ -92,6 +92,25 @@ export async function bulkUpload(
   return data
 }
 
+/**
+ * Swap a chart's pages for a corrected copy. The chart number, answer key,
+ * audit history and every grading result stay attached — only the images
+ * change. The reason is required and lands in the audit log.
+ */
+export async function replaceChartFiles(
+  chartId: number, files: File[], uploadedBy: string, reason: string, passphrase?: string,
+): Promise<{ message: string; pages_removed: number; pages_added: number; grading_results_kept: number }> {
+  const form = new FormData()
+  files.forEach(f => form.append('files', f))
+  form.append('uploaded_by', uploadedBy)
+  form.append('reason', reason)
+  if (passphrase) form.append('passphrase', passphrase)
+  const { data } = await api.post(`/upload/${chartId}/replace-files`, form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  return data
+}
+
 export async function addFilesToChart(chartId: number, files: File[], uploadedBy: string, passphrase?: string): Promise<{ message: string }> {
   const form = new FormData()
   files.forEach(f => form.append('files', f))
