@@ -43,6 +43,55 @@ function sectionBreakers(pages: { page: number; text: string; has_text: boolean 
   return [...seen.entries()].map(([label, page]) => ({ label, page }))
 }
 
+function sectionLabelForLine(line: string) {
+  const compact = line.trim().replace(/\s+/g, ' ')
+  const withoutColon = compact.replace(/:$/, '')
+  for (const section of SECTION_PATTERNS) {
+    if (section.pattern.test(compact)) return section.label
+  }
+  if (/^[A-Z0-9 /&().,'-]{4,72}:?$/.test(compact) && /[A-Z]/.test(compact)) {
+    return withoutColon
+  }
+  return ''
+}
+
+function textBlocks(text: string) {
+  const lines = text.replace(/\r\n/g, '\n').split('\n')
+  const blocks: Array<
+    | { kind: 'heading'; text: string }
+    | { kind: 'field'; label: string; value: string }
+    | { kind: 'text'; text: string }
+    | { kind: 'gap' }
+  > = []
+  let previousGap = false
+
+  for (const raw of lines) {
+    const line = raw.trim()
+    if (!line) {
+      if (!previousGap && blocks.length) blocks.push({ kind: 'gap' })
+      previousGap = true
+      continue
+    }
+    previousGap = false
+
+    const heading = sectionLabelForLine(line)
+    if (heading && line.length <= 90) {
+      blocks.push({ kind: 'heading', text: heading })
+      continue
+    }
+
+    const field = line.match(/^([A-Za-z][A-Za-z0-9 /&().,'-]{2,42}):\s*(.+)$/)
+    if (field) {
+      blocks.push({ kind: 'field', label: field[1].trim(), value: field[2].trim() })
+      continue
+    }
+
+    blocks.push({ kind: 'text', text: line.replace(/\s{3,}/g, '  ') })
+  }
+
+  return blocks
+}
+
 export function ChartViewer({ chart, viewerName = 'anonymous', onClose }: Props) {
   const [pages, setPages] = useState<{ page: number; url: string }[]>([])
   const [textPages, setTextPages] = useState<{ page: number; text: string; has_text: boolean }[]>([])
@@ -373,7 +422,28 @@ export function ChartViewer({ chart, viewerName = 'anonymous', onClose }: Props)
                           </button>
                         </div>
                         {page.has_text ? (
-                          <pre style={styles.pageText}>{page.text}</pre>
+                          <div style={styles.pageText}>
+                            {textBlocks(page.text).map((block, idx) => {
+                              if (block.kind === 'gap') return <div key={idx} style={styles.textGap} />
+                              if (block.kind === 'heading') {
+                                return (
+                                  <div key={idx} style={styles.noteSectionHead}>
+                                    <span style={styles.noteSectionRule} />
+                                    <span>{block.text}</span>
+                                  </div>
+                                )
+                              }
+                              if (block.kind === 'field') {
+                                return (
+                                  <div key={idx} style={styles.noteFieldLine}>
+                                    <strong>{block.label}:</strong>
+                                    <span>{block.value}</span>
+                                  </div>
+                                )
+                              }
+                              return <p key={idx} style={styles.noteTextLine}>{block.text}</p>
+                            })}
+                          </div>
                         ) : (
                           <div style={styles.emptyPageText}>No extracted text on this page.</div>
                         )}
@@ -475,7 +545,12 @@ const styles: Record<string, React.CSSProperties> = {
   textPage: { background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' },
   textPageHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '8px 12px', background: '#f8fafc', borderBottom: '1px solid #e5e7eb', color: '#334155', fontSize: 12, fontWeight: 800 },
   textPageBtn: { border: '1px solid #e5e7eb', background: '#fff', borderRadius: 6, color: '#4f46e5', cursor: 'pointer', padding: '4px 8px', fontSize: 11, fontWeight: 700 },
-  pageText: { margin: 0, padding: 14, whiteSpace: 'pre-wrap' as const, wordBreak: 'break-word' as const, color: '#111827', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize: 12.5, lineHeight: 1.55 },
+  pageText: { padding: '16px 18px 18px', color: '#111827', fontSize: 13, lineHeight: 1.55, background: '#fff' },
+  noteSectionHead: { display: 'flex', alignItems: 'center', gap: 9, margin: '16px 0 8px', padding: '8px 10px', border: '1px solid #dbeafe', borderLeft: '4px solid #2563eb', borderRadius: 7, background: '#eff6ff', color: '#1e3a8a', fontSize: 12, fontWeight: 900, textTransform: 'uppercase' as const, letterSpacing: 0.4 },
+  noteSectionRule: { width: 6, height: 6, borderRadius: '50%', background: '#2563eb', flexShrink: 0 },
+  noteFieldLine: { display: 'grid', gridTemplateColumns: 'minmax(130px, 220px) 1fr', gap: 10, padding: '5px 0', borderBottom: '1px solid #f1f5f9', alignItems: 'start', color: '#1f2937' },
+  noteTextLine: { margin: '5px 0', color: '#1f2937', whiteSpace: 'pre-wrap' as const, wordBreak: 'break-word' as const },
+  textGap: { height: 8 },
   emptyPageText: { padding: 14, color: '#94a3b8', fontSize: 12, fontStyle: 'italic' },
   footer: { borderTop: '1px solid #e5e7eb', padding: '10px 16px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, background: '#fafafa' },
   navBtn: { border: '1px solid #e5e7eb', background: '#fff', borderRadius: 6, padding: '5px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', transition: 'all 0.15s' },
