@@ -44,8 +44,12 @@ export function CoderHome() {
 
   const hasFilters = !!(specialty || category)
 
-  const doSearch = useCallback(async (p = 1) => {
-    if (!query.trim() && !specialty && !category) {
+  // `qOverride` exists for the clear button: setQuery has not taken effect by
+  // the time it wants to re-search, so the new value has to be passed in
+  // rather than read back from state.
+  const doSearch = useCallback(async (p = 1, qOverride?: string) => {
+    const q = qOverride !== undefined ? qOverride : query
+    if (!q.trim() && !specialty && !category) {
       toast.error('Enter a chart number or select a filter to search')
       return
     }
@@ -53,7 +57,7 @@ export function CoderHome() {
     setHasSearched(true)
     try {
       const res = await searchCharts({
-        q: query || undefined,
+        q: q || undefined,
         specialty: specialty || undefined,
         category: category || undefined,
         page: p,
@@ -83,6 +87,35 @@ export function CoderHome() {
     setHasSearched(false)
     setResults([])
     setTotal(0)
+  }
+
+  /**
+   * The × inside the search box.
+   *
+   * It only emptied the text, so the screen stayed in its searched layout with
+   * an empty box and the previous results still listed. The two layouts differ
+   * by more than the list — Recently Viewed disappears and Coding Resources
+   * moves from full cards at the foot of the page to a strip at the top — so
+   * "cleared the search" and "back where I started" looked like different
+   * screens, which is how it was spotted.
+   *
+   * Filters are a separate control and are left alone: clearing the text with
+   * a specialty still selected re-runs the search on that specialty, rather
+   * than silently discarding a choice the coder did not touch. With nothing
+   * left to search by, the page goes home.
+   */
+  const clearQuery = () => {
+    setQuery('')
+    if (hasFilters) {
+      // Filters are a separate control and the coder did not touch them, so
+      // the list narrows to those rather than emptying.
+      doSearch(1, '')
+      return
+    }
+    setHasSearched(false)
+    setResults([])
+    setTotal(0)
+    setPage(1)
   }
 
   // ── The open chart is in the URL ──────────────────────────────────────────
@@ -236,7 +269,7 @@ export function CoderHome() {
                 onChange={e => setQuery(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') doSearch(1) }}
               />
-              {query && <button style={styles.clearInputBtn} onClick={() => setQuery('')}><X size={14} /></button>}
+              {query && <button style={styles.clearInputBtn} title="Clear search" onClick={clearQuery}><X size={14} /></button>}
             </div>
             <button style={styles.searchBtn} onClick={() => doSearch(1)}>Search</button>
           </div>
