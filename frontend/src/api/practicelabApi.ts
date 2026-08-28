@@ -183,6 +183,21 @@ export async function submitDRGDecision(resultId: number, drgError: boolean, rev
   return data
 }
 
+/**
+ * Turn the scoring methods on or off for an existing batch.
+ *
+ * DPO is computed for every chart whose specialty supports it whatever the
+ * batch says — the flag only decides whether the figures are shown. A trainer
+ * who meant to enable it and did not has the numbers already; this reveals
+ * them without re-grading anything.
+ */
+export async function setBatchScoring(batchId: number, useWeighted: boolean, useDpo: boolean) {
+  const { data } = await api.patch(`/practicelab/batches/${batchId}/scoring`, {
+    use_weighted: useWeighted, use_dpo: useDpo,
+  })
+  return data as { batch_id: number; use_weighted: boolean; use_dpo: boolean; dpo_supported: boolean }
+}
+
 export async function getBatchResults(batchId: number) {
   const { data } = await api.get(`/practicelab/batches/${batchId}/results`)
   return data

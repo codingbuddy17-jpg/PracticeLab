@@ -402,6 +402,43 @@ def close_batch(batch_id: int, payload: BatchClose, db: Session = Depends(get_db
     return {"message": "Batch closed", "batch_id": batch_id}
 
 
+class BatchScoring(BaseModel):
+    use_weighted: bool
+    use_dpo: bool
+
+
+@router.patch("/batches/{batch_id}/scoring")
+def set_batch_scoring(batch_id: int, payload: BatchScoring,
+                      db: Session = Depends(get_db)):
+    """
+    Turn the scoring methods on or off for a batch that already exists.
+
+    DPO is COMPUTED for every chart whose specialty supports it, whatever the
+    batch says — the flag only decides whether the figures are returned. So a
+    trainer who meant to enable it and did not had the numbers all along,
+    behind a switch that could only be set while creating the batch and never
+    afterwards. Nothing is re-graded here; the figures were already there.
+
+    Easy to get wrong, too: the Scoring Config screen has its own "Accuracy
+    (DPO) enabled" for the specialty defaults, which does not decide this.
+    """
+    batch = db.query(Batch).filter(Batch.id == batch_id).first()
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    use_weighted, use_dpo = payload.use_weighted, payload.use_dpo
+    if not _uses_dpo(batch.specialty):
+        # The same rule creation applies, so the two cannot disagree.
+        use_weighted, use_dpo = True, False
+    if not use_weighted and not use_dpo:
+        raise HTTPException(status_code=400,
+                            detail="At least one scoring method must be selected")
+    batch.use_weighted = use_weighted
+    batch.use_dpo = use_dpo
+    db.commit()
+    return {"batch_id": batch_id, "use_weighted": use_weighted, "use_dpo": use_dpo,
+            "dpo_supported": _uses_dpo(batch.specialty)}
+
+
 @router.post("/batches/{batch_id}/force-close")
 def force_close_batch(batch_id: int, payload: BatchForceClose, db: Session = Depends(get_db)):
     if payload.passphrase != MASTER_PASSPHRASE:
@@ -621,6 +658,8 @@ def list_batches(
             "days_open": (now - b.created_at.replace(tzinfo=None)).days if b.created_at and b.status == BatchStatus.OPEN else None,
             "closed_at": b.closed_at.isoformat() if b.closed_at else None,
             "force_closed": b.force_closed,
+            "use_weighted": bool(getattr(b, "use_weighted", True)),
+            "use_dpo": bool(getattr(b, "use_dpo", False)),
             "tags": b.tags or [],
             "is_direct_assignment": b.is_direct_assignment,
             # Drives whether a performance report can be offered at all. A

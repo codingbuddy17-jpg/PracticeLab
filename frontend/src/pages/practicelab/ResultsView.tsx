@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Loader, Download, Copy, Check, ChevronDown, ChevronRight } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { getBatchResults, downloadBatchResultsExcel, getBatchInsights } from '../../api'
+import { getBatchResults, downloadBatchResultsExcel, getBatchInsights, setBatchScoring } from '../../api'
 import { InsightsPanel } from './InsightsPanel'
 import styles from './styles'
 
@@ -14,14 +14,32 @@ export function ResultsView({ batchId }: any) {
   const [showInsights, setShowInsights] = useState(false)
   const [copied, setCopied] = useState(false)
 
-  useEffect(() => {
+  const reload = useCallback(() => {
     getBatchResults(batchId).then(setData).catch(() => {}).finally(() => setLoading(false))
   }, [batchId])
+
+  useEffect(() => { reload() }, [reload])
+
+  // DPO is computed for every chart whose specialty supports it, whatever the
+  // batch says — the flag only decides whether the figures are shown, and it
+  // could previously only be set while CREATING the batch. A trainer who meant
+  // to enable it and did not had the numbers all along, behind a switch they
+  // could no longer reach. Turning it on here reveals them; nothing is
+  // re-graded, because there is nothing to re-grade.
+  async function enableDpo() {
+    try {
+      await setBatchScoring(batchId, true, true)
+      toast.success('Accuracy (DPO) shown — these figures were already recorded')
+      reload()
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || 'Could not enable DPO for this batch')
+    }
+  }
 
   if (loading) return <div style={styles.center}><Loader size={24} /></div>
   if (!data) return <div style={styles.center}>No results yet</div>
 
-  const { batch_summary: bs, coder_summaries, is_ip, use_dpo } = data
+  const { batch_summary: bs, coder_summaries, is_ip, use_dpo, dpo_available } = data
 
   // The per-chart DPO column only earns its width when the batch is scored on
   // DPO and at least one chart actually carries a figure — a specialty that
@@ -29,6 +47,11 @@ export function ResultsView({ batchId }: any) {
   const showChartDpo = !!use_dpo && (coder_summaries || []).some(
     (c: any) => (c.charts || []).some((ch: any) => ch.dpo_overall_accuracy != null))
   const chartCols = showChartDpo ? '100px 1fr 90px 110px 70px' : '100px 1fr 100px 70px'
+
+  // The server answers this, because the payload masks the figures to null
+  // when the flag is off — so the screen cannot tell from the data whether
+  // there is anything to reveal.
+  const dpoAvailable = !use_dpo && !!dpo_available
 
   function copySummary() {
     const lines = [
@@ -91,6 +114,26 @@ export function ResultsView({ batchId }: any) {
             onClick={() => downloadBatchResultsExcel(batchId)}><Download size={15} /> Export Results (.xlsx)</button>
         </div>
       </div>
+
+      {/* The figures are already recorded; the batch is simply not showing
+          them. Offering it here is the only place a trainer would look — the
+          switch lived on the create form and could not be reached again, and
+          the Scoring Config screen has a similarly named setting that governs
+          the specialty defaults rather than this batch. */}
+      {dpoAvailable && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+                      background: '#faf5ff', border: '1px solid #e9d5ff', borderRadius: 8,
+                      padding: '10px 14px', marginBottom: 12 }}>
+          <span style={{ fontSize: 13, color: '#6b21a8' }}>
+            Accuracy (DPO) was recorded for these charts but is not switched on for this batch.
+          </span>
+          <button style={{ ...styles.outlineBtn, fontSize: 12, padding: '5px 12px',
+                           borderColor: '#c084fc', color: '#7c3aed' }}
+            onClick={enableDpo}>
+            Show Accuracy (DPO)
+          </button>
+        </div>
+      )}
 
       {showInsights && insights?.has_data && <InsightsPanel insights={insights} batchId={batchId} onClose={() => setShowInsights(false)} />}
 

@@ -278,6 +278,13 @@ def get_batch_results(batch_id: int, db: Session = Depends(get_db)):
         "is_direct_assignment": bool(batch.is_direct_assignment),
         "use_weighted": getattr(batch, "use_weighted", True),
         "use_dpo": use_dpo,
+        # Whether DPO figures EXIST for this batch, which is not the same
+        # question as whether they are being shown. They are computed for every
+        # chart whose specialty supports it, whatever the batch flag says — so
+        # a trainer who meant to switch it on and did not has the numbers
+        # already, and the screen can offer them rather than pretend there are
+        # none. Read from the rows, since the payload above masks them to null.
+        "dpo_available": any(r.dpo_overall_accuracy is not None for r in results),
         "batch_summary": {
             "total_coders": total_coders,
             "passed": passed_coders,
