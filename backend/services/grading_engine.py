@@ -171,13 +171,15 @@ def _surplus_detail(extra: int, surplus: list) -> str:
     nobody should have to reconstruct.
 
     So the codes lead, because they are what a coder can act on, and the
-    penalty follows as its own clause.
+    penalty follows as its own clause. No preamble: the row is already labelled
+    Over coded, and saying "not in the key" again only pushes the codes further
+    from the eye.
     """
     names = [c for c in surplus if c]
     if not names:
         return f"{extra} extra code(s) submitted"
     shown = ", ".join(names[:6]) + (", …" if len(names) > 6 else "")
-    return f"not in the key: {shown} — scored as {extra} extra"
+    return f"{shown} — scored as {extra} extra"
 
 
 def norm_poa(poa) -> str:

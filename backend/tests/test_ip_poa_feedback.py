@@ -128,6 +128,8 @@ class TestOverCodingNamesTheCodes:
         assert extra == 2
         assert "0DTJ4ZZ" in row.detail and "0FB03ZX" in row.detail
         assert "0DTJ0ZZ" not in row.detail, "the matched procedure was called surplus"
+        # The row is already labelled Over coded; the detail is the codes.
+        assert not row.detail.lower().startswith(("not in", "extra")), row.detail
 
     def test_diagnoses_name_the_surplus(self):
         ak = [{"code": "Z23", "poa": "Y"}]
@@ -172,6 +174,5 @@ class TestOverCodingNamesTheCodes:
         _m, extra, fb = _match_sdx_ip(ak, sub, True)
         row = [r for r in fb if r.issue_type == "Over_coded"][0]
         assert extra == 1
-        assert row.detail.startswith("not in the key:")
-        assert "X, Y, Z" in row.detail
+        assert row.detail.startswith("X, Y, Z"), row.detail
         assert "scored as 1 extra" in row.detail
