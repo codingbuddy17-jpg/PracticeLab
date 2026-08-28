@@ -223,36 +223,47 @@ export function ResultsView({ batchId }: any) {
                       <span style={{ fontSize: 11, fontWeight: 700, color: '#6366f1', textTransform: 'uppercase' as const, letterSpacing: 0.7 }}>Cumulative — This Batch</span>
                       {use_dpo && c.cumulative_dpo && <span style={{ fontSize: 11, fontWeight: 700, color: '#a78bfa', textTransform: 'uppercase' as const, letterSpacing: 0.7, marginLeft: 'auto' }}>Accuracy (DPO)</span>}
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'stretch' }}>
-                      {/* Left: core stats */}
-                      <div style={{ display: 'flex', gap: 0, flex: '0 0 auto' }}>
-                        {[
-                          { value: String(c.charts_scored ?? c.chart_count), label: 'Charts Graded', color: '#374151' },
-                          { value: `${c.avg_total}%`, label: 'Grading Score', color: scoreColor(c.avg_total), kind: 'grading' },
-                          { value: `${c.charts_passed ?? 0}/${c.charts_scored ?? c.chart_count}`, label: 'Charts Passed', color: pfBadge(c.pass_fail).color },
-                        ].map((s, si) => (
-                          <div key={si} style={{ textAlign: 'center' as const, padding: '16px 24px', borderRight: '1px solid #e0e7ff', ...(s.kind === 'grading' ? gradingMetricStyle : {}) }}>
-                            <div style={{ fontSize: 26, fontWeight: 800, color: s.color, lineHeight: 1 }}>{s.value}</div>
-                            <div style={{ fontSize: 11, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.5, marginTop: 6 }}>{s.label}</div>
-                          </div>
-                        ))}
-                      </div>
-                      {/* Right: accuracy stats — same size font */}
-                      {use_dpo && c.cumulative_dpo && (
-                        <div style={{ display: 'flex', flex: 1, alignItems: 'center' }}>
-                          {[
-                            c.cumulative_dpo.overall_accuracy != null ? { value: `${c.cumulative_dpo.overall_accuracy}%`, label: 'Overall accuracy (DPO)', color: scoreColor(c.cumulative_dpo.overall_accuracy), bold: true } : null,
-                            c.cumulative_dpo.dx_total > 0 ? { value: `${c.cumulative_dpo.dx_accuracy}%`, label: 'Diagnosis accuracy', color: scoreColor(c.cumulative_dpo.dx_accuracy) } : null,
-                            c.cumulative_dpo.proc_total > 0 ? { value: `${c.cumulative_dpo.proc_accuracy}%`, label: 'Procedure accuracy', color: scoreColor(c.cumulative_dpo.proc_accuracy) } : null,
-                            is_ip && c.cumulative_dpo.drg_total > 0 ? { value: `${c.cumulative_dpo.drg_accuracy}%`, label: 'DRG accuracy', color: scoreColor(c.cumulative_dpo.drg_accuracy) } : null,
-                          ].filter(Boolean).map((s: any, si, arr) => (
-                            <div key={si} style={{ textAlign: 'center' as const, padding: '16px 20px', flex: 1, borderRight: si < arr.length - 1 ? '1px solid #e0e7ff' : 'none', ...accuracyMetricStyle }}>
-                              <div style={{ fontSize: 26, fontWeight: 800, color: s.color, lineHeight: 1 }}>{s.value}</div>
-                              <div style={{ fontSize: 11, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.5, marginTop: 6 }}>{s.label}</div>
-                            </div>
-                          ))}
+                    {/* One wrapping grid rather than two flex groups.
+                        The left group was flex:'0 0 auto', so it could not
+                        shrink, and the four accuracy tiles beside it were left
+                        to absorb every narrowing — with labels as long as
+                        "Overall accuracy (DPO)" the row ran off the right edge
+                        instead of reflowing. auto-fit lets the tiles wrap onto
+                        a second line, and the 1px gap over a tinted background
+                        draws the dividers the borders used to. */}
+                    <div style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(128px, 1fr))',
+                      gap: 1, background: '#e0e7ff',
+                    }}>
+                      {[
+                        { value: String(c.charts_scored ?? c.chart_count), label: 'Charts Graded', color: '#374151', bg: '#f8faff' },
+                        { value: `${c.avg_total}%`, label: 'Grading Score', color: scoreColor(c.avg_total), extra: gradingMetricStyle },
+                        { value: `${c.charts_passed ?? 0}/${c.charts_scored ?? c.chart_count}`, label: 'Charts Passed', color: pfBadge(c.pass_fail).color, bg: '#f8faff' },
+                        ...(use_dpo && c.cumulative_dpo ? [
+                          c.cumulative_dpo.overall_accuracy != null ? { value: `${c.cumulative_dpo.overall_accuracy}%`, label: 'Overall accuracy (DPO)', color: scoreColor(c.cumulative_dpo.overall_accuracy), extra: accuracyMetricStyle } : null,
+                          c.cumulative_dpo.dx_total > 0 ? { value: `${c.cumulative_dpo.dx_accuracy}%`, label: 'Diagnosis accuracy', color: scoreColor(c.cumulative_dpo.dx_accuracy), extra: accuracyMetricStyle } : null,
+                          c.cumulative_dpo.proc_total > 0 ? { value: `${c.cumulative_dpo.proc_accuracy}%`, label: 'Procedure accuracy', color: scoreColor(c.cumulative_dpo.proc_accuracy), extra: accuracyMetricStyle } : null,
+                          is_ip && c.cumulative_dpo.drg_total > 0 ? { value: `${c.cumulative_dpo.drg_accuracy}%`, label: 'DRG accuracy', color: scoreColor(c.cumulative_dpo.drg_accuracy), extra: accuracyMetricStyle } : null,
+                        ] : []),
+                      ].filter(Boolean).map((s: any, si) => (
+                        <div key={si} style={{
+                          textAlign: 'center' as const, padding: '14px 10px',
+                          background: '#f8faff', minWidth: 0,
+                          borderRight: '1px solid #e0e7ff',
+                          borderBottom: '1px solid #e0e7ff',
+                          ...(s.extra || {}),
+                          ...(s.bg ? { background: s.bg } : {}),
+                        }}>
+                          <div style={{ fontSize: 23, fontWeight: 800, color: s.color, lineHeight: 1.1 }}>{s.value}</div>
+                          {/* Wraps instead of forcing the tile wider. The
+                              letter-spacing went with it — on a two-word label
+                              in a narrow tile it buys nothing and costs room. */}
+                          <div style={{ fontSize: 10, color: '#9ca3af', fontWeight: 600,
+                                        textTransform: 'uppercase' as const, marginTop: 6,
+                                        lineHeight: 1.3, wordBreak: 'break-word' as const }}>{s.label}</div>
                         </div>
-                      )}
+                      ))}
                     </div>
                   </div>
 
