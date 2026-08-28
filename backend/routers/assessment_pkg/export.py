@@ -21,6 +21,7 @@ from reportlab.lib import colors
 import json as _json
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from services.excel_style import NAVY
 from openpyxl.utils import get_column_letter
 
 from database import get_db
@@ -308,7 +309,8 @@ def export_responses_excel(assessment_id: int, db: Session = Depends(get_db)):
 
     # Styles
     hdr_font  = Font(bold=True, color="FFFFFF", size=10)
-    hdr_fill  = PatternFill("solid", fgColor="1E3A5F")
+    # Was #1E3A5F, one of three header navies this app had grown.
+    hdr_fill  = PatternFill("solid", fgColor=NAVY)
     q_hdr_fill = PatternFill("solid", fgColor="374151")
     pass_fill = PatternFill("solid", fgColor="D1FAE5")
     fail_fill = PatternFill("solid", fgColor="FEE2E2")

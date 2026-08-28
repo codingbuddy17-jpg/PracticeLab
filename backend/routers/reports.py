@@ -5,6 +5,7 @@ from typing import Optional
 from datetime import datetime
 import io
 import openpyxl
+from services.excel_style import finish
 from fastapi.responses import StreamingResponse
 from database import get_db
 from models import Chart, ChartStatus, Specialty, Difficulty
@@ -70,6 +71,11 @@ def export_report(
             c.created_at.strftime("%Y-%m-%d %H:%M") if c.created_at else "",
             c.view_count,
         ])
+
+    # This one shipped with no formatting whatever — plain text on white, no
+    # frozen heading, no widths — so the chart library exported as something
+    # visibly less finished than every other download in the app.
+    finish(ws)
 
     buf = io.BytesIO()
     wb.save(buf)

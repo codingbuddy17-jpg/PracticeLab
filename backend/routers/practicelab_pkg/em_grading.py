@@ -869,14 +869,18 @@ def download_em_template():
     import openpyxl
     from openpyxl.styles import Font, PatternFill, Alignment
 
+    from services.excel_style import NAVY
+
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "EM Answer Key"  # "/" is illegal in an Excel sheet title
 
     hdr_font = Font(bold=True, color="FFFFFF")
-    hdr_fill = PatternFill("solid", fgColor="1e3a5f")
+    # Lower-cased, which is how this one escaped the search that
+    # found the others. Same drift, same fix.
+    hdr_fill = PatternFill("solid", fgColor=NAVY)
     section_fill = PatternFill("solid", fgColor="dbeafe")
-    section_font = Font(bold=True, color="1e3a5f")
+    section_font = Font(bold=True, color=NAVY)
 
     def hdr(cell, val):
         ws[cell] = val

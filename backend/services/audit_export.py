@@ -16,9 +16,10 @@ from typing import Any, Optional
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
+from services.excel_style import NAVY
 from openpyxl.utils import get_column_letter
 
-HEADER_FILL = PatternFill("solid", fgColor="4F46E5")
+HEADER_FILL = PatternFill("solid", fgColor=NAVY)
 HEADER_FONT = Font(bold=True, color="FFFFFF", size=10)
 TITLE_FONT = Font(bold=True, size=12)
 NOTE_FONT = Font(italic=True, size=9, color="6B7280")

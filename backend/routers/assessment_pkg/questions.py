@@ -13,6 +13,7 @@ from sqlalchemy import func
 
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment
+from services.excel_style import NAVY
 
 from database import get_db
 from models import AssessmentQuestion, AssessmentAuditLog
@@ -176,7 +177,7 @@ def download_template(specialty: str = Query(default="ICD10CM")):
     ws = wb.active
     ws.title = "Questions"
 
-    header_fill = PatternFill("solid", fgColor="4F46E5")
+    header_fill = PatternFill("solid", fgColor=NAVY)
     header_font = Font(bold=True, color="FFFFFF")
 
     for col_idx, header in enumerate(TEMPLATE_HEADERS, start=1):
@@ -404,7 +405,7 @@ def export_questions(
 
 def _write_specialty_sheet(ws: openpyxl.worksheet.worksheet.Worksheet, qs: list) -> None:
     """Write header + question rows into a worksheet (reused for single and multi-tab exports)."""
-    header_fill = PatternFill("solid", fgColor="4F46E5")
+    header_fill = PatternFill("solid", fgColor=NAVY)
     header_font = Font(bold=True, color="FFFFFF")
     for col_idx, h in enumerate(TEMPLATE_HEADERS, start=1):
         cell = ws.cell(row=1, column=col_idx, value=h)

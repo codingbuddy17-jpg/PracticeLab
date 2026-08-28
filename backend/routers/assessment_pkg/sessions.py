@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment
+from services.excel_style import NAVY
 
 from database import get_db
 from models import (
@@ -128,7 +129,7 @@ def download_coder_template():
     ws = wb.active
     ws.title = "Coders"
     headers = ["Coder_Name", "Employee_ID"]
-    fill = PatternFill("solid", fgColor="4F46E5")
+    fill = PatternFill("solid", fgColor=NAVY)
     font = Font(bold=True, color="FFFFFF")
     for col, h in enumerate(headers, start=1):
         c = ws.cell(row=1, column=col, value=h)
