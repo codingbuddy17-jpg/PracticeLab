@@ -159,6 +159,22 @@ def norm_dx(code) -> str:
     return _clean(code).replace(".", "").replace(" ", "").upper()
 
 
+def _none_expected_detail(submitted: list, norm) -> str:
+    """
+    The key expects nothing in this section, and codes were entered anyway.
+
+    Same principle as _surplus_detail: name what was entered. "AK has no PCS
+    but codes were submitted" states a rule and leaves the coder to work out
+    which of their procedures it is about, which on a chart with several is the
+    review over again — and it says "AK", which is trainer vocabulary.
+    """
+    names = [c.get("code", "") for c in (submitted or []) if norm(c.get("code", ""))]
+    if not names:
+        return "codes were submitted where none are expected"
+    shown = ", ".join(names[:6]) + (", …" if len(names) > 6 else "")
+    return f"{shown} — none expected on this chart"
+
+
 def _surplus_detail(extra: int, surplus: list) -> str:
     """
     Which codes were over the key, and what the penalty came to.
@@ -646,7 +662,8 @@ def grade_ip(ak: IPAnswerKey, sub: IPSubmission,
     else:
         result.sdx_score = 0
         sdx_matched = sdx_extra = 0
-        feedback.append(FeedbackRow("SDx", "Over_coded", detail="AK has no SDx but codes were submitted"))
+        feedback.append(FeedbackRow("SDx", "Over_coded",
+                                    detail=_none_expected_detail(sub.sdx, norm_dx)))
 
     # PCS
     ak_pcs_cnt = len([p for p in ak.pcs if norm_pcs(p.get("code", ""))])
@@ -662,7 +679,8 @@ def grade_ip(ak: IPAnswerKey, sub: IPSubmission,
     else:
         result.pcs_score = 0
         pcs_matched = pcs_extra = 0
-        feedback.append(FeedbackRow("PCS", "Over_coded", detail="AK has no PCS but codes were submitted"))
+        feedback.append(FeedbackRow("PCS", "Over_coded",
+                                    detail=_none_expected_detail(sub.pcs, norm_pcs)))
 
     result.drg_flag = _drg_flag(ak, sub, pdx_ok, pcs_matched, pcs_extra, cfg.drg_triggers)
     result.feedback = feedback
@@ -692,7 +710,8 @@ def grade_op(ak: OPAnswerKey, sub: OPSubmission,
         result.sdx_score = cfg.sdx_weight
     else:
         result.sdx_score = 0
-        feedback.append(FeedbackRow("SDx", "Over_coded", detail="AK has no SDx but codes were submitted"))
+        feedback.append(FeedbackRow("SDx", "Over_coded",
+                                    detail=_none_expected_detail(sub.sdx, norm_dx)))
 
     ak_cpt_cnt = len([c for c in ak.cpt if norm_cpt(c.get("code", ""))])
     cdr_cpt_cnt = len([c for c in sub.cpt if norm_cpt(c.get("code", ""))])
@@ -710,7 +729,8 @@ def grade_op(ak: OPAnswerKey, sub: OPSubmission,
         result.cpt_score = cfg.cpt_weight
     else:
         result.cpt_score = 0
-        feedback.append(FeedbackRow("CPT", "Over_coded", detail="AK has no CPT but codes were submitted"))
+        feedback.append(FeedbackRow("CPT", "Over_coded",
+                                    detail=_none_expected_detail(sub.cpt, norm_cpt)))
 
     result.total_score = result.pdx_score + result.sdx_score + result.cpt_score
     result.pass_fail = "PASS" if result.total_score >= cfg.pass_threshold else "FAIL"
@@ -1014,7 +1034,8 @@ def grade_ed_single_path(ak, sub, cfg: EDSinglePathCfg = DEFAULT_EDSP_CFG) -> ED
         result.sdx_score = cfg.sdx_weight
     else:
         result.sdx_score = 0
-        feedback.append(FeedbackRow("SDx", "Over_coded", detail="AK has no SDx but codes were submitted"))
+        feedback.append(FeedbackRow("SDx", "Over_coded",
+                                    detail=_none_expected_detail(sub.sdx, norm_dx)))
 
     # ── The two levels, scored independently ──
     fac_ak, fac_sub = norm_cpt(ak.facility_level), norm_cpt(sub.facility_level)
@@ -1048,7 +1069,8 @@ def grade_ed_single_path(ak, sub, cfg: EDSinglePathCfg = DEFAULT_EDSP_CFG) -> ED
         result.cpt_score = cfg.cpt_weight
     else:
         result.cpt_score = 0
-        feedback.append(FeedbackRow("CPT", "Over_coded", detail="AK has no additional CPTs but codes were submitted"))
+        feedback.append(FeedbackRow("CPT", "Over_coded",
+                                    detail=_none_expected_detail(sub.cpt, norm_cpt)))
 
     result.total_score = (result.pdx_score + result.sdx_score +
                           result.facility_level_score + result.profee_level_score +

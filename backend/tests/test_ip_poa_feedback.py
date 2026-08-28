@@ -176,3 +176,56 @@ class TestOverCodingNamesTheCodes:
         assert extra == 1
         assert row.detail.startswith("X, Y, Z"), row.detail
         assert "scored as 1 extra" in row.detail
+
+
+class TestWhenTheKeyExpectsNothing:
+    """
+    A separate branch from the surplus one, and it had the same fault.
+
+    Where the key holds no codes for a section at all and the coder entered
+    some, the finding read "AK has no PCS but codes were submitted" — a rule,
+    not a fact about their chart. It left them to work out which of their
+    procedures it meant, and it said "AK", which is trainer vocabulary that a
+    coder has no reason to know.
+    """
+
+    def _graded(self, ak, sub):
+        from services.grading_engine import (DEFAULT_IP_CFG, IPAnswerKey,
+                                             IPSubmission, grade_ip)
+        return grade_ip(IPAnswerKey(**ak), IPSubmission(**sub), DEFAULT_IP_CFG).feedback
+
+    def test_procedures_are_named_when_none_were_expected(self):
+        fb = self._graded(
+            dict(pdx_code="K56.41", pdx_poa="Y", sdx=[{"code": "Z93.1", "poa": "Y"}], pcs=[]),
+            dict(pdx_code="K56.41", pdx_poa="Y", sdx=[{"code": "Z93.1", "poa": "Y"}],
+                 pcs=[{"code": "0DTJ0ZZ"}, {"code": "0DTJ4ZZ"}]))
+        row = [r for r in fb if r.section == "PCS" and r.issue_type == "Over_coded"][0]
+        assert "0DTJ0ZZ" in row.detail and "0DTJ4ZZ" in row.detail
+        assert "AK" not in row.detail, "trainer vocabulary on a coder's screen"
+
+    def test_diagnoses_are_named_when_none_were_expected(self):
+        fb = self._graded(
+            dict(pdx_code="K56.41", pdx_poa="Y", sdx=[], pcs=[{"code": "0DTJ0ZZ"}]),
+            dict(pdx_code="K56.41", pdx_poa="Y",
+                 sdx=[{"code": "E11.9", "poa": "N"}, {"code": "I10", "poa": "N"}],
+                 pcs=[{"code": "0DTJ0ZZ"}]))
+        row = [r for r in fb if r.section == "SDx" and r.issue_type == "Over_coded"][0]
+        assert "E11.9" in row.detail and "I10" in row.detail
+
+    def test_no_finding_at_all_when_the_coder_also_entered_nothing(self):
+        """The control — the branch only fires on codes that were entered."""
+        fb = self._graded(
+            dict(pdx_code="K56.41", pdx_poa="Y", sdx=[{"code": "Z93.1", "poa": "Y"}], pcs=[]),
+            dict(pdx_code="K56.41", pdx_poa="Y", sdx=[{"code": "Z93.1", "poa": "Y"}], pcs=[]))
+        assert not [r for r in fb if r.section == "PCS"]
+
+    def test_no_wording_anywhere_still_says_AK(self):
+        """
+        Six call sites carried it and all six are a coder's to read. A grep,
+        because the next one added would otherwise reintroduce the phrase.
+        """
+        from pathlib import Path
+        src = (Path(__file__).resolve().parents[1] / "services" / "grading_engine.py").read_text()
+        offenders = [l.strip() for l in src.split("\n")
+                     if "detail=" in l and "AK has no" in l]
+        assert not offenders, offenders
