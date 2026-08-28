@@ -161,17 +161,23 @@ def norm_dx(code) -> str:
 
 def _surplus_detail(extra: int, surplus: list) -> str:
     """
-    Which codes were over the key, when they can be identified.
+    Which codes were over the key, and what the penalty came to.
 
-    `extra` is a COUNT — submitted minus expected — so it can exceed the codes
-    that failed to match, and the two are not the same thing. Naming the
-    unmatched ones is what a coder can act on; the count is what is scored.
+    These are two different quantities and putting the count first made them
+    look like one. `extra` is submitted minus expected — the scored figure —
+    while the names are the codes that matched nothing. They diverge whenever a
+    coder both misses codes and adds them: four right, two missed, three
+    invented reads as "1 extra" beside three named codes, which is arithmetic
+    nobody should have to reconstruct.
+
+    So the codes lead, because they are what a coder can act on, and the
+    penalty follows as its own clause.
     """
     names = [c for c in surplus if c]
     if not names:
         return f"{extra} extra code(s) submitted"
     shown = ", ".join(names[:6]) + (", …" if len(names) > 6 else "")
-    return f"{extra} extra code(s) submitted — not in the key: {shown}"
+    return f"not in the key: {shown} — scored as {extra} extra"
 
 
 def norm_poa(poa) -> str:

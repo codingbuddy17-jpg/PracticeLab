@@ -159,3 +159,19 @@ class TestOverCodingNamesTheCodes:
         from services.grading_engine import _surplus_detail
         d = _surplus_detail(9, ["A%d" % i for i in range(9)])
         assert "…" in d and d.count(",") <= 6
+
+    def test_the_codes_lead_and_the_penalty_follows(self):
+        """
+        The count and the names are different quantities and diverge whenever a
+        coder both misses codes and adds them. Four right, two missed, three
+        invented scores as ONE extra beside THREE named codes — putting the
+        count first made that read as a contradiction.
+        """
+        ak = [{"code": c, "poa": "Y"} for c in ("A", "B", "C", "D", "E", "F")]
+        sub = [{"code": c, "poa": "Y"} for c in ("A", "B", "C", "D", "X", "Y", "Z")]
+        _m, extra, fb = _match_sdx_ip(ak, sub, True)
+        row = [r for r in fb if r.issue_type == "Over_coded"][0]
+        assert extra == 1
+        assert row.detail.startswith("not in the key:")
+        assert "X, Y, Z" in row.detail
+        assert "scored as 1 extra" in row.detail
