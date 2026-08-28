@@ -1,4 +1,5 @@
 import api from './client'
+import { deviceId } from '../hooks/useDeviceId'
 import { downloadFile } from './download'
 import { adminAuth } from './adminAuth'
 
@@ -141,7 +142,7 @@ export type ChartWork = {
 // ── auditor-facing ───────────────────────────────────────────────────────────
 
 export async function openAuditSession(token: string): Promise<AuditSessionData> {
-  const { data } = await api.get(`/auditor/sessions/by-token/${token}`)
+  const { data } = await api.get(`/auditor/sessions/by-token/${token}`, { params: { device: deviceId() } })
   return data
 }
 

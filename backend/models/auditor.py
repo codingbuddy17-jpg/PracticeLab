@@ -254,6 +254,10 @@ class AuditSession(Base):
     token = Column(String(40), nullable=False, unique=True, index=True)
     chart_ids = Column(JSON, nullable=False, default=list)
     status = Column(String(20), nullable=False, default="in_progress")
+    # Which browser currently holds this session, and when it was last heard
+    # from. The claim is released once it goes idle — see services/session_claim.
+    active_device = Column(String(64), nullable=True)
+    last_seen_at = Column(DateTime(timezone=True), nullable=True)
     show_results_to_auditor = Column(Boolean, nullable=False, default=False)
     started_at = Column(DateTime(timezone=True), nullable=True)
     submitted_at = Column(DateTime(timezone=True), nullable=True)

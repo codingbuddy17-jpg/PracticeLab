@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { deviceId } from '../hooks/useDeviceId'
 import { GradingFeedback } from '../components/GradingFeedback'
 import { checkCpt, checkDx, checkModifier, checkPcs } from '../codeFormat'
 import { useCodeDescriptions } from '../hooks/useCodeDescriptions'
@@ -317,7 +318,7 @@ export function PracticeSession() {
   // ── Load session ────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!token) return
-    api.get(`/practicelab/practice-sessions/by-token/${token}`).then(res => {
+    api.get(`/practicelab/practice-sessions/by-token/${token}`, { params: { device: deviceId() } }).then(res => {
       const data = res.data as SessionData
       if (data.status === 'submitted') {
         setSubmitResult({ show_results: data.show_results, results: data.results })
@@ -372,6 +373,7 @@ export function PracticeSession() {
     setSaving(true)
     try {
       await api.post(`/practicelab/practice-sessions/${session.session_id}/save-draft`, {
+        device: deviceId(),
         entries: Object.values(entries),
       })
       setDirty(false)

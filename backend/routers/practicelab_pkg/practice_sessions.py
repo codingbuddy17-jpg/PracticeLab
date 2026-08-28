@@ -25,6 +25,7 @@ from services.grading_engine import (
     DEFAULT_IP_CFG, DEFAULT_OP_CFG, DEFAULT_EDSP_CFG, norm_units,
 )
 from .em_grading import _LEVEL_ORDER, derive_mdm_level, em_code_to_level, normalise_cpts
+from services import session_claim
 from .shared import _is_ip, _is_ed, MASTER_PASSPHRASE, assert_batch_open
 from .chart_grading import _grade_chart_for_sp
 
@@ -76,6 +77,8 @@ class ChartCodeEntry(BaseModel):
 
 class SaveChartDraft(BaseModel):
     entries: list[ChartCodeEntry]
+    # Which browser is saving. Optional, so an older client keeps working.
+    device: str = ""
 
 
 class SubmitPracticeSession(BaseModel):
@@ -351,16 +354,41 @@ def generate_practice_tokens(payload: GeneratePracticeTokens, db: Session = Depe
 
 # ── Coder-facing: get session info by token ───────────────────────────────────
 
+def _touch(db, session_id: int, device: str) -> None:
+    """
+    Saving a draft is the coder working, so it keeps their claim alive.
+
+    Without this the claim would go stale after an hour of typing, because
+    nothing but re-opening the session refreshed it.
+    """
+    from sqlalchemy import text
+    if not device:
+        return
+    db.execute(text(
+        "UPDATE practice_sessions SET last_seen_at=CURRENT_TIMESTAMP "
+        "WHERE id=:s AND (active_device=:d OR active_device IS NULL)"),
+        {"s": session_id, "d": device})
+
+
 @router.get("/practice-sessions/by-token/{token}")
-def get_practice_session(token: str, db: Session = Depends(get_db)):
-    """Return session info for a coder — charts list, specialty, status."""
+def get_practice_session(token: str, device: str = Query(default=""),
+                         db: Session = Depends(get_db)):
+    """
+    Return session info for a coder — charts list, specialty, status.
+
+    Also where the session is CLAIMED. The access code is the whole credential,
+    so before this the same code opened on any number of machines at once. One
+    device holds it; another is refused until the first goes quiet. See
+    services/session_claim for why the claim expires rather than locking.
+    """
     from sqlalchemy import text
     import json
 
     try:
         sess = db.execute(text(
             "SELECT id, batch_id, coder_name, specialty, chart_ids, "
-            "show_results_to_coder, status FROM practice_sessions WHERE token=:t"
+            "show_results_to_coder, status, active_device, last_seen_at "
+            "FROM practice_sessions WHERE token=:t"
         ), {"t": token}).fetchone()
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Session lookup failed: {type(exc).__name__}: {exc}")
@@ -368,7 +396,17 @@ def get_practice_session(token: str, db: Session = Depends(get_db)):
     if not sess:
         raise HTTPException(status_code=404, detail="Practice session not found — check your access code")
 
-    sess_id, batch_id, coder_name, specialty, chart_ids_raw, show_results, status = sess
+    sess_id, batch_id, coder_name, specialty, chart_ids_raw, show_results, status, active_device, last_seen = sess
+
+    # A submitted session is a record to read, not work to hold, so it is not
+    # claimed — two people looking at a finished result harm nothing, and
+    # refusing would take a coder's own feedback away from them.
+    if status != "submitted":
+        holder = session_claim.check(active_device, last_seen, device)
+        db.execute(text(
+            "UPDATE practice_sessions SET active_device=:d, last_seen_at=CURRENT_TIMESTAMP "
+            "WHERE id=:s"), {"d": holder, "s": sess_id})
+        db.commit()
 
     if status == "submitted":
         # Check if results should be shown
@@ -448,9 +486,17 @@ def get_practice_session(token: str, db: Session = Depends(get_db)):
 
 @router.post("/practice-sessions/{session_id}/save-draft")
 def save_draft(session_id: int, payload: SaveChartDraft, db: Session = Depends(get_db)):
-    """Upsert per-chart code drafts for a session (called on every chart navigation)."""
+    """
+    Upsert per-chart code drafts for a session (called on every chart navigation).
+
+    Also the heartbeat. A coder typing is a coder working, so this refreshes
+    their claim — otherwise an hour of steady work would let the claim go stale
+    underneath them, since nothing but re-opening the session touched it.
+    """
     from sqlalchemy import text
     import json
+
+    _touch(db, session_id, payload.device)
 
     sess = db.execute(text(
         "SELECT status FROM practice_sessions WHERE id=:s"

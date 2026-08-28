@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { deviceId } from '../hooks/useDeviceId'
 import { useNavigate } from 'react-router-dom'
 import { BookOpen, ArrowRight, AlertCircle } from 'lucide-react'
 import api from '../api/client'
@@ -19,11 +20,11 @@ export function PracticeEntry() {
       // leads, so someone who both codes and audits has one URL to remember
       // and the code stays their only credential.
       if (t.startsWith('AUD-')) {
-        await api.get(`/auditor/sessions/by-token/${t}`)
+        await api.get(`/auditor/sessions/by-token/${t}`, { params: { device: deviceId() } })
         navigate(`/audit/${t}`)
         return
       }
-      await api.get(`/practicelab/practice-sessions/by-token/${t}`)
+      await api.get(`/practicelab/practice-sessions/by-token/${t}`, { params: { device: deviceId() } })
       navigate(`/practice/${t}`)
     } catch (e: unknown) {
       const err = e as { response?: { data?: { detail?: string }; status?: number }; message?: string }

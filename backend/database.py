@@ -529,6 +529,23 @@ def _run_migrations():
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )""")
 
+    # One device at a time on a session, released when it goes idle.
+    #
+    # A practice code opened on a second machine while the first was mid-chart:
+    # the token is the whole credential, so anyone holding it was working the
+    # same session. A hard single-use lock is the obvious answer and strands
+    # anyone who closes a tab, so the claim expires instead — the idle timeout
+    # IS the escape hatch, which is why these two columns arrive together.
+    #
+    # These sit AFTER the CREATE above, not with the other _add_col calls
+    # further up: practice_sessions exists only in raw DDL, so an ALTER placed
+    # before its CREATE fails against a table that is not there yet — silently,
+    # because migrations are non-fatal. audit_sessions hid it by having an ORM
+    # model, which built the columns regardless.
+    for _tbl in ("practice_sessions", "audit_sessions"):
+        _add_col(_tbl, "active_device", "VARCHAR(64)")
+        _add_col(_tbl, "last_seen_at", "TIMESTAMP")
+
     # Work in progress on one chart: the codes a coder has entered but not yet
     # submitted. Saved as they type so a closed tab or a lost connection does
     # not cost them the chart. Superseded by practice_results once submitted.

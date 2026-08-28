@@ -11,15 +11,16 @@ cycles, so telling someone a chart was clean hands them the answer if they meet
 it again.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from database import get_db
+from services import session_claim
 from models import (
     AuditAssignment, AuditBatch, AuditBatchAuditor, AuditChartDraft,
     AuditResult, AuditSession, Chart, PassFail, Specialty,
@@ -68,17 +69,29 @@ class SubmitSession(BaseModel):
 # ── auditor-facing ───────────────────────────────────────────────────────────
 
 @router.get("/sessions/by-token/{token}")
-def open_session(token: str, db: Session = Depends(get_db)):
+def open_session(token: str, device: str = Query(default=""),
+                 db: Session = Depends(get_db)):
     """
     Open a session by access code — the auditor's only credential.
 
     Opening a chart LOCKS its claim: a trainer may reroll plantings up to this
     moment and not afterwards, because from here the claim is what the auditor
     saw.
+
+    It also claims the SESSION for one device. The access code was the whole
+    credential, so the same code opened anywhere worked everywhere at once.
+    See services/session_claim for why the claim expires rather than locking.
     """
     sess = db.query(AuditSession).filter(AuditSession.token == token.strip()).first()
     if not sess:
         raise HTTPException(404, "Access code not recognised")
+
+    # A submitted session is a record to read, not work to hold.
+    if sess.status != "submitted":
+        holder = session_claim.check(sess.active_device, sess.last_seen_at, device)
+        sess.active_device = holder
+        sess.last_seen_at = datetime.now(timezone.utc)
+        db.commit()
 
     assignments = (db.query(AuditAssignment, Chart)
                    .join(Chart, Chart.id == AuditAssignment.chart_id)
