@@ -84,7 +84,20 @@ function Row({ f, keyList, describe }: {
   const label = issue.replace(/_/g, ' ')
 
   let body
-  if (poa) {
+  if (issue === 'Wrong_POA' && !poa) {
+    // Graded before the POA values were stored with the finding. Showing the
+    // code against itself — "Z23 → should be Z23" — reads as a bug in the
+    // grader rather than an old row, so say what is actually known and what
+    // recovers the rest.
+    body = (
+      <>
+        <Code>{f.coder_code || f.ak_code}</Code>
+        <span style={{ color: '#6b7280', marginLeft: 8 }}>
+          POA is wrong — re-grade this session to see the values
+        </span>
+      </>
+    )
+  } else if (poa) {
     // The code is right; the POA is not. Comparing codes here says nothing.
     body = (
       <>

@@ -159,6 +159,21 @@ def norm_dx(code) -> str:
     return _clean(code).replace(".", "").replace(" ", "").upper()
 
 
+def _surplus_detail(extra: int, surplus: list) -> str:
+    """
+    Which codes were over the key, when they can be identified.
+
+    `extra` is a COUNT — submitted minus expected — so it can exceed the codes
+    that failed to match, and the two are not the same thing. Naming the
+    unmatched ones is what a coder can act on; the count is what is scored.
+    """
+    names = [c for c in surplus if c]
+    if not names:
+        return f"{extra} extra code(s) submitted"
+    shown = ", ".join(names[:6]) + (", …" if len(names) > 6 else "")
+    return f"{extra} extra code(s) submitted — not in the key: {shown}"
+
+
 def norm_poa(poa) -> str:
     """
     One POA value, however it was recorded.
@@ -288,7 +303,10 @@ def _match_sdx_ip(ak_sdx: list[dict], cdr_sdx: list[dict], penalty: bool):
     cdr_cnt = len([c for c in cdr_sdx if norm_dx(c.get("code", ""))])
     extra = max(0, cdr_cnt - ak_cnt) if penalty else 0
     if extra > 0:
-        feedback.append(FeedbackRow("SDx", "Over_coded", detail=f"{extra} extra code(s) submitted"))
+        surplus = [c.get("code", "") for i, c in enumerate(cdr_sdx)
+                   if not cdr_used[i] and norm_dx(c.get("code", ""))]
+        feedback.append(FeedbackRow("SDx", "Over_coded",
+                                    detail=_surplus_detail(extra, surplus)))
 
     return matched, extra, feedback
 
@@ -320,17 +338,25 @@ def _match_pcs(ak_pcs: list[dict], cdr_pcs: list[dict], penalty: bool):
     cdr_cnt = len([c for c in cdr_pcs if norm_pcs(c.get("code", ""))])
     extra = max(0, cdr_cnt - ak_cnt) if penalty else 0
     if extra > 0:
-        feedback.append(FeedbackRow("PCS", "Over_coded", detail=f"{extra} extra code(s) submitted"))
+        # Say WHICH codes were surplus, not only how many. "1 extra code(s)
+        # submitted" tells a coder they over-coded and leaves them to find it
+        # themselves — on a chart with a dozen procedures that is the review
+        # over again, and it was the first thing a trainer asked about it.
+        surplus = [c.get("code", "") for i, c in enumerate(cdr_pcs)
+                   if not cdr_used[i] and norm_pcs(c.get("code", ""))]
+        feedback.append(FeedbackRow("PCS", "Over_coded",
+                                    detail=_surplus_detail(extra, surplus)))
 
     return matched, extra, feedback
 
 
 def _match_sdx_op(ak_sdx: list[dict], cdr_sdx: list[dict], penalty: bool):
     ak_used = [False] * len(ak_sdx)
+    cdr_used = [False] * len(cdr_sdx)
     matched = 0
     feedback = []
 
-    for cs in cdr_sdx:
+    for ci, cs in enumerate(cdr_sdx):
         c_code = norm_dx(cs.get("code", ""))
         if not c_code:
             continue
@@ -340,6 +366,7 @@ def _match_sdx_op(ak_sdx: list[dict], cdr_sdx: list[dict], penalty: bool):
             if norm_dx(ak.get("code", "")) == c_code:
                 matched += 1
                 ak_used[ai] = True
+                cdr_used[ci] = True
                 break
 
     for ai, ak in enumerate(ak_sdx):
@@ -350,7 +377,10 @@ def _match_sdx_op(ak_sdx: list[dict], cdr_sdx: list[dict], penalty: bool):
     cdr_cnt = len([c for c in cdr_sdx if norm_dx(c.get("code", ""))])
     extra = max(0, cdr_cnt - ak_cnt) if penalty else 0
     if extra > 0:
-        feedback.append(FeedbackRow("SDx", "Over_coded", detail=f"{extra} extra code(s) submitted"))
+        surplus = [c.get("code", "") for i, c in enumerate(cdr_sdx)
+                   if not cdr_used[i] and norm_dx(c.get("code", ""))]
+        feedback.append(FeedbackRow("SDx", "Over_coded",
+                                    detail=_surplus_detail(extra, surplus)))
 
     return matched, extra, feedback
 

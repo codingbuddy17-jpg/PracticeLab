@@ -106,3 +106,56 @@ def test_the_frontend_offers_E_not_1():
         block = src[i:src.find("\n\n", i)] if "\n\n" in src[i:] else src[i:i + 400]
         assert "'E'" in block or '"E"' in block, "%s does not offer E: %s" % (rel, block[:200])
         assert "'1'" not in block, "%s still offers 1 for exempt" % rel
+
+
+class TestOverCodingNamesTheCodes:
+    """
+    "1 extra code(s) submitted" says a coder over-coded and leaves them to find
+    where. On a chart with a dozen procedures that is the review over again,
+    and it was the first thing asked about the redesigned screen.
+
+    The count and the named codes are not the same quantity. `extra` is
+    submitted minus expected, so it can differ from the number that failed to
+    match — the count is what is scored, the names are what a coder can act on.
+    """
+
+    def test_procedures_name_the_surplus(self):
+        from services.grading_engine import _match_pcs
+        _m, extra, fb = _match_pcs(
+            [{"code": "0DTJ0ZZ"}],
+            [{"code": "0DTJ0ZZ"}, {"code": "0DTJ4ZZ"}, {"code": "0FB03ZX"}], True)
+        row = [r for r in fb if r.issue_type == "Over_coded"][0]
+        assert extra == 2
+        assert "0DTJ4ZZ" in row.detail and "0FB03ZX" in row.detail
+        assert "0DTJ0ZZ" not in row.detail, "the matched procedure was called surplus"
+
+    def test_diagnoses_name_the_surplus(self):
+        ak = [{"code": "Z23", "poa": "Y"}]
+        sub = [{"code": "Z23", "poa": "Y"}, {"code": "E11.9", "poa": "N"}]
+        _m, _e, fb = _match_sdx_ip(ak, sub, True)
+        row = [r for r in fb if r.issue_type == "Over_coded"][0]
+        assert "E11.9" in row.detail
+
+    def test_a_wrong_poa_code_is_not_called_surplus(self):
+        """
+        It matched on code, so it is not an extra — it is the same code with
+        the wrong POA, and reporting it twice is the fault this file exists for.
+        """
+        ak = [{"code": "Z23", "poa": "Y"}, {"code": "Q53.9", "poa": "Y"}]
+        sub = [{"code": "Z23", "poa": "N"}, {"code": "Q53.9", "poa": "N"},
+               {"code": "E11.9", "poa": "N"}]
+        _m, _e, fb = _match_sdx_ip(ak, sub, True)
+        over = [r for r in fb if r.issue_type == "Over_coded"]
+        assert over, "an extra code was submitted and not reported"
+        assert "Z23" not in over[0].detail and "Q53.9" not in over[0].detail
+        assert "E11.9" in over[0].detail
+
+    def test_it_falls_back_to_the_count_when_nothing_can_be_named(self):
+        """Never worse than it was — the count still appears on its own."""
+        from services.grading_engine import _surplus_detail
+        assert _surplus_detail(3, []) == "3 extra code(s) submitted"
+
+    def test_a_long_list_is_capped(self):
+        from services.grading_engine import _surplus_detail
+        d = _surplus_detail(9, ["A%d" % i for i in range(9)])
+        assert "…" in d and d.count(",") <= 6
