@@ -195,7 +195,12 @@ def _surplus_detail(extra: int, surplus: list) -> str:
     if not names:
         return f"{extra} extra code(s) submitted"
     shown = ", ".join(names[:6]) + (", …" if len(names) > 6 else "")
-    return f"{shown} — scored as {extra} extra"
+    # "scored as 3 extra" beside five codes reads as an arithmetic error. It is
+    # not: the codes are the ones that matched nothing, the penalty counts how
+    # many MORE codes were submitted than the key holds, and they differ
+    # whenever the coder also missed something. Saying which is which is the
+    # difference between a number that looks wrong and one that explains itself.
+    return f"{shown} did not match — {extra} more code(s) submitted than the key holds"
 
 
 def norm_poa(poa) -> str:

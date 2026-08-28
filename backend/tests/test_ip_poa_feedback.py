@@ -175,7 +175,10 @@ class TestOverCodingNamesTheCodes:
         row = [r for r in fb if r.issue_type == "Over_coded"][0]
         assert extra == 1
         assert row.detail.startswith("X, Y, Z"), row.detail
-        assert "scored as 1 extra" in row.detail
+        # Three codes named, one scored: the sentence has to say why those are
+        # different numbers, or it reads as an arithmetic error.
+        assert "did not match" in row.detail
+        assert "1 more code(s) submitted than the key holds" in row.detail
 
 
 class TestWhenTheKeyExpectsNothing:
