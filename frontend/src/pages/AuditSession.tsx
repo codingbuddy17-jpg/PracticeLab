@@ -1229,7 +1229,7 @@ const FIELD_PLACEHOLDER: Record<string, string> = {
   units: 'Units',
 }
 
-const POA_VALUES = ['Y', 'N', 'U', 'W', '1']
+const POA_VALUES = ['Y', 'N', 'U', 'W', 'E']
 
 const s: Record<string, React.CSSProperties> = {
   shell: { fontFamily: 'system-ui, sans-serif', display: 'flex', minHeight: '100vh', background: '#f9fafb' },

@@ -12,7 +12,7 @@ import { errorMessage } from '../../api/errors'
 import { trainerName } from './shared'
 import styles from './styles'
 
-const POA_OPTIONS = ['', 'Y', 'N', 'U', 'W', '1']
+const POA_OPTIONS = ['', 'Y', 'N', 'U', 'W', 'E']
 const CCMCC_OPTIONS = ['', 'MCC', 'CC', '-']
 
 /**

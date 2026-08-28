@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { GradingFeedback } from '../components/GradingFeedback'
 import { checkCpt, checkDx, checkModifier, checkPcs } from '../codeFormat'
 import { useCodeDescriptions } from '../hooks/useCodeDescriptions'
 import { CodeSuggest } from '../components/CodeSuggest'
@@ -100,7 +101,7 @@ const POA_OPTIONS = [
   { value: 'N', label: 'N — Not present' },
   { value: 'W', label: 'W — Clinically undetermined' },
   { value: 'U', label: 'U — Documentation insufficient' },
-  { value: '1', label: '1 — Exempt from POA' },
+  { value: 'E', label: 'E — Exempt from POA' },
 ]
 
 
@@ -1411,7 +1412,7 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
         </div>
         {ip && (
           <div style={s.poaTooltip}>
-            <Info size={11} color="#9ca3af" /> POA: Y=Present at admission · N=Not present · W=Clinically undetermined · U=Insufficient documentation · 1=Exempt
+            <Info size={11} color="#9ca3af" /> POA: Y=Present at admission · N=Not present · W=Clinically undetermined · U=Insufficient documentation · E=Exempt
           </div>
         )}
       </Section>
@@ -1750,7 +1751,10 @@ interface ResultRow {
   pdx_submitted: string | null
   pdx_answer_key: string | null
   pdx_correct: boolean | null
-  feedback: Array<{ section: string; issue: string; ak_code: string; coder_code: string }>
+  // detail carries the POA comparison and the over-coding count. It was
+  // dropped server-side, so it was never declared here either.
+  feedback: Array<{ section: string; issue: string; ak_code: string; coder_code: string; detail?: string }>
+  sdx_answer_key?: Array<{ code: string; poa?: string; ccmcc?: string }>
   flagged: boolean
 }
 
@@ -1856,41 +1860,6 @@ function EMScoreLine({ label, pts, ak, sub, isMatch }: { label: string; pts: num
   )
 }
 
-/**
- * One line of feedback, with what the codes on it actually say.
- *
- * The descriptions sit under the line rather than inside it: the line is the
- * finding and stays scannable, and a coder comparing two long descriptions
- * wants them one above the other, not run together on one row.
- *
- * A code with no description simply has no line — CPT is the common case,
- * since those descriptions are AMA-licensed and this app does not carry them.
- */
-function FeedbackLine({ fb, describe }: {
-  fb: { section?: string; issue?: string; coder_code?: string; ak_code?: string }
-  describe: (code: string) => { description: string } | null
-}) {
-  const submitted = fb.coder_code ? describe(fb.coder_code) : null
-  const expected = fb.ak_code ? describe(fb.ak_code) : null
-  return (
-    <div style={{ marginBottom: submitted || expected ? 6 : 0 }}>
-      <div>
-        • [{fb.section}] {fb.issue} — submitted: <code>{fb.coder_code || '—'}</code>
-        {' '}| expected: <code>{fb.ak_code || '—'}</code>
-      </div>
-      {submitted && (
-        <div style={s.feedbackSays}>
-          <code style={s.feedbackCode}>{fb.coder_code}</code> {submitted.description}
-        </div>
-      )}
-      {expected && (
-        <div style={{ ...s.feedbackSays, color: '#047857' }}>
-          <code style={s.feedbackCode}>{fb.ak_code}</code> {expected.description}
-        </div>
-      )}
-    </div>
-  )
-}
 
 function ResultsView({ results, coderName }: { results: ReturnType<typeof _shapeResult>[]; coderName: string }) {
   const avg = results.filter(r => r.total_score !== null).reduce((a, r) => a + (r.total_score ?? 0), 0) / (results.filter(r => r.total_score !== null).length || 1)
@@ -1944,11 +1913,12 @@ function ResultsView({ results, coderName }: { results: ReturnType<typeof _shape
                 {r.flagged && <Flag size={13} color="#f59e0b" />}
               </div>
               {r.feedback?.length > 0 && (
-                <div style={{ fontSize: 12, color: '#6b7280', display: 'flex', flexDirection: 'column', gap: 3 }}>
-                  {r.feedback.map((fb, j) => (
-                    <FeedbackLine key={j} fb={fb} describe={describeFor(fb.section || '')} />
-                  ))}
-                </div>
+                <GradingFeedback
+                  feedback={r.feedback as any}
+                  sdxKey={r.sdx_answer_key || []}
+                  pdxKey={r.pdx_answer_key ? [{ code: r.pdx_answer_key }] : []}
+                  describe={(code: string, section: string) => describeFor(section)(code)}
+                />
               )}
             </div>
           )

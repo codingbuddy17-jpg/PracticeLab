@@ -159,6 +159,20 @@ def norm_dx(code) -> str:
     return _clean(code).replace(".", "").replace(" ", "").upper()
 
 
+def norm_poa(poa) -> str:
+    """
+    One POA value, however it was recorded.
+
+    CMS writes the exempt indicator as "1"; every answer key here uses "E", and
+    the coder dropdown offered "1" — so an exempt diagnosis could never match
+    its own key, and the coder was marked wrong for entering the only value the
+    form let them pick. The dropdowns now say E, and this keeps the submissions
+    already stored under "1" grading correctly on a re-grade.
+    """
+    v = _clean(poa).upper().strip()
+    return "E" if v == "1" else v
+
+
 def norm_pcs(code) -> str:
     c = _clean(code).replace(" ", "").upper()
     return c.replace("O", "0").replace("I", "1")
@@ -230,18 +244,25 @@ def _match_sdx_ip(ak_sdx: list[dict], cdr_sdx: list[dict], penalty: bool):
 
     for ci, cs in enumerate(cdr_sdx):
         c_code = norm_dx(cs.get("code", ""))
-        c_poa = cs.get("poa", "").upper().strip()
+        c_poa = norm_poa(cs.get("poa", ""))
         if not c_code:
             continue
         for ai, ak in enumerate(ak_sdx):
             if ak_used[ai]:
                 continue
-            if norm_dx(ak.get("code", "")) == c_code and ak.get("poa", "").upper().strip() == c_poa:
+            if norm_dx(ak.get("code", "")) == c_code and norm_poa(ak.get("poa", "")) == c_poa:
                 matched += 1
                 ak_used[ai] = True
                 cdr_used[ci] = True
                 break
 
+    # Second pass: the code is right and the POA is not. Both sides must be
+    # marked used. They were not, so every wrong-POA code was ALSO reported as
+    # Missed by the loop below — a coder who got five codes right with the
+    # wrong POA saw ten findings for five mistakes, five of them claiming a
+    # code they had plainly submitted was absent. The score never used these
+    # rows, so it was right all along; the feedback was telling a different
+    # story from the mark.
     for ci, cs in enumerate(cdr_sdx):
         if cdr_used[ci]:
             continue
@@ -255,6 +276,8 @@ def _match_sdx_ip(ak_sdx: list[dict], cdr_sdx: list[dict], penalty: bool):
                 feedback.append(FeedbackRow("SDx", "Wrong_POA",
                     ak.get("code", ""), cs.get("code", ""),
                     f"POA: {ak.get('poa','')} vs {cs.get('poa','')}"))
+                ak_used[ai] = True
+                cdr_used[ci] = True
                 break
 
     for ai, ak in enumerate(ak_sdx):
@@ -562,7 +585,7 @@ def grade_ip(ak: IPAnswerKey, sub: IPSubmission,
 
     # PDx
     pdx_ok = (norm_dx(sub.pdx_code) == norm_dx(ak.pdx_code) and
-               sub.pdx_poa.upper().strip() == ak.pdx_poa.upper().strip())
+               norm_poa(sub.pdx_poa) == norm_poa(ak.pdx_poa))
     result.pdx_score = cfg.pdx_weight if pdx_ok else 0
     if not pdx_ok:
         if norm_dx(sub.pdx_code) != norm_dx(ak.pdx_code):
@@ -728,13 +751,13 @@ def compute_dpo_ip(ak: IPAnswerKey, sub: IPSubmission, overcoding_penalty: bool)
 
     if pdx_code_ok:
         poa_opp += 1
-        if sub.pdx_poa.upper().strip() != ak.pdx_poa.upper().strip():
+        if norm_poa(sub.pdx_poa) != norm_poa(ak.pdx_poa):
             poa_defects += 1
 
     cdr_sdx_used_set = {ci for _, ci in sdx_code_matched_idx}
     for ai, ci in sdx_code_matched_idx:
         poa_opp += 1
-        if cdr_sdx[ci].get("poa", "").upper().strip() != ak_sdx[ai].get("poa", "").upper().strip():
+        if norm_poa(cdr_sdx[ci].get("poa", "")) != norm_poa(ak_sdx[ai].get("poa", "")):
             poa_defects += 1
 
     # ── PCS section ───────────────────────────────────────────────────────────

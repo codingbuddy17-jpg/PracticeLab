@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { GradingFeedback } from '../../components/GradingFeedback'
 import { Loader, Download, BarChart2, Search, CheckSquare, Square, CheckCircle, Circle, AlertCircle, ChevronDown, ChevronRight, Key, Copy, Eye } from 'lucide-react'
 import toast from 'react-hot-toast'
 import RandomisationStatsCard from '../../components/RandomisationStatsCard'
@@ -1337,13 +1338,11 @@ function ReviewModal({ reviewData, onClose, onRefresh }: { reviewData: any; onCl
                       {' '}{c.pdx_correct === true ? <span style={{ color: '#059669' }}>✓</span> : c.pdx_correct === false ? <span style={{ color: '#dc2626' }}>✗</span> : null}
                     </div>
                     {c.feedback?.length > 0 && (
-                      <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                        {c.feedback.map((fb: any, j: number) => (
-                          <div key={j} style={{ fontSize: 11, color: '#6b7280' }}>
-                            • [{fb.section}] {fb.issue} — submitted: <code>{fb.coder_code || '—'}</code> | expected: <code>{fb.ak_code || '—'}</code>
-                          </div>
-                        ))}
-                      </div>
+                      <GradingFeedback
+                        feedback={c.feedback}
+                        sdxKey={c.sdx_answer_key}
+                        pdxKey={c.pdx_answer_key ? [{ code: c.pdx_answer_key }] : []}
+                      />
                     )}
                     {hasDRG && (
                       <div style={{ marginTop: 10, padding: '10px 12px', background: drgDone ? '#f0fdf4' : '#fff1f2', borderRadius: 8, border: `1px solid ${drgDone ? '#bbf7d0' : '#fecaca'}` }}>

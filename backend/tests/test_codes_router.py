@@ -210,11 +210,20 @@ class TestEveryCodeRowIsWiredForDescriptions:
         import pathlib
         src = (pathlib.Path(__file__).resolve().parents[2] / "frontend" / "src"
                / "pages" / "PracticeSession.tsx").read_text()
-        assert "<FeedbackLine" in src
+        # The renderer became the shared GradingFeedback, so the coder's
+        # results and the trainer's batch view cannot drift apart again — but
+        # it must still be HANDED the lookup, or the descriptions are gone.
+        assert "<GradingFeedback" in src
+        assert "describe={(code: string, section: string) => describeFor(section)(code)}" in src, (
+            "the results screen renders findings without passing a code lookup")
         # Three systems, three lookups: a seven-character string is a
         # procedure, and asking the diagnosis table for it gets nothing.
         for name in ("describeDx", "describePcs", "describeCpt"):
             assert name in src, "%s lookup missing on the results screen" % name
+        # And the component must actually use it.
+        comp = (pathlib.Path(__file__).resolve().parents[2] / "frontend" / "src"
+                / "components" / "GradingFeedback.tsx").read_text()
+        assert "describe(f.coder_code, sect)" in comp and "describe(f.ak_code, sect)" in comp
 
     def test_the_coder_form_is_wired_for_its_three_code_fields(self):
         import pathlib

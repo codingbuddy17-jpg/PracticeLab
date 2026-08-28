@@ -69,8 +69,14 @@ def _grade_chart_for_sp(chart, ak_rec, sub_data, ip_cfg, op_cfg, edsp_cfg=None):
         )
         res = grade_ed_single_path(ak, s, edsp_cfg)
         for fb in res.feedback:
+            # `detail` carries what the codes alone cannot say: which POA
+            # values differed, and how many extra codes were submitted. It was
+            # dropped here, so a Wrong_POA finding reached the screen as the
+            # same code twice with no indication of what was wrong with it, and
+            # an Over_coded finding as two dashes.
             feedback_items.append({"section": fb.section, "issue": fb.issue_type,
-                                   "ak_code": fb.ak_code, "coder_code": fb.coder_code})
+                                   "ak_code": fb.ak_code, "coder_code": fb.coder_code,
+                                   "detail": fb.detail})
         from services.grading_engine import compute_dpo_ed_single_path
         dpo = compute_dpo_ed_single_path(ak, s, edsp_cfg.overcoding_penalty)
         result = {
@@ -103,8 +109,14 @@ def _grade_chart_for_sp(chart, ak_rec, sub_data, ip_cfg, op_cfg, edsp_cfg=None):
         pct = round(score / total_possible * 100) if total_possible else 0
         passed = pct >= ip_cfg.pass_threshold
         for fb in res.feedback:
+            # `detail` carries what the codes alone cannot say: which POA
+            # values differed, and how many extra codes were submitted. It was
+            # dropped here, so a Wrong_POA finding reached the screen as the
+            # same code twice with no indication of what was wrong with it, and
+            # an Over_coded finding as two dashes.
             feedback_items.append({"section": fb.section, "issue": fb.issue_type,
-                                   "ak_code": fb.ak_code, "coder_code": fb.coder_code})
+                                   "ak_code": fb.ak_code, "coder_code": fb.coder_code,
+                                   "detail": fb.detail})
         result = {
             "weighted_score": pct,
             "pass_fail": "PASS" if passed else "FAIL",
@@ -147,8 +159,14 @@ def _grade_chart_for_sp(chart, ak_rec, sub_data, ip_cfg, op_cfg, edsp_cfg=None):
         pct = round(score / total_possible * 100) if total_possible else 0
         passed = pct >= op_cfg.pass_threshold
         for fb in res.feedback:
+            # `detail` carries what the codes alone cannot say: which POA
+            # values differed, and how many extra codes were submitted. It was
+            # dropped here, so a Wrong_POA finding reached the screen as the
+            # same code twice with no indication of what was wrong with it, and
+            # an Over_coded finding as two dashes.
             feedback_items.append({"section": fb.section, "issue": fb.issue_type,
-                                   "ak_code": fb.ak_code, "coder_code": fb.coder_code})
+                                   "ak_code": fb.ak_code, "coder_code": fb.coder_code,
+                                   "detail": fb.detail})
         result = {
             "weighted_score": pct,
             "pass_fail": "PASS" if passed else "FAIL",
