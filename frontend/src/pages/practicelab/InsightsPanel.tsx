@@ -28,6 +28,7 @@ export function InsightsPanel({ insights, batchId, onClose }: { insights: any; b
       'SUMMARY',
       `Coders: ${bs.n_coders}  |  Total Charts Coded: ${bs.total_graded}`,
       `Chart Pass Rate: ${bs.pass_rate}% (${bs.passed}/${bs.total_graded} charts passed)${bs.pass_rate_delta != null ? `  vs prior batch: ${bs.pass_rate_delta > 0 ? '+' : ''}${bs.pass_rate_delta}%` : ''}`,
+      `Coders Passed: ${bs.coders_passed ?? '—'}/${bs.n_coders}`,
       `Avg Grading Score: ${bs.avg_score}%`,
       '',
     ]
@@ -136,8 +137,13 @@ export function InsightsPanel({ insights, batchId, onClose }: { insights: any; b
           // different endpoint, under the identical field name.
           { label: 'Chart Pass Rate', value: `${bs.pass_rate}%`, color: bs.pass_rate >= 70 ? '#16a34a' : bs.pass_rate >= 49 ? '#d97706' : '#dc2626' },
           { label: 'Avg Grading Score', value: `${bs.avg_score}%`, color: '#111' },
-          { label: 'Passed', value: bs.passed, color: '#16a34a' },
-          { label: 'Failed', value: bs.failed, color: '#dc2626' },
+          // These were bs.passed / bs.failed, which count CHARTS — so a batch
+          // with two coders reported three passed, directly under a tile
+          // reading "Coders 2". This is a batch summary and the outcome that
+          // belongs beside a coder count is the coders'. The chart basis is
+          // still here, as the rate above, where its label says so.
+          { label: 'Coders Passed', value: bs.coders_passed ?? bs.passed, color: '#16a34a' },
+          { label: 'Coders Failed', value: bs.coders_failed ?? bs.failed, color: '#dc2626' },
         ].map(s => (
           <div key={s.label} style={{ background: '#fff', border: '1px solid #e0e7ff', borderRadius: 8, padding: '12px 14px', textAlign: 'center' }}>
             <div style={{ fontSize: 22, fontWeight: 800, color: s.color }}>{s.value}</div>

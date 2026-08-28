@@ -22,6 +22,20 @@ from services.download_headers import content_disposition
 router = APIRouter()
 
 
+def coder_verdict(charts_passed: int, charts_scored: int) -> str:
+    """
+    Whether a coder passed the batch: a majority of their scored charts.
+
+    Written once because two screens report it. The results tab and the
+    insights panel each had their own idea of what "passed" counted, and the
+    insights one counted CHARTS while sitting under a heading that said Coders
+    — so a batch with two coders could report three passed.
+    """
+    if not charts_scored:
+        return "PENDING"
+    return "PASS" if charts_passed > charts_scored / 2 else "FAIL"
+
+
 @router.get("/batches/{batch_id}/drg-review")
 def get_drg_review(batch_id: int, db: Session = Depends(get_db)):
     results = (db.query(GradingResult)
@@ -232,7 +246,7 @@ def get_batch_results(batch_id: int, db: Session = Depends(get_db)):
             "charts_scored": d["total_cnt"],
             "charts_passed": d["pass_count"],
             "avg_total": total_avg,
-            "pass_fail": "PENDING" if d["total_cnt"] == 0 else ("PASS" if d["pass_count"] > d["total_cnt"] / 2 else "FAIL"),
+            "pass_fail": coder_verdict(d["pass_count"], d["total_cnt"]),
             # Cumulative DPO (correct methodology)
             "cumulative_dpo": {
                 "dx_accuracy": dx_acc,
@@ -377,6 +391,17 @@ def get_batch_insights(batch_id: int, db: Session = Depends(get_db)):
     n_passed = sum(1 for r in results if r.pass_fail and r.pass_fail.value == "PASS")
     avg_score = round(sum(scores) / len(scores), 1)
     pass_rate = round(n_passed / len(results) * 100, 1)
+
+    # Per coder, on the same rule the results tab uses.
+    _by_coder: dict = {}
+    for r in results:
+        d = _by_coder.setdefault(r.coder_name, {"scored": 0, "passed": 0})
+        if r.total_score is not None:
+            d["scored"] += 1
+            if r.pass_fail and r.pass_fail.value == "PASS":
+                d["passed"] += 1
+    coders_passed = sum(1 for d in _by_coder.values()
+                        if coder_verdict(d["passed"], d["scored"]) == "PASS")
 
     prior = (db.query(Batch)
                .filter(Batch.specialty == batch.specialty,
@@ -570,6 +595,11 @@ def get_batch_insights(batch_id: int, db: Session = Depends(get_db)):
             "n_distinct_charts": n_distinct_charts,
             "passed": n_passed,
             "failed": len(results) - n_passed,
+            # The same counts on a CODER basis. The panel headlines the number
+            # of coders, so bare "Passed 3" beside "Coders 2" read as three
+            # coders out of two — the figures were charts, and nothing said so.
+            "coders_passed": coders_passed,
+            "coders_failed": n_coders - coders_passed,
             # CHART basis here — n_passed counts RESULTS. The /results endpoint
             # builds a batch_summary with the SAME field name from a CODER
             # basis, so the two batch screens report different populations.
