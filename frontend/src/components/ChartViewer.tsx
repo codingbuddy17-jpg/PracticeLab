@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Copy, Check, Search, ChevronUp, ChevronDown, Flag } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { getChartPages, searchInChart, submitFeedback } from '../api'
+import { getChartPages, getChartText, searchInChart, submitFeedback } from '../api'
 import type { Chart } from '../types'
 import { SPECIALTY_COLORS, DIFFICULTY_COLORS } from '../theme'
 
@@ -16,8 +16,40 @@ function pageImgUrl(path: string) {
   return path.startsWith('http') ? path : `${API_BASE}${path}`
 }
 
+const SECTION_PATTERNS: { label: string; pattern: RegExp }[] = [
+  { label: 'Discharge Summary', pattern: /\b(discharge summary|hospital course|discharge diagnosis|discharge diagnoses)\b/i },
+  { label: 'History & Physical', pattern: /\b(history and physical|history & physical|h&p|chief complaint|history of present illness|hpi)\b/i },
+  { label: 'Operative Note', pattern: /\b(operative report|operative note|procedure performed|preoperative diagnosis|postoperative diagnosis)\b/i },
+  { label: 'Procedure Note', pattern: /\b(procedure note|procedures performed|indication for procedure|description of procedure)\b/i },
+  { label: 'Pathology', pattern: /\b(pathology|specimen|final diagnosis|microscopic diagnosis)\b/i },
+  { label: 'Radiology', pattern: /\b(radiology|impression:|ct |mri |x-ray|ultrasound|portable chest)\b/i },
+  { label: 'Labs', pattern: /\b(laboratory|lab results|wbc|hemoglobin|creatinine|sodium|potassium|bun)\b/i },
+  { label: 'ED Course', pattern: /\b(ed course|emergency department course|emergency room course|medical decision making)\b/i },
+  { label: 'Assessment & Plan', pattern: /\b(assessment and plan|assessment\/plan|assessment & plan|plan:)\b/i },
+  { label: 'Medication List', pattern: /\b(medications|home medications|current medications|medication list)\b/i },
+  { label: 'Consult Note', pattern: /\b(consultation|consult note|consultant|reason for consult)\b/i },
+]
+
+function sectionBreakers(pages: { page: number; text: string; has_text: boolean }[]) {
+  const seen = new Map<string, number>()
+  for (const page of pages) {
+    if (!page.has_text) continue
+    for (const section of SECTION_PATTERNS) {
+      if (!seen.has(section.label) && section.pattern.test(page.text)) {
+        seen.set(section.label, page.page)
+      }
+    }
+  }
+  return [...seen.entries()].map(([label, page]) => ({ label, page }))
+}
+
 export function ChartViewer({ chart, viewerName = 'anonymous', onClose }: Props) {
   const [pages, setPages] = useState<{ page: number; url: string }[]>([])
+  const [textPages, setTextPages] = useState<{ page: number; text: string; has_text: boolean }[]>([])
+  const [textLoaded, setTextLoaded] = useState(false)
+  const [textLoading, setTextLoading] = useState(false)
+  const [textAvailable, setTextAvailable] = useState(false)
+  const [viewMode, setViewMode] = useState<'image' | 'text'>('image')
   const [currentPage, setCurrentPage] = useState(0)
   const [zoom, setZoom] = useState(1)
   const [loading, setLoading] = useState(true)
@@ -77,10 +109,31 @@ export function ChartViewer({ chart, viewerName = 'anonymous', onClose }: Props)
 
   useEffect(() => {
     setLoading(true)
+    setViewMode('image')
+    setTextPages([])
+    setTextLoaded(false)
+    setTextAvailable(false)
     getChartPages(chart.id, viewerName)
       .then(d => { setPages(d.pages); setLoading(false) })
       .catch(() => setLoading(false))
   }, [chart.id, viewerName])
+
+  useEffect(() => {
+    if (viewMode !== 'text' || textLoaded || textLoading) return
+    setTextLoading(true)
+    getChartText(chart.id)
+      .then(d => {
+        setTextPages(d.pages)
+        setTextAvailable(d.has_text)
+        setTextLoaded(true)
+      })
+      .catch(() => {
+        setTextPages([])
+        setTextAvailable(false)
+        toast.error('Chart text could not be loaded')
+      })
+      .finally(() => setTextLoading(false))
+  }, [chart.id, textLoaded, textLoading, viewMode])
 
   const handleCopy = useCallback(() => {
     navigator.clipboard.writeText(chart.chart_number)
@@ -125,6 +178,7 @@ export function ChartViewer({ chart, viewerName = 'anonymous', onClose }: Props)
   }, [onClose, pages.length, showSearch])
 
   const isMatchPage = searchResults.includes(currentPage)
+  const sections = sectionBreakers(textPages)
 
   return (
     <div style={styles.overlay}>
@@ -148,6 +202,20 @@ export function ChartViewer({ chart, viewerName = 'anonymous', onClose }: Props)
             <button style={{ ...styles.iconBtn, background: showThumbs ? '#ede9fe' : '#fff' }} onClick={() => setShowThumbs(s => !s)} title="Toggle page thumbnails">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={showThumbs ? specialtyColor.bg : '#6b7280'} strokeWidth="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
             </button>
+            <div style={styles.viewToggle} aria-label="Chart view mode">
+              <button
+                style={{ ...styles.viewToggleBtn, ...(viewMode === 'image' ? styles.viewToggleActive : {}) }}
+                onClick={() => setViewMode('image')}
+              >
+                Image
+              </button>
+              <button
+                style={{ ...styles.viewToggleBtn, ...(viewMode === 'text' ? styles.viewToggleActive : {}) }}
+                onClick={() => setViewMode('text')}
+              >
+                Text
+              </button>
+            </div>
             <button style={styles.iconBtn} onClick={() => { setShowSearch(s => !s); setTimeout(() => searchInputRef.current?.focus(), 50) }} title="Search in chart (Ctrl+F)">
               <Search size={15} color={showSearch ? specialtyColor.bg : '#6b7280'} />
             </button>
@@ -234,7 +302,7 @@ export function ChartViewer({ chart, viewerName = 'anonymous', onClose }: Props)
         {/* Body */}
         <div style={styles.bodyWrap}>
           {/* Thumbnail strip */}
-          {showThumbs && pages.length > 1 && (
+          {viewMode === 'image' && showThumbs && pages.length > 1 && (
             <div ref={thumbsRef} style={styles.thumbStrip}>
               {pages.map((p, i) => (
                 <button
@@ -260,7 +328,61 @@ export function ChartViewer({ chart, viewerName = 'anonymous', onClose }: Props)
 
           {/* Main page */}
           <div style={styles.body}>
-            {loading ? (
+            {viewMode === 'text' ? (
+              textLoading ? (
+                <div style={styles.center}>
+                  <div style={styles.spinner} />
+                  <span>Loading chart text...</span>
+                </div>
+              ) : !textAvailable ? (
+                <div style={styles.center}>Text is not available for this chart.</div>
+              ) : (
+                <div style={styles.textView}>
+                  {sections.length > 0 && (
+                    <div style={styles.sectionBar}>
+                      <span style={styles.sectionBarLabel}>Sections</span>
+                      {sections.map(section => (
+                        <button
+                          key={section.label}
+                          style={styles.sectionChip}
+                          onClick={() => {
+                            setCurrentPage(section.page)
+                            document.getElementById(`chart-text-page-${section.page}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                          }}
+                        >
+                          {section.label}
+                          <span style={styles.sectionPage}>p{section.page + 1}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <div style={styles.textPages}>
+                    {textPages.map(page => (
+                      <section
+                        id={`chart-text-page-${page.page}`}
+                        key={page.page}
+                        style={{
+                          ...styles.textPage,
+                          borderColor: page.page === currentPage ? specialtyColor.bg : '#e5e7eb',
+                        }}
+                      >
+                        <div style={styles.textPageHeader}>
+                          <span>Page {page.page + 1}</span>
+                          <button style={styles.textPageBtn} onClick={() => { setCurrentPage(page.page); setViewMode('image') }}>
+                            View Image
+                          </button>
+                        </div>
+                        {page.has_text ? (
+                          <pre style={styles.pageText}>{page.text}</pre>
+                        ) : (
+                          <div style={styles.emptyPageText}>No extracted text on this page.</div>
+                        )}
+                      </section>
+                    ))}
+                  </div>
+                </div>
+              )
+            ) : loading ? (
               <div style={styles.center}>
                 <div style={styles.spinner} />
                 <span>Loading chart...</span>
@@ -286,7 +408,9 @@ export function ChartViewer({ chart, viewerName = 'anonymous', onClose }: Props)
 
         {/* Footer */}
         <div style={styles.footer}>
-          {pages.length > 1 ? (
+          {viewMode === 'text' && textAvailable ? (
+            <span style={styles.pageLabel}>{textPages.filter(p => p.has_text).length} text page{textPages.filter(p => p.has_text).length !== 1 ? 's' : ''}</span>
+          ) : pages.length > 1 ? (
             <>
               <button style={styles.navBtn} disabled={currentPage === 0} onClick={() => setCurrentPage(p => p - 1)}>
                 <ChevronLeft size={16} />
@@ -321,6 +445,9 @@ const styles: Record<string, React.CSSProperties> = {
   metaDot: { color: '#d1d5db', fontSize: 12 },
   metaText: { fontSize: 12, color: '#6b7280' },
   iconBtn: { border: '1px solid #e5e7eb', background: '#fff', borderRadius: 6, padding: '5px 9px', cursor: 'pointer', display: 'flex', alignItems: 'center', transition: 'all 0.15s' },
+  viewToggle: { display: 'flex', alignItems: 'center', border: '1px solid #e5e7eb', borderRadius: 7, overflow: 'hidden', background: '#fff' },
+  viewToggleBtn: { border: 'none', background: '#fff', color: '#6b7280', padding: '6px 10px', cursor: 'pointer', fontSize: 12, fontWeight: 700 },
+  viewToggleActive: { background: '#eef2ff', color: '#4f46e5' },
   closeBtn: { borderColor: '#fca5a5', background: '#fff5f5' },
   searchBar: { display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', background: '#f8fafc', borderBottom: '1px solid #e5e7eb' },
   searchInput: { flex: 1, padding: '6px 10px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 13, outline: 'none' },
@@ -339,6 +466,17 @@ const styles: Record<string, React.CSSProperties> = {
   spinner: { width: 28, height: 28, border: '3px solid #e5e7eb', borderTopColor: '#4f46e5', borderRadius: '50%', animation: 'spin 0.8s linear infinite' },
   pageImg: { display: 'block', margin: '0 auto', maxWidth: '100%', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', borderRadius: 4, transition: 'outline 0.2s' },
   matchBanner: { textAlign: 'center', padding: '6px', background: '#fef9c3', color: '#854d0e', fontSize: 12, fontWeight: 600, borderRadius: 4, marginBottom: 10 },
+  textView: { maxWidth: 900, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 12 },
+  sectionBar: { display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' as const, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: '9px 10px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' },
+  sectionBarLabel: { fontSize: 11, color: '#6b7280', fontWeight: 800, textTransform: 'uppercase' as const, letterSpacing: 0.5, marginRight: 2 },
+  sectionChip: { display: 'flex', alignItems: 'center', gap: 6, border: '1px solid #dbeafe', background: '#eff6ff', color: '#1d4ed8', borderRadius: 6, padding: '5px 8px', fontSize: 12, fontWeight: 700, cursor: 'pointer' },
+  sectionPage: { color: '#64748b', fontSize: 11, fontWeight: 700 },
+  textPages: { display: 'flex', flexDirection: 'column', gap: 10 },
+  textPage: { background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' },
+  textPageHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '8px 12px', background: '#f8fafc', borderBottom: '1px solid #e5e7eb', color: '#334155', fontSize: 12, fontWeight: 800 },
+  textPageBtn: { border: '1px solid #e5e7eb', background: '#fff', borderRadius: 6, color: '#4f46e5', cursor: 'pointer', padding: '4px 8px', fontSize: 11, fontWeight: 700 },
+  pageText: { margin: 0, padding: 14, whiteSpace: 'pre-wrap' as const, wordBreak: 'break-word' as const, color: '#111827', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize: 12.5, lineHeight: 1.55 },
+  emptyPageText: { padding: 14, color: '#94a3b8', fontSize: 12, fontStyle: 'italic' },
   footer: { borderTop: '1px solid #e5e7eb', padding: '10px 16px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, background: '#fafafa' },
   navBtn: { border: '1px solid #e5e7eb', background: '#fff', borderRadius: 6, padding: '5px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', transition: 'all 0.15s' },
   pageInfo: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 },

@@ -112,3 +112,38 @@ def test_no_bucket_url_or_credential_reaches_the_client(client, db, chart_with_p
     for leak in ("r2.cloudflarestorage.com", "amazonaws.com",
                  "X-Amz-Signature", "STORAGE_ACCESS_KEY"):
         assert leak not in blob, f"{leak} reached the client"
+
+
+def test_chart_text_returns_stored_page_text(client, db, chart_with_page):
+    chart_with_page.files[0].page_text = "Discharge Summary\nSepsis due to pneumonia."
+    db.commit()
+
+    r = client.get(f"/charts/{chart_with_page.id}/text")
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body["chart_number"] == "PX001"
+    assert body["has_text"] is True
+    assert body["pages"] == [{
+        "page": 0,
+        "text": "Discharge Summary\nSepsis due to pneumonia.",
+        "has_text": True,
+    }]
+
+
+def test_chart_text_does_not_call_storage(client, db, chart_with_page, fake_storage):
+    chart_with_page.files[0].page_text = "Operative Report\nExcision performed."
+    db.commit()
+
+    r = client.get(f"/charts/{chart_with_page.id}/text")
+
+    assert r.status_code == 200
+    assert "key" not in fake_storage
+
+
+def test_chart_text_reports_absent_extracted_text(client, db, chart_with_page):
+    r = client.get(f"/charts/{chart_with_page.id}/text")
+
+    assert r.status_code == 200
+    assert r.json()["has_text"] is False
+    assert r.json()["pages"][0]["has_text"] is False

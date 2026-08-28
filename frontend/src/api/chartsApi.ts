@@ -18,6 +18,15 @@ export async function getChartPages(chartId: number, viewer = 'anonymous') {
   return data as { chart_number: string; pages: { page: number; url: string }[] }
 }
 
+export async function getChartText(chartId: number) {
+  const { data } = await api.get(`/charts/${chartId}/text`)
+  return data as {
+    chart_number: string
+    has_text: boolean
+    pages: { page: number; text: string; has_text: boolean }[]
+  }
+}
+
 export async function getCategories(specialty?: string): Promise<string[]> {
   const { data } = await api.get('/charts/categories', { params: { specialty } })
   return data

@@ -151,6 +151,34 @@ def get_chart_pages_endpoint(
     return {"chart_number": chart.chart_number, "pages": pages}
 
 
+@router.get("/{chart_id}/text")
+def get_chart_text_endpoint(chart_id: int, db: Session = Depends(get_db)):
+    """
+    Return the extracted text stored at upload time.
+
+    This is a viewer convenience only: grading, allocation, analytics and
+    answer-key logic must keep using the authored keys, not chart text.
+    """
+    chart = _get_or_404(chart_id, db)
+    files = (db.query(ChartFile)
+               .filter(ChartFile.chart_id == chart.id)
+               .order_by(ChartFile.page_order)
+               .all())
+    pages = [
+        {
+            "page": f.page_order,
+            "text": f.page_text or "",
+            "has_text": bool((f.page_text or "").strip()),
+        }
+        for f in files
+    ]
+    return {
+        "chart_number": chart.chart_number,
+        "pages": pages,
+        "has_text": any(p["has_text"] for p in pages),
+    }
+
+
 @router.get("/{chart_id}/page/{page_order}")
 def proxy_chart_page(chart_id: int, page_order: int, db: Session = Depends(get_db)):
     chart = _get_or_404(chart_id, db)
