@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { ChevronLeft, Plus, Zap, Settings } from 'lucide-react'
+import { ChevronLeft, Plus, Zap, Settings, Database } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { listBatchesPage, getPLAnalyticsOverview, getScoringConfigs } from '../api'
 import { HomeView } from './practicelab/HomeView'
@@ -11,6 +11,7 @@ import { DRGReviewView } from './practicelab/DRGReviewView'
 import { ResultsView } from './practicelab/ResultsView'
 import { ScoringConfigView } from './practicelab/ScoringConfigView'
 import { PLAnalyticsView } from './practicelab/PLAnalyticsView'
+import { CodeSetMaintenancePanel } from './practicelab/CodeSetMaintenancePanel'
 import styles from './practicelab/styles'
 
 type Tab = 'home' | 'answer-keys' | 'analytics'
@@ -49,6 +50,7 @@ export function TrainerPracticeLab() {
   const [overview, setOverview]             = useState<any>(null)
   const [scoringCfg, setScoringCfg]         = useState<any>(null)
   const [loading, setLoading]               = useState(false)
+  const [showCodeSets, setShowCodeSets]     = useState(false)
 
   const PAGE_SIZE = 25
   const [batchLimit, setBatchLimit] = useState(PAGE_SIZE)
@@ -247,6 +249,19 @@ export function TrainerPracticeLab() {
               </button>
             </>
           )}
+          <button
+            title="Code Set Maintenance"
+            style={{
+              ...styles.navBtn,
+              padding: '6px 10px',
+              color: showCodeSets ? '#0f766e' : '#9ca3af',
+              border: `1px solid ${showCodeSets ? '#0f766e' : '#e5e7eb'}`,
+              background: showCodeSets ? '#f0fdf4' : 'transparent',
+            }}
+            onClick={() => setShowCodeSets(true)}
+          >
+            <Database size={15} />
+          </button>
           {/* Scoring config gear — always accessible */}
           <button
             title="Scoring Config"
@@ -333,6 +348,7 @@ export function TrainerPracticeLab() {
         )}
         {view === 'results' && selectedBatchId && <ResultsView batchId={selectedBatchId} />}
       </div>
+      {showCodeSets && <CodeSetMaintenancePanel onClose={() => setShowCodeSets(false)} />}
     </div>
   )
 }
