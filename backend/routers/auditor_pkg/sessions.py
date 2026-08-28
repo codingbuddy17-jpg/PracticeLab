@@ -210,6 +210,31 @@ def _upsert_draft(db: Session, session_id: int, work: ChartWork) -> AuditChartDr
     return row
 
 
+class ReleaseSession(BaseModel):
+    released_by: str = ""
+
+
+@router.post("/sessions/{session_id}/release")
+def release_session(session_id: int, payload: ReleaseSession,
+                    db: Session = Depends(get_db)):
+    """
+    Let go of the browser holding this session. See the PracticeLab twin.
+
+    The claim expires on its own after silence, which covers a closed tab or a
+    closed browser. It does not cover the browser TAG changing while the
+    session is live — a different browser, a private window, cleared site data
+    — where an auditor is refused entry to their own work and told to close a
+    device that is the one in front of them.
+    """
+    sess = db.query(AuditSession).filter(AuditSession.id == session_id).first()
+    if not sess:
+        raise HTTPException(404, "Session not found")
+    sess.active_device = None
+    sess.last_seen_at = None
+    db.commit()
+    return {"released": True, "session_id": session_id}
+
+
 @router.post("/sessions/{session_id}/submit")
 def submit_session(session_id: int, payload: SubmitSession, db: Session = Depends(get_db)):
     """

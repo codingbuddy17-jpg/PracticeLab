@@ -928,6 +928,21 @@ def _upsert_practice_result(db, session_id, entry, specialty, graded=False,
                              result_kwargs, feedback_items)
 
 
+def _minutes_since(value) -> int:
+    """How long ago a browser last spoke, or -1 when it never has."""
+    from datetime import datetime, timezone
+    if value is None:
+        return -1
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value)
+        except ValueError:
+            return -1
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return max(0, int((datetime.now(timezone.utc) - value).total_seconds() // 60))
+
+
 def _iso(v):
     """
     Timestamps written by raw SQL come back as datetimes on Postgres and as
@@ -1006,7 +1021,8 @@ def _build_coder_results(session_id: int, db) -> list:
 def list_practice_sessions(batch_id: int, cycle_id: Optional[int] = None, db: Session = Depends(get_db)):
     from sqlalchemy import text
 
-    q = "SELECT id, coder_name, specialty, token, status, submitted_at, show_results_to_coder " \
+    q = "SELECT id, coder_name, specialty, token, status, submitted_at, " \
+        "show_results_to_coder, active_device, last_seen_at " \
         "FROM practice_sessions WHERE batch_id=:b"
     params: dict = {"b": batch_id}
     if cycle_id:
@@ -1021,9 +1037,53 @@ def list_practice_sessions(batch_id: int, cycle_id: Optional[int] = None, db: Se
             "token": r[3], "status": r[4],
             "submitted_at": _iso(r[5]),
             "show_results_to_coder": bool(r[6]),
+            # Whether a browser is currently holding this session, and how long
+            # ago it last spoke. A trainer asked "why can't my coder get in?"
+            # needs to see the hold before deciding to release it.
+            "held": bool(r[7]) and r[4] != "submitted",
+            "held_minutes_ago": _minutes_since(r[8]),
         }
         for r in rows
     ]}
+
+
+class ReleaseSession(BaseModel):
+    released_by: str = ""
+
+
+@router.post("/practice-sessions/{session_id}/release")
+def release_practice_session(session_id: int, payload: ReleaseSession,
+                             db: Session = Depends(get_db)):
+    """
+    Let go of the browser holding this session.
+
+    A session is claimed by one browser so the same access code cannot be
+    worked from two machines. The claim is identified by a tag in that
+    browser's storage, and it expires on its own after a period of silence —
+    which covers a closed tab, a closed browser, even a reboot, because the tag
+    survives all of those.
+
+    What it does not cover is the tag CHANGING while the session is live: a
+    coder who opens the link in a different browser, or in a private window, or
+    whose site data is cleared, arrives looking like a stranger and is refused
+    entry to their own work until the idle window passes. Nothing they can do
+    fixes it, because the device they are told to close is the one in front of
+    them.
+
+    So a trainer can hand it back. This clears the hold and nothing else — the
+    drafts, the charts and the progress are untouched, and the coder's next
+    attempt simply succeeds.
+    """
+    from sqlalchemy import text
+    row = db.execute(text(
+        "SELECT id FROM practice_sessions WHERE id=:s"), {"s": session_id}).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Practice session not found")
+    db.execute(text(
+        "UPDATE practice_sessions SET active_device=NULL, last_seen_at=NULL "
+        "WHERE id=:s"), {"s": session_id})
+    db.commit()
+    return {"released": True, "session_id": session_id}
 
 
 # ── Trainer-facing: view one coder's submission ───────────────────────────────

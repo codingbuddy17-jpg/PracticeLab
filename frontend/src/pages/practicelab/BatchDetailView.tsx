@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { GradingFeedback } from '../../components/GradingFeedback'
 import { Loader, Download, BarChart2, Search, CheckSquare, Square, CheckCircle, Circle, AlertCircle, ChevronDown, ChevronRight, Key, Copy, Eye } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -910,19 +910,21 @@ function PracticeTokensSection({ batchId, isDirect, awaitingCodes, batchOpen = t
 }) {
   const V = vocab(isDirect)
   const [tokens, setTokens] = useState<{ coder_name: string; token: string; reused: boolean }[] | null>(null)
-  const [existing, setExisting] = useState<{ session_id: number; coder_name: string; token: string; status: string; submitted_at: string | null }[]>([])
+  const [existing, setExisting] = useState<{ session_id: number; coder_name: string; token: string; status: string; submitted_at: string | null; held?: boolean; held_minutes_ago?: number }[]>([])
   const [loading, setLoading] = useState(false)
   const [showResults, setShowResults] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const [reviewData, setReviewData] = useState<any>(null)
   const [reviewLoading, setReviewLoading] = useState(false)
 
-  useEffect(() => {
+  const loadSessions = useCallback(() => {
     api.get(`/practicelab/practice-sessions/batch/${batchId}`).then(res => {
       setExisting(res.data.sessions || [])
       if ((res.data.sessions || []).length) setExpanded(true)
     }).catch(() => {})
   }, [batchId])
+
+  useEffect(() => { loadSessions() }, [loadSessions])
 
   async function generateTokens() {
     setLoading(true)
@@ -956,6 +958,25 @@ function PracticeTokensSection({ batchId, isDirect, awaitingCodes, batchOpen = t
       toast.error('Failed to load review')
     }
     setReviewLoading(false)
+  }
+
+  // A session is held by one browser so an access code cannot be worked from
+  // two machines. The hold releases itself after silence, which covers a closed
+  // tab — the browser tag survives that. What it does not cover is the tag
+  // CHANGING while the session is live: a coder who switches browser, opens a
+  // private window, or has their site data cleared arrives looking like a
+  // stranger and is refused entry to their own work, told to close a device
+  // that is the one in front of them. Nothing they can do fixes it, so a
+  // trainer hands it back.
+  async function releaseSession(sessionId: number, coderName: string) {
+    if (!confirm(`Release ${coderName}'s session?\n\nTheir saved work is untouched — this only lets them open the access code again from a different browser.`)) return
+    try {
+      await api.post(`/practicelab/practice-sessions/${sessionId}/release`, { released_by: trainerName() })
+      toast.success(`${coderName} can open their code again`)
+      loadSessions()
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || 'Could not release the session')
+    }
   }
 
   async function regrade(sessionId: number) {
