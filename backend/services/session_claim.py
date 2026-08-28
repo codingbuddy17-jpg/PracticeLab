@@ -28,11 +28,14 @@ from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException
 
 # How long a session may sit untouched before another device may take it over.
-# An hour is the figure the owner asked for. It is deliberately far longer than
-# a page load and far shorter than a working day: long enough that reading a
-# chart, taking a call or a lunch break does not lose the claim, short enough
-# that a machine left logged in overnight does not hold one until morning.
-IDLE_MINUTES = 60
+#
+# With the coder screen saving on a timer, an OPEN tab never goes quiet — so
+# this is not "how long you may work on a chart", it is "how long after the tab
+# is closed, or the machine sleeps, before the code frees up". 90 minutes is
+# the owner's figure and sits comfortably past any single chart: long enough
+# that a long lunch or a meeting does not cost a coder their session, short
+# enough that a machine shut at five does not hold the code overnight.
+IDLE_MINUTES = 90
 
 
 def _aware(value):
