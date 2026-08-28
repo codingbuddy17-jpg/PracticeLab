@@ -22,6 +22,21 @@ from services.download_headers import content_disposition
 router = APIRouter()
 
 
+def coders_passing(results) -> tuple:
+    """(coders who passed, coders with anything scored) for a set of results."""
+    by_coder: dict = {}
+    for r in results:
+        if r.total_score is None:
+            continue
+        d = by_coder.setdefault(r.coder_name, {"scored": 0, "passed": 0})
+        d["scored"] += 1
+        if r.pass_fail and r.pass_fail.value == "PASS":
+            d["passed"] += 1
+    passed = sum(1 for d in by_coder.values()
+                 if coder_verdict(d["passed"], d["scored"]) == "PASS")
+    return passed, len(by_coder)
+
+
 def coder_verdict(charts_passed: int, charts_scored: int) -> str:
     """
     Whether a coder passed the batch: a majority of their scored charts.
@@ -392,16 +407,11 @@ def get_batch_insights(batch_id: int, db: Session = Depends(get_db)):
     avg_score = round(sum(scores) / len(scores), 1)
     pass_rate = round(n_passed / len(results) * 100, 1)
 
-    # Per coder, on the same rule the results tab uses.
-    _by_coder: dict = {}
-    for r in results:
-        d = _by_coder.setdefault(r.coder_name, {"scored": 0, "passed": 0})
-        if r.total_score is not None:
-            d["scored"] += 1
-            if r.pass_fail and r.pass_fail.value == "PASS":
-                d["passed"] += 1
-    coders_passed = sum(1 for d in _by_coder.values()
-                        if coder_verdict(d["passed"], d["scored"]) == "PASS")
+    # A batch is a cohort, so its headline rate is the share of CODERS who
+    # passed. The chart rate is still computed above and still reported, but it
+    # belongs to a coder's own report, where charts are what is being discussed.
+    coders_passed, coders_scored = coders_passing(results)
+    coder_pass_rate = round(coders_passed / coders_scored * 100, 1) if coders_scored else 0
 
     prior = (db.query(Batch)
                .filter(Batch.specialty == batch.specialty,
@@ -411,6 +421,7 @@ def get_batch_insights(batch_id: int, db: Session = Depends(get_db)):
                .first())
     prior_pass_rate = None
     pass_rate_delta = None
+    prior_coder_rate = None
     prior_name = None
     if prior:
         prior_res = [r for r in prior.results if r.total_score is not None and r.pass_fail is not None]
@@ -418,6 +429,12 @@ def get_batch_insights(batch_id: int, db: Session = Depends(get_db)):
             prior_passed = sum(1 for r in prior_res if r.pass_fail.value == "PASS")
             prior_pass_rate = round(prior_passed / len(prior_res) * 100, 1)
             pass_rate_delta = round(pass_rate - prior_pass_rate, 1)
+            # The comparison has to be on the basis being shown, or a batch
+            # would be judged better or worse than the last one by a figure the
+            # screen never displays.
+            _pp, _ps = coders_passing(prior_res)
+            if _ps:
+                prior_coder_rate = round(_pp / _ps * 100, 1)
             prior_name = prior.name
 
     all_fb = [f for r in results for f in r.feedback]
@@ -600,6 +617,10 @@ def get_batch_insights(batch_id: int, db: Session = Depends(get_db)):
             # coders out of two — the figures were charts, and nothing said so.
             "coders_passed": coders_passed,
             "coders_failed": n_coders - coders_passed,
+            "coder_pass_rate": coder_pass_rate,
+            "prior_batch_coder_pass_rate": prior_coder_rate,
+            "coder_pass_rate_delta": (round(coder_pass_rate - prior_coder_rate, 1)
+                                      if prior_coder_rate is not None else None),
             # CHART basis here — n_passed counts RESULTS. The /results endpoint
             # builds a batch_summary with the SAME field name from a CODER
             # basis, so the two batch screens report different populations.

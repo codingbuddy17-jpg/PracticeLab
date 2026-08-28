@@ -86,3 +86,50 @@ class TestTheInsightsPanel:
         assert ins["coders_passed"] == res["passed"], (
             "insights says %s coders passed, results says %s"
             % (ins["coders_passed"], res["passed"]))
+
+
+class TestTheHouseRule:
+    """
+    A batch is a cohort, so batch screens speak in CODERS. A coder's own report
+    is about their charts, so that speaks in CHARTS.
+
+    Before this the two batch screens gave different numbers for the same batch
+    under labels that did not say which was which — the results tab a coder
+    rate, the insights panel a chart rate, both called a pass rate.
+    """
+
+    def test_both_batch_screens_report_the_same_rate(self, client, db):
+        rows = [("Asha", 90, PassFail.PASS), ("Asha", 40, PassFail.FAIL),
+                ("Ben", 90, PassFail.PASS), ("Ben", 90, PassFail.PASS)]
+        bid = _batch(db, rows)
+        ins = client.get("/practicelab/batches/%d/insights" % bid).json()["batch_summary"]
+        res = client.get("/practicelab/batches/%d/results" % bid).json()["batch_summary"]
+        assert ins["coder_pass_rate"] == res["pass_rate"], (
+            "insights reports %s%%, results reports %s%% for one batch"
+            % (ins["coder_pass_rate"], res["pass_rate"]))
+
+    def test_the_two_rates_really_are_different_numbers(self, client, db):
+        """
+        The control. If chart and coder rates happened to agree on this data,
+        the test above would pass without proving anything.
+        """
+        bid = _batch(db, [("Asha", 90, PassFail.PASS), ("Asha", 40, PassFail.FAIL),
+                          ("Ben", 90, PassFail.PASS), ("Ben", 90, PassFail.PASS)])
+        bs = client.get("/practicelab/batches/%d/insights" % bid).json()["batch_summary"]
+        assert bs["pass_rate"] == 75.0          # 3 of 4 charts
+        assert bs["coder_pass_rate"] == 50.0    # 1 of 2 coders
+        assert bs["pass_rate"] != bs["coder_pass_rate"]
+
+    def test_the_chart_figures_are_still_available(self, client, db):
+        """Demoted, not discarded — a coder's report still needs them."""
+        bid = _batch(db, [("Asha", 90, PassFail.PASS), ("Asha", 40, PassFail.FAIL)])
+        bs = client.get("/practicelab/batches/%d/insights" % bid).json()["batch_summary"]
+        assert bs["passed"] == 1 and bs["failed"] == 1
+        assert bs["pass_rate_basis"] == "chart"
+
+    def test_a_coder_report_speaks_in_charts(self, client, db):
+        """The other half of the rule."""
+        bid = _batch(db, [("Asha", 90, PassFail.PASS), ("Asha", 40, PassFail.FAIL)])
+        c = client.get("/practicelab/batches/%d/results" % bid).json()["coder_summaries"][0]
+        assert c["charts_scored"] == 2
+        assert c["charts_passed"] == 1

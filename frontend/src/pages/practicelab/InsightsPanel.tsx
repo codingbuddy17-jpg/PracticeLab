@@ -27,8 +27,8 @@ export function InsightsPanel({ insights, batchId, onClose }: { insights: any; b
       '',
       'SUMMARY',
       `Coders: ${bs.n_coders}  |  Total Charts Coded: ${bs.total_graded}`,
-      `Chart Pass Rate: ${bs.pass_rate}% (${bs.passed}/${bs.total_graded} charts passed)${bs.pass_rate_delta != null ? `  vs prior batch: ${bs.pass_rate_delta > 0 ? '+' : ''}${bs.pass_rate_delta}%` : ''}`,
-      `Coders Passed: ${bs.coders_passed ?? '—'}/${bs.n_coders}`,
+      `Coder Pass Rate: ${bs.coder_pass_rate ?? bs.pass_rate}% (${bs.coders_passed ?? '—'}/${bs.n_coders} coders passed)${bs.coder_pass_rate_delta != null ? `  vs prior batch: ${bs.coder_pass_rate_delta > 0 ? '+' : ''}${bs.coder_pass_rate_delta}%` : ''}`,
+      `Charts passed: ${bs.passed}/${bs.total_graded}`,
       `Avg Grading Score: ${bs.avg_score}%`,
       '',
     ]
@@ -87,8 +87,10 @@ export function InsightsPanel({ insights, batchId, onClose }: { insights: any; b
     const recs: { icon: string; text: string; type: 'warn' | 'info' | 'ok' }[] = []
     if (bs.pass_rate < 70)
       recs.push({ icon: '⚠', type: 'warn', text: `Pass rate is ${bs.pass_rate}% — below 70% threshold. Schedule a retraining session before the next batch.` })
-    if (bs.pass_rate >= 85 && bs.pass_rate_delta != null && bs.pass_rate_delta > 0)
-      recs.push({ icon: '✓', type: 'ok', text: `Pass rate improved by ${bs.pass_rate_delta}% vs the prior batch — team is trending in the right direction.` })
+    const cRate = bs.coder_pass_rate ?? bs.pass_rate
+    const cDelta = bs.coder_pass_rate_delta ?? bs.pass_rate_delta
+    if (cRate >= 85 && cDelta != null && cDelta > 0)
+      recs.push({ icon: '✓', type: 'ok', text: `Coder pass rate improved by ${cDelta}% vs the prior batch — team is trending in the right direction.` })
     const topError = te.by_issue_type[0]
     if (topError && topError.pct >= 40)
       recs.push({ icon: '↗', type: 'info', text: `"${topError.type.replace(/_/g, ' ')}" accounts for ${topError.pct}% of all errors. Focus next feedback session on this pattern.` })
@@ -132,10 +134,14 @@ export function InsightsPanel({ insights, batchId, onClose }: { insights: any; b
         {[
           { label: 'Coders', value: bs.n_coders, color: '#111' },
           { label: 'Total Charts Coded', value: bs.total_graded, color: '#111' },
-          // CHART pass rate — /insights computes n_passed/len(results) over
-          // results. Note ResultsView's batch_summary is a CODER rate from a
-          // different endpoint, under the identical field name.
-          { label: 'Chart Pass Rate', value: `${bs.pass_rate}%`, color: bs.pass_rate >= 70 ? '#16a34a' : bs.pass_rate >= 49 ? '#d97706' : '#dc2626' },
+          // A batch is a cohort, so its rate is the share of CODERS who
+          // passed — and this screen headlines the coder count. It also used to
+          // report a CHART rate under the same words the results tab uses for a
+          // coder rate, so the two batch screens gave different numbers for the
+          // same batch. Charts belong in a coder's own report, where charts are
+          // what is being discussed.
+          { label: 'Coder Pass Rate', value: `${bs.coder_pass_rate ?? bs.pass_rate}%`,
+            color: (bs.coder_pass_rate ?? bs.pass_rate) >= 70 ? '#16a34a' : (bs.coder_pass_rate ?? bs.pass_rate) >= 49 ? '#d97706' : '#dc2626' },
           { label: 'Avg Grading Score', value: `${bs.avg_score}%`, color: '#111' },
           // These were bs.passed / bs.failed, which count CHARTS — so a batch
           // with two coders reported three passed, directly under a tile
@@ -150,9 +156,12 @@ export function InsightsPanel({ insights, batchId, onClose }: { insights: any; b
             <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>{s.label}</div>
           </div>
         ))}
-        {bs.pass_rate_delta != null && (
+        {/* On the same basis as the rate above it. A batch judged better or
+            worse than the last one by a figure the screen never shows is a
+            comparison nobody can check. */}
+        {(bs.coder_pass_rate_delta ?? bs.pass_rate_delta) != null && (
           <div style={{ background: '#fff', border: '1px solid #e0e7ff', borderRadius: 8, padding: '12px 14px', textAlign: 'center' }}>
-            <div style={{ fontSize: 22, fontWeight: 800, color: deltaColor(bs.pass_rate_delta) }}>{deltaLabel(bs.pass_rate_delta)}</div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: deltaColor(bs.coder_pass_rate_delta ?? bs.pass_rate_delta) }}>{deltaLabel(bs.coder_pass_rate_delta ?? bs.pass_rate_delta)}</div>
             <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>vs Prior Batch</div>
             <div style={{ fontSize: 10, color: '#9ca3af' }}>{bs.prior_batch_name}</div>
           </div>
