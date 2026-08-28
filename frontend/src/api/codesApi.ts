@@ -1,4 +1,5 @@
 import api from './client'
+import { adminAuth } from './adminAuth'
 
 /**
  * Code descriptions — what a code actually says.
@@ -57,8 +58,32 @@ export async function searchCodes(prefix: string, section?: string, limit = 8) {
 export async function codeSetStatus() {
   try {
     const { data } = await api.get('/codes/status')
-    return data as { loaded: any[]; any: boolean }
+    return data as { loaded: any[]; missing?: any[]; any: boolean; needs_attention?: boolean; expected_edition?: string }
   } catch {
     return { loaded: [], any: false }
   }
+}
+
+export type CodeSetIngestJob = {
+  id: number
+  status: 'running' | 'completed' | 'failed'
+  started_at: string
+  finished_at?: string | null
+  loaded_by?: string
+  returncode?: number | null
+  message?: string
+  log_tail?: string[]
+}
+
+export async function getCodeSetIngestJob() {
+  const { data } = await api.get('/codes/ingest-job')
+  return data.job as CodeSetIngestJob | null
+}
+
+export async function startCodeSetIngest(passphrase: string, loadedBy: string) {
+  const { data } = await api.post('/codes/ingest-job',
+    { loaded_by: loadedBy || 'admin UI' },
+    adminAuth(passphrase),
+  )
+  return data.job as CodeSetIngestJob
 }

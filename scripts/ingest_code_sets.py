@@ -1,9 +1,9 @@
 """
 Load the CMS code sets into this application's database.
 
-    python scripts/ingest_code_sets.py                 # report only
-    python scripts/ingest_code_sets.py --write         # and save
-    python scripts/ingest_code_sets.py --from-dir DIR --write   # no download
+    DATABASE_URL=postgresql://... python scripts/ingest_code_sets.py
+    DATABASE_URL=postgresql://... python scripts/ingest_code_sets.py --write
+    DATABASE_URL=postgresql://... python scripts/ingest_code_sets.py --from-dir DIR --write
 
 Ports the parsing from the DRGpulse seeder and points the writes here instead,
 so this application depends on CMS rather than on another application. The

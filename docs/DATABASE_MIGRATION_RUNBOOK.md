@@ -411,8 +411,8 @@ Level II**, plus the CC/MCC severity list from the MS-DRG Definitions Manual.
 They are loaded by a **standalone script that nothing calls automatically**:
 
 ```bash
-python scripts/ingest_code_sets.py            # report only, downloads nothing to the DB
-python scripts/ingest_code_sets.py --write    # load it
+DATABASE_URL="postgresql://..." python scripts/ingest_code_sets.py            # report only
+DATABASE_URL="postgresql://..." python scripts/ingest_code_sets.py --write    # load it
 ```
 
 Roughly 186,000 rows, about two minutes. It needs `DATABASE_URL` and creates
@@ -443,7 +443,7 @@ Expected in an internal environment. Download the files elsewhere, put them in
 a directory, and point the script at it:
 
 ```bash
-python scripts/ingest_code_sets.py --from-dir /path/to/cms/files --write
+DATABASE_URL="postgresql://..." python scripts/ingest_code_sets.py --from-dir /path/to/cms/files --write
 ```
 
 It matches files by name, so keep the names CMS ships them under. The four
@@ -462,27 +462,40 @@ API service risks killing the web service. Two safe options:
    set `DATABASE_URL` to the *external* connection string from the Render
    dashboard (not the internal one), and run it. Nothing else needs to be
    configured — the script only touches the code tables.
-2. **As its own scheduled job** with its own memory allowance (§8.3).
+2. **As its own scheduled job** with its own memory allowance (§8.4).
 
 Either way it is safe against a live database: it replaces one code set at a
 time inside a transaction, and the application keeps serving throughout.
 
-### 8.3 Scheduling it instead of remembering it
+### 8.3 Running it from the trainer workspace
+
+The trainer workspace includes **Code Set Maintenance**. Enter the master
+passphrase and click **Run CMS Ingest** to start the same script from the
+application. The request starts a background process and the page polls for the
+job status and recent log lines.
+
+Use this during testing, or when an administrator wants to refresh the tables
+without opening a server shell. It still runs in the web service process, so a
+dedicated scheduled job remains cleaner for production if the hosting plan has
+tight memory limits.
+
+### 8.4 Scheduling it instead of remembering it
 
 The source URLs are **derived from the current date**, not hardcoded, so the
 same command run in any future quarter fetches that quarter's files. That
 makes it schedulable as-is — nothing needs editing each year.
 
 On Render, that is a **Cron Job** service pointed at this repo with the command
-`python scripts/ingest_code_sets.py --write`, sharing the database. Quarterly,
-a few days into January, April, July and October — CMS publishes on the first
-and a few days' margin avoids a race. Internally, the same command on cron,
-systemd timer, or whatever the organisation uses for scheduled work.
+`DATABASE_URL="..." python scripts/ingest_code_sets.py --write`, sharing the
+database. Quarterly, a few days into January, April, July and October — CMS
+publishes on the first and a few days' margin avoids a race. Internally, the
+same command on cron, systemd timer, or whatever the organisation uses for
+scheduled work.
 
 A failed run is not an outage: the previous edition stays loaded, because each
 code set is only deleted at the moment its replacement is ready to insert.
 
-### 8.4 When to run it again
+### 8.5 When to run it again
 
 - **ICD-10-CM and ICD-10-PCS** — annually, effective 1 October.
 - **HCPCS Level II** — quarterly.
@@ -534,7 +547,9 @@ separate decision and a separate data source.
 > code means, which PCS codes exist, and which edition is loaded. They are
 > populated by `scripts/ingest_code_sets.py` (§8) and by nothing else, so a
 > restore that omits them costs a two-minute reload rather than any user data.
-> `cc_exclusions` and `drg_weights` are ingested but not yet read by anything.
+> Today the script populates `code_descriptions`, `pcs_code_axes`, and
+> `code_set_versions`. `cc_exclusions` and `drg_weights` are schema placeholders
+> for later DRG-reference work and are not populated yet.
 
 > The Auditor subsystem was added after the first version of this document.
 > Its nine tables are ORM-backed, so `create_all()` builds them — but the
@@ -548,7 +563,7 @@ separate decision and a separate data source.
 ## 10. Ongoing operations
 
 - **Reference code sets.** Re-run `scripts/ingest_code_sets.py --write` when
-  CMS republishes — or schedule it, §8.3.
+  CMS republishes — or schedule it, §8.4.
 
 - **Backups.** Nothing in the application performs them. Schedule
   `pg_dump` (daily is typical) plus a bucket backup for the chart files.
@@ -571,4 +586,4 @@ separate decision and a separate data source.
    produces a frontend that loads and then fails every request.
 5. Agree the backup schedule and retention.
 6. Run the code-set ingest once after the first deploy (§8.2), and either
-   schedule it quarterly (§8.3) or decide who owns re-running it.
+   schedule it quarterly (§8.4) or decide who owns re-running it.

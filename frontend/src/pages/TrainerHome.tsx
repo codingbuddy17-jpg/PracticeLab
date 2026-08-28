@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { FileText, BookOpen, GraduationCap, ChevronRight, ClipboardList, ClipboardCheck, AlertTriangle, Database } from 'lucide-react'
-import { codeSetStatus } from '../api/codesApi'
+import { FileText, BookOpen, GraduationCap, ChevronRight, ClipboardList, ClipboardCheck, AlertTriangle, Database, Play, RefreshCw } from 'lucide-react'
+import { codeSetStatus, getCodeSetIngestJob, startCodeSetIngest, CodeSetIngestJob } from '../api/codesApi'
 import { getPLAnalyticsOverview, getChartStats, getAssessmentStats, getAssessmentOverview, listAuditBatches, listAuditKeySets, getAuditOverview } from '../api'
 
 export function TrainerHome() {
@@ -14,6 +14,10 @@ export function TrainerHome() {
   // can act on it, and it is not something a coder or auditor mid-session
   // should be given to wonder about.
   const [codeSets, setCodeSets] = useState<any>(null)
+  const [ingestJob, setIngestJob] = useState<CodeSetIngestJob | null>(null)
+  const [ingestPassphrase, setIngestPassphrase] = useState('')
+  const [ingestBusy, setIngestBusy] = useState(false)
+  const [ingestError, setIngestError] = useState('')
 
   function load() {
     // scope=all. The default is batch work only, so this page reported three
@@ -23,6 +27,7 @@ export function TrainerHome() {
     getPLAnalyticsOverview({}, 'all').then(setPlStats).catch(() => {})
     getChartStats().then(setChartStats).catch(() => {})
     codeSetStatus().then(setCodeSets).catch(() => {})
+    getCodeSetIngestJob().then(setIngestJob).catch(() => {})
     getAssessmentOverview().then(setAssessOverview).catch(() => {})
     // Auditor tiles fail quietly — a trainer home page must render even if one
     // module's stats endpoint is unavailable.
@@ -61,6 +66,36 @@ export function TrainerHome() {
       document.removeEventListener('visibilitychange', onFocus)
     }
   }, [])
+
+  useEffect(() => {
+    if (ingestJob?.status !== 'running') return
+    const timer = window.setInterval(() => {
+      getCodeSetIngestJob()
+        .then(job => {
+          setIngestJob(job)
+          if (job?.status && job.status !== 'running') codeSetStatus().then(setCodeSets).catch(() => {})
+        })
+        .catch(() => {})
+    }, 4000)
+    return () => window.clearInterval(timer)
+  }, [ingestJob?.status])
+
+  async function runIngest() {
+    if (!ingestPassphrase.trim()) {
+      setIngestError('Enter the master passphrase.')
+      return
+    }
+    setIngestBusy(true)
+    setIngestError('')
+    try {
+      const job = await startCodeSetIngest(ingestPassphrase.trim(), 'trainer workspace')
+      setIngestJob(job)
+    } catch (e: any) {
+      setIngestError(e?.response?.data?.detail || e?.message || 'Could not start the ingest.')
+    } finally {
+      setIngestBusy(false)
+    }
+  }
 
   return (
     <div style={styles.container}>
@@ -125,6 +160,91 @@ export function TrainerHome() {
             {(codeSets.loaded || []).reduce((n: number, r: any) => n + (r.row_count || 0), 0).toLocaleString()} codes
           </div>
         )}
+
+        <div style={styles.codeSetMaint}>
+          <div style={styles.codeSetMaintHead}>
+            <div>
+              <div style={styles.codeSetMaintTitle}>Code Set Maintenance</div>
+              <div style={styles.codeSetMaintSub}>
+                Run the CMS ICD-10-CM, ICD-10-PCS and HCPCS ingest from this workspace.
+              </div>
+            </div>
+            <button
+              style={styles.codeSetRefresh}
+              onClick={() => {
+                codeSetStatus().then(setCodeSets).catch(() => {})
+                getCodeSetIngestJob().then(setIngestJob).catch(() => {})
+              }}
+              title="Refresh code-set status"
+            >
+              <RefreshCw size={14} />
+            </button>
+          </div>
+          <div style={styles.codeSetMaintGrid}>
+            {(codeSets?.loaded || []).map((r: any) => (
+              <div key={r.code_system} style={styles.codeSetMini}>
+                <span style={{ ...styles.codeSetMiniDot, background: r.current ? '#16a34a' : '#d97706' }} />
+                <div>
+                  <div style={styles.codeSetMiniLabel}>{r.label}</div>
+                  <div style={styles.codeSetMiniSub}>
+                    {r.edition || 'not loaded'} · {(r.row_count || 0).toLocaleString()} rows
+                  </div>
+                </div>
+              </div>
+            ))}
+            {(codeSets?.missing || []).map((r: any) => (
+              <div key={r.code_system} style={styles.codeSetMini}>
+                <span style={{ ...styles.codeSetMiniDot, background: '#dc2626' }} />
+                <div>
+                  <div style={styles.codeSetMiniLabel}>{r.label}</div>
+                  <div style={styles.codeSetMiniSub}>not loaded</div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={styles.codeSetRunRow}>
+            <input
+              type="password"
+              autoComplete="new-password"
+              placeholder="Master passphrase"
+              value={ingestPassphrase}
+              onChange={e => setIngestPassphrase(e.target.value)}
+              style={styles.codeSetPass}
+            />
+            <button
+              style={{
+                ...styles.codeSetRun,
+                opacity: ingestBusy || ingestJob?.status === 'running' ? 0.65 : 1,
+                cursor: ingestBusy || ingestJob?.status === 'running' ? 'wait' : 'pointer',
+              }}
+              disabled={ingestBusy || ingestJob?.status === 'running'}
+              onClick={runIngest}
+            >
+              <Play size={13} fill="currentColor" />
+              {ingestJob?.status === 'running' ? 'Running...' : 'Run CMS Ingest'}
+            </button>
+          </div>
+          {ingestError && <div style={styles.codeSetError}>{ingestError}</div>}
+          {ingestJob && (
+            <div style={styles.codeSetJob}>
+              <div style={styles.codeSetJobLine}>
+                <span style={{
+                  ...styles.codeSetJobPill,
+                  background: ingestJob.status === 'completed' ? '#dcfce7' : ingestJob.status === 'failed' ? '#fee2e2' : '#ede9fe',
+                  color: ingestJob.status === 'completed' ? '#166534' : ingestJob.status === 'failed' ? '#991b1b' : '#5b21b6',
+                }}>
+                  {ingestJob.status}
+                </span>
+                <span>{ingestJob.message || 'CMS code-set ingest job'}</span>
+              </div>
+              {!!ingestJob.log_tail?.length && (
+                <pre style={styles.codeSetLog}>
+                  {ingestJob.log_tail.slice(-12).join('\n')}
+                </pre>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* ── Chart Management divider ────────────────────────────────── */}
         <div style={styles.plDivider}>
@@ -429,6 +549,58 @@ const styles: Record<string, React.CSSProperties> = {
   codeSetOk: {
     display: 'inline-flex', alignItems: 'center', gap: 6,
     fontSize: 11, color: '#6b7280', marginBottom: 16,
+  },
+  codeSetMaint: {
+    background: 'rgba(255,255,255,0.72)', border: '1px solid rgba(255,255,255,0.78)',
+    borderRadius: 12, padding: 14, marginBottom: 18,
+    boxShadow: '0 8px 26px rgba(15,23,42,0.08)',
+    backdropFilter: 'blur(18px)', WebkitBackdropFilter: 'blur(18px)',
+  },
+  codeSetMaintHead: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
+  codeSetMaintTitle: { fontSize: 13, fontWeight: 800, color: '#111827' },
+  codeSetMaintSub: { fontSize: 11, color: '#6b7280', marginTop: 2 },
+  codeSetRefresh: {
+    width: 30, height: 30, borderRadius: 8, border: '1px solid #e5e7eb',
+    background: '#fff', color: '#4b5563', display: 'inline-flex',
+    alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+  },
+  codeSetMaintGrid: {
+    display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+    gap: 8, marginTop: 12,
+  },
+  codeSetMini: {
+    display: 'flex', alignItems: 'center', gap: 8, minWidth: 0,
+    background: 'rgba(248,250,252,0.86)', border: '1px solid #e5e7eb',
+    borderRadius: 8, padding: '8px 10px',
+  },
+  codeSetMiniDot: { width: 7, height: 7, borderRadius: 99, flexShrink: 0 },
+  codeSetMiniLabel: { fontSize: 11, color: '#374151', fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
+  codeSetMiniSub: { fontSize: 10, color: '#6b7280', marginTop: 1 },
+  codeSetRunRow: { display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, flexWrap: 'wrap' },
+  codeSetPass: {
+    minWidth: 220, flex: '1 1 220px', border: '1px solid #d1d5db',
+    borderRadius: 8, padding: '8px 10px', fontSize: 12, outline: 'none',
+    background: '#fff',
+  },
+  codeSetRun: {
+    border: 'none', borderRadius: 8, background: '#111827', color: '#fff',
+    padding: '9px 13px', display: 'inline-flex', alignItems: 'center',
+    gap: 6, fontSize: 12, fontWeight: 800,
+  },
+  codeSetError: { fontSize: 11, color: '#dc2626', fontWeight: 700, marginTop: 8 },
+  codeSetJob: {
+    marginTop: 10, borderTop: '1px solid #e5e7eb', paddingTop: 10,
+    fontSize: 11, color: '#4b5563',
+  },
+  codeSetJobLine: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
+  codeSetJobPill: {
+    borderRadius: 99, padding: '2px 8px', fontSize: 10, fontWeight: 800,
+    textTransform: 'uppercase' as const,
+  },
+  codeSetLog: {
+    maxHeight: 150, overflow: 'auto', background: '#0f172a', color: '#dbeafe',
+    borderRadius: 8, padding: 10, fontSize: 10, lineHeight: 1.45,
+    margin: '8px 0 0', whiteSpace: 'pre-wrap',
   },
   bentoCta: {
     display: 'inline-flex', alignItems: 'center', gap: 4,

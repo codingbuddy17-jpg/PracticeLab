@@ -13,13 +13,19 @@ what it cannot find, rather than erroring.
 """
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from config import settings
 from database import get_db
 from models import CodeDescription, PcsCodeAxis
 
 router = APIRouter(prefix="/codes", tags=["codes"])
+
+
+class IngestRequest(BaseModel):
+    loaded_by: str = "admin UI"
 
 # The systems this app carries. CPT is absent on purpose: AMA copyright,
 # licensed per user, and this repository is public — and so are the numeric
@@ -205,3 +211,18 @@ def status(db: Session = Depends(get_db)):
         "needs_attention": bool(missing) or any(
             not v["current"] for v in seen.values()),
     }
+
+
+@router.get("/ingest-job")
+def ingest_job_status():
+    from services.code_ingest_job import current_job
+    return {"job": current_job()}
+
+
+@router.post("/ingest-job")
+def start_ingest(payload: IngestRequest,
+                 passphrase: str = Query(default="")):
+    if (passphrase or "").strip() != settings.MASTER_ADMIN_PASSPHRASE:
+        raise HTTPException(status_code=403, detail="Invalid passphrase")
+    from services.code_ingest_job import start_ingest_job
+    return {"job": start_ingest_job(payload.loaded_by)}
