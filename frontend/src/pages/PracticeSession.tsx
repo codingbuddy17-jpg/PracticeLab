@@ -400,6 +400,17 @@ export function PracticeSession() {
     return () => window.removeEventListener('beforeunload', warn)
   }, [dirty])
 
+  // ── Keep the work saved, and the session claim alive ───────────────────────
+  // Drafts used to save only when moving between charts, so a coder on one
+  // long inpatient chart could work for an hour with nothing written down —
+  // and, since saving is also the heartbeat, with their claim on the session
+  // going stale underneath them. Both problems have the same fix.
+  useEffect(() => {
+    if (!session || session.status === 'submitted') return
+    const t = setInterval(() => { saveDraft() }, 3 * 60 * 1000)
+    return () => clearInterval(t)
+  }, [session, saveDraft])
+
   // ── Navigate between charts — auto-save on leave ───────────────────────────
   const navigateTo = useCallback((chartId: number) => {
     if (chartId === activeChartId) return

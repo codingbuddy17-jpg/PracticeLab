@@ -147,7 +147,7 @@ export async function openAuditSession(token: string): Promise<AuditSessionData>
 }
 
 export async function saveAuditDraft(sessionId: number, charts: ChartWork[]) {
-  const { data } = await api.post(`/auditor/sessions/${sessionId}/save-draft`, { charts })
+  const { data } = await api.post(`/auditor/sessions/${sessionId}/save-draft`, { charts, device: deviceId() })
   return data
 }
 

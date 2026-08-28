@@ -14,10 +14,14 @@ device is refused while that claim is fresh, and may take it over once it has
 gone quiet. The same mechanism answers both halves of the problem — the idle
 timeout is what makes the exclusive claim safe to enforce.
 
-Nothing is destroyed when a claim lapses. Drafts are saved as the coder types
-and stay exactly where they were; re-entering the access code re-claims the
-session and the work is still there. Losing the claim costs the reader nothing
-but the need to type the code again, which is the point.
+Nothing is destroyed when a claim lapses. Drafts are written on a timer and on
+every chart change, and stay exactly where they were; re-entering the access
+code re-claims the session with the work still there. Losing a claim costs the
+holder the need to type the code again, which is the point.
+
+The saving is also the heartbeat, so the timer is not a nicety: without it a
+coder on one long inpatient chart could work past the window and have the claim
+go stale while they were still in it.
 """
 from datetime import datetime, timedelta, timezone
 
@@ -68,11 +72,13 @@ def check(active_device: str, last_seen, device: str, now=None):
         return device
 
     minutes = max(1, int((now - _aware(last_seen)).total_seconds() // 60))
+    # What to DO, and nothing about how long the lock lasts. Naming the window
+    # invites waiting it out instead of closing the other tab, and it is the
+    # one instruction that helps somebody using a code that is not theirs.
     raise HTTPException(
         status_code=409,
         detail=(
             "This access code is already open on another device, active "
-            f"{minutes} minute(s) ago. Close it there and try again, or wait "
-            f"{IDLE_MINUTES} minutes of inactivity to take it over here."
+            f"{minutes} minute(s) ago. Close it there and try again."
         ),
     )

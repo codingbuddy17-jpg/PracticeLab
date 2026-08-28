@@ -60,6 +60,8 @@ class ChartWork(BaseModel):
 
 class SaveDraft(BaseModel):
     charts: list[ChartWork]
+    # Which browser is saving. Optional, so an older client keeps working.
+    device: str = ""
 
 
 class SubmitSession(BaseModel):
@@ -166,6 +168,13 @@ def save_draft(session_id: int, payload: SaveDraft, db: Session = Depends(get_db
         raise HTTPException(404, "Session not found")
     if sess.status == "submitted":
         raise HTTPException(400, "This session has already been submitted")
+
+    # An auditor working is an auditor present. Without this the claim was set
+    # when the session opened and never refreshed, so a long sitting went stale
+    # while the person was still in it.
+    if payload.device and sess.active_device in (None, payload.device):
+        sess.active_device = payload.device
+        sess.last_seen_at = datetime.now(timezone.utc)
 
     # A draft may only be saved against a chart this session was actually
     # allocated. Without this an access code could write draft rows for any

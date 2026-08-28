@@ -41,7 +41,10 @@ class TestTheRule:
         with pytest.raises(Exception) as e:
             check("A", self._now() - timedelta(minutes=5), "B")
         assert "Close it there" in e.value.detail
-        assert str(IDLE_MINUTES) in e.value.detail
+        # And NOT how long the lock lasts — that invites waiting it out rather
+        # than closing the other tab, and only helps someone using a code that
+        # is not theirs.
+        assert str(IDLE_MINUTES) not in e.value.detail
 
     def test_an_idle_claim_can_be_taken_over(self):
         old = self._now() - timedelta(minutes=IDLE_MINUTES + 1)
