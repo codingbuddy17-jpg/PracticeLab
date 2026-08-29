@@ -92,6 +92,23 @@ function textBlocks(text: string) {
   return blocks
 }
 
+function escapedRegex(raw: string) {
+  return raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function HighlightedText({ text, query }: { text: string; query: string }) {
+  const q = query.trim()
+  if (!q) return <>{text}</>
+  const parts = text.split(new RegExp(`(${escapedRegex(q)})`, 'ig'))
+  return (
+    <>
+      {parts.map((part, idx) => part.toLowerCase() === q.toLowerCase()
+        ? <mark key={idx} style={styles.searchMark}>{part}</mark>
+        : <span key={idx}>{part}</span>)}
+    </>
+  )
+}
+
 export function ChartViewer({ chart, viewerName = 'anonymous', onClose }: Props) {
   const [pages, setPages] = useState<{ page: number; url: string }[]>([])
   const [textPages, setTextPages] = useState<{ page: number; text: string; has_text: boolean }[]>([])
@@ -331,7 +348,9 @@ export function ChartViewer({ chart, viewerName = 'anonymous', onClose }: Props)
                     }}
                   >
                     <span style={styles.snippetPage}>Page {item.page + 1}</span>
-                    <span style={styles.snippetText}>{item.snippet}</span>
+                    <span style={styles.snippetText}>
+                      <HighlightedText text={item.snippet} query={searchQuery} />
+                    </span>
                   </button>
                 ))}
               </div>
@@ -454,19 +473,23 @@ export function ChartViewer({ chart, viewerName = 'anonymous', onClose }: Props)
                                 return (
                                   <div key={idx} style={styles.noteSectionHead}>
                                     <span style={styles.noteSectionRule} />
-                                    <span>{block.text}</span>
+                                    <span><HighlightedText text={block.text} query={searchQuery} /></span>
                                   </div>
                                 )
                               }
                               if (block.kind === 'field') {
                                 return (
                                   <div key={idx} style={styles.noteFieldLine}>
-                                    <strong>{block.label}:</strong>
-                                    <span>{block.value}</span>
+                                    <strong><HighlightedText text={`${block.label}:`} query={searchQuery} /></strong>
+                                    <span><HighlightedText text={block.value} query={searchQuery} /></span>
                                   </div>
                                 )
                               }
-                              return <p key={idx} style={styles.noteTextLine}>{block.text}</p>
+                              return (
+                                <p key={idx} style={styles.noteTextLine}>
+                                  <HighlightedText text={block.text} query={searchQuery} />
+                                </p>
+                              )
                             })}
                           </div>
                         ) : (
@@ -555,6 +578,7 @@ const styles: Record<string, React.CSSProperties> = {
   snippetBtn: { flex: '0 0 260px', border: '1px solid #e5e7eb', background: '#fff', borderRadius: 7, padding: '7px 9px', textAlign: 'left' as const, cursor: 'pointer', boxShadow: '0 1px 2px rgba(15,23,42,0.04)' },
   snippetPage: { display: 'block', color: '#4f46e5', fontSize: 11, fontWeight: 900, marginBottom: 3 },
   snippetText: { display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const, overflow: 'hidden', color: '#334155', fontSize: 11.5, lineHeight: 1.35 },
+  searchMark: { background: '#fde68a', color: '#78350f', borderRadius: 3, padding: '0 2px', fontWeight: 800 },
   bodyWrap: { flex: 1, display: 'flex', overflow: 'hidden' },
   thumbStrip: { width: 90, overflowY: 'auto', background: '#f9fafb', borderRight: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', gap: 6, padding: '10px 6px', flexShrink: 0 },
   thumbBtn: { borderRadius: 6, padding: 4, cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, position: 'relative' as const, transition: 'border-color 0.15s' },
