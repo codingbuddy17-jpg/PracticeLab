@@ -147,3 +147,19 @@ def test_chart_text_reports_absent_extracted_text(client, db, chart_with_page):
     assert r.status_code == 200
     assert r.json()["has_text"] is False
     assert r.json()["pages"][0]["has_text"] is False
+
+
+def test_text_search_returns_page_snippets(client, db, chart_with_page):
+    chart_with_page.files[0].page_text = (
+        "History and Physical\n"
+        "The patient was admitted with sepsis due to pneumonia and acute kidney injury."
+    )
+    db.commit()
+
+    r = client.get(f"/charts/{chart_with_page.id}/text-search", params={"q": "sepsis"})
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body["matching_pages"] == [0]
+    assert body["snippets"][0]["page"] == 0
+    assert "sepsis due to pneumonia" in body["snippets"][0]["snippet"]

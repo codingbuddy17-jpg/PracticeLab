@@ -148,6 +148,7 @@ export function ChartViewer({ chart, viewerName = 'anonymous', onClose }: Props)
   // In-chart search
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<number[]>([])
+  const [searchSnippets, setSearchSnippets] = useState<{ page: number; snippet: string }[]>([])
   const [searchIdx, setSearchIdx] = useState(0)
   const [searching, setSearching] = useState(false)
   const [showSearch, setShowSearch] = useState(false)
@@ -191,11 +192,12 @@ export function ChartViewer({ chart, viewerName = 'anonymous', onClose }: Props)
   }, [chart.chart_number])
 
   const handleSearch = useCallback(async () => {
-    if (!searchQuery.trim()) { setSearchResults([]); return }
+    if (!searchQuery.trim()) { setSearchResults([]); setSearchSnippets([]); return }
     setSearching(true)
     try {
       const res = await searchInChart(chart.id, searchQuery.trim())
       setSearchResults(res.matching_pages)
+      setSearchSnippets((res.snippets || []).filter(s => s.snippet))
       setSearchIdx(0)
       if (res.matching_pages.length > 0) setCurrentPage(res.matching_pages[0])
     } finally { setSearching(false) }
@@ -286,30 +288,53 @@ export function ChartViewer({ chart, viewerName = 'anonymous', onClose }: Props)
 
         {/* In-chart search bar */}
         {showSearch && (
-          <div style={styles.searchBar}>
-            <Search size={14} color="#9ca3af" />
-            <input
-              ref={searchInputRef}
-              style={styles.searchInput}
-              placeholder="Search text in chart..."
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') handleSearch() }}
-            />
-            <button style={styles.searchBtn} onClick={handleSearch} disabled={searching}>
-              {searching ? '...' : 'Search'}
-            </button>
-            {searchResults.length > 0 && (
-              <>
-                <span style={styles.searchCount}>
-                  {searchIdx + 1} / {searchResults.length} page{searchResults.length !== 1 ? 's' : ''}
-                </span>
-                <button style={styles.searchNavBtn} onClick={() => navigateSearchResult('prev')}><ChevronUp size={14} /></button>
-                <button style={styles.searchNavBtn} onClick={() => navigateSearchResult('next')}><ChevronDown size={14} /></button>
-              </>
-            )}
-            {searchResults.length === 0 && searchQuery && !searching && (
-              <span style={styles.noMatch}>No matches found</span>
+          <div style={styles.searchPanel}>
+            <div style={styles.searchBar}>
+              <Search size={14} color="#9ca3af" />
+              <input
+                ref={searchInputRef}
+                style={styles.searchInput}
+                placeholder="Search text in chart..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') handleSearch() }}
+              />
+              <button style={styles.searchBtn} onClick={handleSearch} disabled={searching}>
+                {searching ? '...' : 'Search'}
+              </button>
+              {searchResults.length > 0 && (
+                <>
+                  <span style={styles.searchCount}>
+                    {searchIdx + 1} / {searchResults.length} page{searchResults.length !== 1 ? 's' : ''}
+                  </span>
+                  <button style={styles.searchNavBtn} onClick={() => navigateSearchResult('prev')}><ChevronUp size={14} /></button>
+                  <button style={styles.searchNavBtn} onClick={() => navigateSearchResult('next')}><ChevronDown size={14} /></button>
+                </>
+              )}
+              {searchResults.length === 0 && searchQuery && !searching && (
+                <span style={styles.noMatch}>No matches found</span>
+              )}
+            </div>
+            {searchSnippets.length > 0 && (
+              <div style={styles.snippetList}>
+                {searchSnippets.slice(0, 8).map((item, idx) => (
+                  <button
+                    key={`${item.page}-${idx}`}
+                    style={{
+                      ...styles.snippetBtn,
+                      borderColor: item.page === currentPage ? specialtyColor.bg : '#e5e7eb',
+                    }}
+                    onClick={() => {
+                      setSearchIdx(Math.max(0, searchResults.indexOf(item.page)))
+                      setCurrentPage(item.page)
+                      setViewMode('text')
+                    }}
+                  >
+                    <span style={styles.snippetPage}>Page {item.page + 1}</span>
+                    <span style={styles.snippetText}>{item.snippet}</span>
+                  </button>
+                ))}
+              </div>
             )}
           </div>
         )}
@@ -519,12 +544,17 @@ const styles: Record<string, React.CSSProperties> = {
   viewToggleBtn: { border: 'none', background: '#fff', color: '#6b7280', padding: '6px 10px', cursor: 'pointer', fontSize: 12, fontWeight: 700 },
   viewToggleActive: { background: '#eef2ff', color: '#4f46e5' },
   closeBtn: { borderColor: '#fca5a5', background: '#fff5f5' },
-  searchBar: { display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', background: '#f8fafc', borderBottom: '1px solid #e5e7eb' },
+  searchPanel: { background: '#f8fafc', borderBottom: '1px solid #e5e7eb' },
+  searchBar: { display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px' },
   searchInput: { flex: 1, padding: '6px 10px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 13, outline: 'none' },
   searchBtn: { padding: '6px 14px', background: '#4f46e5', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontWeight: 600 },
   searchCount: { fontSize: 12, color: '#6b7280', whiteSpace: 'nowrap' as const },
   searchNavBtn: { border: '1px solid #e5e7eb', background: '#fff', borderRadius: 5, padding: '3px 7px', cursor: 'pointer', display: 'flex', alignItems: 'center' },
   noMatch: { fontSize: 12, color: '#ef4444' },
+  snippetList: { display: 'flex', gap: 8, overflowX: 'auto' as const, padding: '0 14px 10px' },
+  snippetBtn: { flex: '0 0 260px', border: '1px solid #e5e7eb', background: '#fff', borderRadius: 7, padding: '7px 9px', textAlign: 'left' as const, cursor: 'pointer', boxShadow: '0 1px 2px rgba(15,23,42,0.04)' },
+  snippetPage: { display: 'block', color: '#4f46e5', fontSize: 11, fontWeight: 900, marginBottom: 3 },
+  snippetText: { display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const, overflow: 'hidden', color: '#334155', fontSize: 11.5, lineHeight: 1.35 },
   bodyWrap: { flex: 1, display: 'flex', overflow: 'hidden' },
   thumbStrip: { width: 90, overflowY: 'auto', background: '#f9fafb', borderRight: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', gap: 6, padding: '10px 6px', flexShrink: 0 },
   thumbBtn: { borderRadius: 6, padding: 4, cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, position: 'relative' as const, transition: 'border-color 0.15s' },

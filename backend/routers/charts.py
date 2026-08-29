@@ -14,6 +14,17 @@ from config import settings
 router = APIRouter(prefix="/charts", tags=["charts"])
 
 
+def _snippet(text: str, needle: str, radius: int = 90) -> str:
+    lower = text.lower()
+    idx = lower.find(needle.lower())
+    if idx < 0:
+        return ""
+    start = max(0, idx - radius)
+    end = min(len(text), idx + len(needle) + radius)
+    chunk = " ".join(text[start:end].split())
+    return f"{'...' if start else ''}{chunk}{'...' if end < len(text) else ''}"
+
+
 @router.get("/stats")
 def get_chart_stats(db: Session = Depends(get_db)):
     """Quick stats for the TrainerHome dashboard."""
@@ -327,6 +338,10 @@ def search_in_chart(
         "query": q,
         "matching_pages": [f.page_order for f in files],
         "total_matches": len(files),
+        "snippets": [
+            {"page": f.page_order, "snippet": _snippet(f.page_text or "", q)}
+            for f in files
+        ],
     }
 
 
