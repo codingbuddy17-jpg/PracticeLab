@@ -17,26 +17,34 @@ function pageImgUrl(path: string) {
 }
 
 const SECTION_PATTERNS: { label: string; pattern: RegExp }[] = [
-  { label: 'Discharge Summary', pattern: /\b(discharge summary|hospital course|discharge diagnosis|discharge diagnoses)\b/i },
-  { label: 'History & Physical', pattern: /\b(history and physical|history & physical|h&p|chief complaint|history of present illness|hpi)\b/i },
-  { label: 'Operative Note', pattern: /\b(operative report|operative note|procedure performed|preoperative diagnosis|postoperative diagnosis)\b/i },
-  { label: 'Procedure Note', pattern: /\b(procedure note|procedures performed|indication for procedure|description of procedure)\b/i },
-  { label: 'Pathology', pattern: /\b(pathology|specimen|final diagnosis|microscopic diagnosis)\b/i },
-  { label: 'Radiology', pattern: /\b(radiology|impression:|ct |mri |x-ray|ultrasound|portable chest)\b/i },
-  { label: 'Labs', pattern: /\b(laboratory|lab results|wbc|hemoglobin|creatinine|sodium|potassium|bun)\b/i },
-  { label: 'ED Course', pattern: /\b(ed course|emergency department course|emergency room course|medical decision making)\b/i },
-  { label: 'Assessment & Plan', pattern: /\b(assessment and plan|assessment\/plan|assessment & plan|plan:)\b/i },
-  { label: 'Medication List', pattern: /\b(medications|home medications|current medications|medication list)\b/i },
-  { label: 'Consult Note', pattern: /\b(consultation|consult note|consultant|reason for consult)\b/i },
+  { label: 'Discharge Summary', pattern: /^(discharge summary|hospital course|discharge diagnosis|discharge diagnoses)\b/i },
+  { label: 'History & Physical', pattern: /^(history and physical|history & physical|h&p|chief complaint|history of present illness|hpi)\b/i },
+  { label: 'Operative Note', pattern: /^(operative report|operative note|procedure performed|preoperative diagnosis|postoperative diagnosis)\b/i },
+  { label: 'Procedure Note', pattern: /^(procedure note|procedures performed|indication for procedure|description of procedure)\b/i },
+  { label: 'Pathology', pattern: /^(pathology|specimen|final diagnosis|microscopic diagnosis)\b/i },
+  { label: 'Radiology', pattern: /^(radiology|imaging|ct\b|mri\b|x-ray|ultrasound|portable chest)\b/i },
+  { label: 'Labs', pattern: /^(laboratory|lab results|labs)\b/i },
+  { label: 'ED Course', pattern: /^(ed course|emergency department course|emergency room course|medical decision making)\b/i },
+  { label: 'Assessment & Plan', pattern: /^(assessment and plan|assessment\/plan|assessment & plan|assessment|plan)\b/i },
+  { label: 'Medication List', pattern: /^(medications|home medications|current medications|medication list)\b/i },
+  { label: 'Consult Note', pattern: /^(consultation|consult note|consultant|reason for consult)\b/i },
+  { label: 'Past Medical History', pattern: /^(past medical history|pmh|medical history)\b/i },
+  { label: 'Past Surgical History', pattern: /^(past surgical history|psh|surgical history)\b/i },
+  { label: 'Review of Systems', pattern: /^(review of systems|ros)\b/i },
+  { label: 'Physical Exam', pattern: /^(physical exam|physical examination|exam)\b/i },
+  { label: 'Allergies', pattern: /^(allergies|allergy)\b/i },
+  { label: 'Vitals', pattern: /^(vitals|vital signs)\b/i },
 ]
 
 function sectionBreakers(pages: { page: number; text: string; has_text: boolean }[]) {
   const seen = new Map<string, number>()
   for (const page of pages) {
     if (!page.has_text) continue
-    for (const section of SECTION_PATTERNS) {
-      if (!seen.has(section.label) && section.pattern.test(page.text)) {
-        seen.set(section.label, page.page)
+    for (const raw of page.text.replace(/\r\n/g, '\n').split('\n')) {
+      const label = sectionLabelForLine(raw)
+      if (label && !seen.has(label)) {
+        seen.set(label, page.page)
+        break
       }
     }
   }
@@ -45,12 +53,8 @@ function sectionBreakers(pages: { page: number; text: string; has_text: boolean 
 
 function sectionLabelForLine(line: string) {
   const compact = line.trim().replace(/\s+/g, ' ')
-  const withoutColon = compact.replace(/:$/, '')
   for (const section of SECTION_PATTERNS) {
     if (section.pattern.test(compact)) return section.label
-  }
-  if (/^[A-Z0-9 /&().,'-]{4,72}:?$/.test(compact) && /[A-Z]/.test(compact)) {
-    return withoutColon
   }
   return ''
 }
@@ -74,15 +78,15 @@ function textBlocks(text: string) {
     }
     previousGap = false
 
-    const heading = sectionLabelForLine(line)
-    if (heading && line.length <= 90) {
-      blocks.push({ kind: 'heading', text: heading })
-      continue
-    }
-
     const field = line.match(/^([A-Za-z][A-Za-z0-9 /&().,'-]{2,42}):\s*(.+)$/)
     if (field) {
       blocks.push({ kind: 'field', label: field[1].trim(), value: field[2].trim() })
+      continue
+    }
+
+    const heading = sectionLabelForLine(line)
+    if (heading && line.length <= 90) {
+      blocks.push({ kind: 'heading', text: heading })
       continue
     }
 
@@ -107,6 +111,11 @@ function HighlightedText({ text, query }: { text: string; query: string }) {
         : <span key={idx}>{part}</span>)}
     </>
   )
+}
+
+function containsQuery(text: string, query: string) {
+  const q = query.trim().toLowerCase()
+  return !!q && text.toLowerCase().includes(q)
 }
 
 export function ChartViewer({ chart, viewerName = 'anonymous', onClose }: Props) {
@@ -169,6 +178,7 @@ export function ChartViewer({ chart, viewerName = 'anonymous', onClose }: Props)
   const [searchIdx, setSearchIdx] = useState(0)
   const [searching, setSearching] = useState(false)
   const [showSearch, setShowSearch] = useState(false)
+  const [targetMatchPage, setTargetMatchPage] = useState<number | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
 
   const specialtyColor = SPECIALTY_COLORS[chart.specialty]
@@ -209,16 +219,27 @@ export function ChartViewer({ chart, viewerName = 'anonymous', onClose }: Props)
   }, [chart.chart_number])
 
   const handleSearch = useCallback(async () => {
-    if (!searchQuery.trim()) { setSearchResults([]); setSearchSnippets([]); return }
+    if (!searchQuery.trim()) { setSearchResults([]); setSearchSnippets([]); setTargetMatchPage(null); return }
     setSearching(true)
     try {
       const res = await searchInChart(chart.id, searchQuery.trim())
       setSearchResults(res.matching_pages)
       setSearchSnippets((res.snippets || []).filter(s => s.snippet))
       setSearchIdx(0)
-      if (res.matching_pages.length > 0) setCurrentPage(res.matching_pages[0])
+      if (res.matching_pages.length > 0) {
+        setCurrentPage(res.matching_pages[0])
+        setTargetMatchPage(res.matching_pages[0])
+      }
     } finally { setSearching(false) }
   }, [chart.id, searchQuery])
+
+  function clearSearch() {
+    setSearchQuery('')
+    setSearchResults([])
+    setSearchSnippets([])
+    setSearchIdx(0)
+    setTargetMatchPage(null)
+  }
 
   const navigateSearchResult = (dir: 'next' | 'prev') => {
     if (searchResults.length === 0) return
@@ -227,12 +248,20 @@ export function ChartViewer({ chart, viewerName = 'anonymous', onClose }: Props)
       : (searchIdx - 1 + searchResults.length) % searchResults.length
     setSearchIdx(next)
     setCurrentPage(searchResults[next])
+    setTargetMatchPage(searchResults[next])
   }
 
   useEffect(() => {
     const el = thumbsRef.current?.querySelector(`[data-page="${currentPage}"]`) as HTMLElement
     el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
   }, [currentPage])
+
+  useEffect(() => {
+    if (viewMode !== 'text' || targetMatchPage === null || textLoading) return
+    const el = document.getElementById(`chart-text-match-${targetMatchPage}`)
+      || document.getElementById(`chart-text-page-${targetMatchPage}`)
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [targetMatchPage, textLoading, textLoaded, viewMode])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -316,6 +345,11 @@ export function ChartViewer({ chart, viewerName = 'anonymous', onClose }: Props)
                 onChange={e => setSearchQuery(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') handleSearch() }}
               />
+              {searchQuery && (
+                <button style={styles.clearSearchBtn} onClick={clearSearch} title="Clear search">
+                  <X size={13} />
+                </button>
+              )}
               <button style={styles.searchBtn} onClick={handleSearch} disabled={searching}>
                 {searching ? '...' : 'Search'}
               </button>
@@ -344,6 +378,7 @@ export function ChartViewer({ chart, viewerName = 'anonymous', onClose }: Props)
                     onClick={() => {
                       setSearchIdx(Math.max(0, searchResults.indexOf(item.page)))
                       setCurrentPage(item.page)
+                      setTargetMatchPage(item.page)
                       setViewMode('text')
                     }}
                   >
@@ -468,10 +503,18 @@ export function ChartViewer({ chart, viewerName = 'anonymous', onClose }: Props)
                         {page.has_text ? (
                           <div style={styles.pageText}>
                             {textBlocks(page.text).map((block, idx) => {
+                              const blockText = block.kind === 'field'
+                                ? `${block.label}: ${block.value}`
+                                : block.kind === 'heading' || block.kind === 'text'
+                                  ? block.text
+                                  : ''
+                              const matchId = page.page === targetMatchPage && containsQuery(blockText, searchQuery)
+                                ? `chart-text-match-${page.page}`
+                                : undefined
                               if (block.kind === 'gap') return <div key={idx} style={styles.textGap} />
                               if (block.kind === 'heading') {
                                 return (
-                                  <div key={idx} style={styles.noteSectionHead}>
+                                  <div id={matchId} key={idx} style={styles.noteSectionHead}>
                                     <span style={styles.noteSectionRule} />
                                     <span><HighlightedText text={block.text} query={searchQuery} /></span>
                                   </div>
@@ -479,14 +522,14 @@ export function ChartViewer({ chart, viewerName = 'anonymous', onClose }: Props)
                               }
                               if (block.kind === 'field') {
                                 return (
-                                  <div key={idx} style={styles.noteFieldLine}>
+                                  <div id={matchId} key={idx} style={styles.noteFieldLine}>
                                     <strong><HighlightedText text={`${block.label}:`} query={searchQuery} /></strong>
                                     <span><HighlightedText text={block.value} query={searchQuery} /></span>
                                   </div>
                                 )
                               }
                               return (
-                                <p key={idx} style={styles.noteTextLine}>
+                                <p id={matchId} key={idx} style={styles.noteTextLine}>
                                   <HighlightedText text={block.text} query={searchQuery} />
                                 </p>
                               )
@@ -570,6 +613,7 @@ const styles: Record<string, React.CSSProperties> = {
   searchPanel: { background: '#f8fafc', borderBottom: '1px solid #e5e7eb' },
   searchBar: { display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px' },
   searchInput: { flex: 1, padding: '6px 10px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 13, outline: 'none' },
+  clearSearchBtn: { border: '1px solid #e5e7eb', background: '#fff', color: '#64748b', borderRadius: 6, padding: '5px 7px', cursor: 'pointer', display: 'flex', alignItems: 'center' },
   searchBtn: { padding: '6px 14px', background: '#4f46e5', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontWeight: 600 },
   searchCount: { fontSize: 12, color: '#6b7280', whiteSpace: 'nowrap' as const },
   searchNavBtn: { border: '1px solid #e5e7eb', background: '#fff', borderRadius: 5, padding: '3px 7px', cursor: 'pointer', display: 'flex', alignItems: 'center' },
