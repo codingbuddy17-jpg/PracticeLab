@@ -25,6 +25,7 @@ two describe things that will not announce themselves if you skip them.
 | `PracticeLab_Container_Deployment.docx` | the container deployment guide, for the team that will run it |
 | `PracticeLab_Access_Control_Design.docx` | **proposal, not built** — roles, authentication and authorisation for the internal deployment |
 | `PracticeLab_Feature_and_Workflow_Guide.docx` | what each module does and how to work it, screen by screen — training material, not reference |
+| `PracticeLab_Analytics_Guide.docx` | all 26 analytics tabs across the four modules, and the rules that hold across them |
 
 **These are generated, not written.** Edit the Markdown or the builders below,
 never the `.docx` — a hand edit is lost on the next build.
@@ -74,6 +75,7 @@ typed once and were wrong within a month, twice.
 | `_container_docx_build.js` | builds the container deployment `.docx` (needs no figures or schema.json) |
 | `_auth_docx_build.js` | builds the access control design `.docx` (needs no figures or schema.json) |
 | `_guide_docx_build.js` | builds the feature and workflow guide `.docx` (needs `guide_shots/`, not figures) |
+| `_analytics_docx_build.js` | builds the analytics guide `.docx` (needs `analytics_shots/`) |
 
 `tabledocs.json` — the one-line description of each table — is hand-written and
 is the one input worth editing by hand. It lives in the restored `figures/`
@@ -150,3 +152,15 @@ cd docs && NODE_PATH=/tmp/docxbuild/node_modules node _guide_docx_build.js
 The screenshots are of **production data and show real coder names and
 employee IDs**. Recapture them against a scratch batch before the guide goes
 anywhere wider than the migration team.
+
+## The analytics guide
+
+`_analytics_docx_build.js`, from `docs/analytics_shots/` — one screenshot per
+analytics tab, captured by URL (`?view=<tab>` on all three surfaces). Rebuild:
+
+```bash
+cd docs && NODE_PATH=/tmp/docxbuild/node_modules node _analytics_docx_build.js
+```
+
+Same production-data caveat as the workflow guide: these show real batch names
+and real scores.
