@@ -136,7 +136,7 @@ them, and that is the most common first mistake. Extract, then `pg_restore`
 against the extracted **directory**:
 
 ```bash
-tar -xzf 2026-08-14T14_26Z.dir.tar.gz
+tar -xzf 2026-08-31T16_37Z.dir.tar.gz
 ```
 
 That produces a timestamped directory containing a `chartviewer/` directory of
@@ -150,7 +150,7 @@ pg_restore \
   --no-privileges \
   --clean --if-exists \
   --dbname="postgresql://USER:PASSWORD@HOST:PORT/practicelab" \
-  "2026-08-14T14:26Z/chartviewer"
+  "2026-08-31T16:37Z/chartviewer"
 ```
 
 Notes on that command:

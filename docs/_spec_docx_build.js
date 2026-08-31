@@ -564,7 +564,7 @@ const doc = new Document({
 
       h3('Restoring a directory-format backup'),
       p('Backups supplied through the project repository under docs/ are directory-format dumps that have been compressed with tar. They are not plain SQL, and psql will not read them. Extract first, then restore against the extracted directory.'),
-      code(['tar -xzf 2026-08-24T10_14Z.dir.tar.gz']),
+      code(['tar -xzf 2026-08-31T16_37Z.dir.tar.gz']),
       p('This produces a timestamped directory containing a chartviewer directory of .dat files and a toc.dat. pg_restore is pointed at that inner directory, not at the archive and not at a single file.'),
       code([
         'createdb practicelab',
@@ -574,7 +574,7 @@ const doc = new Document({
         '  --no-privileges \\',
         '  --clean --if-exists \\',
         '  --dbname="postgresql://USER:PASSWORD@HOST:PORT/practicelab" \\',
-        '  "2026-08-24T10:14Z/chartviewer"',
+        '  "2026-08-31T16:37Z/chartviewer"',
       ]),
       rbullet([{ t: 'The directory name contains colons and must be quoted. An unquoted path fails as though the file were missing.' }]),
       rbullet([{ t: '--clean --if-exists', code: true }, { t: ' drops existing objects first, making the restore repeatable. Both may be omitted when restoring into a database that has just been created.' }]),
