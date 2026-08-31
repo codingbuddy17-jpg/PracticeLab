@@ -24,6 +24,7 @@ two describe things that will not announce themselves if you skip them.
 | `PracticeLab_Database_Schema_Reference.docx` | every table and column, with a one-line description each |
 | `PracticeLab_Container_Deployment.docx` | the container deployment guide, for the team that will run it |
 | `PracticeLab_Access_Control_Design.docx` | **proposal, not built** — roles, authentication and authorisation for the internal deployment |
+| `PracticeLab_Feature_and_Workflow_Guide.docx` | what each module does and how to work it, screen by screen — training material, not reference |
 
 **These are generated, not written.** Edit the Markdown or the builders below,
 never the `.docx` — a hand edit is lost on the next build.
@@ -72,6 +73,7 @@ typed once and were wrong within a month, twice.
 | `_spec_docx_build.js` | builds the architecture and migration `.docx` |
 | `_container_docx_build.js` | builds the container deployment `.docx` (needs no figures or schema.json) |
 | `_auth_docx_build.js` | builds the access control design `.docx` (needs no figures or schema.json) |
+| `_guide_docx_build.js` | builds the feature and workflow guide `.docx` (needs `guide_shots/`, not figures) |
 
 `tabledocs.json` — the one-line description of each table — is hand-written and
 is the one input worth editing by hand. It lives in the restored `figures/`
@@ -135,3 +137,16 @@ alarm, so "could not check" is now a failure, not a skip.
   code up cold. It is blunter than these documents and covers the traps that
   have actually cost time.
 - The API documents itself at `/docs` (OpenAPI) once it is running.
+
+## The feature and workflow guide
+
+`_guide_docx_build.js` is self-contained apart from `docs/guide_shots/` — 17
+screenshots captured from the deployed UI, which are committed. Rebuild with:
+
+```bash
+cd docs && NODE_PATH=/tmp/docxbuild/node_modules node _guide_docx_build.js
+```
+
+The screenshots are of **production data and show real coder names and
+employee IDs**. Recapture them against a scratch batch before the guide goes
+anywhere wider than the migration team.
