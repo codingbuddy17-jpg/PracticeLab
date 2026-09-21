@@ -26,6 +26,9 @@ two describe things that will not announce themselves if you skip them.
 | `PracticeLab_Access_Control_Design.docx` | **proposal, not built** — roles, authentication and authorisation for the internal deployment |
 | `PracticeLab_Feature_and_Workflow_Guide.docx` | what each module does and how to work it, screen by screen — training material, not reference |
 | `PracticeLab_Analytics_Guide.docx` | all 26 analytics tabs across the four modules, and the rules that hold across them |
+| `PracticeLab_User_Guide_Coder.docx` | for coders and auditors — charts, practice, audit and assessment sessions |
+| `PracticeLab_User_Guide_Trainer.docx` | for trainers — every Workspace screen, ending with what needs an Administrator |
+| `PracticeLab_User_Guide_Complete.docx` | all three roles: the coder and trainer guides as Parts A and B, plus the Administrator's Part C |
 
 **These are generated, not written.** Edit the Markdown or the builders below,
 never the `.docx` — a hand edit is lost on the next build.
@@ -76,6 +79,7 @@ typed once and were wrong within a month, twice.
 | `_auth_docx_build.js` | builds the access control design `.docx` (needs no figures or schema.json) |
 | `_guide_docx_build.js` | builds the feature and workflow guide `.docx` (needs `guide_shots/`, not figures) |
 | `_analytics_docx_build.js` | builds the analytics guide `.docx` (needs `analytics_shots/`) |
+| `_user_guides_build.js` | builds all three user guides from one set of chapters (needs `guide_shots/` and `userguide_shots/`) |
 
 `tabledocs.json` — the one-line description of each table — is hand-written and
 is the one input worth editing by hand. It lives in the restored `figures/`
@@ -164,3 +168,16 @@ cd docs && NODE_PATH=/tmp/docxbuild/node_modules node _analytics_docx_build.js
 
 Same production-data caveat as the workflow guide: these show real batch names
 and real scores.
+
+## The user guides
+
+`_user_guides_build.js` writes all three from shared chapters: a coder chapter
+appears word for word in the Coder and Complete guides, a trainer chapter in
+the Trainer and Complete guides. Edit a chapter once. Rebuild:
+
+```bash
+cd docs && NODE_PATH=/tmp/docxbuild/node_modules node _user_guides_build.js
+```
+
+The role grid inside them reflects the passphrase gates as they are today; if
+a gate moves, update `ADMIN_AREAS` in the builder.
