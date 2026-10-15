@@ -192,11 +192,29 @@ keep the builders authoritative and rebuild:
 | `PracticeLab_Database_Schema_Reference.docx` | `_schema_docx_build.js` |
 | `PracticeLab_Container_Deployment.docx` | `_container_docx_build.js` |
 | `PracticeLab_Chart_Composition_Taxonomy.xlsx` | `_chart_composition_xlsx_build.py` (openpyxl) |
+| `PracticeLab_Chart_Inventory_Tracker.xlsx` | `_chart_inventory_xlsx_build.py` (openpyxl) |
 
 Every builder dates the document **when it is built**, not from a hardcoded
 string — a regenerated document carrying an old date is worse than an undated
 one, because the reader cannot tell it was refreshed. Never hand-edit a
 `.docx`: the next build silently discards the edit.
+
+`_chart_taxonomy_data.py` holds the specialty pools, the 103 topics and the
+build priority, and **both** chart workbooks import it — the taxonomy, which
+publishes the standard, and the inventory tracker, which records what the pool
+actually holds. Importing it validates the weights, so a builder fails before
+writing a cell rather than publishing totals that do not add up. Add a topic
+there, never in a builder: that module exists because this codebase has been
+bitten before by two copies of one list drifting apart.
+
+The inventory tracker's register starts **empty** by design — a row exists once
+a chart exists, and what is unsourced is computed against the plan rather than
+held as placeholder rows. Its expected dates come from the HC build-hour rates
+and an editable FTE per specialty, so a slipping date points at a rate or a
+staffing assumption rather than at nobody in particular. Its formulas cover
+register rows 5-1004 and issue rows 5-504; data past those rows is silently
+uncounted, so extend the formulas rather than typing past them. openpyxl cannot
+write native PivotTables, which is why every summary view there is formula-driven.
 
 The chart composition taxonomy is the topic layer beneath the Coverage Matrix
 in `PracticeLab_HC.xlsx` (that workbook is the authority for baseline pools,
