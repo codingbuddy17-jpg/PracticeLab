@@ -122,6 +122,9 @@ READ_ME = [
     ("KV", "Classifying|Every chart entering the pool gets exactly one Topic ID. A chart that genuinely spans two topics is classified by the element its answer key turns on."),
     ("KV", "Gap review|Count live charts per Topic ID against Target Charts. HC section 9 sets the trigger at 80% of target, reviewed monthly and at each half-yearly refresh."),
     ("KV", "Changing a weight|Edit the Topic % cell (shaded). The target recalculates and the TOTAL row will stop reading 100% until the other weights in that parent category are rebalanced. That is the point — the sheet refuses to let a topic quietly grow."),
+    ("SEC", "The four populations are separate"),
+    ("P", "ED Facility, ED Profee, ED Single Path and E/M are four distinct chart populations, confirmed on 15 October 2026. The same clinical encounter coded for the facility, coded professionally, and coded single-path produces three different charts, and none of them sits in the E/M pool. Their pools therefore add rather than overlap, and the E/M topic list holding no ED setting is deliberate."),
+    ("P", "The consequence for sourcing is the part worth saying out loud: four populations means four separate pulls, not one pull classified four ways. A chart cannot be filed under an ED Facility topic and an ED Profee topic at once, and reusing one encounter across two pools would put the same documentation in front of a coder twice under two different names."),
     ("SEC", "What the targets are and are not"),
     ("P", "A target is a proportion of a pool, not a forecast of what production will yield. Where the two disagree the pool is wrong, not the sheet: a pool that drifts toward whatever charts were easy to find teaches whatever those charts happened to contain."),
     ("P", "Rounding is per topic, so the sum of targets can differ from the pool by a chart or two. Each sheet shows the variance rather than hiding it, and the pool is the authority."),
@@ -947,8 +950,9 @@ for spec, dim, cat, pct, pool, src in DIMS:
             cell.fill = FILL_BAND
     ws.row_dimensions[r].height = max(26, 11 * (1 + max(len(cat), len(src)) // 56))
     r += 1
-note(ws, r + 1, "Severity on IP-DRG and Method on E/M are cross-cutting dimensions: a chart has a CC/MCC status and an MDM-or-time basis whatever its topic. They are checked across the pool, not decomposed per topic, which is why the topic sheets carry one dimension each.", 6)
-note(ws, r + 2, "Where a target percentage here changes, the matching band row on the topic sheet and its child weights must change together. The band row's check cell is what tells you they have come apart.", 6)
+note(ws, r + 1, "ED Facility, ED Profee and ED Single Path are three separate populations, not three views of one. The same encounter coded for the facility, coded professionally and coded single-path is three different charts; none of them belongs in the E/M pool, which is why the E/M dimension here has no ED setting. Confirmed 15 October 2026.", 6)
+note(ws, r + 2, "Severity on IP-DRG and Method on E/M are cross-cutting dimensions: a chart has a CC/MCC status and an MDM-or-time basis whatever its topic. They are checked across the pool, not decomposed per topic, which is why the topic sheets carry one dimension each.", 6)
+note(ws, r + 3, "Where a target percentage here changes, the matching band row on the topic sheet and its child weights must change together. The band row's check cell is what tells you they have come apart.", 6)
 
 # ======================================================== Tag Dictionary
 ws = sheet("Tag Dictionary", [26, 12, 60, 46])
@@ -996,38 +1000,41 @@ for tag, mand, what, why in TAGS:
 note(ws, r + 1, "Enforce these per FIELD, not per chart record. A check asking whether a chart has tags passes as soon as one tag is present; anchor the check on each value, then delete that value and confirm the check fails.", 4)
 
 # ======================================================= Open Decisions
-ws = sheet("Open Decisions", [5, 30, 72, 30], freeze=None)
-title_block(ws, "Open decisions", "Each one changes a number somebody else owns, so they are listed rather than resolved. Nothing on the topic sheets depends on them being settled first.", 4)
-header_row(ws, 4, ["#", "Decision", "What is at stake", "Owner"])
+ws = sheet("Open Decisions", [5, 28, 66, 24, 20], freeze=None)
+title_block(ws, "Decisions", "Settled ones first, with what was decided. The open ones each change a number somebody else owns, so they are listed rather than resolved — nothing on the topic sheets depends on them being settled first.", 5)
+header_row(ws, 4, ["#", "Decision", "What is at stake, or what was decided", "Owner", "Status"])
+SETTLED = "Settled 2026-10-15"
+OPEN = "Open"
 DEC = [
+ ("ED Facility, ED Profee, ED Single Path and E/M are four separate chart populations",
+  "Confirmed: an ED encounter coded for the facility, the same encounter coded professionally, and a single-path encounter are three different charts, and none of them belongs in the E/M pool. So the pools of 704, 400, 300 and 413 do not overlap and nothing is double-counted — but sourcing has to pull four distinct populations, and the E/M pool holding no ED setting is correct rather than an oversight.",
+  "Confirmed by the user", SETTLED),
+ ("E/M keeps no ED-setting share",
+  "Follows from the above. ED E/M sits in ED Profee, the E/M topic list deliberately holds no ED setting, and the HC E/M pool of 413 is not oversized by it.",
+  "Confirmed by the user", SETTLED),
  ("Add ED Profee, Surgery and ED Single Path to the HC model",
   "Pools of 400, 300 and 300 were set here, outside the HC model. None of them has a +10% buffer calculation, a per-batch average, a batch count or a build-hour line. That is 1,000 charts the HC Specialty Grid, Chart Pool, FTE Demand and FTE Summary sheets do not know about — at HC's own build rates roughly 1,500 to 2,250 hours, close to a further FTE. Until they are added, the team size in that model is understated.",
-  "Whoever owns the HC model"),
- ("Confirm ED Profee and ED Single Path do not double-count ED Facility",
-  "One ED encounter can be coded facility-only, profee-only or single-path. Three pools of 704, 400 and 300 assume three distinct chart populations. If the same encounters are being counted twice, the ED requirement is overstated by up to 700 charts; if they genuinely are distinct, sourcing has to pull three times from the same production stream.",
-  "PL Trainer, ED specialties"),
- ("Decide whether E/M keeps an ED-setting share",
-  "ED E/M now sits in ED Profee, so the E/M topic list deliberately holds no ED setting. If the HC E/M pool of 413 was sized including ED visits, it is now oversized by that share and the ED Profee 400 partly duplicates it.",
-  "PL Trainer, E/M"),
+  "Whoever owns the HC model", OPEN),
  ("Set the cc_boundary flag policy for the 99285 / 99291 charts",
   "Topic EDP-07 exists for charts where the critical care call is genuinely arguable, and the auditor module only plants against them when a trainer has set AnswerKey.cc_boundary to borderline. Without a policy on who sets it and on what evidence, the topic fills with charts nothing is ever planted in.",
-  "PL Trainer plus QR"),
+  "PL Trainer plus QR", OPEN),
  ("Agree the constrained-supply topics",
   "IPD-09 (mental health), EDF-11 (behavioural health) and IPD-19 (transplant) are narrowed by exclusion X2 or by case rarity. Each needs a stated floor below which it is reported as constrained rather than chased, so a gap report does not show a permanent red against a topic nobody can fill.",
-  "PL Trainer plus Compliance for X2"),
+  "PL Trainer plus Compliance for X2", OPEN),
  ("Decide how a topic-level gap report is produced",
   "Topic ID has to be a filterable field on the chart record for any of this to be measurable. HC section 9 sets the trigger at 80% of target reviewed monthly, which is not workable by hand across roughly 125 topics.",
-  "PL Trainer plus the platform team"),
+  "PL Trainer plus the platform team", OPEN),
  ("Extend the topic layer to Denials/Edits and Ancillary",
   "Both are deferred from this pass. Their HC pools (165 and 594) and coverage matrices stand, so they are classified at category level but not at topic level — 759 charts, a quarter of the HC total, outside this framework.",
-  "PL Trainer"),
+  "PL Trainer", OPEN),
  ("Confirm the difficulty skew per topic against real charts",
   "The skew column is a judgement about what a topic can plausibly hold, made before any chart was sourced. Once a few hundred charts are classified and tiered, compare the actual tier distribution per topic against the skew and correct the column, not the charts.",
-  "PL Trainer, at the first refresh"),
+  "PL Trainer, at the first refresh", OPEN),
 ]
 r = 5
-for i, (dec, stake, owner) in enumerate(DEC, start=1):
-    for c, v in enumerate([i, dec, stake, owner], start=1):
+for i, (dec, stake, owner, status) in enumerate(DEC, start=1):
+    done = status != OPEN
+    for c, v in enumerate([i, dec, stake, owner, status], start=1):
         cell = ws.cell(row=r, column=c, value=v)
         cell.font, cell.alignment, cell.border = F_N, WRAP, BOX
         if c == 1:
@@ -1036,7 +1043,12 @@ for i, (dec, stake, owner) in enumerate(DEC, start=1):
             cell.font = F_B
         if c == 4:
             cell.font = F_SM
-    ws.row_dimensions[r].height = max(34, 11 * (1 + len(stake) // 74))
+        if c == 5:
+            cell.alignment = WRAP_C
+            cell.font = Font(size=9, bold=True, color=("2E7D32" if done else RED))
+        if done:
+            cell.fill = FILL_BAND
+    ws.row_dimensions[r].height = max(34, 11 * (1 + len(stake) // 68))
     r += 1
 
 wb.save(OUT)

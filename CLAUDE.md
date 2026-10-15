@@ -204,7 +204,8 @@ difficulty tiers, sourcing channels C1-C8, exclusions X1-X7 and the required
 tags). Topic weights decompose an HC parent percentage and must sum back to it
 exactly; the builder asserts this before writing a single cell, and each
 category band row carries the same check as a live formula. Seven specialties
-are covered. Denials/Edits and Ancillary are deferred, and ED Profee (400),
+are covered, and its Decisions sheet records what is settled as well as what is
+open. Denials/Edits and Ancillary are deferred, and ED Profee (400),
 Surgery (300) and ED Single Path (300) carry pools set outside the HC model, so
 that model's build hours and team size understate by 1,000 charts until they
 are added to it.
@@ -376,6 +377,17 @@ had just entered five keys that nothing could be graded. `EM_KEY_SPECIALTIES`
 and `chart_ids_with_keys()` live in `services/em_audit_key.py`, because the
 coder side and the auditor side both need them and neither should import the
 other.
+
+**ED Facility, ED Profee, ED Single Path and E/M are four separate chart
+populations.** The user confirmed on 2026-10-15 that the same clinical
+encounter coded for the facility, coded professionally and coded single-path is
+three different charts, and that none of them belongs in the E/M pool. So the
+four chart pools add rather than overlap, sourcing is four distinct pulls
+rather than one classified four ways, and an E/M inventory holding no ED
+setting is correct rather than a gap. ED Facility grades facility acuity, ED
+Profee grades professional MDM on the ED ladder, and ED Single Path grades both
+on one record — where the two levels legitimately diverging is the finding, not
+an error.
 
 **E/M and ED Profee are auditable, and their key is a different table.**
 `em_answer_keys`, adapted by `services/em_audit_key.py` into the ordinary key
