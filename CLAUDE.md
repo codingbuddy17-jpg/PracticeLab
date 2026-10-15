@@ -199,7 +199,7 @@ string — a regenerated document carrying an old date is worse than an undated
 one, because the reader cannot tell it was refreshed. Never hand-edit a
 `.docx`: the next build silently discards the edit.
 
-`_chart_taxonomy_data.py` holds the specialty pools, the 109 topics and the
+`_chart_taxonomy_data.py` holds the specialty pools, the 111 topics and the
 build priority, and **both** chart workbooks import it — the taxonomy, which
 publishes the standard, and the inventory tracker, which records what the pool
 actually holds. Importing it validates the weights, so a builder fails before
@@ -427,8 +427,30 @@ Two production figures the pool deliberately does not mirror: level 5 runs
 3%. A training pool weights the error-prone and high-dollar calls rather than
 reproducing the production mix, and that divergence is intended, not drift.
 
+**Critical care volume sits in the ED, not in E/M.** The user confirmed on
+2026-10-15 that the numbers are far larger in ED Facility and ED Profee, so the
+pools carry 270 critical-care charts in total and only 20 of them are E/M's:
+`EDF-14` 56 and `EDP-08` 56 are the two largest topics of their kind, against
+`EM-20` at 12 for the floor and ICU. ED Facility's 20% "Level 5 / critical
+care" parent is fixed by the HC matrix, so the weight moved WITHIN it rather
+than past it; ED Profee and ED Single Path parents are ours, so critical care
+there went to 20% and 18%.
+
+Each ED pool now carries its own boundary topic for the arguable cases —
+`EDF-15` on the facility side, `EDP-07` on the professional — because a
+generated error cannot invent the judgement about whether critical care was
+delivered at all. Those charts earn their place by being argued, and only plant
+where a trainer has set `AnswerKey.cc_boundary = "borderline"`.
+
 Inpatient critical care (`EM-20`) and ED critical care (`EDP-08`) are different
 topics in different pools and must never share a chart.
+
+**`_chart_taxonomy_data.py` asserts that every topic id named in prose
+exists.** Renumbering a specialty has twice left a scope note pointing at a
+topic that had moved — which reads as authoritative and sends a sourcer to the
+wrong place. The guard catches it at import, so both builders fail before
+writing a cell. Prove a new guard works by breaking a reference on purpose and
+watching it fire, the way the per-FIELD rule above demands.
 
 **ED Facility, ED Profee, ED Single Path and E/M are four separate chart
 populations.** The user confirmed on 2026-10-15 that the same clinical

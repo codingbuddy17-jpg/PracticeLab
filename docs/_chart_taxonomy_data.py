@@ -11,6 +11,8 @@ builders therefore fail before writing a cell rather than publishing a
 workbook whose totals do not add up.
 """
 
+import re as _re
+
 # ---------------------------------------------------------------- pools
 # Baseline chart pool per specialty. The first six come from the HC model's
 # Specialty Grid (Baseline Charts Required, +10% buffer). ED Profee is a
@@ -47,8 +49,8 @@ PRIORITY_1 = {
 PRIORITY_3 = {
     # Low volume, constrained supply, or skills the pool can wait for
     "IPD-13", "IPD-14", "IPD-23", "IPD-24", "IPD-25",
-    "EDF-02", "EDF-11", "EDF-16",
-    "EDP-11", "SDS-09", "SDS-14", "SUR-09", "SUR-10", "ESP-08",
+    "EDF-02", "EDF-11", "EDF-17",
+    "EDP-12", "SDS-09", "SDS-14", "SUR-09", "SUR-10", "ESP-08",
     # E/M: level 1-2, minor procedures with an E/M, TCM, telehealth, NICU/PICU
     "EM-06", "EM-12", "EM-13", "EM-15", "EM-21",
 }
@@ -260,7 +262,7 @@ TOPICS["ED Facility"] = ("Facility level", [
    "Facility level criteria, diagnosis specificity, medication administration capture", ""),
   ("EDF-05", "Minor trauma and wound repair",
    "Laceration repair by length and complexity, contusions, abrasions, and minor burns.",
-   "Polytrauma — EDF-15", 0.08, "Moderate-led", "C1 High error rate",
+   "Polytrauma — EDF-16", 0.08, "Moderate-led", "C1 High error rate",
    "Repair length and complexity tiers, anatomic site grouping, injury external cause, facility level",
    "Summing repair lengths across sites in the same anatomic group is the recurring error here."),
   ("EDF-06", "Orthopaedic injury — sprain, simple fracture, splinting",
@@ -283,7 +285,7 @@ TOPICS["ED Facility"] = ("Facility level", [
    "Teaches coding to a symptom when no diagnosis was reached — the correct answer is often the symptom code."),
   ("EDF-09", "Respiratory distress — asthma, COPD, pneumonia",
    "Respiratory presentations with nebuliser treatment, imaging, and sometimes non-invasive ventilation.",
-   "Intubated or critical care patients — EDF-13", 0.07,
+   "Intubated or critical care patients — EDF-13 or EDF-14", 0.07,
    "Moderate-led", "C8 Foundation",
    "Exacerbation documentation, nebuliser and ventilation management capture, facility level, diagnosis specificity", ""),
   ("EDF-10", "Complex medical with multiple workups",
@@ -305,40 +307,48 @@ TOPICS["ED Facility"] = ("Facility level", [
  ]),
  ("Level 5 / critical care", 0.20, [
   ("EDF-13", "High-acuity medical (99285)",
-   "Patients with immediate threat requiring extensive evaluation and intervention, short of critical care time.",
-   "Encounters where critical care time was documented — EDF-14", 0.09,
+   "Patients with immediate threat requiring extensive evaluation and intervention, short of critical care.",
+   "Encounters where critical care time was documented — EDF-14", 0.06,
    "Complex-led", "C1 High error rate",
    "Facility level 5 criteria, extent of intervention, diagnosis specificity, comorbidity capture", ""),
   ("EDF-14", "Critical care (99291 / 99292)",
-   "Encounters with documented critical care time and organ-system failure, including the bundled-service list.",
-   "Level 5 visits with no documented critical care time — EDF-13", 0.06,
+   "Encounters with documented critical care time and organ-system failure, including the bundled-service list and the facility charge alongside it.",
+   "Level 5 visits with no documented critical care time — EDF-13; arguable cases — EDF-15", 0.08,
    "Complex-led", "C2 High dollar value",
-   "Critical care qualification, time documentation, bundled versus separately reportable procedures, facility level interaction",
-   "Whether the condition qualifies as critical care at all is the hardest question in the ED. The time arithmetic is not the training point and is not where coders go wrong."),
-  ("EDF-15", "Trauma activation",
+   "Critical care qualification, time documentation, bundled versus separately reportable procedures, facility level interaction, revenue code use",
+   "The largest critical care topic in any pool, because this is where the volume actually is. Whether the condition qualifies as critical care at all is the hardest question in the ED; the time arithmetic is not the training point and critical care time is never planted."),
+  ("EDF-15", "The level 5 versus critical care boundary",
+   "Facility encounters sitting on the line: high-acuity patients where whether critical care was delivered at all is genuinely arguable on the record.",
+   "Clear-cut critical care — EDF-14; clear-cut level 5 — EDF-13", 0.02,
+   "Complex-led", "C6 Customer escalations",
+   "Critical care qualification against the facility acuity tool, organ system failure, what the record must show, the resulting facility level",
+   "The facility-side twin of EDP-07. A generated error cannot invent this call, so these charts earn their place by being argued rather than planted."),
+  ("EDF-16", "Trauma activation",
    "Encounters meeting the trauma team activation criteria, with the activation charge and its documentation requirements.",
-   "", 0.03, "Complex-led", "C7 Denial trends",
+   "", 0.02, "Complex-led", "C7 Denial trends",
    "Trauma activation criteria and pre-notification requirement, revenue code use, injury coding, facility level",
    "The activation charge requires pre-hospital notification; charts missing it teach the denial."),
-  ("EDF-16", "Cardiac arrest and resuscitation",
+  ("EDF-17", "Cardiac arrest and resuscitation",
    "Resuscitation encounters including CPR, defibrillation, intubation and death in the department.",
    "", 0.02, "Complex-led", "C2 High dollar value",
-   "Resuscitation procedure coding, critical care interaction, disposition including expired, diagnosis sequencing", ""),
+   "Resuscitation procedure coding, critical care interaction, disposition including expired, diagnosis sequencing",
+   "Resuscitation and critical care are reported together more often than not, so this topic is read alongside EDF-14 rather than instead of it."),
  ]),
 ])
 
+
 TOPICS["ED Profee"] = ("ED E/M level", [
- ("Low acuity", 0.08, [
+ ("Low acuity", 0.07, [
   ("EDP-01", "99281 / 99282 — straightforward presentations",
    "Professional component of low-acuity ED visits: problem-focused history and examination, straightforward MDM.",
-   "", 0.08, "Basic-led", "C8 Foundation",
+   "", 0.07, "Basic-led", "C8 Foundation",
    "MDM-based level selection, problem addressed, diagnosis specificity",
    "Graded on the ED ladder in services/em_levels.py, which is separate from the office ladders. Same level on the wrong ladder is a distinct error from a near miss on the right one."),
  ]),
- ("Moderate", 0.18, [
+ ("Moderate", 0.16, [
   ("EDP-02", "99283 — moderate MDM",
    "Visits with limited data reviewed and low-to-moderate risk: one or two problems, limited diagnostics.",
-   "", 0.12, "Basic-led", "C8 Foundation",
+   "", 0.10, "Basic-led", "C8 Foundation",
    "COPA, Data Review and Risk as three MDM levels, the 2-of-3 rule, diagnosis specificity",
    "MDM is audited as three levels, never as element ticks."),
   ("EDP-03", "99283 with a separately reportable procedure",
@@ -347,47 +357,54 @@ TOPICS["ED Profee"] = ("ED E/M level", [
    "Modifier 25 appropriateness, procedure versus E/M separation, MDM level, laterality",
    "Modifier 25 is the single most audited modifier in ED profee coding."),
  ]),
- ("Level 4", 0.20, [
+ ("Level 4", 0.18, [
   ("EDP-04", "99284 — moderate-to-high MDM",
    "Multiple problems or extensive data review with moderate risk, including prescription drug management.",
-   "", 0.13, "Moderate-led", "C1 High error rate",
+   "", 0.12, "Moderate-led", "C1 High error rate",
    "COPA, Data Review, Risk, the 2-of-3 rule, prescription drug management as a risk element",
    "The 99284/99285 boundary carries the most level errors; plant in both directions so upcoding and downcoding both appear."),
   ("EDP-05", "99284 with fracture care or wound repair",
    "Level 4 visits with a procedure that has its own global period, so the E/M may or may not be separately reportable.",
-   "", 0.07, "Complex-led", "C1 High error rate",
+   "", 0.06, "Complex-led", "C1 High error rate",
    "Global period of the procedure, modifier 25 and 57, procedure code selection, MDM level", ""),
  ]),
- ("Level 5", 0.24, [
+ ("Level 5", 0.21, [
   ("EDP-06", "99285 — high MDM",
    "High COPA with extensive data and high risk, short of critical care.",
-   "Documented critical care time — EDP-08", 0.15,
+   "Documented critical care time — EDP-08", 0.13,
    "Complex-led", "C1 High error rate",
    "COPA at the highest level, data categories, risk including decision for hospitalisation, the 2-of-3 rule", ""),
   ("EDP-07", "99285 versus 99291 — the critical care boundary",
    "Charts sitting on the line: high-acuity patients where whether the condition qualified as critical care is genuinely arguable.",
-   "Clear-cut critical care — EDP-08; clear-cut level 5 — EDP-06", 0.09,
+   "Clear-cut critical care — EDP-08; clear-cut level 5 — EDP-06", 0.08,
    "Complex-led", "C6 Customer escalations",
    "Critical care qualification, organ system failure, time documentation, MDM level if not critical care",
    "The hardest question in the ED and the one a generated error cannot invent. These charts need AnswerKey.cc_boundary set to borderline before the auditor module will plant against them."),
  ]),
- ("Critical care", 0.12, [
+ ("Critical care", 0.20, [
   ("EDP-08", "99291 / 99292 — critical care",
    "Professional critical care with documented time and organ-system failure, including the bundled-service list and the second-hour units.",
-   "", 0.12, "Complex-led", "C2 High dollar value",
-   "Critical care qualification, bundled procedures, separately reportable procedures, diagnosis sequencing",
-   "The 99292 unit count follows from the time and is not where coders go wrong; critical care time itself is never planted. An auditor validates the code, not the arithmetic."),
+   "Critical care delivered on the floor or in the ICU — E/M (EM-20)", 0.14,
+   "Complex-led", "C2 High dollar value",
+   "Critical care qualification, bundled procedures, diagnosis sequencing, same-day E/M by the same provider",
+   "The second largest critical care topic after EDF-14, and weighted for the volume the ED actually sees. The 99292 unit count follows from the time and is not where coders go wrong; critical care time itself is never planted. An auditor validates the code, not the arithmetic."),
+  ("EDP-09", "Critical care with separately reportable procedures",
+   "Critical care encounters where a procedure outside the bundled list was performed — central line, chest tube, intubation, transvenous pacing.",
+   "Procedures already bundled into critical care — EDP-08", 0.06,
+   "Complex-led", "C2 High dollar value",
+   "Which procedures the critical care code bundles and which it does not, modifier 25 and 59, procedure code selection, time excluded for separately reported work",
+   "The bundled list is the whole question, and time spent on a separately reportable procedure cannot also count toward critical care time — a double-count coders make routinely."),
  ]),
  ("Cross-cutting", 0.18, [
-  ("EDP-09", "ED procedures billed with an E/M",
+  ("EDP-10", "ED procedures billed with an E/M",
    "Laceration repair, I&D, fracture care, joint reduction and foreign body removal alongside the ED E/M.",
    "", 0.10, "Moderate-led", "C1 High error rate",
    "Procedure code selection, modifier 25 and 59, bundling against the E/M, laterality and site", ""),
-  ("EDP-10", "Observation and admission by the ED physician",
+  ("EDP-11", "Observation and admission by the ED physician",
    "Encounters where the ED physician initiates observation or admits, and the service crosses code families.",
    "", 0.04, "Complex-led", "C7 Denial trends",
    "Which code family applies, same-day E/M rules, modifier 25, diagnosis supporting the status", ""),
-  ("EDP-11", "Split / shared and teaching-physician documentation",
+  ("EDP-12", "Split / shared and teaching-physician documentation",
    "Encounters documented by a resident, APP or jointly, where attestation and substantive-portion rules decide what is billable.",
    "", 0.04, "Complex-led", "C6 Customer escalations",
    "Split/shared substantive portion, teaching physician attestation, modifier use, MDM level",
@@ -489,7 +506,7 @@ TOPICS["E/M"] = ("Service family", [
  ("Inpatient and observation", 0.18, [
   ("EM-16", "Initial hospital inpatient or observation care (99221-99223)",
    "The first encounter by the admitting provider, levelled on MDM, including the merge of inpatient and observation into one code family.",
-   "ED-initiated observation by the ED physician — ED Profee (EDP-10)", 0.06,
+   "ED-initiated observation by the ED physician — ED Profee (EDP-11)", 0.06,
    "Moderate-led", "C1 High error rate",
    "Initial versus subsequent determination, COPA, Data Review, Risk, the admission date rule, inpatient and observation sharing one family",
    "The inpatient ladder is distinct from both office ladders; a chart coded on the wrong ladder is a classifier error, not a level error."),
@@ -680,39 +697,39 @@ TOPICS["Surgery"] = ("Service line", [
 ])
 
 TOPICS["ED Single Path"] = ("Acuity ladder (facility and profee on one chart)", [
- ("Low acuity", 0.08, [
+ ("Low acuity", 0.07, [
   ("ESP-01", "Low acuity — levels 1–2 both components",
    "Single-path coding of a low-acuity ED encounter: facility level and professional level assigned from the same record.",
-   "", 0.08, "Basic-led", "C8 Foundation",
+   "", 0.07, "Basic-led", "C8 Foundation",
    "Facility acuity tool and professional MDM applied to one record, diagnosis specificity, disposition",
    "Mirrors EDF-01 and EDP-01, but the charts are not shared between pools: a single-path chart is graded on both components at once and belongs only here."),
  ]),
- ("Moderate", 0.18, [
+ ("Moderate", 0.16, [
   ("ESP-02", "Moderate — level 3 both components",
    "Moderate presentations with limited workup, coded for facility and professional components together.",
-   "", 0.18, "Basic-led", "C8 Foundation",
+   "", 0.16, "Basic-led", "C8 Foundation",
    "Facility level criteria, professional MDM (COPA, Data, Risk), diagnosis specificity",
    "Mirrors EDF-04 and EDP-02."),
  ]),
- ("Level 4", 0.20, [
+ ("Level 4", 0.18, [
   ("ESP-03", "Level 4 both components",
    "Multi-system or extensively worked-up presentations at level 4 on both components.",
-   "", 0.20, "Moderate-led", "C1 High error rate",
+   "", 0.18, "Moderate-led", "C1 High error rate",
    "Facility level at the 4/5 boundary, professional MDM and the 2-of-3 rule, comorbidity capture",
    "Mirrors EDF-08 to EDF-10 and EDP-04."),
  ]),
- ("Level 5", 0.22, [
+ ("Level 5", 0.21, [
   ("ESP-04", "Level 5 both components",
    "High-acuity encounters short of critical care, coded at level 5 on both components.",
-   "Documented critical care time — ESP-05", 0.22,
+   "Documented critical care time — ESP-05", 0.21,
    "Complex-led", "C1 High error rate",
    "Facility level 5 criteria, professional COPA, data and risk at the highest level, diagnosis sequencing",
    "Mirrors EDF-13 and EDP-06. The largest topic in this pool, as it is on both parent ladders."),
  ]),
- ("Critical care", 0.12, [
+ ("Critical care", 0.18, [
   ("ESP-05", "Critical care — both components",
    "Critical care encounters where the facility and professional components are both reported from one record.",
-   "", 0.12, "Complex-led", "C2 High dollar value",
+   "", 0.18, "Complex-led", "C2 High dollar value",
    "Critical care qualification, bundled versus separately reportable procedures, facility level interaction, diagnosis sequencing",
    "Whether the condition qualified as critical care at all is the training point. The 99292 unit count follows from the time and is not planted."),
  ]),
@@ -744,4 +761,18 @@ for spec, (dim, cats) in TOPICS.items():
     assert round(total, 6) == 1.0, "%s: categories sum to %s" % (spec, total)
     ids = [t[0] for cat, p, rows in cats for t in rows]
     assert len(ids) == len(set(ids)), "%s: duplicate topic id" % spec
+
+# Every topic id named in prose must be a topic that exists. Renumbering a
+# specialty has twice left a scope note pointing at a topic that had moved,
+# which reads as authoritative and sends a sourcer to the wrong place.
+_ALL_IDS = {t[0] for _d, _c in TOPICS.values() for _cat, _p, _rows in _c for t in _rows}
+_REF = _re.compile(r"\b(?:IPD|EDF|EDP|EM|SDS|SUR|ESP)-\d{2}\b")
+for _spec, (_dim, _cats) in TOPICS.items():
+    for _cat, _parent, _rows in _cats:
+        for _t in _rows:
+            for _field in (_t[2], _t[3], _t[7], _t[8]):
+                for _m in _REF.finditer(_field or ""):
+                    assert _m.group(0) in _ALL_IDS, (
+                        "%s / %s refers to %s, which is not a topic"
+                        % (_spec, _t[0], _m.group(0)))
 
