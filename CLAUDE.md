@@ -175,6 +175,32 @@ Shared logic belongs in `services/`. `draw_for_person` in
 `services/allocation.py` is drawn on by both the coder and auditor allocators —
 prefer extending a shared function over copying it.
 
+### The handover documents are cascaded — regenerate, never retype
+
+`docs/` holds the IT handover set, and as of 2026-10-15 the role-based
+training docs and the auth/access documents **have been sent to the IT team**.
+A change to any of them is a re-issue to people who already hold a copy, so
+keep the builders authoritative and rebuild:
+
+| Document | Builder |
+|---|---|
+| `PracticeLab_User_Guide_Coder.docx` · `_Trainer.docx` · `_Complete.docx` | `_user_guides_build.js` |
+| `PracticeLab_Access_Control_Design.docx` | `_auth_docx_build.js` |
+| `PracticeLab_Role_Access_Grid.xlsx` | authentication/authorization companion to the design doc |
+| `PracticeLab_Analytics_Guide.docx` | `_analytics_docx_build.js` |
+| `PracticeLab_Feature_and_Workflow_Guide.docx` | `_guide_docx_build.js` |
+| `PracticeLab_Database_Schema_Reference.docx` | `_schema_docx_build.js` |
+| `PracticeLab_Container_Deployment.docx` | `_container_docx_build.js` |
+
+Every builder dates the document **when it is built**, not from a hardcoded
+string — a regenerated document carrying an old date is worse than an undated
+one, because the reader cannot tell it was refreshed. Never hand-edit a
+`.docx`: the next build silently discards the edit.
+
+Coder and trainer guides are split deliberately. The coder guide must not
+describe a trainer screen: it tells a coder what the people grading them can
+see, which is the one thing the split exists to prevent.
+
 ---
 
 ## Reference code sets are loaded by hand
