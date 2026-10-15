@@ -40,22 +40,43 @@ SHEET_OF = {
 PRIORITY_1 = {
     # IP-DRG: the OB and newborn block, medical and surgical sides together
     "IPD-01", "IPD-02", "IPD-03", "IPD-04", "IPD-15", "IPD-16",
+    # E/M: level 3 and 4 office visits, and the inpatient/observation trio
+    # (initial, subsequent, discharge)
+    "EM-01", "EM-02", "EM-03", "EM-04", "EM-16", "EM-17", "EM-18",
 }
 PRIORITY_3 = {
     # Low volume, constrained supply, or skills the pool can wait for
     "IPD-13", "IPD-14", "IPD-23", "IPD-24", "IPD-25",
     "EDF-02", "EDF-11", "EDF-16",
-    "EDP-11", "EM-15", "EM-17",
-    "SDS-09", "SDS-14", "SUR-09", "SUR-10", "ESP-08",
+    "EDP-11", "SDS-09", "SDS-14", "SUR-09", "SUR-10", "ESP-08",
+    # E/M: level 1-2, minor procedures with an E/M, TCM, telehealth, NICU/PICU
+    "EM-06", "EM-12", "EM-13", "EM-15", "EM-21",
+}
+PRIORITY_4 = {
+    # Built last. Real work, but the pool functions without it for a while.
+    "EM-14",   # chronic care management
 }
 
 
 def priority_of(tid):
+    """P1 is built first, P4 last. Priority is not the weight: the weight says
+    how many charts a topic holds once the pool is complete, the priority says
+    which topics are sourced before it is."""
     if tid in PRIORITY_1:
-        return "P1 — build first"
+        return "P1"
     if tid in PRIORITY_3:
-        return "P3 — build last"
+        return "P3"
+    if tid in PRIORITY_4:
+        return "P4"
     return "P2"
+
+
+PRIORITY_NOTE = {
+    "P1": "P1 — build first",
+    "P2": "P2",
+    "P3": "P3",
+    "P4": "P4 — build last",
+}
 
 
 # Pool-level difficulty mix, from HC Chart Selection section 4.
@@ -374,90 +395,146 @@ TOPICS["ED Profee"] = ("ED E/M level", [
  ]),
 ])
 
-TOPICS["E/M"] = ("Level", [
- ("Low (levels 2–3)", 0.35, [
-  ("EM-01", "New patient office / outpatient, low (99202 / 99203)",
-   "New-patient office visits with one self-limited or stable problem, minimal data, minimal-to-low risk.",
-   "ED visits — ED Profee; established patients — EM-02", 0.07,
+TOPICS["E/M"] = ("Service family", [
+ ("Office / outpatient visits", 0.42, [
+  ("EM-01", "Level 3 established patient office visit (99213)",
+   "Established-patient visits levelled at 3 on medical decision making: one stable chronic problem or a single acute uncomplicated one, limited data, low risk.",
+   "New patients — EM-03; level 4 — EM-02", 0.10,
    "Basic-led", "C8 Foundation",
+   "COPA for a stable chronic problem, Data Review, Risk, the 2-of-3 rule, diagnosis specificity",
+   "With EM-02 this is the foundation of the whole specialty: the widest spread of complexity inside one code, which is what makes it the Week 1 workhorse. 99213 versus 99214 is the most common level error in outpatient coding, so carry charts that sit close to the line in both directions."),
+  ("EM-02", "Level 4 established patient office visit (99214)",
+   "Established visits levelled at 4: two or more stable chronic conditions, or one with exacerbation, with prescription drug management or moderate risk.",
+   "Level 5 — EM-05", 0.11, "Moderate-led", "C1 High error rate",
+   "COPA, Data Review categories, Risk including prescription drug management, the 2-of-3 rule",
+   "The largest single topic in the pool. Vary the complexity deliberately — a 99214 earned on risk alone reads very differently from one earned on data, and a coder who has only seen the second will downcode the first."),
+  ("EM-03", "Level 3 new patient office visit (99203)",
+   "New-patient visits levelled at 3: a problem of low complexity, limited data, low risk.",
+   "Established patients — EM-01", 0.05, "Basic-led", "C8 Foundation",
    "New versus established determination, COPA, Data Review, Risk, the 2-of-3 rule",
-   "New-patient and established-patient office visits are separate ladders. The same level on the wrong ladder is the new-versus-established error, not a near miss."),
-  ("EM-02", "Established patient office / outpatient, low (99212 / 99213)",
-   "Established-patient visits for stable chronic conditions or a single acute uncomplicated problem.",
-   "", 0.14, "Basic-led", "C8 Foundation",
-   "COPA for a stable chronic condition, Data Review, Risk, the 2-of-3 rule",
-   "The highest-volume topic in the specialty and the main Week 1 source. 99213 versus 99214 is the most common level error in outpatient coding."),
-  ("EM-03", "Initial hospital / observation care, low (99221)",
-   "First inpatient or observation encounter by the admitting provider at the lowest level of the ladder.",
-   "ED-initiated observation — ED Profee (EDP-10)", 0.04,
-   "Basic-led", "C8 Foundation",
-   "Initial versus subsequent determination, COPA, Data Review, Risk, admission date rules", ""),
-  ("EM-04", "Subsequent hospital / observation care, low (99231)",
-   "Daily inpatient visits where the patient is stable, recovering or improving.",
-   "", 0.05, "Basic-led", "C8 Foundation",
-   "Subsequent care ladder, interval history, COPA, Risk",
-   "The inpatient ladder is distinct from both office ladders; a chart coded on the wrong ladder is a classifier error, not a level error."),
-  ("EM-05", "Preventive and annual wellness visits",
-   "Preventive medicine services and the Medicare AWV, including a problem-oriented visit on the same day.",
-   "", 0.05, "Moderate-led", "C7 Denial trends",
-   "Age-banded preventive code selection, AWV versus preventive distinction, modifier 25 for a same-day problem visit, diagnosis linkage",
-   "Not graded on medical decision making at all: applicable_weights drops the MDM weights for preventive charts, and sections_for_chart resolves the form per chart. A chart with no key keeps the full form, because absence is not evidence it is preventive."),
- ]),
- ("Moderate (level 4)", 0.40, [
-  ("EM-06", "New patient office / outpatient, moderate (99204)",
-   "New-patient visits with multiple problems or extensive data review, moderate risk including prescription management.",
-   "", 0.09, "Moderate-led", "C1 High error rate",
-   "COPA for multiple or chronic problems, data categories, prescription drug management as risk, the 2-of-3 rule", ""),
-  ("EM-07", "Established patient office / outpatient, moderate (99214)",
-   "The workhorse established visit: two or more stable chronic conditions, or one with exacerbation, with prescription management.",
-   "", 0.15, "Moderate-led", "C1 High error rate",
-   "COPA, Data Review, Risk, the 2-of-3 rule, chronic condition exacerbation documentation",
-   "Largest single topic in the pool. Plant level errors in both directions here: upcoding is what payers audit for, downcoding is revenue quietly left behind."),
-  ("EM-08", "Initial hospital / observation care, moderate (99222)",
-   "Admissions with multiple active problems and moderate risk.",
-   "", 0.05, "Moderate-led", "C8 Foundation",
-   "COPA, data categories, risk of morbidity, initial versus subsequent", ""),
-  ("EM-09", "Subsequent hospital / observation care, moderate (99232)",
-   "Daily visits where the patient is not responding adequately or has a minor complication.",
+   "New-patient and established-patient office visits are separate ladders. Same level on the wrong ladder is the new-versus-established error, which is a different finding from a near miss on the right ladder."),
+  ("EM-04", "Level 4 new patient office visit (99204)",
+   "New-patient visits levelled at 4: multiple problems or extensive data review with moderate risk.",
    "", 0.06, "Moderate-led", "C1 High error rate",
-   "Subsequent care ladder, COPA for an inadequately responding problem, Data Review, Risk", ""),
-  ("EM-10", "Consultations, moderate (99243 / 99253)",
-   "Office and inpatient consultations at moderate level, where the request and the reason for it must be documented.",
-   "", 0.05, "Complex-led", "C6 Customer escalations",
-   "Consultation requirements (request, reason, report), consult versus transfer of care, COPA, Data Review, Risk",
-   "Consults are off-ladder for planting purposes: em_levels.py knows three ladders plus critical care, so a consult is not a near miss along any of them."),
+   "COPA for multiple or chronic problems, independent interpretation and external discussion as data, moderate risk, the 2-of-3 rule",
+   "The three-year rule decides new versus established and is the element most often taken on trust from the registration screen rather than the record."),
+  ("EM-05", "Level 5 office visit, new and established (99205 / 99215)",
+   "The top of both office ladders: high COPA, extensive data, high risk — severe exacerbation, threat to bodily function, or a decision for hospitalisation.",
+   "Visits levelled by time rather than MDM — EM-07", 0.07,
+   "Complex-led", "C2 High dollar value",
+   "COPA at the highest level, data categories including independent interpretation, high risk such as drug therapy requiring intensive monitoring, decision for hospitalisation",
+   "Runs 10-15% of production and carries the highest office reimbursement, so an error here costs more than anywhere else on the ladder. Weighted at 7% rather than the production share because the pool exists to train the hard calls, not to mirror the mix."),
+  ("EM-06", "Level 1-2 office visits (99202 / 99211 / 99212)",
+   "The bottom of the ladders, including 99211 as the visit with no required provider evaluation.",
+   "", 0.03, "Basic-led", "C8 Foundation",
+   "Whether a billable E/M occurred at all, 99211 incident-to requirements, minimal COPA and risk",
+   "5-10% of production and deliberately held below that here: low error rate and low dollar value, so it earns a P3. Its real teaching value is the lower bound — sometimes the correct answer is that no E/M is billable."),
  ]),
- ("High (level 5)", 0.25, [
-  ("EM-11", "New patient office / outpatient, high (99205)",
-   "New-patient visits with high COPA, extensive data and high risk.",
-   "", 0.04, "Complex-led", "C1 High error rate",
-   "COPA at the highest level, independent interpretation and external discussion as data, high risk", ""),
-  ("EM-12", "Established patient office / outpatient, high (99215)",
-   "Established visits with severe exacerbation or threat to function, with high-risk management.",
-   "", 0.05, "Complex-led", "C1 High error rate",
-   "COPA for severe exacerbation, data categories, high risk including drug therapy requiring monitoring", ""),
-  ("EM-13", "Initial hospital / observation care, high (99223)",
-   "Admissions with high COPA and high risk of morbidity.",
-   "", 0.04, "Complex-led", "C2 High dollar value",
-   "COPA, data categories, risk including decision for escalation of care", ""),
-  ("EM-14", "Subsequent hospital / observation care, high (99233)",
-   "Daily visits where the patient is unstable or has a significant complication.",
-   "", 0.04, "Complex-led", "C1 High error rate",
-   "COPA for an unstable problem, Data Review, Risk", ""),
-  ("EM-15", "Consultations, high (99245 / 99255)",
-   "Consultations at the highest level, typically multi-system or where the consultant assumes management.",
-   "", 0.03, "Complex-led", "C6 Customer escalations",
-   "Consultation requirements, COPA, data categories, high risk", "Off-ladder; see EM-10."),
-  ("EM-16", "Discharge day management and prolonged services",
-   "Discharge day management by time, and prolonged service add-ons where total time drives the code.",
-   "", 0.03, "Moderate-led", "C7 Denial trends",
-   "Time thresholds, what counts toward total time on the date of service, add-on code units, same-day rules",
-   "Time-based rather than MDM-based, so MDM weights do not apply. These are the charts behind the HC Method split of 80% MDM / 20% time."),
-  ("EM-17", "Split / shared visits and telehealth",
-   "Visits documented jointly by a physician and APP, and visits delivered by telehealth, where who may bill and at what level is the question.",
+ ("Time-based and prolonged services", 0.04, [
+  ("EM-07", "Visits levelled by time, and prolonged service add-ons (99417 / G2212)",
+   "Visits where total time on the date of service decides the level rather than medical decision making, and the prolonged-service add-ons that attach to the highest level.",
+   "", 0.04, "Complex-led", "C7 Denial trends",
+   "What counts toward total time on the date of service, the time thresholds per code, add-on unit counting, MDM versus time as the basis",
+   "These are the charts behind the HC Method split of 80% MDM and 20% time. Time-levelled visits are not graded on medical decision making at all, so applicable_weights drops the MDM weights and the form is resolved per chart. Deliberately a small share: the trainers asked for very few."),
+ ]),
+ ("Preventive and wellness", 0.14, [
+  ("EM-08", "Annual wellness visit — initial versus subsequent (G0438 / G0439)",
+   "The Medicare AWV and the determination that trips most often: G0438 is once per lifetime, G0439 every year after, and the Initial Preventive Physical Examination is a third thing again.",
+   "Commercial preventive medicine visits — EM-09", 0.05,
+   "Moderate-led", "C7 Denial trends",
+   "Initial versus subsequent determination, the once-per-lifetime rule, IPPE versus AWV, required elements, diagnosis coding for a wellness visit",
+   "Billing G0438 for a patient who has had one before is a straight denial and a common one. The chart must carry enough history to make the determination answerable."),
+  ("EM-09", "Preventive medicine visits, age-banded (99381-99397)",
+   "Commercial preventive visits where the code is chosen by age band and by new versus established.",
+   "Medicare AWV — EM-08", 0.04, "Basic-led", "C8 Foundation",
+   "Age-band code selection, new versus established, required components, diagnosis coding",
+   "Not graded on medical decision making: a preventive visit is off-ladder, so planting abstains and applicable_weights drops the MDM weights."),
+  ("EM-10", "Preventive or AWV with a same-day problem visit",
+   "A wellness or preventive visit where a problem was also addressed, so a separate E/M is reportable with modifier 25 — and the documentation has to support both.",
+   "", 0.03, "Complex-led", "C1 High error rate",
+   "Modifier 25 on the problem visit, splitting preventive from problem documentation, MDM for the problem portion only, patient liability consequence",
+   "The hardest preventive question and the one payers audit. Carry charts where the second E/M is NOT supported as well as charts where it is — a coder who always bills both is as wrong as one who never does."),
+  ("EM-11", "Screening and counselling services",
+   "Depression, obesity, alcohol misuse, smoking cessation and similar screening and behavioural counselling services, usually alongside another visit.",
+   "", 0.02, "Moderate-led", "C7 Denial trends",
+   "Service-specific code and G-code selection, time thresholds for counselling, frequency limits, diagnosis linkage, bundling against the visit",
+   "Frequency limits are the recurring denial: most of these have an annual or per-period cap and the record rarely states what was done before."),
+ ]),
+ ("Office procedures with an E/M", 0.05, [
+  ("EM-12", "Minor office procedures billed with an E/M",
+   "Cerumen removal, lesion destruction, skin tag removal, simple biopsies, injections and similar minor procedures performed at a visit.",
+   "", 0.05, "Moderate-led", "C1 High error rate",
+   "Modifier 25 appropriateness, whether the E/M is separately identifiable from the procedure, procedure code selection by method and count, laterality and site",
+   "The whole topic is one question: was there a separately identifiable E/M, or is the visit the procedure? Cerumen removal needs instrumentation rather than lavage to be the procedure code at all, which is where it most often goes wrong."),
+ ]),
+ ("Care management and transitional care", 0.05, [
+  ("EM-13", "Transitional care management (99495 / 99496)",
+   "TCM following a discharge: the interactive contact inside two business days, the face-to-face visit inside 7 or 14 days, and the MDM level that separates the two codes.",
+   "", 0.03, "Complex-led", "C7 Denial trends",
+   "Interactive contact timing, face-to-face visit window, moderate versus high MDM, the 30-day service period, what may not be billed alongside",
+   "Date arithmetic decides the code and the service period blocks other billing, so TCM is where a correct clinical read still produces a wrong claim."),
+  ("EM-14", "Chronic care management (99490 / 99439 / 99487)",
+   "CCM: the clinical staff time per calendar month, the care plan, consent, and the add-on codes for additional time.",
+   "", 0.02, "Moderate-led", "C7 Denial trends",
+   "Time thresholds per calendar month, add-on unit counting, care plan and consent requirements, two chronic conditions, concurrent billing restrictions",
+   "Lowest priority in the specialty: real work, but the pool functions without it for a while. Time logs rather than clinical judgement, so it teaches a different skill from the rest of E/M."),
+ ]),
+ ("Telehealth", 0.03, [
+  ("EM-15", "Telehealth and virtual services",
+   "Office visits delivered by telehealth, plus audio-only services, virtual check-ins and e-visits, where place of service and modifier decide payment.",
+   "", 0.03, "Moderate-led", "C6 Customer escalations",
+   "Place of service selection, telehealth modifiers (93, 95, FQ, FR), audio-only eligibility, time or MDM level, originating site",
+   "The rules move faster than any other part of E/M, so these charts date quickly. Tag the code-set version carefully and expect to refresh this topic every cycle."),
+ ]),
+ ("Inpatient and observation", 0.18, [
+  ("EM-16", "Initial hospital inpatient or observation care (99221-99223)",
+   "The first encounter by the admitting provider, levelled on MDM, including the merge of inpatient and observation into one code family.",
+   "ED-initiated observation by the ED physician — ED Profee (EDP-10)", 0.06,
+   "Moderate-led", "C1 High error rate",
+   "Initial versus subsequent determination, COPA, Data Review, Risk, the admission date rule, inpatient and observation sharing one family",
+   "The inpatient ladder is distinct from both office ladders; a chart coded on the wrong ladder is a classifier error, not a level error."),
+  ("EM-17", "Subsequent hospital inpatient or observation care (99231-99233)",
+   "Daily visits, levelled by whether the patient is stable, responding inadequately, or unstable.",
+   "", 0.06, "Moderate-led", "C1 High error rate",
+   "Subsequent care level criteria, interval history, COPA for an inadequately responding problem, Risk",
+   "The highest-volume inpatient topic and where the level is most often defaulted to 99232 regardless of what the note supports."),
+  ("EM-18", "Discharge day management (99238 / 99239)",
+   "Discharge services, where total time on the discharge date decides between the two codes.",
+   "Same-day admit and discharge — EM-19", 0.04,
+   "Moderate-led", "C7 Denial trends",
+   "The 30-minute threshold, what counts toward discharge time, the discharge date rule, who may report it",
+   "Time-based rather than MDM-based. The documented time is frequently absent, in which case the lower code is the only defensible answer."),
+  ("EM-19", "Same-day admission and discharge (99234-99236)",
+   "Encounters where the patient is admitted and discharged on the same calendar date, which is its own code family rather than an initial visit plus a discharge.",
+   "", 0.02, "Complex-led", "C1 High error rate",
+   "Same-date criteria, the 8-hour rule, MDM level, why the initial-plus-discharge pairing is wrong here",
+   "Low volume and high error rate: coders reach for 99221 plus 99238 because that is what the encounter looks like."),
+ ]),
+ ("Critical care and neonatal intensive care", 0.05, [
+  ("EM-20", "Inpatient critical care (99291 / 99292)",
+   "Critical care delivered on the floor or in the ICU, with documented time, organ-system failure, and the bundled-service list.",
+   "Critical care in the emergency department — ED Profee (EDP-08)", 0.03,
+   "Complex-led", "C2 High dollar value",
+   "Critical care qualification, time documentation and the 30-minute floor, bundled versus separately reportable procedures, same-day E/M by the same provider",
+   "Critical care sits outside every ladder in em_levels.py. This is the INPATIENT topic — ED critical care belongs to ED Profee, and the two must not share charts, because ED Facility, ED Profee, ED Single Path and E/M are four separate populations."),
+  ("EM-21", "Neonatal and paediatric critical care (99468-99476)",
+   "NICU and PICU per-diem critical care, where one code covers the calendar day and age bands decide the family.",
    "", 0.02, "Complex-led", "C6 Customer escalations",
-   "Substantive portion determination, modifier and place-of-service selection, telehealth modifier use, MDM or time level",
-   "Named in the HC coverage matrix as a must-include for this specialty."),
+   "Per-diem versus time-based critical care, age band selection, initial versus subsequent day, what the per diem bundles",
+   "Per-diem coding is the opposite of everything else in this specialty — time does not accumulate and the day is the unit. Low volume, so it is the one P4 topic, but the per-diem logic is unlike anything else in the pool."),
+ ]),
+ ("Consultations", 0.04, [
+  ("EM-22", "Office and outpatient consultations (99242-99245)",
+   "Outpatient consultations where the request, the reason for it and the report back must all be documented, and the payer must recognise consultation codes at all.",
+   "", 0.02, "Complex-led", "C6 Customer escalations",
+   "The three Rs (request, reason, report), consultation versus transfer of care, payer recognition, COPA, Data Review, Risk",
+   "Consults are off-ladder for planting: em_levels.py knows three ladders plus critical care, so a consult level error is not a near miss along any of them. The commonest real error is billing a consult where care was simply transferred."),
+  ("EM-23", "Inpatient consultations (99252-99255)",
+   "Inpatient and observation consultations, including the distinction from an initial hospital visit by a provider taking over care.",
+   "Initial hospital care by the admitting provider — EM-16", 0.02,
+   "Complex-led", "C6 Customer escalations",
+   "The three Rs, consultant versus admitting provider, concurrent care documentation, MDM level",
+   "Two providers seeing the patient the same day is legitimate concurrent care, and the record has to show the different purpose."),
  ]),
 ])
 

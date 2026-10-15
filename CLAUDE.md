@@ -199,7 +199,7 @@ string — a regenerated document carrying an old date is worse than an undated
 one, because the reader cannot tell it was refreshed. Never hand-edit a
 `.docx`: the next build silently discards the edit.
 
-`_chart_taxonomy_data.py` holds the specialty pools, the 103 topics and the
+`_chart_taxonomy_data.py` holds the specialty pools, the 109 topics and the
 build priority, and **both** chart workbooks import it — the taxonomy, which
 publishes the standard, and the inventory tracker, which records what the pool
 actually holds. Importing it validates the weights, so a builder fails before
@@ -222,7 +222,7 @@ difficulty tiers, sourcing channels C1-C8, exclusions X1-X7 and the required
 tags). Topic weights decompose an HC parent percentage and must sum back to it
 exactly; the builder asserts this before writing a single cell, and each
 category band row carries the same check as a live formula. Seven specialties
-are covered, and its Decisions sheet records what is settled as well as what is
+are covered, priority runs P1 to P4, and its Decisions sheet records what is settled as well as what is
 open. Denials/Edits and Ancillary are deferred, and ED Profee (400),
 Surgery (300) and ED Single Path (300) carry pools set outside the HC model, so
 that model's build hours and team size understate by 1,000 charts until they
@@ -405,6 +405,30 @@ Matrix 55/45 split: filing all of it under surgical both misstates the parent
 and hides half the sourcing need. The newborn record is a separate chart from
 the maternal one, and its birth weight — entered in grams, where a hundred
 grams moves the DRG — is the most consequential value on it.
+
+**E/M is classified by service family, not by level.** The user set its
+breakdown on 2026-10-15 and it spans annual wellness visits, transitional and
+chronic care management, telehealth, minor office procedures billed with an
+E/M, and neonatal per-diem critical care — none of which has an E/M level. So
+the HC Coverage Matrix level split (35/40/25) and method split (80/20) are
+checked ACROSS the E/M pool rather than decomposed, the same treatment Severity
+gets on IP-DRG, and service family is the parent dimension. No HC percentage
+changed; only its position in the hierarchy did.
+
+Priorities: level 3 and 4 office visits and the inpatient/observation trio
+(initial, subsequent, discharge) are **P1** — the widest spread of complexity
+inside one code is what makes 99213/99214 the foundation. Level 5 office,
+preventive and wellness, inpatient critical care and consultations are **P2**.
+Levels 1-2, minor procedures with an E/M, TCM, telehealth and NICU/PICU are
+**P3**. Chronic care management is **P4**, the only topic needing a fourth band.
+
+Two production figures the pool deliberately does not mirror: level 5 runs
+10-15% of production and holds 7% of the pool; levels 1-2 run 5-10% and hold
+3%. A training pool weights the error-prone and high-dollar calls rather than
+reproducing the production mix, and that divergence is intended, not drift.
+
+Inpatient critical care (`EM-20`) and ED critical care (`EDP-08`) are different
+topics in different pools and must never share a chart.
 
 **ED Facility, ED Profee, ED Single Path and E/M are four separate chart
 populations.** The user confirmed on 2026-10-15 that the same clinical

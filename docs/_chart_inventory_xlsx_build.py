@@ -326,7 +326,7 @@ header_row(ws, 4, ["Specialty", "Topic ID", "Topic", "Coverage category", "Build
                    "Expected\ncomplete", "Days vs\nexpected", "Open\nissues"])
 
 # expected dates: cumulative share of a specialty's target, in build-priority order
-ORDER = {"P1 — build first": 0, "P2": 1, "P3 — build last": 2}
+ORDER = {"P1": 0, "P2": 1, "P3": 2, "P4": 3}
 plan_rows = []
 for spec, typ, pool, _s in POOLS:
     items = []
@@ -449,7 +449,7 @@ ws.conditional_formatting.add(
 # P1 topics carry a tinted priority cell so the build order is visible unsorted
 ws.conditional_formatting.add(
     "E%d:E%d" % (PLAN_FIRST, PLAN_LAST),
-    FormulaRule(formula=['LEFT($E%d,2)="P1"' % PLAN_FIRST],
+    FormulaRule(formula=['$E%d="P1"' % PLAN_FIRST],
                 fill=FILL_AMBER, font=Font(size=9, bold=True, color=AMBER)))
 
 note(ws, tr + 2, "Rows logged counts every register row for the topic whatever its status. Live counts only charts actually in the pool. In build is the difference less on-hold and retired, so a chart sitting at Identified for a month still shows as in build — which is the point, and the Dashboard's stage ageing is where it surfaces.", 19)

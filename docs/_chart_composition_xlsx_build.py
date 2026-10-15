@@ -103,7 +103,7 @@ READ_ME = [
     ("KV", "Classifying|Every chart entering the pool gets exactly one Topic ID. A chart that genuinely spans two topics is classified by the element its answer key turns on."),
     ("KV", "Gap review|Count live charts per Topic ID against Target Charts. HC section 9 sets the trigger at 80% of target, reviewed monthly and at each half-yearly refresh."),
     ("KV", "Changing a weight|Edit the Topic % cell (shaded). The target recalculates and the TOTAL row will stop reading 100% until the other weights in that parent category are rebalanced. That is the point — the sheet refuses to let a topic quietly grow."),
-    ("KV", "Build priority|P1, P2 or P3 per topic, in a column of its own, because priority and volume are different questions. The weight says how many charts a topic should hold once the pool is complete; the priority says which topics are sourced and built before it is. IP-DRG leads with the OB and newborn block across both medical and surgical DRGs, then GI, respiratory and cardiovascular."),
+    ("KV", "Build priority|P1 (build first) to P4 (build last) per topic, in a column of its own, because priority and volume are different questions. The weight says how many charts a topic should hold once the pool is complete; the priority says which topics are sourced and built before it is. IP-DRG leads with the OB and newborn block across both medical and surgical DRGs, then GI, respiratory and cardiovascular. E/M leads with level 3 and 4 office visits and the inpatient and observation trio."),
     ("SEC", "The four populations are separate"),
     ("P", "ED Facility, ED Profee, ED Single Path and E/M are four distinct chart populations, confirmed on 15 October 2026. The same clinical encounter coded for the facility, coded professionally, and coded single-path produces three different charts, and none of them sits in the E/M pool. Their pools therefore add rather than overlap, and the E/M topic list holding no ED setting is deliberate."),
     ("P", "The consequence for sourcing is the part worth saying out loud: four populations means four separate pulls, not one pull classified four ways. A chart cannot be filed under an ED Facility topic and an ED Profee topic at once, and reusing one encounter across two pools would put the same documentation in front of a coder twice under two different names."),
@@ -243,10 +243,9 @@ for idx, (spec, typ, pool, src) in enumerate(POOLS):
                     cell.alignment = WRAP_C
                 elif c == 8:
                     cell.alignment = WRAP_C
-                    pr = cell.value
-                    cell.font = Font(size=9, bold=True,
-                                     color=(RED if pr.startswith("P1") else
-                                            GREY if pr.startswith("P3") else "000000"))
+                    cell.font = Font(size=9, bold=True, color={
+                        "P1": RED, "P2": "000000", "P3": GREY, "P4": GREY,
+                    }[priority_of(tid)])
                 elif c in (5, 12):
                     cell.font = F_SM
             longest = max(len(scope), len(elems), len(notes or ""), len(topic) * 2)
@@ -312,12 +311,21 @@ DIMS = [
  ("", "", "Level 4", 0.30, 704, HC),
  ("", "", "Level 5 / critical care", 0.20, 704, HC),
  ("", "Must include", "Injuries · infusions and injections · ED procedures · observation", None, None, HC),
- ("E/M", "Level", "Low (levels 2–3)", 0.35, 413, HC),
+ ("E/M", "Service family", "Office / outpatient visits", 0.42, 413, NEWS + ". REPLACES the HC Level split as this specialty's parent dimension — see note below."),
+ ("", "", "Time-based and prolonged services", 0.04, 413, NEWS),
+ ("", "", "Preventive and wellness", 0.14, 413, NEWS),
+ ("", "", "Office procedures with an E/M", 0.05, 413, NEWS),
+ ("", "", "Care management and transitional care", 0.05, 413, NEWS),
+ ("", "", "Telehealth", 0.03, 413, NEWS),
+ ("", "", "Inpatient and observation", 0.18, 413, NEWS),
+ ("", "", "Critical care and neonatal intensive care", 0.05, 413, NEWS),
+ ("", "", "Consultations", 0.04, 413, NEWS),
+ ("", "Level (cross-cutting)", "Low (levels 2–3)", 0.35, 413, HC + ". Now checked ACROSS the pool rather than decomposed, because AWV, TCM, CCM, telehealth and NICU per-diem codes are not levels at all."),
  ("", "", "Moderate (level 4)", 0.40, 413, HC),
- ("", "", "High (level 5)", 0.25, 413, HC),
- ("", "Method", "MDM-based", 0.80, 413, HC + ". Cross-cutting. Preventive visits, consults and time-levelled visits are not graded on medical decision making at all, so applicable_weights drops the MDM weights for them and the form is resolved per chart."),
- ("", "", "Time-based", 0.20, 413, HC + ". Topics EM-05, EM-16 and EM-17 are where these charts come from."),
- ("", "Must include", "New versus established · office versus hospital · modifier 25 · split and shared visits", None, None, HC),
+ ("", "", "High (level 5)", 0.25, 413, HC + ". Runs 10-15% of production; the pool holds 7% deliberately, since a training pool weights the hard calls rather than mirroring the mix."),
+ ("", "Method (cross-cutting)", "MDM-based", 0.80, 413, HC + ". Preventive visits, consults, per-diem neonatal care and time-levelled visits are not graded on medical decision making at all, so applicable_weights drops the MDM weights and the form is resolved per chart."),
+ ("", "", "Time-based", 0.20, 413, HC + ". Topics EM-07, EM-14, EM-18 and EM-21 are where these charts come from."),
+ ("", "Must include", "New versus established · office versus hospital · modifier 25 · AWV initial versus subsequent · telehealth place of service", None, None, NEWS),
  ("SDS", "Service line", "Orthopaedics", 0.25, 132, HC),
  ("", "", "GI / endoscopy", 0.25, 132, HC),
  ("", "", "Ophthalmology", 0.15, 132, HC),
@@ -361,9 +369,10 @@ for spec, dim, cat, pct, pool, src in DIMS:
             cell.fill = FILL_BAND
     ws.row_dimensions[r].height = max(26, 11 * (1 + max(len(cat), len(src)) // 56))
     r += 1
-note(ws, r + 1, "ED Facility, ED Profee and ED Single Path are three separate populations, not three views of one. The same encounter coded for the facility, coded professionally and coded single-path is three different charts; none of them belongs in the E/M pool, which is why the E/M dimension here has no ED setting. Confirmed 15 October 2026.", 6)
-note(ws, r + 2, "Severity on IP-DRG and Method on E/M are cross-cutting dimensions: a chart has a CC/MCC status and an MDM-or-time basis whatever its topic. They are checked across the pool, not decomposed per topic, which is why the topic sheets carry one dimension each.", 6)
-note(ws, r + 3, "Where a target percentage here changes, the matching band row on the topic sheet and its child weights must change together. The band row's check cell is what tells you they have come apart.", 6)
+note(ws, r + 1, "E/M is the one specialty whose parent dimension is NOT the HC Coverage Matrix category. The HC matrix splits it by level (35/40/25) and method (80/20), but the trainers' own breakdown spans AWV, TCM, chronic care management, telehealth and neonatal per-diem codes, none of which has a level. Service family is therefore the parent and the level and method splits are checked across the pool, exactly as Severity is on IP-DRG. The HC percentages are unchanged — only their position in the hierarchy is.", 6, PatternFill("solid", fgColor="FFF4E5"))
+note(ws, r + 2, "ED Facility, ED Profee and ED Single Path are three separate populations, not three views of one. The same encounter coded for the facility, coded professionally and coded single-path is three different charts; none of them belongs in the E/M pool, which is why the E/M dimension here has no ED setting. Confirmed 15 October 2026.", 6)
+note(ws, r + 3, "Severity on IP-DRG and Method on E/M are cross-cutting dimensions: a chart has a CC/MCC status and an MDM-or-time basis whatever its topic. They are checked across the pool, not decomposed per topic, which is why the topic sheets carry one dimension each.", 6)
+note(ws, r + 4, "Where a target percentage here changes, the matching band row on the topic sheet and its child weights must change together. The band row's check cell is what tells you they have come apart.", 6)
 
 # ======================================================== Tag Dictionary
 ws = sheet("Tag Dictionary", [26, 12, 60, 46])
@@ -422,6 +431,12 @@ DEC = [
   "Confirmed by the user", SETTLED),
  ("E/M keeps no ED-setting share",
   "Follows from the above. ED E/M sits in ED Profee, the E/M topic list deliberately holds no ED setting, and the HC E/M pool of 413 is not oversized by it.",
+  "Confirmed by the user", SETTLED),
+ ("E/M is classified by service family, not by the HC level split",
+  "Confirmed with the trainers on 2026-10-15. Their own breakdown of E/M spans annual wellness visits, transitional and chronic care management, telehealth, minor office procedures and neonatal per-diem critical care — none of which has an E/M level, so the HC matrix's level dimension cannot be the parent. Service family became the parent and the HC level (35/40/25) and method (80/20) splits are now checked across the pool rather than decomposed, the same treatment Severity gets on IP-DRG. No HC percentage changed; only its position in the hierarchy did.",
+  "Confirmed by the user", SETTLED),
+ ("E/M priorities are set, including a fourth priority band",
+  "Level 3 and 4 office visits and the inpatient/observation trio are P1. Level 5 office, preventive and wellness, inpatient critical care and consultations are P2. Levels 1-2, minor procedures with an E/M, TCM, telehealth and NICU/PICU are P3. Chronic care management is P4, the first topic in the workbook to need a fourth band — real work, but the pool functions without it for a while.",
   "Confirmed by the user", SETTLED),
  ("Add ED Profee, Surgery and ED Single Path to the HC model",
   "Pools of 400, 300 and 300 were set here, outside the HC model. None of them has a +10% buffer calculation, a per-batch average, a batch count or a build-hour line. That is 1,000 charts the HC Specialty Grid, Chart Pool, FTE Demand and FTE Summary sheets do not know about — at HC's own build rates roughly 1,500 to 2,250 hours, close to a further FTE. Until they are added, the team size in that model is understated.",
