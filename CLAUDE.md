@@ -378,6 +378,16 @@ and `chart_ids_with_keys()` live in `services/em_audit_key.py`, because the
 coder side and the auditor side both need them and neither should import the
 other.
 
+**OB and newborn are the IP-DRG priority, and they straddle the medical and
+surgical split.** The user confirmed on 2026-10-15 that these are the areas
+where errors are most often seen, so the chart inventory leads with them, then
+GI, respiratory and cardiovascular. Vaginal delivery groups **medical** and
+caesarean groups **surgical**, so OB cannot sit on one side of the HC Coverage
+Matrix 55/45 split: filing all of it under surgical both misstates the parent
+and hides half the sourcing need. The newborn record is a separate chart from
+the maternal one, and its birth weight — entered in grams, where a hundred
+grams moves the DRG — is the most consequential value on it.
+
 **ED Facility, ED Profee, ED Single Path and E/M are four separate chart
 populations.** The user confirmed on 2026-10-15 that the same clinical
 encounter coded for the facility, coded professionally and coded single-path is

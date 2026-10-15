@@ -62,6 +62,33 @@ SHEET_OF = {
     "SDS": "SDS Topics", "Surgery": "Surgery Topics",
     "ED Single Path": "ED Single Path Topics",
 }
+# Build priority. P1 is sourced and built first, then P2, then P3. It is a
+# separate question from the weight: the weight says how many charts a topic
+# should hold, the priority says which topics get built before the pool is
+# complete. Confirmed with the user on 2026-10-15 for IP-DRG: OB and newborn
+# first across both medical and surgical DRGs, then GI, respiratory and
+# cardiovascular. Anything not named here is P2.
+PRIORITY_1 = {
+    # IP-DRG: the OB and newborn block, medical and surgical sides together
+    "IPD-01", "IPD-02", "IPD-03", "IPD-04", "IPD-15", "IPD-16",
+}
+PRIORITY_3 = {
+    # Low volume, constrained supply, or skills the pool can wait for
+    "IPD-13", "IPD-14", "IPD-23", "IPD-24", "IPD-25",
+    "EDF-02", "EDF-11", "EDF-16",
+    "EDP-11", "EM-15", "EM-17",
+    "SDS-09", "SDS-14", "SUR-09", "SUR-10", "ESP-08",
+}
+
+
+def priority_of(tid):
+    if tid in PRIORITY_1:
+        return "P1 — build first"
+    if tid in PRIORITY_3:
+        return "P3 — build last"
+    return "P2"
+
+
 # Pool-level difficulty mix, from HC Chart Selection section 4.
 DIFF_MIX = [("Basic", 0.40), ("Moderate", 0.40), ("Complex", 0.20)]
 
@@ -122,6 +149,7 @@ READ_ME = [
     ("KV", "Classifying|Every chart entering the pool gets exactly one Topic ID. A chart that genuinely spans two topics is classified by the element its answer key turns on."),
     ("KV", "Gap review|Count live charts per Topic ID against Target Charts. HC section 9 sets the trigger at 80% of target, reviewed monthly and at each half-yearly refresh."),
     ("KV", "Changing a weight|Edit the Topic % cell (shaded). The target recalculates and the TOTAL row will stop reading 100% until the other weights in that parent category are rebalanced. That is the point — the sheet refuses to let a topic quietly grow."),
+    ("KV", "Build priority|P1, P2 or P3 per topic, in a column of its own, because priority and volume are different questions. The weight says how many charts a topic should hold once the pool is complete; the priority says which topics are sourced and built before it is. IP-DRG leads with the OB and newborn block across both medical and surgical DRGs, then GI, respiratory and cardiovascular."),
     ("SEC", "The four populations are separate"),
     ("P", "ED Facility, ED Profee, ED Single Path and E/M are four distinct chart populations, confirmed on 15 October 2026. The same clinical encounter coded for the facility, coded professionally, and coded single-path produces three different charts, and none of them sits in the E/M pool. Their pools therefore add rather than overlap, and the E/M topic list holding no ED setting is deliberate."),
     ("P", "The consequence for sourcing is the part worth saying out loud: four populations means four separate pulls, not one pull classified four ways. A chart cannot be filed under an ED Facility topic and an ED Profee topic at once, and reusing one encounter across two pools would put the same documentation in front of a coder twice under two different names."),
@@ -209,113 +237,142 @@ TOPICS = {}
 
 TOPICS["IP-DRG"] = ("DRG type", [
  ("Medical DRGs", 0.55, [
-  ("IPD-01", "Respiratory — pneumonia, COPD exacerbation, respiratory failure",
+  ("IPD-01", "Vaginal delivery and complications of labour",
+   "Delivery admissions grouping medical: vaginal and assisted delivery, complications of labour, and the maternal record only.",
+   "Caesarean delivery — IPD-15; the newborn record — IPD-02", 0.05,
+   "Complex-led", "C6 Customer escalations",
+   "Principal diagnosis for a delivery admission, Z3A gestational weeks, outcome-of-delivery code, PCS delivery root operation, CC/MCC capture",
+   "The PDx for a delivery admission is the complication, not the delivery — the error that keeps recurring. Vaginal delivery groups MEDICAL and caesarean groups SURGICAL, so OB sits on both sides of the 55/45 split and must be sourced against both."),
+  ("IPD-02", "Normal newborn and newborn with condition",
+   "The newborn record: normal newborn, newborn with a condition identified after birth, and the birth-weight and gestational-age axes that drive grouping.",
+   "The maternal record — IPD-01 or IPD-15", 0.04, "Moderate-led", "C1 High error rate",
+   "Birth weight, gestational age, newborn condition coding, POA on a newborn record, liveborn versus condition sequencing",
+   "Mother and newborn records are linked; HC rule R3 requires PHI scrubbed from both before either is used. Birth weight is entered in grams and is the single most consequential value on the record."),
+  ("IPD-03", "Neonatal and NICU admissions",
+   "Prematurity, low birth weight, respiratory distress of the newborn, and neonatal admissions whose DRG turns on weight bands and procedures.",
+   "", 0.02, "Complex-led", "C2 High dollar value",
+   "Birth-weight band boundaries, prematurity coding, ventilator hours on a neonate, POA, MCC capture",
+   "The weight bands are hard boundaries: a hundred grams moves the DRG. High dollar value and high error rate at once."),
+  ("IPD-04", "Antepartum and postpartum medical admissions",
+   "Maternal admissions that are not the delivery: hyperemesis, pre-eclampsia, preterm labour not delivered, and postpartum complications managed medically.",
+   "Postpartum surgical procedures — IPD-16", 0.02,
+   "Complex-led", "C1 High error rate",
+   "Trimester characters, delivered versus not delivered, postpartum period rules, PDx selection, Z3A",
+   "The not-delivered admissions are where the trimester character and the delivered/undelivered distinction go wrong."),
+  ("IPD-05", "Digestive medical — GI bleed, pancreatitis, obstruction",
+   "Medical GI admissions: GI haemorrhage with and without a stated site, pancreatitis aetiology, obstruction managed conservatively.",
+   "Bowel resection, cholecystectomy and hernia repair — IPD-17", 0.06,
+   "Moderate-led", "C1 High error rate",
+   "Bleeding site specificity, aetiology linkage, blood transfusion capture, CC/MCC, PDx sequencing",
+   ""),
+  ("IPD-06", "Respiratory — pneumonia, COPD exacerbation, respiratory failure",
    "Admissions where the principal diagnosis is respiratory and no OR procedure drives the DRG. Includes acute-on-chronic respiratory failure and the ventilator-hours boundary.",
-   "Thoracotomy and tracheostomy cases — they group surgical (IPD-16)", 0.09,
+   "Thoracotomy and tracheostomy cases — IPD-19", 0.07,
    "Moderate-led", "C1 High error rate",
    "Principal diagnosis selection, pneumonia organism specificity, CC/MCC capture, POA, ventilator hours",
    "Sequencing respiratory failure against the underlying condition is the most disputed PDx call in this specialty. Carry charts in both directions."),
-  ("IPD-02", "Sepsis, severe sepsis and septic shock",
-   "Sepsis as principal or secondary, with and without organ dysfunction. Includes the localised-infection-versus-sepsis judgement and post-procedural sepsis.",
-   "Newborn sepsis — IPD-10", 0.09, "Complex-led", "C1 High error rate",
-   "Sepsis sequencing, severe sepsis with organ dysfunction, R65.2x, POA, query opportunity, MCC capture",
-   "Highest-yield topic for query practice (HC use case 07). Charts with a resolved query are preferred; unresolved ones are excluded by X3."),
-  ("IPD-03", "Circulatory medical — heart failure, AMI, arrhythmia",
+  ("IPD-07", "Circulatory medical — heart failure, AMI, arrhythmia",
    "Medical cardiac admissions. Heart failure type and acuity, AMI type 1 versus type 2, atrial fibrillation.",
-   "CABG, valve, PCI and EP procedures — IPD-12", 0.08,
+   "CABG, valve, PCI and EP procedures — IPD-18", 0.06,
    "Moderate-led", "C5 DRGV trending PCS / DRG",
    "Heart failure specificity, AMI type, CC/MCC capture, PDx sequencing when cardiac and respiratory both present",
    "Type 2 MI versus demand ischaemia is a current trending error area; refresh from the DRGV report each cycle."),
-  ("IPD-04", "Nervous system — CVA, TIA, intracranial haemorrhage",
+  ("IPD-08", "Sepsis, severe sepsis and septic shock",
+   "Sepsis as principal or secondary, with and without organ dysfunction. Includes the localised-infection-versus-sepsis judgement and post-procedural sepsis.",
+   "Newborn sepsis — IPD-02 or IPD-03", 0.07, "Complex-led", "C1 High error rate",
+   "Sepsis sequencing, severe sepsis with organ dysfunction, R65.2x, POA, query opportunity, MCC capture",
+   "Highest-yield topic for query practice (HC use case 07). Charts with a resolved query are preferred; unresolved ones are excluded by X3."),
+  ("IPD-09", "Nervous system medical — CVA, TIA, intracranial haemorrhage",
    "Acute neurological admissions coded medically, including thrombolytic administration and residual-deficit codes.",
-   "Craniotomy, shunt and spine decompression — IPD-14", 0.06,
+   "Craniotomy, shunt and spine decompression — IPD-21", 0.04,
    "Complex-led", "C2 High dollar value",
    "CVA site and laterality, late effect versus acute, thrombolytic status Z92.82, POA, functional deficit capture",
    "Z92.82 affects the DRG and is routinely missed when the thrombolytic was given at a transferring facility."),
-  ("IPD-05", "Kidney and urinary — AKI, CKD, UTI",
+  ("IPD-10", "Kidney and urinary — AKI, CKD, UTI",
    "Renal admissions with no OR procedure. Includes AKI on CKD, the AKI-versus-dehydration call, and dialysis dependence.",
-   "Dialysis access creation and nephrectomy — IPD-15", 0.05,
+   "Dialysis access creation and nephrectomy — IPD-22", 0.03,
    "Moderate-led", "C1 High error rate",
    "AKI versus CKD staging, N17/N18 combination, CC/MCC capture, POA",
    "AKI is a CC and is often documented only as a lab trend; a strong query topic."),
-  ("IPD-06", "Digestive medical — GI bleed, pancreatitis, obstruction",
-   "Medical GI admissions: GI haemorrhage with and without a stated site, pancreatitis aetiology, obstruction managed conservatively.",
-   "Bowel resection, cholecystectomy and hernia repair — IPD-13", 0.05,
-   "Moderate-led", "C8 Foundation",
-   "Bleeding site specificity, aetiology linkage, blood transfusion capture, CC/MCC",
-   ""),
-  ("IPD-07", "Endocrine and metabolic — DKA, malnutrition, electrolyte disorders",
+  ("IPD-11", "Endocrine and metabolic — DKA, malnutrition, electrolyte disorders",
    "Diabetic emergencies, severe protein-calorie malnutrition, and significant electrolyte disturbance as principal or as the MCC.",
-   "", 0.05, "Complex-led", "C1 High error rate",
+   "", 0.03, "Complex-led", "C1 High error rate",
    "Diabetes with complication linkage, malnutrition severity and clinical criteria, MCC capture, POA",
    "Severe malnutrition is a high-value MCC and the most commonly denied on audit; the chart must carry the clinical criteria, not just the dietitian note."),
-  ("IPD-08", "Haematology and oncology — medical admissions",
+  ("IPD-12", "Haematology and oncology — medical admissions",
    "Neutropenia, anaemia requiring transfusion, sickle-cell crisis, and admissions for a complication of a malignancy.",
-   "Admissions for chemotherapy administration alone — out of scope this cycle", 0.04,
+   "Admissions for chemotherapy administration alone — out of scope this cycle", 0.03,
    "Complex-led", "C6 Customer escalations",
    "Neoplasm versus complication sequencing, primary versus secondary site, admission-for-treatment rules, anaemia in neoplastic disease",
    "Sequencing an admission for a complication of cancer against the cancer itself is a recurring escalation topic."),
-  ("IPD-09", "Mental health and substance use",
+  ("IPD-13", "Mental health and substance use",
    "Psychiatric and substance-withdrawal admissions where the full record is available for training use.",
    "Anything under 42 CFR Part 2 or client-restricted — removed entirely by X2", 0.02,
    "Basic-led", "C8 Foundation",
    "Substance use versus abuse versus dependence, withdrawal with complication, psychiatric PDx selection",
    "Sourcing is narrow by design: X2 removes most candidates. If eligible supply is not there, report it as a constrained topic rather than forcing the target."),
-  ("IPD-10", "Newborn and neonate",
-   "Normal newborn, newborn with condition, and neonatal admissions. Birth-weight and gestational-age driven grouping.",
-   "Maternal delivery records — IPD-17", 0.02, "Moderate-led", "C6 Customer escalations",
-   "Birth weight, gestational age, newborn condition coding, POA on a newborn record",
-   "Mother and newborn records are linked; HC rule R3 requires PHI scrubbed from both before either is used."),
+  ("IPD-14", "Other infectious disease",
+   "Infectious admissions that are not sepsis: cellulitis, osteomyelitis, C. difficile, endocarditis, and device-related infection.",
+   "Sepsis and septic shock — IPD-08", 0.01, "Moderate-led", "C8 Foundation",
+   "Organism specificity, device-related infection coding, PDx sequencing against the device complication, CC/MCC",
+   "Device-related infection carries a complication code that must be sequenced with the infection; a frequent miss."),
  ]),
  ("Surgical DRGs", 0.45, [
-  ("IPD-11", "Musculoskeletal — joint replacement, spinal fusion, fracture fixation",
-   "Elective and traumatic MSK surgery requiring admission. Approach and device-value axes of the PCS code, fusion level counts.",
-   "Same-day orthopaedic procedures — SDS-01 to SDS-03", 0.10,
-   "Moderate-led", "C5 DRGV trending PCS / DRG",
-   "PCS root operation and device character, fusion levels and approach, bilateral procedures, POA on post-operative conditions",
-   "Highest-volume surgical family and the best place to train PCS character selection. Carries the device-value character the auditor module plants against."),
-  ("IPD-12", "Cardiovascular surgical — CABG, valve, PCI, EP procedures",
+  ("IPD-15", "Caesarean delivery",
+   "Caesarean delivery admissions, which group surgical, including the indication that drives the principal diagnosis and sterilisation performed at the same time.",
+   "Vaginal delivery — IPD-01; the newborn record — IPD-02", 0.04,
+   "Complex-led", "C1 High error rate",
+   "Principal diagnosis (the indication, not the caesarean), PCS delivery root operation and approach, concurrent sterilisation, Z3A, CC/MCC",
+   "The caesarean half of the OB priority block. Coding the caesarean itself as the PDx instead of the indication is the error this topic exists to train."),
+  ("IPD-16", "Obstetric and postpartum surgical procedures",
+   "Postpartum haemorrhage requiring intervention, retained products with D&C, obstetric laceration repair, and hysterectomy for an obstetric cause.",
+   "Antepartum and postpartum medical admissions — IPD-04", 0.02,
+   "Complex-led", "C6 Customer escalations",
+   "PCS root operation for evacuation and repair, postpartum period rules, PDx sequencing, blood product capture",
+   "Low volume, high error rate. Completes the OB priority block on the surgical side."),
+  ("IPD-17", "Digestive surgical — bowel resection, cholecystectomy, hernia repair",
+   "Inpatient abdominal surgery, including laparoscopic-to-open conversion and anastomosis as a separate root operation.",
+   "Same-day general surgery — SDS-12", 0.08, "Moderate-led", "C8 Foundation",
+   "Root operation selection (Excision versus Resection), approach character, conversion coding, post-operative complication with POA",
+   "Excision versus Resection on a partial organ is the classic PCS error and is worth planting in both directions."),
+  ("IPD-18", "Cardiovascular surgical — CABG, valve, PCI, EP procedures",
    "Open and percutaneous cardiac procedures, including multi-vessel PCI with differing stent counts and intraoperative conversion.",
-   "Diagnostic catheterisation with no intervention — out of scope this cycle", 0.09,
+   "Diagnostic catheterisation with no intervention — out of scope this cycle", 0.08,
    "Complex-led", "C2 High dollar value",
    "PCS body-part and device characters, number of sites treated, graft harvesting as a separate procedure, PDx sequencing",
    "Highest reimbursement per chart in the pool. Counting treated sites and graft harvest is where the PCS code goes wrong."),
-  ("IPD-13", "Digestive surgical — bowel resection, cholecystectomy, hernia repair",
-   "Inpatient abdominal surgery, including laparoscopic-to-open conversion and anastomosis as a separate root operation.",
-   "Same-day general surgery — SDS-13", 0.08, "Moderate-led", "C8 Foundation",
-   "Root operation selection (Excision versus Resection), approach character, conversion coding, post-operative complication with POA",
-   "Excision versus Resection on a partial organ is the classic PCS error and is worth planting in both directions."),
-  ("IPD-14", "Nervous system surgical — craniotomy, shunt, spine decompression",
-   "Cranial and spinal surgery including shunt revision, which is a different root operation from shunt insertion.",
-   "", 0.04, "Complex-led", "C2 High dollar value",
-   "PCS root operation on a device (Revision, Replacement, Removal), body-part character, laterality, POA",
-   "Device-related root operations are the least familiar part of PCS and are most often coded as Insertion."),
-  ("IPD-15", "Genitourinary surgical",
-   "Nephrectomy, prostatectomy, dialysis access creation and urological procedures requiring admission.",
-   "Cystoscopy and stone procedures done same-day — SDS-16", 0.03,
-   "Moderate-led", "C8 Foundation",
-   "PCS body-part laterality, approach character, CC/MCC capture", ""),
-  ("IPD-16", "Respiratory surgical — thoracotomy, tracheostomy, lung resection",
+  ("IPD-19", "Respiratory surgical — thoracotomy, tracheostomy, lung resection",
    "Thoracic surgery and tracheostomy, including tracheostomy performed during a long ventilator stay, which changes the DRG entirely.",
    "", 0.03, "Complex-led", "C5 DRGV trending PCS / DRG",
    "PCS root operation and approach, tracheostomy with ventilator hours, lobe-level body part, POA",
    "A tracheostomy on a ventilated patient moves the case to the highest-weight DRG family; missing it is a large-dollar error."),
-  ("IPD-17", "Obstetric delivery — vaginal and caesarean",
-   "Delivery admissions, outcome of delivery, and complications of labour. Maternal record only.",
-   "Newborn record — IPD-10", 0.04, "Moderate-led", "C6 Customer escalations",
-   "Principal diagnosis for a delivery admission, Z3A gestational weeks, outcome-of-delivery code, PCS delivery root operation",
-   "Linked to the newborn record; R3 applies to both. The PDx for a delivery admission is the complication, not the delivery."),
-  ("IPD-18", "Vascular access and device procedures — PICC, pacemaker, dialysis catheter",
+  ("IPD-20", "Musculoskeletal — joint replacement, spinal fusion, fracture fixation",
+   "Elective and traumatic MSK surgery requiring admission. Approach and device-value axes of the PCS code, fusion level counts.",
+   "Same-day orthopaedic procedures — SDS-01 to SDS-03", 0.09,
+   "Moderate-led", "C5 DRGV trending PCS / DRG",
+   "PCS root operation and device character, fusion levels and approach, bilateral procedures, POA on post-operative conditions",
+   "Highest-volume surgical family and the best place to train PCS character selection. Carries the device-value character the auditor module plants against."),
+  ("IPD-21", "Nervous system surgical — craniotomy, shunt, spine decompression",
+   "Cranial and spinal surgery including shunt revision, which is a different root operation from shunt insertion.",
+   "", 0.04, "Complex-led", "C2 High dollar value",
+   "PCS root operation on a device (Revision, Replacement, Removal), body-part character, laterality, POA",
+   "Device-related root operations are the least familiar part of PCS and are most often coded as Insertion."),
+  ("IPD-22", "Genitourinary surgical",
+   "Nephrectomy, prostatectomy, dialysis access creation and urological procedures requiring admission.",
+   "Cystoscopy and stone procedures done same-day — SDS-15", 0.03,
+   "Moderate-led", "C8 Foundation",
+   "PCS body-part laterality, approach character, CC/MCC capture", ""),
+  ("IPD-23", "Vascular access and device procedures — PICC, pacemaker, dialysis catheter",
    "Procedures whose DRG is driven by the device rather than the diagnosis, performed during a medical admission.",
    "", 0.02, "Moderate-led", "C6 Customer escalations",
    "PCS device and qualifier characters, central versus peripheral body part, Insertion versus Revision",
    "PICC lines are a named customer escalation area in the HC trainer-role sheet. Keep this topic filled."),
-  ("IPD-19", "Transplant and other high-weight DRGs",
+  ("IPD-24", "Transplant and other high-weight DRGs",
    "Solid-organ transplant, ECMO and other very high relative-weight cases.",
    "", 0.01, "Complex-led", "C2 High dollar value",
    "PCS transplant qualifier, ECMO coding, PDx sequencing, MCC capture",
    "Low volume by nature. One or two charts per refresh is the realistic supply; do not inflate the weight to force a count."),
-  ("IPD-20", "Multiple significant trauma and burns",
+  ("IPD-25", "Multiple significant trauma and burns",
    "Polytrauma and significant burn admissions, where sequencing rules are specific and code volume is high.",
    "Single-site injury seen in the ED — EDF-06", 0.01,
    "Complex-led", "C2 High dollar value",
@@ -354,7 +411,7 @@ TOPICS["ED Facility"] = ("Facility level", [
    "Summing repair lengths across sites in the same anatomic group is the recurring error here."),
   ("EDF-06", "Orthopaedic injury — sprain, simple fracture, splinting",
    "Extremity injury with imaging, splint or cast application, and reduction where performed.",
-   "Injuries admitted for operative fixation — IP-DRG (IPD-11)", 0.07,
+   "Injuries admitted for operative fixation — IP-DRG (IPD-20)", 0.07,
    "Moderate-led", "C1 High error rate",
    "Fracture site and laterality, initial encounter character, splint and strapping application, facility level",
    "The seventh character for encounter type is the most frequently wrong element in this topic."),
@@ -575,7 +632,7 @@ TOPICS["SDS"] = ("Service line", [
  ("Orthopaedics", 0.25, [
   ("SDS-01", "Knee and shoulder arthroscopy",
    "Same-day arthroscopic procedures, including multiple compartments and procedures performed through one approach.",
-   "Arthroplasty requiring admission — IP-DRG (IPD-11)", 0.10,
+   "Arthroplasty requiring admission — IP-DRG (IPD-20)", 0.10,
    "Moderate-led", "C1 High error rate",
    "Multiple procedure bundling in one compartment, modifier 51 and 59, laterality, implant and device capture",
    "Separately reportable versus bundled within the same compartment is the recurring error."),
@@ -633,12 +690,12 @@ TOPICS["SDS"] = ("Service line", [
  ("Other surgical", 0.20, [
   ("SDS-12", "General surgery — hernia repair, cholecystectomy, excisions",
    "Same-day general surgery, including hernia repair by type and approach and lesion excision by size and margin.",
-   "Cases requiring admission — IP-DRG (IPD-13)", 0.07,
+   "Cases requiring admission — IP-DRG (IPD-17)", 0.07,
    "Moderate-led", "C8 Foundation",
    "Hernia type, approach and reducibility, lesion size including margins, approach character, bundling", ""),
   ("SDS-13", "Gynaecology — hysteroscopy, D&C, laparoscopy",
    "Same-day gynaecological surgery, including diagnostic-to-operative conversion.",
-   "Delivery admissions — IP-DRG (IPD-17)", 0.05,
+   "Delivery admissions — IP-DRG (IPD-01 / IPD-15)", 0.05,
    "Moderate-led", "C8 Foundation",
    "Diagnostic versus operative, bundling within one approach, modifier 59, diagnosis linkage", ""),
   ("SDS-14", "ENT — tonsillectomy, sinus surgery, myringotomy",
@@ -647,7 +704,7 @@ TOPICS["SDS"] = ("Service line", [
    "Bilateral and multiple-site reporting, age-banded code selection, bundling", ""),
   ("SDS-15", "Urology — cystoscopy, TURP, stone procedures",
    "Same-day urological procedures, including cystoscopy as a base for a more extensive service.",
-   "Procedures requiring admission — IP-DRG (IPD-15)", 0.04,
+   "Procedures requiring admission — IP-DRG (IPD-22)", 0.04,
    "Moderate-led", "C8 Foundation",
    "Base versus more extensive procedure, bundling of the cystoscopy, laterality, stent placement", ""),
  ]),
@@ -781,9 +838,9 @@ for spec, (dim, cats) in TOPICS.items():
 # ======================================================== topic sheets
 TOPIC_COLS = ["Topic ID", "Coverage\ncategory", "Topic", "Scope — what counts here",
               "Not here\n(goes where instead)", "Topic %\nof pool", "Target\ncharts",
-              "Difficulty\nskew", "Primary sourcing\nchannel",
+              "Build\npriority", "Difficulty\nskew", "Primary sourcing\nchannel",
               "Key elements the chart must exercise", "Notes"]
-TOPIC_W = [10, 20, 38, 54, 30, 8, 8, 12, 19, 44, 50]
+TOPIC_W = [10, 20, 38, 54, 30, 8, 8, 14, 12, 19, 44, 50]
 
 for idx, (spec, typ, pool, src) in enumerate(POOLS):
     name = SHEET_OF[spec]
@@ -823,7 +880,7 @@ for idx, (spec, typ, pool, src) in enumerate(POOLS):
         for t in rows:
             tid, topic, scope, excl, pct, skew, chan, elems, notes = t
             vals = [tid, cat, topic, scope, excl or "—", pct, f"=ROUND(F{r}*$B$2,0)",
-                    skew, chan, elems, notes or ""]
+                    priority_of(tid), skew, chan, elems, notes or ""]
             for c, v in enumerate(vals, start=1):
                 cell = ws.cell(row=r, column=c, value=v)
                 cell.font, cell.alignment, cell.border = F_N, WRAP, BOX
@@ -836,7 +893,13 @@ for idx, (spec, typ, pool, src) in enumerate(POOLS):
                 elif c == 7:
                     cell.font = F_B
                     cell.alignment = WRAP_C
-                elif c in (5, 11):
+                elif c == 8:
+                    cell.alignment = WRAP_C
+                    pr = cell.value
+                    cell.font = Font(size=9, bold=True,
+                                     color=(RED if pr.startswith("P1") else
+                                            GREY if pr.startswith("P3") else "000000"))
+                elif c in (5, 12):
                     cell.font = F_SM
             longest = max(len(scope), len(elems), len(notes or ""), len(topic) * 2)
             ws.row_dimensions[r].height = max(30, 11 * (1 + longest // 56))
@@ -1019,7 +1082,7 @@ DEC = [
   "Topic EDP-07 exists for charts where the critical care call is genuinely arguable, and the auditor module only plants against them when a trainer has set AnswerKey.cc_boundary to borderline. Without a policy on who sets it and on what evidence, the topic fills with charts nothing is ever planted in.",
   "PL Trainer plus QR", OPEN),
  ("Agree the constrained-supply topics",
-  "IPD-09 (mental health), EDF-11 (behavioural health) and IPD-19 (transplant) are narrowed by exclusion X2 or by case rarity. Each needs a stated floor below which it is reported as constrained rather than chased, so a gap report does not show a permanent red against a topic nobody can fill.",
+  "IPD-13 (mental health), EDF-11 (behavioural health), IPD-16 (obstetric surgical) and IPD-24 (transplant) are narrowed by exclusion X2 or by case rarity. Each needs a stated floor below which it is reported as constrained rather than chased, so a gap report does not show a permanent red against a topic nobody can fill.",
   "PL Trainer plus Compliance for X2", OPEN),
  ("Decide how a topic-level gap report is produced",
   "Topic ID has to be a filterable field on the chart record for any of this to be measurable. HC section 9 sets the trigger at 80% of target reviewed monthly, which is not workable by hand across roughly 125 topics.",
