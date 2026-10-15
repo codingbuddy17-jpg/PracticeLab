@@ -191,11 +191,23 @@ keep the builders authoritative and rebuild:
 | `PracticeLab_Feature_and_Workflow_Guide.docx` | `_guide_docx_build.js` |
 | `PracticeLab_Database_Schema_Reference.docx` | `_schema_docx_build.js` |
 | `PracticeLab_Container_Deployment.docx` | `_container_docx_build.js` |
+| `PracticeLab_Chart_Composition_Taxonomy.xlsx` | `_chart_composition_xlsx_build.py` (openpyxl) |
 
 Every builder dates the document **when it is built**, not from a hardcoded
 string — a regenerated document carrying an old date is worse than an undated
 one, because the reader cannot tell it was refreshed. Never hand-edit a
 `.docx`: the next build silently discards the edit.
+
+The chart composition taxonomy is the topic layer beneath the Coverage Matrix
+in `PracticeLab_HC.xlsx` (that workbook is the authority for baseline pools,
+difficulty tiers, sourcing channels C1-C8, exclusions X1-X7 and the required
+tags). Topic weights decompose an HC parent percentage and must sum back to it
+exactly; the builder asserts this before writing a single cell, and each
+category band row carries the same check as a live formula. Seven specialties
+are covered. Denials/Edits and Ancillary are deferred, and ED Profee (400),
+Surgery (300) and ED Single Path (300) carry pools set outside the HC model, so
+that model's build hours and team size understate by 1,000 charts until they
+are added to it.
 
 Coder and trainer guides are split deliberately. The coder guide must not
 describe a trainer screen: it tells a coder what the people grading them can
