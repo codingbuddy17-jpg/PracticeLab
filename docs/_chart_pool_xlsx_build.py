@@ -206,6 +206,13 @@ CREATED_R = rg(DB, C["created_at"], DB_FIRST, DB_LAST)
 KEY_R = rg(DB, C["Answer key"], DB_FIRST, DB_LAST)
 USED_R = rg(DB, C["Times"], DB_FIRST, DB_LAST)
 MATCH_R = rg(DB, C["Matches filter"], DB_FIRST, DB_LAST)
+VER_R = rg(DB, C["Audit versions"], DB_FIRST, DB_LAST)
+CYC_R = rg(DB, C["Audit cycles"], DB_FIRST, DB_LAST)
+# Audit Versions columns. Literals because that sheet is built later; the build
+# asserts each one against where the sheet actually puts it.
+AV_SPEC, AV_CHARTSTAT, AV_CREATED = "B", "F", "J"
+AV_PLANTED, AV_QUERY, AV_ALWAYS = "K", "M", "N"
+AV_DRAWN, AV_VSTAT = "O", "Q"
 
 # ===================================================== Assignment Builder
 # First, because the database's "matches filter" column references these cells.
@@ -800,7 +807,7 @@ note(ws, r + 2, "To see the charts behind any of these numbers, go to the Chart 
 # Excel charts plot a contiguous range, and several of the figures worth
 # plotting are not contiguous anywhere else. These small tables exist only to
 # be plotted; the sheet is hidden so nobody mistakes it for a view.
-wsH = sheet("Chart Data", [26, 12, 12, 12])
+wsH = sheet("Chart Data", [26, 13, 13, 13])
 title_block(wsH, "Chart data", "Helper ranges for the dashboard charts. Hidden by design — nothing here is meant to be read directly.", 4)
 
 wsH["A5"] = "Difficulty mix"
@@ -832,6 +839,17 @@ for i in range(10):
         % (rg(DICT_S, "D", DICT_FIRST, DICT_LAST),
            rg(DICT_S, "J", DICT_FIRST, DICT_LAST), r, 15, r - 1,
            rg(DICT_S, "D", DICT_FIRST, DICT_LAST)))).font = F_N
+wsH["A28"] = "Audit readiness by specialty"
+wsH["A28"].font = F_B
+for ci, lab in enumerate(["No version", "One version", "Two or more"], start=2):
+    wsH.cell(row=29, column=ci, value=lab).font = F_B
+for i, spec in enumerate(SPECIALTIES):
+    r = 30 + i
+    wsH.cell(row=r, column=1, value=spec).font = F_N
+    for ci, crit in enumerate(["0", "1", ">=2"], start=2):
+        wsH.cell(row=r, column=ci, value='=COUNTIFS(%s,$A%d,%s,"%s",%s,"Active")' % (
+            SPEC_R, r, VER_R, crit, STAT_R)).font = F_N
+
 wsH.sheet_state = "hidden"
 
 # ========================================================= Leader Dashboard
@@ -885,10 +903,6 @@ TILES = [
         NUM_R, rg(DB, C["Recognised"], DB_FIRST, DB_LAST),
         rg(DB, C["Topics on chart"], DB_FIRST, DB_LAST)), "act",
      "Carrying a category name in no dictionary row. Counted as charts, but toward no topic's coverage. Not filtered — this is a whole-pool figure."),
-    ("Audit-ready charts", '=COUNTIFS(%s,%s,%s,%s,%s,">=2",%s,"Active")' % (SPEC_R, SP, DIFF_R, DF, rg(DB, C["Audit versions"], DB_FIRST, DB_LAST), STAT_R), "good",
-     "Two or more authored versions, so rotation can actually vary what an auditor meets."),
-    ("Single-version charts", '=COUNTIFS(%s,%s,%s,%s,%s,1,%s,">0",%s,"Active")' % (SPEC_R, SP, DIFF_R, DF, rg(DB, C["Audit versions"], DB_FIRST, DB_LAST), rg(DB, C["Audit cycles"], DB_FIRST, DB_LAST), STAT_R), "warn",
-     "One version and already used, so every auditor meets the same planting. A tell."),
     ("Topics with nothing at all", '=COUNTIFS(%s,0,%s,"<>")' % (
         rg(DICT_S, "H", DICT_FIRST, DICT_LAST), rg(DICT_S, "D", DICT_FIRST, DICT_LAST)), "act",
      "Topics with no chart. The sourcing list in one number. Whole pool, not filtered."),
@@ -925,6 +939,105 @@ for lab, formula, tone, why in TILES:
     r += 1
 ws.conditional_formatting.add("B11",
     CellIsRule(operator="greaterThanOrEqual", formula=["0.8"], fill=FILL_GREEN,
+               font=Font(name="Calibri", bold=True, size=15, color=GREEN)))
+
+# --------------------------------------------------------- audit readiness
+AR = r + 1
+section(ws, AR, "AUDIT READINESS  —  the auditor module's own numbers", 13)
+r = AR + 1
+AUDIT_TILES = [
+    ("Charts with an authored version",
+     '=COUNTIFS(%s,%s,%s,">=1",%s,"Active")' % (SPEC_R, SP, VER_R, STAT_R), "",
+     "Active charts carrying at least one trainer-authored key set."),
+    ("Audit-ready (two or more versions)",
+     '=COUNTIFS(%s,%s,%s,">=2",%s,"Active")' % (SPEC_R, SP, VER_R, STAT_R), "good",
+     "Rotation can actually vary what an auditor meets. This is the figure that matters."),
+    ("Single-version, already used",
+     '=COUNTIFS(%s,%s,%s,1,%s,">0",%s,"Active")' % (SPEC_R, SP, VER_R, CYC_R, STAT_R), "warn",
+     "One version and already drawn, so every auditor meets the same planting. A tell."),
+    ("No authored version at all",
+     '=COUNTIFS(%s,%s,%s,0,%s,"Active")' % (SPEC_R, SP, VER_R, STAT_R), "act",
+     "Active charts with nothing authored. They can still be audited, but only from a generated claim — and generated PCS errors need the CMS tables loaded to be real codes."),
+    ("Versions in the live library",
+     '=COUNTIFS(%s,%s,%s,"Active",%s,"Active")' % (
+         rg(AUD, AV_SPEC, AUD_FIRST, AUD_LAST), SP,
+         rg(AUD, AV_VSTAT, AUD_FIRST, AUD_LAST),
+         rg(AUD, AV_CHARTSTAT, AUD_FIRST, AUD_LAST)), "",
+     "Active versions on active charts. Rows on the Audit Versions sheet, not charts — several per chart is the point. Versions sitting on a retired chart are counted lower down instead, so this figure and the one below share a denominator."),
+    ("Versions per audited chart",
+     '=IF(B%d=0,"NA",ROUND(B%d/B%d,2))' % (r + 4, r + 4, r), "",
+     "The live library divided by the active charts that carry it. Both sides exclude retired charts, so the ratio means what it says. Below 2 means most charts cannot rotate."),
+    ("Planted findings in the live library",
+     '=SUMIFS(%s,%s,%s,%s,"Active",%s,"Active")' % (
+         rg(AUD, AV_PLANTED, AUD_FIRST, AUD_LAST),
+         rg(AUD, AV_SPEC, AUD_FIRST, AUD_LAST), SP,
+         rg(AUD, AV_VSTAT, AUD_FIRST, AUD_LAST),
+         rg(AUD, AV_CHARTSTAT, AUD_FIRST, AUD_LAST)), "",
+     "Total findings an auditor could be asked to find across the authored library."),
+    ("Curated clean sets",
+     '=COUNTIFS(%s,%s,%s,0,%s,"Active",%s,"Active")' % (
+         rg(AUD, AV_SPEC, AUD_FIRST, AUD_LAST), SP,
+         rg(AUD, AV_PLANTED, AUD_FIRST, AUD_LAST),
+         rg(AUD, AV_VSTAT, AUD_FIRST, AUD_LAST),
+         rg(AUD, AV_CHARTSTAT, AUD_FIRST, AUD_LAST)), "",
+     "Zero planted findings and legitimate: a correctly coded claim that may still need a query. Restraint is what these measure."),
+    ("Always-plant sets",
+     '=COUNTIFS(%s,%s,%s,"Yes",%s,"Active",%s,"Active")' % (
+         rg(AUD, AV_SPEC, AUD_FIRST, AUD_LAST), SP,
+         rg(AUD, AV_ALWAYS, AUD_FIRST, AUD_LAST),
+         rg(AUD, AV_VSTAT, AUD_FIRST, AUD_LAST),
+         rg(AUD, AV_CHARTSTAT, AUD_FIRST, AUD_LAST)), "warn",
+     "Exempt from the clean quota, so always planted when drawn. Used widely, a chart that never comes up clean is its own tell."),
+    ("Query determinations authored",
+     '=COUNTIFS(%s,%s,%s,"Yes",%s,"Active",%s,"Active")+COUNTIFS(%s,%s,%s,"No",%s,"Active",%s,"Active")'
+     % (rg(AUD, AV_SPEC, AUD_FIRST, AUD_LAST), SP, rg(AUD, AV_QUERY, AUD_FIRST, AUD_LAST),
+        rg(AUD, AV_VSTAT, AUD_FIRST, AUD_LAST), rg(AUD, AV_CHARTSTAT, AUD_FIRST, AUD_LAST),
+        rg(AUD, AV_SPEC, AUD_FIRST, AUD_LAST), SP, rg(AUD, AV_QUERY, AUD_FIRST, AUD_LAST),
+        rg(AUD, AV_VSTAT, AUD_FIRST, AUD_LAST), rg(AUD, AV_CHARTSTAT, AUD_FIRST, AUD_LAST)), "",
+     "IP-DRG only, and Yes or No both count: an unauthored answer scores NA and is not held against the auditor, so only an authored one is worth anything."),
+    ("Active versions on retired charts",
+     '=COUNTIFS(%s,%s,%s,"Retired",%s,"Active")' % (rg(AUD, AV_SPEC, AUD_FIRST, AUD_LAST), SP,
+                                                    rg(AUD, AV_CHARTSTAT, AUD_FIRST, AUD_LAST),
+                                                    rg(AUD, AV_VSTAT, AUD_FIRST, AUD_LAST)), "act",
+     "Dead weight. Never drawn again, but still counted as versions, so a chart looks audit-ready when it is not."),
+    ("Versions authored last 90 days",
+     '=COUNTIFS(%s,%s,%s,">="&TODAY()-90,%s,"<="&TODAY())'
+     % (rg(AUD, AV_SPEC, AUD_FIRST, AUD_LAST), SP,
+        rg(AUD, AV_CREATED, AUD_FIRST, AUD_LAST), rg(AUD, AV_CREATED, AUD_FIRST, AUD_LAST)), "good",
+     "The authoring rate, measured. Authoring is slower than uploading and is usually the real constraint on audit readiness."),
+    ("Versions never drawn",
+     '=COUNTIFS(%s,%s,%s,0,%s,"Active",%s,"Active")' % (
+         rg(AUD, AV_SPEC, AUD_FIRST, AUD_LAST), SP,
+         rg(AUD, AV_DRAWN, AUD_FIRST, AUD_LAST),
+         rg(AUD, AV_VSTAT, AUD_FIRST, AUD_LAST),
+         rg(AUD, AV_CHARTSTAT, AUD_FIRST, AUD_LAST)), "good",
+     "Authored but not yet used. Unseen plantings, which is what a reassessment needs."),
+]
+for lab, formula, tone, why in AUDIT_TILES:
+    a = ws.cell(row=r, column=1, value=lab)
+    a.font, a.fill, a.border, a.alignment = F_LAB, FILL_CARD, BOX, Alignment(vertical="center", indent=1)
+    b = ws.cell(row=r, column=2, value=formula)
+    b.font, b.fill, b.border, b.alignment = F_VAL, FILL_CARD, BOX, CTR
+    b.number_format = "#,##0.00" if lab.startswith("Versions per") else "#,##0"
+    for cc in range(3, 14):
+        ws.cell(row=r, column=cc).fill = FILL_CARD
+    c = ws.cell(row=r, column=3, value=why)
+    c.font, c.fill, c.alignment = F_SM, FILL_CARD, WRAP
+    ws.merge_cells(start_row=r, start_column=3, end_row=r, end_column=13)
+    ws.cell(row=r, column=13).border = BOX
+    ws.row_dimensions[r].height = max(20, 12 * (1 + len(why) // 125))
+    if tone in TONE:
+        fill, colour = TONE[tone]
+        ws.conditional_formatting.add("B%d" % r,
+            CellIsRule(operator="greaterThan", formula=["0"], fill=fill,
+                       font=Font(name="Calibri", bold=True, size=15, color=colour)))
+    r += 1
+# versions per chart: amber below 2, green at or above
+ws.conditional_formatting.add("B%d" % (AR + 6),
+    CellIsRule(operator="lessThan", formula=["2"], fill=FILL_AMBER,
+               font=Font(name="Calibri", bold=True, size=15, color=AMBER)))
+ws.conditional_formatting.add("B%d" % (AR + 6),
+    CellIsRule(operator="greaterThanOrEqual", formula=["2"], fill=FILL_GREEN,
                font=Font(name="Calibri", bold=True, size=15, color=GREEN)))
 
 # ------------------------------------------------------------------ charts
@@ -974,7 +1087,14 @@ gaps.set_categories(Reference(wsH, min_col=1, min_row=16, max_row=25))
 gaps.legend = None
 ws.add_chart(gaps, "A%d" % (CH + 33))
 
-r = CH + 49
+ready = BarChart()
+_style(ready, "Audit readiness by specialty", h=7.4, w=28)
+ready.type, ready.grouping, ready.overlap = "col", "stacked", 100
+ready.add_data(Reference(wsH, min_col=2, max_col=4, min_row=29, max_row=36), titles_from_data=True)
+ready.set_categories(Reference(wsH, min_col=1, min_row=30, max_row=36))
+ws.add_chart(ready, "A%d" % (CH + 49))
+
+r = CH + 65
 
 # -------------------------------------------------------------- by specialty
 section(ws, r, "BY SPECIALTY  —  the whole pool, ignoring the filters above", 13)
@@ -1127,6 +1247,18 @@ for col, listname in [(A["Query expected"], "QueryExpected"), (A["Always"], "Yes
     ws.add_data_validation(dv)
     dv.add("%s%d:%s%d" % (col, AUD_FIRST, col, AUD_LAST))
 
+for _want, _got, _lab in [
+        (AV_SPEC, A["Specialty"], "specialty"),
+        (AV_CHARTSTAT, A["Chart status"], "chart status"),
+        (AV_CREATED, A["Created"], "created"),
+        (AV_PLANTED, A["Planted"], "planted findings"),
+        (AV_QUERY, A["Query expected"], "query expected"),
+        (AV_ALWAYS, A["Always"], "always plant"),
+        (AV_DRAWN, A["Times"], "times drawn"),
+        (AV_VSTAT, A["Version status"], "version status")]:
+    assert _want == _got, (
+        "the dashboard points at %s for %s; this sheet puts it in %s"
+        % (_want, _lab, _got))
 assert A["Version status"] == AUD_VERSION_STATUS_COL, (
     "Chart Database points at %s for the version status; this sheet puts it in %s"
     % (AUD_VERSION_STATUS_COL, A["Version status"]))
