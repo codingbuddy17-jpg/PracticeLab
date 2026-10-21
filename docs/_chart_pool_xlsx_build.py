@@ -89,6 +89,10 @@ EXTRA_SLOTS = 20
 # ("IP001 - foundational", "IP001 - DRG impact"), which is exactly why they
 # cannot live on the chart row.
 AUD, AUD_FIRST, AUD_LAST = "Audit Versions", 6, 605
+# Where that sheet's own Version status column lands. The Chart Database is
+# built first and must point at it, so the value is asserted once the Audit
+# Versions columns are defined rather than trusted.
+AUD_VERSION_STATUS_COL = "Q"
 
 FLAT = [(spec, cat, t) for spec, _, _, _ in POOLS
         for cat, parent, rows in TOPICS[spec][1] for t in rows]
@@ -510,9 +514,11 @@ for r in range(DB_FIRST, DB_LAST + 1):
             C["created_at"], r, C["Times"], r)
     c5 = ws.cell(row=r, column=ws[C["Matches filter"] + "1"].column, value=f)
     # how many ACTIVE authored versions this chart has
+    # Column Q on Audit Versions is that sheet's own Version status. Written as
+    # a literal because the sheet is built after this one; the build asserts it.
     f = ('=IF($%s%d="","",COUNTIFS(%s,$%s%d,%s,"Active"))'
          % (n, r, rg(AUD, "A", AUD_FIRST, AUD_LAST), n, r,
-            rg(AUD, "L", AUD_FIRST, AUD_LAST)))
+            rg(AUD, AUD_VERSION_STATUS_COL, AUD_FIRST, AUD_LAST)))
     c6 = ws.cell(row=r, column=ws[C["Audit versions"] + "1"].column, value=f)
     # Which version the NEXT cycle will serve. The allocator does
     # pool[use_index % len(pool)], so this is arithmetic, not a guess. Shown
@@ -1034,20 +1040,37 @@ note(ws, r + 3, "Every figure reads Chart Database rows %d to %d. Paste beyond r
 
 
 # =========================================================== Audit Versions
+# Three blocks, in this order and deliberately so: everything about the CHART
+# fills itself from the chart_number, everything about the VERSION is typed,
+# and the rotation columns compute. A trainer types a chart number once and
+# never retypes its specialty, topic, difficulty or alias — which also means
+# this sheet cannot disagree with the Chart Database about any of them.
 AUD_COLS = [
-    ("chart_number", 13, "ours"), ("Specialty\n(auto)", 14, "auto"),
+    ("chart_number", 13, "ours"),
+    ("Specialty\n(auto)", 14, "auto"), ("Primary topic\n(auto)", 20, "auto"),
+    ("Difficulty\n(auto)", 12, "auto"), ("Chart alias\n(auto)", 26, "auto"),
+    ("Chart status\n(auto)", 11, "auto"), ("Cycles used\n(auto)", 10, "auto"),
     ("Version name", 26, "ours"), ("Authored by", 14, "ours"),
     ("Created", 11, "ours"), ("Planted\nfindings", 9, "ours"),
-    ("Sections touched", 26, "ours"), ("Query expected\n(IP-DRG only)", 12, "ours"),
+    ("Sections touched", 24, "ours"), ("Query expected\n(IP-DRG only)", 12, "ours"),
     ("Always\nplant", 9, "ours"), ("Times\ndrawn", 8, "ours"),
-    ("Last drawn", 11, "ours"), ("Status", 10, "ours"),
+    ("Last drawn", 11, "ours"), ("Version status", 12, "ours"),
     ("Version #\n(auto)", 10, "auto"), ("Next in\nrotation (auto)", 13, "auto"),
-    ("Notes", 30, "ours"),
+    ("Notes", 28, "ours"),
 ]
-ws = sheet(AUD, [w for _, w, _ in AUD_COLS], freeze="C6")
-title_block(ws, "Audit Versions", "One row per trainer-authored audit key set. A chart may hold several, which is why these cannot live on the chart row.", len(AUD_COLS))
+A = {}
+for _i, (_n, _w, _k) in enumerate(AUD_COLS, start=1):
+    A[_n.split("\n")[0]] = get_column_letter(_i)
+NAUD = len(AUD_COLS)
+AUD_AUTO = {A[k] for k, (n_, w_, kind) in
+            zip([c[0].split("\n")[0] for c in AUD_COLS], AUD_COLS) if kind == "auto"}
+
+ws = sheet(AUD, [w for _, w, _ in AUD_COLS], freeze="H6")
+title_block(ws, "Audit Versions", "One row per authored audit key set. Type the chart number and the grey columns fill themselves — you only enter what is true of the version.", NAUD)
 for c, (n_, w_, kind) in enumerate(AUD_COLS, start=1):
-    lab = {"auto": "AUTO", "ours": "WE MAINTAIN"}[kind]
+    lab = {"auto": "FROM THE CHART", "ours": "WE MAINTAIN"}[kind]
+    if n_.startswith(("Version #", "Next in")):
+        lab = "COMPUTED"
     cell = ws.cell(row=4, column=c, value=lab)
     cell.font = Font(name="Calibri", size=8, bold=True,
                      color={"auto": GREY, "ours": AMBER}[kind])
@@ -1056,33 +1079,47 @@ for c, (n_, w_, kind) in enumerate(AUD_COLS, start=1):
 ws.row_dimensions[4].height = 13
 header_row(ws, 5, [n_ for n_, _, _ in AUD_COLS], height=40)
 
+CHART_NUM_R = rg(DB, C["chart_number"], DB_FIRST, DB_LAST)
 for r in range(AUD_FIRST, AUD_LAST + 1):
-    f = ('=IF($A%d="","",IFERROR(INDEX(%s,MATCH($A%d,%s,0)),"UNKNOWN CHART"))'
-         % (r, rg(DB, C["specialty"], DB_FIRST, DB_LAST), r,
-            rg(DB, C["chart_number"], DB_FIRST, DB_LAST)))
-    b = ws.cell(row=r, column=2, value=f)
-    f = ('=IF(OR($A%d="",$L%d<>"Active"),"",COUNTIFS($A$%d:$A%d,$A%d,$L$%d:$L%d,"Active"))'
-         % (r, r, AUD_FIRST - 1, r, r, AUD_FIRST - 1, r))
-    m = ws.cell(row=r, column=13, value=f)
-    f = ('=IF(OR($A%d="",$M%d=""),"",IF($M%d=IFERROR(INDEX(%s,MATCH($A%d,%s,0)),0),'
-         '"NEXT",""))'
-         % (r, r, r, rg(DB, C["Next version"], DB_FIRST, DB_LAST), r,
-            rg(DB, C["chart_number"], DB_FIRST, DB_LAST)))
-    nx = ws.cell(row=r, column=14, value=f)
-    for cell in (b, m, nx):
+    def _pull(src_col, missing='"UNKNOWN CHART"'):
+        return ('=IF($A%d="","",IFERROR(INDEX(%s,MATCH($A%d,%s,0)),%s))'
+                % (r, rg(DB, src_col, DB_FIRST, DB_LAST), r, CHART_NUM_R, missing))
+    pulls = [
+        (A["Specialty"], _pull(C["specialty"])),
+        (A["Primary topic"], _pull(C["Primary topic"], '""')),
+        (A["Difficulty"], _pull(C["difficulty"], '""')),
+        (A["Chart alias"], _pull(C["alias"], '""')),
+        (A["Chart status"], _pull(C["status"], '""')),
+        (A["Cycles used"], _pull(C["Audit cycles"], '0')),
+    ]
+    # which version this is for its chart, counting active ones in sheet order
+    pulls.append((A["Version #"],
+        '=IF(OR($A{r}="",${vs}{r}<>"Active"),"",COUNTIFS($A${f}:$A{r},$A{r},${vs}${f}:${vs}{r},"Active"))'
+        .format(r=r, f=AUD_FIRST - 1, vs=A["Version status"])))
+    # the allocator serves pool[uses mod count]; flag the row that is next
+    pulls.append((A["Next in"],
+        '=IF(OR($A{r}="",${vn}{r}=""),"",IF(${vn}{r}=IFERROR(INDEX({nx},MATCH($A{r},{cn},0)),0),"NEXT",""))'
+        .format(r=r, vn=A["Version #"], nx=rg(DB, C["Next version"], DB_FIRST, DB_LAST), cn=CHART_NUM_R)))
+    for col, f in pulls:
+        cell = ws.cell(row=r, column=ws[col + "1"].column, value=f)
         cell.font, cell.fill, cell.border, cell.alignment = F_AUTO, FILL_BAND, BOX, CTR
-    for c in range(1, len(AUD_COLS) + 1):
-        if c in (2, 13, 14):
+        if col in (A["Primary topic"], A["Chart alias"]):
+            cell.alignment = TOP
+    for c in range(1, NAUD + 1):
+        L = get_column_letter(c)
+        if L in AUD_AUTO:
             continue
         cell = ws.cell(row=r, column=c)
         cell.font, cell.border, cell.alignment = F_N, BOX, TOP
-        if c in (5, 11):
+        if L in (A["Created"], A["Last drawn"]):
             cell.number_format = DATE_FMT
             cell.alignment = CTR
-        elif c in (6, 8, 9, 10, 12):
+        elif L in (A["Planted"], A["Query expected"], A["Always"],
+                   A["Times"], A["Version status"]):
             cell.alignment = CTR
 
-for col, listname in [("H", "QueryExpected"), ("I", "YesNo"), ("L", "Status")]:
+for col, listname in [(A["Query expected"], "QueryExpected"), (A["Always"], "YesNo"),
+                      (A["Version status"], "Status")]:
     dv = DataValidation(type="list", formula1="=%s" % LREF[listname],
                         allow_blank=True, showDropDown=False)
     dv.error = "Pick a value from the list. Add new values on the Lists sheet, not here."
@@ -1090,28 +1127,39 @@ for col, listname in [("H", "QueryExpected"), ("I", "YesNo"), ("L", "Status")]:
     ws.add_data_validation(dv)
     dv.add("%s%d:%s%d" % (col, AUD_FIRST, col, AUD_LAST))
 
-ws.auto_filter.ref = "A5:%s%d" % (get_column_letter(len(AUD_COLS)), AUD_LAST)
-zebra(ws, AUD_FIRST, AUD_LAST, len(AUD_COLS))
-ws.conditional_formatting.add("B%d:B%d" % (AUD_FIRST, AUD_LAST),
-    FormulaRule(formula=['$B%d="UNKNOWN CHART"' % AUD_FIRST],
+assert A["Version status"] == AUD_VERSION_STATUS_COL, (
+    "Chart Database points at %s for the version status; this sheet puts it in %s"
+    % (AUD_VERSION_STATUS_COL, A["Version status"]))
+ws.auto_filter.ref = "A5:%s%d" % (get_column_letter(NAUD), AUD_LAST)
+zebra(ws, AUD_FIRST, AUD_LAST, NAUD)
+ws.conditional_formatting.add("%s%d:%s%d" % (A["Specialty"], AUD_FIRST, A["Specialty"], AUD_LAST),
+    FormulaRule(formula=['$%s%d="UNKNOWN CHART"' % (A["Specialty"], AUD_FIRST)],
                 fill=FILL_RED, font=Font(size=9, bold=True, color=RED)))
-ws.conditional_formatting.add("N%d:N%d" % (AUD_FIRST, AUD_LAST),
-    FormulaRule(formula=['$N%d="NEXT"' % AUD_FIRST],
+ws.conditional_formatting.add("%s%d:%s%d" % (A["Next in"], AUD_FIRST, A["Next in"], AUD_LAST),
+    FormulaRule(formula=['$%s%d="NEXT"' % (A["Next in"], AUD_FIRST)],
                 fill=FILL_GREEN, font=Font(size=9, bold=True, color=GREEN)))
-ws.conditional_formatting.add("I%d:I%d" % (AUD_FIRST, AUD_LAST),
-    FormulaRule(formula=['$I%d="Yes"' % AUD_FIRST],
+ws.conditional_formatting.add("%s%d:%s%d" % (A["Always"], AUD_FIRST, A["Always"], AUD_LAST),
+    FormulaRule(formula=['$%s%d="Yes"' % (A["Always"], AUD_FIRST)],
                 fill=FILL_AMBER, font=Font(size=10, bold=True, color=AMBER)))
-ws.conditional_formatting.add("F%d:F%d" % (AUD_FIRST, AUD_LAST),
+ws.conditional_formatting.add("%s%d:%s%d" % (A["Planted"], AUD_FIRST, A["Planted"], AUD_LAST),
     CellIsRule(operator="equal", formula=["0"], fill=FILL_BLUE,
                font=Font(size=10, bold=True, color=BLUE)))
+# a version on a retired chart is dead weight and easy to miss
+ws.conditional_formatting.add("%s%d:%s%d" % (A["Chart status"], AUD_FIRST, A["Chart status"], AUD_LAST),
+    FormulaRule(formula=['AND($%s%d="Retired",$%s%d="Active")' % (
+        A["Chart status"], AUD_FIRST, A["Version status"], AUD_FIRST)],
+        fill=FILL_AMBER, font=Font(size=9, bold=True, color=AMBER)))
 
 n = AUD_LAST + 2
-note(ws, n, "Version rotation is arithmetic, not chance. The allocator serves pool[uses mod version count], so with three versions and seven previous uses the next cycle serves version 2. The NEXT column marks that row, and it moves on its own as the chart's use count changes.", len(AUD_COLS))
-note(ws, n + 1, "Rotation keys on the CHART's own use count, not on the cycle and not on the auditor. Keyed on the auditor, four auditors would meet three different versions in one sitting; keyed on the cycle, a chart that does not appear every cycle would be pinned to one version forever.", len(AUD_COLS))
-note(ws, n + 2, "A chart with ONE active version shows every auditor the same planting. That is a tell as soon as anyone has seen it, and both the Chart Database and the dashboard flag it. Two is the minimum for rotation to mean anything.", len(AUD_COLS), FILL_AMBER)
-note(ws, n + 3, "Planted findings of ZERO is legitimate and reads blue, not red: a curated clean chart. A set may carry no mutations and still author a query determination, which is why clean and authored are not mutually exclusive.", len(AUD_COLS))
-note(ws, n + 4, "Always plant exempts a set from the clean quota, so it is planted whenever drawn. Use it sparingly — a curated chart that never comes up clean becomes its own tell, the same failure as a chart that always carries the same version.", len(AUD_COLS), FILL_AMBER)
-note(ws, n + 5, "Query expected applies to IP-DRG only. Blank is NA and is NOT scored against the auditor: the system cannot read whether documentation supported a code, so an unauthored answer is not an answer.", len(AUD_COLS))
+note(ws, n, "TYPE THE CHART NUMBER FIRST. The six grey columns after it fill themselves from the Chart Database — specialty, primary topic, difficulty, alias, the chart's own status and the cycle count that drives rotation. Nothing about the chart is retyped here, so this sheet cannot disagree with that one.", NAUD, FILL_BLUE)
+note(ws, n + 1, "A row cannot create itself: Excel has no way to add one when a chart is entered on the other sheet. Typing the chart number is the one manual step, and everything else follows from it.", NAUD)
+note(ws, n + 2, "Version rotation is arithmetic, not chance. The allocator serves pool[uses mod version count], so with three versions and seven previous uses the next cycle serves version 2. The NEXT column marks that row and moves on its own as the cycle count changes.", NAUD)
+note(ws, n + 3, "Rotation keys on the CHART's own use count, not on the cycle and not on the auditor. Keyed on the auditor, four auditors would meet three different versions in one sitting; keyed on the cycle, a chart that does not appear every cycle would be pinned to one version forever.", NAUD)
+note(ws, n + 4, "A chart with ONE active version shows every auditor the same planting. That is a tell as soon as anyone has seen it, and both the Chart Database and the dashboard flag it. Two is the minimum for rotation to mean anything.", NAUD, FILL_AMBER)
+note(ws, n + 5, "Planted findings of ZERO reads blue, not red: a curated clean chart. A set may carry no mutations and still author a query determination, which is why clean and authored are not mutually exclusive.", NAUD)
+note(ws, n + 6, "Always plant exempts a set from the clean quota, so it is planted whenever drawn. Use it sparingly — a curated chart that never comes up clean becomes its own tell, the same failure as a chart that always carries the same version.", NAUD, FILL_AMBER)
+note(ws, n + 7, "Query expected applies to IP-DRG only. Blank is NA and is NOT scored against the auditor: the system cannot read whether documentation supported a code, so an unauthored answer is not an answer.", NAUD)
+note(ws, n + 8, "An ACTIVE version on a RETIRED chart is flagged amber. It will never be drawn again, so it is dead weight in the version count unless the chart comes back.", NAUD)
 
 # ======================================================= Field Conventions
 ws = sheet("Field Conventions", [3, 24, 92], freeze=None)

@@ -248,7 +248,14 @@ specialty coverage, a 24-month upload trend, recent activity by window and by
 trainer, and an assignment builder for selective practice. Its Chart Database
 sheet's first nine columns are the live `charts` table in table order, so a
 future export pastes in without reshaping. Audit versions live on their own sheet, one row per authored key set, because
-a chart may hold several and they cannot sit on the chart row. The tracker
+a chart may hold several and they cannot sit on the chart row. The two sheets
+feed each other: typing a chart number on the versions sheet pulls that
+chart's specialty, primary topic, difficulty, alias, status and cycle count
+across, so nothing about the chart is retyped and the two cannot disagree;
+the version COUNT travels back the other way into the chart row, which is
+what the dashboard reads. A row still cannot create itself — Excel has no
+way to add one when a chart is entered — so typing the chart number is the
+single manual step and everything else follows from it. The tracker
 reproduces the allocator's arithmetic rather than guessing at it: rotation is
 `pool[uses mod version count]`, so the next version a cycle will serve is
 computable, and the sheet marks that row NEXT. It also flags the two tells the
