@@ -193,14 +193,41 @@ keep the builders authoritative and rebuild:
 | `PracticeLab_Container_Deployment.docx` | `_container_docx_build.js` |
 | `PracticeLab_Chart_Composition_Taxonomy.xlsx` | `_chart_composition_xlsx_build.py` (openpyxl) |
 | `PracticeLab_Chart_Inventory_Tracker.xlsx` | `_chart_inventory_xlsx_build.py` (openpyxl) |
+| `PracticeLab_Chart_Pool_Tracker.xlsx` | `_chart_pool_xlsx_build.py` (openpyxl) |
 
 Every builder dates the document **when it is built**, not from a hardcoded
 string — a regenerated document carrying an old date is worse than an undated
 one, because the reader cannot tell it was refreshed. Never hand-edit a
 `.docx`: the next build silently discards the edit.
 
-`_chart_taxonomy_data.py` holds the specialty pools, the 111 topics and the
-build priority, and **both** chart workbooks import it — the taxonomy, which
+**`category` is free text, and the app never parses it.** Upload stores the
+string verbatim (`meta["category"].strip()`); the allocator splits the
+TRAINER's filter on commas and substring-matches each piece
+(`Chart.category.ilike("%piece%")`, OR'd). So a chart filed as `Sepsis, Renal`
+is found by a filter of either, and several topics per chart WORK for
+assignment. What breaks is counting: `group_by(Chart.category)` treats the whole
+string as one value, so `Sepsis, Renal` is a third value beside each of them.
+`/charts/categories` derives the dropdown from that same group_by, so the
+vocabulary is whatever anyone typed — and `/charts/categories` is not called by
+any screen. Nothing in the app is a dropdown: upload, batch allocation and
+chart search are all free-text boxes.
+
+`SHORT_NAME` in `_chart_taxonomy_data.py` is the vocabulary the app lacks: one
+short name per topic, at most 25 characters, what a trainer actually types.
+Because matching is substring, the module asserts **no short name is a
+substring of another in the same specialty** — otherwise one topic's count
+silently includes another's. That is why IPD-06 reads `Respiratory medical` and
+IPD-19 `Thoracic surgical` rather than `Respiratory` and `Respiratory
+surgical`. Five guards cover it (missing, extra, duplicate, comma, length) and
+all five were proved to fire.
+
+Difficulty has two vocabularies for one concept: the app enum is
+`Beginner/Intermediate/Advanced`, the HC framework and the taxonomy say
+`Basic/Moderate/Complex`. The app's words win in anything a trainer types; the
+mapping is on the pool tracker's Field Conventions sheet.
+
+`_chart_taxonomy_data.py` holds the specialty pools, the 111 topics, the short
+names and the build priority, and **all three** chart workbooks import it — the taxonomy, which
 publishes the standard, and the inventory tracker, which records what the pool
 actually holds. Importing it validates the weights, so a builder fails before
 writing a cell rather than publishing totals that do not add up. Add a topic
@@ -215,6 +242,17 @@ staffing assumption rather than at nobody in particular. Its formulas cover
 register rows 5-1004 and issue rows 5-504; data past those rows is silently
 uncounted, so extend the formulas rather than typing past them. openpyxl cannot
 write native PivotTables, which is why every summary view there is formula-driven.
+
+The pool tracker is the training team's working file: the live pool, topic and
+specialty coverage, a 24-month upload trend, recent activity by window and by
+trainer, and an assignment builder for selective practice. Its Chart Database
+sheet's first nine columns are the live `charts` table in table order, so a
+future export pastes in without reshaping. Two sheets count two different
+things on purpose — Specialty Overview counts CHARTS, the Category Dictionary
+counts TOPIC COVERAGE, and the second total is larger because a multi-topic
+chart counts under each topic it carries. Kept a separate file from the
+inventory tracker at the user's choice, because the two answer to different
+audiences on different cadences.
 
 The chart composition taxonomy is the topic layer beneath the Coverage Matrix
 in `PracticeLab_HC.xlsx` (that workbook is the authority for baseline pools,

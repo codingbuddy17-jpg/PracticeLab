@@ -776,3 +776,123 @@ for _spec, (_dim, _cats) in TOPICS.items():
                         "%s / %s refers to %s, which is not a topic"
                         % (_spec, _t[0], _m.group(0)))
 
+# ---------------------------------------------------- short category names
+# What a trainer actually types into the chart's `category` field on upload,
+# and into the category filter when allocating a batch.
+#
+# The app stores `category` as one verbatim string and never parses it, while
+# the allocator splits the TRAINER's filter on commas and substring-matches
+# each piece (`Chart.category.ilike("%piece%")`, OR'd). So several topics on
+# one chart work -- `Sepsis, AKI` is matched by a filter of either -- but the
+# matching is substring, which makes one property essential:
+#
+#   No short name may be a substring of another short name in the same
+#   specialty.
+#
+# Without that, filtering or counting one topic silently picks up another.
+# "Respiratory" inside "Respiratory surgical" would have done exactly that,
+# which is why IPD-06 reads "Respiratory medical" and IPD-19 "Thoracic
+# surgical". The assertion below enforces it, so a new topic cannot
+# reintroduce the collision.
+SHORT_NAME = {
+    # IP-DRG
+    "IPD-01": "Vaginal delivery",     "IPD-02": "Newborn",
+    "IPD-03": "Neonatal ICU",         "IPD-04": "Peripartum medical",
+    "IPD-05": "GI medical",           "IPD-06": "Respiratory medical",
+    "IPD-07": "Cardiac medical",      "IPD-08": "Sepsis",
+    "IPD-09": "Neuro medical",        "IPD-10": "Renal",
+    "IPD-11": "Endocrine",            "IPD-12": "Heme onc",
+    "IPD-13": "Behavioral health",    "IPD-14": "Infection other",
+    "IPD-15": "Caesarean",            "IPD-16": "OB surgical",
+    "IPD-17": "GI surgical",          "IPD-18": "Cardiac surgical",
+    "IPD-19": "Thoracic surgical",    "IPD-20": "Ortho surgical",
+    "IPD-21": "Neuro surgical",       "IPD-22": "GU surgical",
+    "IPD-23": "Vascular access",      "IPD-24": "Transplant",
+    "IPD-25": "Polytrauma",
+    # ED Facility
+    "EDF-01": "Minor presentation",   "EDF-02": "Nurse only",
+    "EDF-03": "Low acuity procedure", "EDF-04": "Moderate medical",
+    "EDF-05": "Wound repair",         "EDF-06": "Ortho injury",
+    "EDF-07": "Infusion",             "EDF-08": "Pain workup",
+    "EDF-09": "Respiratory distress", "EDF-10": "Complex medical",
+    "EDF-11": "Behavioral health",    "EDF-12": "Observation",
+    "EDF-13": "High acuity L5",       "EDF-14": "Critical care",
+    "EDF-15": "CC boundary",          "EDF-16": "Trauma activation",
+    "EDF-17": "Resuscitation",
+    # ED Profee -- all prefixed, so a typed filter cannot drift into E/M
+    "EDP-01": "Profee L1-2",          "EDP-02": "Profee L3 MDM",
+    "EDP-03": "Profee L3 proc",       "EDP-04": "Profee L4 MDM",
+    "EDP-05": "Profee L4 proc",       "EDP-06": "Profee L5 MDM",
+    "EDP-07": "Profee 99285v99291",   "EDP-08": "Profee critical care",
+    "EDP-09": "Profee CC procedure",  "EDP-10": "Profee ED procedure",
+    "EDP-11": "Profee observation",   "EDP-12": "Profee split shared",
+    # E/M
+    "EM-01": "Est office L3",         "EM-02": "Est office L4",
+    "EM-03": "New office L3",         "EM-04": "New office L4",
+    "EM-05": "Office L5",             "EM-06": "Office L1-2",
+    "EM-07": "Time based",            "EM-08": "AWV",
+    "EM-09": "Preventive visit",      "EM-10": "Preventive plus problem",
+    "EM-11": "Screening counselling", "EM-12": "Office procedure",
+    "EM-13": "TCM",                   "EM-14": "CCM",
+    "EM-15": "Telehealth",            "EM-16": "Hospital initial",
+    "EM-17": "Hospital subsequent",   "EM-18": "Discharge day",
+    "EM-19": "Admit discharge same day", "EM-20": "Inpatient critical care",
+    "EM-21": "NICU PICU",             "EM-22": "Consult outpatient",
+    "EM-23": "Consult inpatient",
+    # SDS
+    "SDS-01": "Arthroscopy",          "SDS-02": "Hand foot",
+    "SDS-03": "Fracture care",        "SDS-04": "Colonoscopy screening",
+    "SDS-05": "Polypectomy",          "SDS-06": "EGD",
+    "SDS-07": "Cataract",             "SDS-08": "Intravitreal",
+    "SDS-09": "Oculoplastic",         "SDS-10": "Epidural facet",
+    "SDS-11": "Nerve block RFA",      "SDS-12": "General surgery",
+    "SDS-13": "Gynaecology",          "SDS-14": "ENT",
+    "SDS-15": "Urology",
+    # Surgery
+    "SUR-01": "Gen surgery",          "SUR-02": "Orthopaedics",
+    "SUR-03": "Cardiothoracic",       "SUR-04": "Neurosurgery",
+    "SUR-05": "Gynae surgery",        "SUR-06": "Urology surgical",
+    "SUR-07": "ENT head neck",        "SUR-08": "Plastics",
+    "SUR-09": "Ophthalmic",           "SUR-10": "Transplant multi",
+    "SUR-11": "Global period",
+    # ED Single Path
+    "ESP-01": "SP low acuity",        "ESP-02": "SP L3",
+    "ESP-03": "SP L4",                "ESP-04": "SP L5",
+    "ESP-05": "SP critical care",     "ESP-06": "SP procedure",
+    "ESP-07": "SP observation",       "ESP-08": "SP divergence",
+}
+
+# The app's `category` column is String(200) and `alias` is String(100).
+# SQLite does not enforce VARCHAR length and PostgreSQL rejects outright, so a
+# value that passes every local test can fail on the live service. A trainer
+# may legitimately type several of these separated by commas, so the budget
+# that matters is a few of them together, not one.
+SHORT_NAME_MAX = 25
+
+_missing = set(_ALL_IDS) - set(SHORT_NAME)
+assert not _missing, "topics with no short category name: %s" % sorted(_missing)
+_extra = set(SHORT_NAME) - set(_ALL_IDS)
+assert not _extra, "short names for topics that do not exist: %s" % sorted(_extra)
+for _tid, _sn in SHORT_NAME.items():
+    assert len(_sn) <= SHORT_NAME_MAX, "%s short name is %d chars: %s" % (_tid, len(_sn), _sn)
+    assert _sn == _sn.strip(), "%s short name has outer whitespace" % _tid
+    assert "," not in _sn, "%s short name contains a comma, which is the separator" % _tid
+
+# the substring guarantee, per specialty
+for _spec, (_dim, _cats) in TOPICS.items():
+    _names = [(t[0], SHORT_NAME[t[0]]) for _c, _p, _rows in _cats for t in _rows]
+    for _ida, _a in _names:
+        for _idb, _b in _names:
+            if _ida == _idb:
+                continue
+            assert _a.lower() != _b.lower(), (
+                "%s: %s and %s share the short name %r" % (_spec, _ida, _idb, _a))
+            assert _a.lower() not in _b.lower(), (
+                "%s: short name %r (%s) is a substring of %r (%s) -- filtering or "
+                "counting one would silently pick up the other"
+                % (_spec, _a, _ida, _b, _idb))
+
+
+def short_name(tid):
+    """What a trainer types for this topic."""
+    return SHORT_NAME[tid]
