@@ -733,9 +733,14 @@ r += 1
 ub_first = r
 UB_SLOTS = 12
 for i in range(UB_SLOTS):
+    # The "already listed" range is anchored on the HEADER row, not on the first
+    # data row. Anchored on the first data row, that row's own formula spans
+    # $A$12:$A11 -- which Excel normalises to A11:A12, swallowing the cell
+    # itself and making the whole workbook circular. The header is text and
+    # matches no trainer name, so counting it costs nothing.
     a = ws.cell(row=r, column=1,
                 value=('=IFERROR(INDEX(%s,MATCH(0,INDEX(COUNTIF($A$%d:$A%d,%s),0),0)),"")'
-                       % (rg(DB, C["uploaded_by"], DB_FIRST, DB_LAST), ub_first, r - 1,
+                       % (rg(DB, C["uploaded_by"], DB_FIRST, DB_LAST), ub_first - 1, r - 1,
                           rg(DB, C["uploaded_by"], DB_FIRST, DB_LAST))))
     a.font, a.border, a.alignment = F_AUTO, BOX, TOP
     a.fill = FILL_BAND
