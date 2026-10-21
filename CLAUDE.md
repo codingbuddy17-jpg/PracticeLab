@@ -247,7 +247,17 @@ The pool tracker is the training team's working file: the live pool, topic and
 specialty coverage, a 24-month upload trend, recent activity by window and by
 trainer, and an assignment builder for selective practice. Its Chart Database
 sheet's first nine columns are the live `charts` table in table order, so a
-future export pastes in without reshaping. The 111 topics are not a closed list. The Category Dictionary carries 20 spare
+future export pastes in without reshaping. Audit versions live on their own sheet, one row per authored key set, because
+a chart may hold several and they cannot sit on the chart row. The tracker
+reproduces the allocator's arithmetic rather than guessing at it: rotation is
+`pool[uses mod version count]`, so the next version a cycle will serve is
+computable, and the sheet marks that row NEXT. It also flags the two tells the
+module is vulnerable to — a chart with ONE active version shows every auditor
+the same planting, and `always_plant` used widely means a chart never comes up
+clean. Zero planted findings is legitimate (a curated clean chart with an
+authored query determination), so it reads blue rather than red.
+
+The 111 topics are not a closed list. The Category Dictionary carries 20 spare
 rows where the team registers a provisional topic (specialty and short name
 typed, target optional), and a chart whose category matches no dictionary row
 is reported on the dashboard as off-list rather than vanishing: it counts as a
