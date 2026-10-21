@@ -908,6 +908,14 @@ CONV = [
  ("MAP", "Intermediate|Moderate|Multiple diagnoses or procedures, some sequencing decisions, modifiers or CC/MCC capture."),
  ("MAP", "Advanced|Complex|Conflicting or incomplete documentation, query opportunities, tricky guidelines, multiple edits in play."),
  ("P", "Enter the application's word on upload and in this workbook. Read the taxonomy's word when planning composition. Nobody should have to convert in their head, which is why the mapping is written down here rather than remembered."),
+ ("SEC", "Long descriptive names — worked examples"),
+ ("P", "Experience produces names like \"Sepsis with pneumonia\" or \"CABG with 3 grafts\". These are real and worth recording, but they are not categories. One test settles it: would you ever build a batch by filtering on it? If yes, and other charts share it, it is a topic. If it is specific to this chart, it is an alias."),
+ ("EX", "Sepsis with pneumonia|Sepsis, Respiratory medical|sepsis 2/2 RLL pneumonia|Two genuine topics, so both go in the category and the chart is found by a filter of either."),
+ ("EX", "CABG with 3 grafts|Cardiac surgical|CABG x3, LIMA + 2 SVG|One topic plus a clinical detail. Nobody assigns a batch of three-graft charts; they assign Cardiac surgical. The graft count is the teaching point and belongs in the alias."),
+ ("EX", "AKI on CKD3 in a septic patient|Sepsis, Renal|AKI on CKD3, sepsis source urinary|Two topics. The staging detail is what a trainer recognises the chart by, not what anyone filters on."),
+ ("EX", "Lap chole converted to open|GI surgical|lap chole converted to open, bile leak|The conversion is the error the chart teaches, but it is one topic. Put the conversion in the alias so a trainer can find it; keep the category filterable."),
+ ("P", "Three reasons not to put the long string in the category. It has to be retyped exactly to filter on, so in practice nobody can. It becomes its own value in the application's group_by, which fragments the counts. And it escapes the off-list guard, because with no comma the recognised count equals the topic count and the row reads as fine while being useless as a filter — that one is on discipline, not on this workbook."),
+ ("P", "Nothing is lost by moving it to the alias: the application's search box covers chart number, category AND alias together, so typing CABG still finds the chart."),
  ("SEC", "A topic the taxonomy does not have"),
  ("P", "The 111 topics are not a closed list, and nothing in the application enforces them. Two ways to add one, and they are not interchangeable:"),
  ("KV", "For something that will last|It belongs in the composition taxonomy, with an ID, a weight and a target. That means taking its share of charts from a sibling topic, because the weights must still sum to the HC parent percentage. Ask for it and it is a ten-minute change to the taxonomy module, after which it appears in all three workbooks at once."),
@@ -930,6 +938,15 @@ for kind, text in CONV:
         c.font, c.alignment = F_N, WRAP
         ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=3)
         ws.row_dimensions[r].height = 13 * (1 + len(text) // 112)
+        r += 1
+    elif kind == "EX":
+        want, cat, ali, why = text.split("|")
+        a = ws.cell(row=r, column=2, value='"%s"' % want)
+        a.font, a.fill, a.alignment = Font(name="Calibri", bold=True, size=10, color=RED), FILL_RED, WRAP
+        b = ws.cell(row=r, column=3,
+                    value="category:  %s\nalias:  %s\n%s" % (cat, ali, why))
+        b.font, b.alignment = F_N, WRAP
+        ws.row_dimensions[r].height = 15 + 13 * (2 + len(why) // 92)
         r += 1
     elif kind == "MAP":
         app, tax, desc = text.split("|")
