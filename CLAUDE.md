@@ -247,7 +247,19 @@ The pool tracker is the training team's working file: the live pool, topic and
 specialty coverage, a 24-month upload trend, recent activity by window and by
 trainer, and an assignment builder for selective practice. Its Chart Database
 sheet's first nine columns are the live `charts` table in table order, so a
-future export pastes in without reshaping. Two sheets count two different
+future export pastes in without reshaping. The 111 topics are not a closed list. The Category Dictionary carries 20 spare
+rows where the team registers a provisional topic (specialty and short name
+typed, target optional), and a chart whose category matches no dictionary row
+is reported on the dashboard as off-list rather than vanishing: it counts as a
+chart but toward no topic's coverage, which the Recognised column exposes by
+comparing dictionary matches against the comma count. A topic that turns out to
+be permanent belongs in the taxonomy module properly, which means taking its
+share from a sibling so the weights still sum to the HC parent. A live Name
+check column flags a short name that contains or sits inside another in the
+same specialty, and flags BOTH sides, because substring matching makes both
+counts wrong.
+
+Two sheets count two different
 things on purpose — Specialty Overview counts CHARTS, the Category Dictionary
 counts TOPIC COVERAGE, and the second total is larger because a multi-topic
 chart counts under each topic it carries. Kept a separate file from the

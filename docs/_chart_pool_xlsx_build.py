@@ -79,10 +79,15 @@ MONTH_FMT = "mmm-yy"
 DB, DB_FIRST, DB_LAST = "Chart Database", 6, 4005
 DICT_S, DICT_FIRST = "Category Dictionary", 5
 TREND_MONTHS = 24
+# Blank rows below the 111 governed topics, where the team registers a topic
+# the taxonomy does not have. Counting formulas span these too, so a name typed
+# here starts being counted the moment it is entered.
+EXTRA_SLOTS = 20
 
 FLAT = [(spec, cat, t) for spec, _, _, _ in POOLS
         for cat, parent, rows in TOPICS[spec][1] for t in rows]
-DICT_LAST = DICT_FIRST + len(FLAT) - 1
+DICT_GOVERNED_LAST = DICT_FIRST + len(FLAT) - 1
+DICT_LAST = DICT_GOVERNED_LAST + EXTRA_SLOTS
 POOL_OF = dict((s, p) for s, _, p, _ in POOLS)
 SPECIALTIES = [s for s, _, _, _ in POOLS]
 PREFIX = {"IP-DRG": "IP", "ED Facility": "ED", "ED Profee": "EDP",
@@ -170,7 +175,8 @@ DB_COLS = [
     ("chart_number", 13, "db"), ("specialty", 15, "db"), ("category", 34, "db"),
     ("difficulty", 12, "db"), ("alias", 30, "db"), ("status", 10, "db"),
     ("uploaded_by", 15, "db"), ("created_at", 11, "db"), ("view_count", 9, "db"),
-    ("Topics on chart\n(auto)", 11, "auto"), ("Primary topic\n(auto)", 20, "auto"),
+    ("Topics on chart\n(auto)", 11, "auto"), ("Recognised\n(auto)", 11, "auto"),
+    ("Primary topic\n(auto)", 20, "auto"),
     ("Upload month\n(auto)", 11, "auto"), ("Days in pool\n(auto)", 10, "auto"),
     ("Answer key", 10, "ours"), ("Error set\nversions", 9, "ours"),
     ("Times\nassigned", 9, "ours"), ("Last assigned", 11, "ours"),
@@ -276,12 +282,28 @@ for col, listname in [("B5", "Specialty"), ("B7", "Priority"), ("B8", "Difficult
                       ("B9", "Status"), ("B10", "YesNo")]:
     pass  # validations added after Lists exists
 
+
+def _namecheck(r):
+    """Live guard against the one mistake that silently corrupts a count.
+
+    Matching is substring, so if one short name is contained in another within
+    the same specialty, filtering or counting either picks up both. Python
+    asserts this for the 111 governed topics; for a name somebody types into a
+    user slot, only a formula can say so."""
+    return (
+        '=IF($D{r}="","",'
+        'IF(SUMPRODUCT(--($A${f}:$A${l}=$A{r}),--($D${f}:$D${l}<>""),'
+        '--(ROW($D${f}:$D${l})<>ROW()),'
+        '--(ISNUMBER(SEARCH($D{r},$D${f}:$D${l}))+ISNUMBER(SEARCH($D${f}:$D${l}&"",$D{r}))>0))>0,'
+        '"CLASH — overlaps another name in this specialty","OK"))'
+    ).format(r=r, f=DICT_FIRST, l=DICT_LAST)
+
 # ======================================================= Category Dictionary
-ws = sheet(DICT_S, [16, 10, 13, 24, 44, 11, 9, 9, 9, 10, 30], freeze="A5")
-title_block(ws, "Category Dictionary — what to type", "The controlled vocabulary the application does not have. Type the short name exactly as it appears here, on upload and when filtering.", 11)
+ws = sheet(DICT_S, [16, 10, 13, 24, 40, 11, 9, 9, 9, 10, 26, 24], freeze="A5")
+title_block(ws, "Category Dictionary — what to type", "The controlled vocabulary the application does not have. Type the short name exactly as it appears here, on upload and when filtering. Rows below the 111 are yours to add.", 12)
 header_row(ws, 4, ["Specialty", "Topic ID", "Build\npriority", "SHORT NAME  —  type this",
                    "Full topic (taxonomy)", "Coverage\ncategory", "Target\ncharts",
-                   "In pool\nnow", "% of\ntarget", "Gap", "Notes"])
+                   "In pool\nnow", "% of\ntarget", "Gap", "Name check", "Notes"])
 r = DICT_FIRST
 for spec, cat, t in FLAT:
     tid = t[0]
@@ -292,6 +314,7 @@ for spec, cat, t in FLAT:
         '=COUNTIFS(%s,$A%d,%s,"*"&$D%d&"*",%s,"Active")' % (SPEC_R, r, CAT_R, r, STAT_R),
         "=IF($G%d=0,\"NA\",H%d/$G%d)" % (r, r, r),
         "=$G%d-H%d" % (r, r),
+        _namecheck(r),
         "",
     ]
     for c, v in enumerate(vals, start=1):
@@ -314,26 +337,58 @@ for spec, cat, t in FLAT:
         elif c == 9:
             cell.number_format = "0%"
             cell.alignment = CTR
+        elif c == 11:
+            cell.font, cell.alignment = F_SM, CTR
         elif c in (7, 8, 10):
             cell.alignment = CTR
             if c == 7:
                 cell.font = F_B
     ws.row_dimensions[r].height = 24
     r += 1
-ws.auto_filter.ref = "A4:K%d" % DICT_LAST
+# user slots: specialty, short name and target are typed; the rest computes
+for r in range(DICT_GOVERNED_LAST + 1, DICT_LAST + 1):
+    vals = [None, "—", "P2", None, "Added by the team — not in the composition taxonomy",
+            None, None,
+            '=IF($D%d="","",COUNTIFS(%s,$A%d,%s,"*"&$D%d&"*",%s,"Active"))' % (r, SPEC_R, r, CAT_R, r, STAT_R),
+            '=IF(OR($D%d="",$G%d=""),"NA",IF($G%d=0,"NA",H%d/$G%d))' % (r, r, r, r, r),
+            '=IF(OR($D%d="",$G%d=""),"",$G%d-H%d)' % (r, r, r, r),
+            _namecheck(r), None]
+    for c, v in enumerate(vals, start=1):
+        cell = ws.cell(row=r, column=c, value=v)
+        cell.font, cell.border, cell.alignment = F_N, BOX, TOP
+        if c in (1, 4, 7):
+            cell.fill = FILL_EDIT
+            cell.font = F_B
+            if c == 4:
+                cell.font = Font(name="Consolas", size=10, bold=True, color=NAVY)
+        if c == 2:
+            cell.font, cell.alignment = F_SM, CTR
+        if c == 3:
+            cell.alignment = CTR
+            cell.fill = FILL_EDIT
+        if c == 5:
+            cell.font, cell.alignment = F_SM, WRAP
+        if c == 9:
+            cell.number_format = "0%"
+        if c in (7, 8, 9, 10, 11):
+            cell.alignment = CTR
+    ws.row_dimensions[r].height = 22
+
+ws.auto_filter.ref = "A4:L%d" % DICT_LAST
 zebra(ws, DICT_FIRST, DICT_LAST, 11)
 tr = DICT_LAST + 1
 for c, v in [(1, "TOTAL"), (7, "=SUM(G%d:G%d)" % (DICT_FIRST, DICT_LAST)),
              (8, "=SUM(H%d:H%d)" % (DICT_FIRST, DICT_LAST)),
              (9, "=IF(G%d=0,\"NA\",H%d/G%d)" % (tr, tr, tr)),
-             (10, "=G%d-H%d" % (tr, tr))]:
+             (10, "=G%d-H%d" % (tr, tr)),
+             (11, '=COUNTIF(K%d:K%d,"CLASH*")&" name clash(es)"' % (DICT_FIRST, DICT_LAST))]:
     cell = ws.cell(row=tr, column=c, value=v)
     cell.font, cell.fill, cell.border, cell.alignment = F_H, FILL_H, BOX, CTR
     if c == 1:
         cell.alignment = TOP
     if c == 9:
         cell.number_format = "0%"
-for c in range(1, 12):
+for c in range(1, 13):
     if ws.cell(row=tr, column=c).value is None:
         ws.cell(row=tr, column=c).fill = FILL_H
         ws.cell(row=tr, column=c).border = BOX
@@ -344,8 +399,17 @@ ws.conditional_formatting.add("I%d:I%d" % (DICT_FIRST, DICT_LAST),
 ws.conditional_formatting.add("H%d:H%d" % (DICT_FIRST, DICT_LAST),
     CellIsRule(operator="equal", formula=["0"], fill=FILL_RED,
                font=Font(size=10, bold=True, color=RED)))
-note(ws, tr + 2, "In pool now counts ACTIVE charts whose category contains this short name, which is how the application matches. A chart filed as \"Sepsis, AKI\" counts under both Sepsis and AKI — correctly, because it teaches both.", 11)
-note(ws, tr + 3, "A consequence worth knowing: the In pool column can sum to more than the number of charts, because a multi-topic chart is counted under each topic it carries. Use Specialty Overview for a headcount of charts and this sheet for coverage of topics.", 11, FILL_AMBER)
+ws.conditional_formatting.add("K%d:K%d" % (DICT_FIRST, DICT_LAST),
+    FormulaRule(formula=['LEFT($K%d,5)="CLASH"' % DICT_FIRST],
+                fill=FILL_RED, font=Font(size=9, bold=True, color=RED)))
+ws.conditional_formatting.add("A%d:A%d" % (DICT_GOVERNED_LAST + 1, DICT_LAST),
+    FormulaRule(formula=['$D%d<>""' % (DICT_GOVERNED_LAST + 1)],
+                fill=FILL_AMBER))
+note(ws, tr + 2, "In pool now counts ACTIVE charts whose category contains this short name, which is how the application matches. A chart filed as \"Sepsis, Renal\" counts under both Sepsis and Renal — correctly, because it teaches both.", 12)
+note(ws, tr + 3, "A consequence worth knowing: the In pool column can sum to more than the number of charts, because a multi-topic chart is counted under each topic it carries. Use Specialty Overview for a headcount of charts and this sheet for coverage of topics.", 12, FILL_AMBER)
+note(ws, tr + 4, "THE LAST %d ROWS ARE YOURS. To track a topic the taxonomy does not have, type its specialty and a short name in the shaded cells; a target is optional and the coverage columns read NA without one. The name is counted from that moment, and the Leader Dashboard stops reporting charts carrying it as unrecognised." % EXTRA_SLOTS, 12, FILL_BLUE)
+note(ws, tr + 5, "Name check is the one guard that cannot be skipped. Because the application matches by substring, a name that contains or sits inside another name in the same specialty makes both counts wrong — \"Respiratory\" would pick up every \"Respiratory surgical\" chart. Pick a name that reads CLASH again until it reads OK.", 12, FILL_RED)
+note(ws, tr + 6, "A topic added here has no place in the composition taxonomy, so it carries no weight and no agreed target. If it turns out to be permanent, it belongs in that workbook properly — which means taking its share of charts from a sibling topic, since the weights must still sum to the HC parent percentage.", 12)
 
 # ============================================================ Lists sheet
 wsL = sheet("Lists", [18, 14, 13, 10, 10, 26], freeze=None)
@@ -393,14 +457,21 @@ for c, (n, w, kind) in enumerate(DB_COLS, start=1):
 ws.row_dimensions[4].height = 13
 header_row(ws, 5, [n for n, _, _ in DB_COLS], height=40)
 
-AUTOC = {C["Topics on chart"], C["Primary topic"], C["Upload month"],
-         C["Days in pool"], C["Matches filter"]}
+AUTOC = {C["Topics on chart"], C["Recognised"], C["Primary topic"],
+         C["Upload month"], C["Days in pool"], C["Matches filter"]}
 for r in range(DB_FIRST, DB_LAST + 1):
     n, cat = C["chart_number"], C["category"]
     # how many topics the chart carries = commas + 1
     f = ('=IF($%s%d="","",LEN($%s%d)-LEN(SUBSTITUTE($%s%d,",",""))+1)'
          % (n, r, cat, r, cat, r))
     c1 = ws.cell(row=r, column=ws[C["Topics on chart"] + "1"].column, value=f)
+    # How many dictionary short names appear in this chart's category string.
+    # Fewer than the comma count means at least one topic is not in the
+    # dictionary at all, which is the only way such a chart becomes visible.
+    f = ('=IF($%s%d="","",SUMPRODUCT(--ISNUMBER(SEARCH('
+         "'%s'!$D$%d:$D$%d&\"\",$%s%d)),--('%s'!$D$%d:$D$%d<>\"\")))"
+         % (n, r, DICT_S, DICT_FIRST, DICT_LAST, cat, r, DICT_S, DICT_FIRST, DICT_LAST))
+    c1b = ws.cell(row=r, column=ws[C["Recognised"] + "1"].column, value=f)
     # primary topic = text before the first comma
     f = ('=IF($%s%d="","",TRIM(IF(ISERROR(FIND(",",$%s%d)),$%s%d,'
          'LEFT($%s%d,FIND(",",$%s%d)-1))))' % (n, r, cat, r, cat, r, cat, r, cat, r))
@@ -428,7 +499,7 @@ for r in range(DB_FIRST, DB_LAST + 1):
             C["difficulty"], r, C["status"], r, C["Answer key"], r,
             C["created_at"], r, C["Times"], r)
     c5 = ws.cell(row=r, column=ws[C["Matches filter"] + "1"].column, value=f)
-    for cell in (c1, c2, c3, c4, c5):
+    for cell in (c1, c1b, c2, c3, c4, c5):
         cell.font, cell.fill, cell.border = F_AUTO, FILL_BAND, BOX
         cell.alignment = CTR
     c2.alignment = TOP
@@ -470,6 +541,11 @@ ws.conditional_formatting.add("%s%d:%s%d" % (C["Answer key"], DB_FIRST, C["Answe
 ws.conditional_formatting.add("%s%d:%s%d" % (C["Topics on chart"], DB_FIRST, C["Topics on chart"], DB_LAST),
     CellIsRule(operator="greaterThanOrEqual", formula=["2"], fill=FILL_BLUE,
                font=Font(size=9, bold=True, color=BLUE)))
+# Recognised < topics on chart: at least one name is not in the dictionary.
+ws.conditional_formatting.add("%s%d:%s%d" % (C["Recognised"], DB_FIRST, C["Recognised"], DB_LAST),
+    FormulaRule(formula=['AND($%s%d<>"",$%s%d<$%s%d)' % (
+        C["chart_number"], DB_FIRST, C["Recognised"], DB_FIRST, C["Topics on chart"], DB_FIRST)],
+        fill=FILL_RED, font=Font(size=9, bold=True, color=RED)))
 
 # ======================================================= Specialty Overview
 ws = sheet("Specialty Overview", [18, 8, 10, 10, 10, 10, 10, 11, 11, 11, 11, 11, 11, 24])
@@ -700,9 +776,17 @@ TILES = [
      "Carrying more than one category, so they cover more ground per chart."),
     ("Never assigned", '=COUNTIFS(%s,0,%s,"Active")' % (USED_R, STAT_R), "good",
      "Unseen by anyone — the reserve for assessments and reassessments."),
-    ("Topics with nothing at all", '=COUNTIF(%s,0)' % rg(DICT_S, "H", DICT_FIRST, DICT_LAST), "act",
+    ("Charts with an off-list category",
+     '=SUMPRODUCT(--(%s<>""),--(N(%s)<N(%s)))' % (
+         NUM_R, rg(DB, C["Recognised"], DB_FIRST, DB_LAST),
+         rg(DB, C["Topics on chart"], DB_FIRST, DB_LAST)), "act",
+     "Charts carrying a category name that is in no dictionary row. They count as charts but toward no topic's coverage, so they are invisible until registered."),
+    ("Name clashes in the dictionary",
+     '=COUNTIF(%s,"CLASH*")' % rg(DICT_S, "K", DICT_FIRST, DICT_LAST), "act",
+     "A short name that contains or sits inside another in the same specialty. Both of their counts are wrong until it is renamed."),
+    ("Topics with nothing at all", '=COUNTIFS(%s,0,%s,"<>")' % (rg(DICT_S, "H", DICT_FIRST, DICT_LAST), rg(DICT_S, "D", DICT_FIRST, DICT_LAST)), "act",
      "Of 111 topics, how many have no chart. The sourcing list, in one number."),
-    ("Topics below target", '=COUNTIF(%s,">0")' % rg(DICT_S, "J", DICT_FIRST, DICT_LAST), "warn",
+    ("Topics below target", '=COUNTIFS(%s,">0",%s,"<>")' % (rg(DICT_S, "J", DICT_FIRST, DICT_LAST), rg(DICT_S, "D", DICT_FIRST, DICT_LAST)), "warn",
      "Topics with a gap of one chart or more."),
     ("Uploaded this month", '=COUNTIFS(%s,">="&DATE(YEAR(TODAY()),MONTH(TODAY()),1),%s,"<="&TODAY())' % (CREATED_R, CREATED_R), "good",
      "The build rate, measured rather than assumed."),
@@ -824,6 +908,12 @@ CONV = [
  ("MAP", "Intermediate|Moderate|Multiple diagnoses or procedures, some sequencing decisions, modifiers or CC/MCC capture."),
  ("MAP", "Advanced|Complex|Conflicting or incomplete documentation, query opportunities, tricky guidelines, multiple edits in play."),
  ("P", "Enter the application's word on upload and in this workbook. Read the taxonomy's word when planning composition. Nobody should have to convert in their head, which is why the mapping is written down here rather than remembered."),
+ ("SEC", "A topic the taxonomy does not have"),
+ ("P", "The 111 topics are not a closed list, and nothing in the application enforces them. Two ways to add one, and they are not interchangeable:"),
+ ("KV", "For something that will last|It belongs in the composition taxonomy, with an ID, a weight and a target. That means taking its share of charts from a sibling topic, because the weights must still sum to the HC parent percentage. Ask for it and it is a ten-minute change to the taxonomy module, after which it appears in all three workbooks at once."),
+ ("KV", "For something provisional|Use the spare rows at the bottom of the Category Dictionary. Type the specialty and a short name; a target is optional. The name is counted from that moment and charts carrying it stop being reported as off-list. It carries no agreed target, so it appears in coverage as NA rather than as a gap."),
+ ("KV", "Either way, check the name|The Name check column must read OK. Because the application matches by substring, a name that contains or sits inside another in the same specialty makes both counts wrong — `Respiratory` would pick up every `Respiratory surgical` chart. This is why the governed names read `Respiratory medical` and `Thoracic surgical`."),
+ ("KV", "What happens if you skip both|The chart still counts as a chart on Specialty Overview, but toward no topic's coverage. The Leader Dashboard reports it under 'Charts with an off-list category' so it cannot sit unnoticed, which is the only reason that tile exists."),
  ("SEC", "What this does not solve"),
  ("P", "The application still accepts anything typed into either field. This workbook is the vocabulary, not an enforcement mechanism, so a category typed from memory rather than copied from the dictionary will still be accepted and will still fragment the counts. Enforcement needs the field to become a controlled list in the application, which is a code change and out of scope here."),
 ]
