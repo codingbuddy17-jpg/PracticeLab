@@ -25,6 +25,8 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.utils import get_column_letter
 from openpyxl.formatting.rule import CellIsRule, FormulaRule, DataBarRule
+from openpyxl.chart import LineChart, BarChart, PieChart, Reference
+from openpyxl.chart.label import DataLabelList
 
 from _chart_taxonomy_data import POOLS, TOPICS, priority_of, SHORT_NAME
 
@@ -417,11 +419,12 @@ note(ws, tr + 5, "Name check is the one guard that cannot be skipped. Because th
 note(ws, tr + 6, "A topic added here has no place in the composition taxonomy, so it carries no weight and no agreed target. If it turns out to be permanent, it belongs in that workbook properly — which means taking its share of charts from a sibling topic, since the weights must still sum to the HC parent percentage.", 12)
 
 # ============================================================ Lists sheet
-wsL = sheet("Lists", [18, 14, 13, 10, 10, 20, 26], freeze=None)
+wsL = sheet("Lists", [18, 14, 13, 10, 10, 20, 18, 14, 26], freeze=None)
 title_block(wsL, "Dropdown lists", "The source for every dropdown. Add a value here, never straight into a cell.", 6)
 LISTS = [("Specialty", SPECIALTIES), ("Difficulty", DIFFICULTY), ("Status", STATUS),
          ("Priority", ["P1", "P2", "P3", "P4"]), ("YesNo", YESNO),
-         ("QueryExpected", ["Yes", "No", "NA — not authored"])]
+         ("QueryExpected", ["Yes", "No", "NA — not authored"]),
+         ("SpecialtyAll", ["All"] + SPECIALTIES), ("DifficultyAll", ["All"] + DIFFICULTY)]
 LREF = {}
 for ci, (name, vals) in enumerate(LISTS, start=1):
     h = wsL.cell(row=4, column=ci, value=name)
@@ -431,10 +434,10 @@ for ci, (name, vals) in enumerate(LISTS, start=1):
         c.font, c.border = F_N, BOX
     col = get_column_letter(ci)
     LREF[name] = "Lists!$%s$5:$%s$%d" % (col, col, 4 + len(vals))
-h = wsL.cell(row=4, column=7, value="Short name (reference — 111)")
+h = wsL.cell(row=4, column=9, value="Short name (reference — 111)")
 h.font, h.fill, h.alignment, h.border = F_H, FILL_H, WRAP_C, BOX
-wsL.cell(row=5, column=7, value="See the Category Dictionary sheet; it carries the topic and target beside each name.").font = F_SM
-wsL.cell(row=5, column=7).alignment = WRAP
+wsL.cell(row=5, column=9, value="See the Category Dictionary sheet; it carries the topic and target beside each name.").font = F_SM
+wsL.cell(row=5, column=9).alignment = WRAP
 
 # validations on the Assignment Builder, now that Lists exists
 wsAB = wb["Assignment Builder"]
@@ -786,89 +789,204 @@ zebra(ws, ub_first, r - 1, 5)
 note(ws, r + 1, "Charts retired counts on Last assigned rather than a retirement date, because the application does not store one. Treat that row as indicative and record the real date in Notes if it matters.", 7, FILL_AMBER)
 note(ws, r + 2, "To see the charts behind any of these numbers, go to the Chart Database and filter created_at by the same window. Every figure here is a COUNTIFS over that sheet and nothing else.", 7)
 
-# ========================================================= Leader Dashboard
-ws = sheet("Leader Dashboard", [30, 13, 13, 4, 13, 13, 13, 4, 46])
-title_block(ws, "Chart pool — leader dashboard", "Everything is a formula over the Chart Database. Nothing on this sheet is typed. Built %s." % BUILT, 9)
 
-section(ws, 4, "THE POOL", 9)
+# ============================================== Chart Data (hidden helper)
+# Excel charts plot a contiguous range, and several of the figures worth
+# plotting are not contiguous anywhere else. These small tables exist only to
+# be plotted; the sheet is hidden so nobody mistakes it for a view.
+wsH = sheet("Chart Data", [26, 12, 12, 12])
+title_block(wsH, "Chart data", "Helper ranges for the dashboard charts. Hidden by design — nothing here is meant to be read directly.", 4)
+
+wsH["A5"] = "Difficulty mix"
+wsH["A5"].font = F_B
+for i, d in enumerate(DIFFICULTY):
+    wsH.cell(row=6 + i, column=1, value=d).font = F_N
+    wsH.cell(row=6 + i, column=2,
+             value='=COUNTIFS(%s,"%s",%s,"Active")' % (DIFF_R, d, STAT_R)).font = F_N
+
+wsH["A10"] = "Pool status"
+wsH["A10"].font = F_B
+for i, (lab, f) in enumerate([
+        ("Live in pool", '=COUNTIF(%s,"Active")' % STAT_R),
+        ("Retired", '=COUNTIF(%s,"Retired")' % STAT_R),
+        ("Still to source",
+         '=MAX(0,\'Specialty Overview\'!$C$12-COUNTIF(%s,"Active"))' % STAT_R)]):
+    wsH.cell(row=11 + i, column=1, value=lab).font = F_N
+    wsH.cell(row=11 + i, column=2, value=f).font = F_N
+
+wsH["A15"] = "Top 10 topic gaps"
+wsH["A15"].font = F_B
+for i in range(10):
+    r = 16 + i
+    # kth largest gap, and the topic name that carries it
+    wsH.cell(row=r, column=2, value="=IFERROR(LARGE(%s,%d),0)" % (
+        rg(DICT_S, "J", DICT_FIRST, DICT_LAST), i + 1)).font = F_N
+    wsH.cell(row=r, column=1, value=(
+        '=IFERROR(INDEX(%s,MATCH(1,INDEX((%s=$B%d)*(COUNTIF($A$%d:$A%d,%s)=0),0),0)),"")'
+        % (rg(DICT_S, "D", DICT_FIRST, DICT_LAST),
+           rg(DICT_S, "J", DICT_FIRST, DICT_LAST), r, 15, r - 1,
+           rg(DICT_S, "D", DICT_FIRST, DICT_LAST)))).font = F_N
+wsH.sheet_state = "hidden"
+
+# ========================================================= Leader Dashboard
+ws = sheet("Leader Dashboard", [28, 13, 12, 12, 12, 12, 4, 15, 12, 12, 12, 12, 12])
+title_block(ws, "Chart pool — leader dashboard", "Set the two filters and every figure below follows them. Charts refresh with the data. Nothing on this sheet is typed except the filters. Built %s." % BUILT, 13)
+
+# ---------------------------------------------------------------- filters
+section(ws, 4, "FILTER  —  every figure and chart below obeys these", 13)
+for i, (lab, default, listname, why) in enumerate([
+    ("Specialty", "All", "SpecialtyAll",
+     "All, or one specialty. The charts follow too."),
+    ("Difficulty", "All", "DifficultyAll",
+     "All, or one of the application's three values."),
+]):
+    r = 5 + i
+    a = ws.cell(row=r, column=1, value=lab)
+    a.font, a.fill, a.border, a.alignment = F_B, FILL_SUBH, BOX, TOP
+    b = ws.cell(row=r, column=2, value=default)
+    b.font, b.fill, b.border, b.alignment = Font(name="Calibri", bold=True, size=11, color=NAVY), FILL_EDIT, BOX, CTR
+    c = ws.cell(row=r, column=3, value=why)
+    c.font, c.alignment = F_SM, WRAP
+    ws.merge_cells(start_row=r, start_column=3, end_row=r, end_column=13)
+    dv = DataValidation(type="list", formula1="=%s" % LREF[listname], allow_blank=False,
+                        showDropDown=False)
+    dv.error = "Pick All, or one value from the list."
+    dv.errorTitle = "Not on the list"
+    ws.add_data_validation(dv)
+    dv.add("B%d" % r)
+# "*" matches any text, so one formula serves both All and a single pick
+SP = 'IF($B$5="All","*",$B$5)'
+DF = 'IF($B$6="All","*",$B$6)'
+
+# ---------------------------------------------------------------- headline
+section(ws, 8, "HEADLINE", 13)
 TILES = [
-    ("Charts in the pool", '=COUNTIF(%s,"Active")' % STAT_R, "",
-     "Active charts available to a batch right now."),
-    ("Target pool", "='Specialty Overview'!$C$12", "",
-     "The sum of the seven specialty targets from the composition taxonomy."),
-    ("Pool complete", "=IF(B6=0,\"NA\",B5/B6)", "pct",
+    ("Charts in the pool", '=COUNTIFS(%s,%s,%s,%s,%s,"Active")' % (SPEC_R, SP, DIFF_R, DF, STAT_R), "",
+     "Active charts matching the filter, available to a batch right now."),
+    ("Target pool", '=IF($B$5="All",\'Specialty Overview\'!$C$12,SUMIF(\'Specialty Overview\'!$A$5:$A$11,$B$5,\'Specialty Overview\'!$C$5:$C$11))', "",
+     "From the composition taxonomy. A difficulty filter does not change it, because targets are set per specialty, not per tier."),
+    ("Pool complete", "=IF(B10=0,\"NA\",B9/B10)", "pct",
      "Active against target. Reads NA before a target exists."),
-    ("Retired", '=COUNTIF(%s,"Retired")' % STAT_R, "",
-     "Kept as rows, not deleted, so the history of what left the pool survives."),
-    ("Cannot be graded", '=COUNTIFS(%s,"No",%s,"Active")' % (KEY_R, STAT_R), "act",
-     "Active charts with no answer key. These can reach a batch and then cannot be scored."),
-    ("Multi-topic charts", '=COUNTIFS(%s,">=2",%s,"Active")' % (rg(DB, C["Topics on chart"], DB_FIRST, DB_LAST), STAT_R), "good",
+    ("Retired", '=COUNTIFS(%s,%s,%s,%s,%s,"Retired")' % (SPEC_R, SP, DIFF_R, DF, STAT_R), "",
+     "Kept as rows rather than deleted, so what left the pool is still visible."),
+    ("Cannot be graded", '=COUNTIFS(%s,%s,%s,%s,%s,"No",%s,"Active")' % (SPEC_R, SP, DIFF_R, DF, KEY_R, STAT_R), "act",
+     "Active charts with no answer key. These reach a batch and then cannot be scored."),
+    ("Multi-topic charts", '=COUNTIFS(%s,%s,%s,%s,%s,">=2",%s,"Active")' % (SPEC_R, SP, DIFF_R, DF, rg(DB, C["Topics on chart"], DB_FIRST, DB_LAST), STAT_R), "good",
      "Carrying more than one category, so they cover more ground per chart."),
-    ("Never assigned", '=COUNTIFS(%s,0,%s,"Active")' % (USED_R, STAT_R), "good",
+    ("Never assigned", '=COUNTIFS(%s,%s,%s,%s,%s,0,%s,"Active")' % (SPEC_R, SP, DIFF_R, DF, USED_R, STAT_R), "good",
      "Unseen by anyone — the reserve for assessments and reassessments."),
-    ("Charts with an off-list category",
-     '=SUMPRODUCT(--(%s<>""),--(N(%s)<N(%s)))' % (
-         NUM_R, rg(DB, C["Recognised"], DB_FIRST, DB_LAST),
-         rg(DB, C["Topics on chart"], DB_FIRST, DB_LAST)), "act",
-     "Charts carrying a category name that is in no dictionary row. They count as charts but toward no topic's coverage, so they are invisible until registered."),
-    ("Name clashes in the dictionary",
-     '=COUNTIF(%s,"CLASH*")' % rg(DICT_S, "K", DICT_FIRST, DICT_LAST), "act",
-     "A short name that contains or sits inside another in the same specialty. Both of their counts are wrong until it is renamed."),
-    ("Topics with nothing at all", '=COUNTIFS(%s,0,%s,"<>")' % (rg(DICT_S, "H", DICT_FIRST, DICT_LAST), rg(DICT_S, "D", DICT_FIRST, DICT_LAST)), "act",
-     "Of 111 topics, how many have no chart. The sourcing list, in one number."),
-    ("Topics below target", '=COUNTIFS(%s,">0",%s,"<>")' % (rg(DICT_S, "J", DICT_FIRST, DICT_LAST), rg(DICT_S, "D", DICT_FIRST, DICT_LAST)), "warn",
-     "Topics with a gap of one chart or more."),
-    ("Uploaded this month", '=COUNTIFS(%s,">="&DATE(YEAR(TODAY()),MONTH(TODAY()),1),%s,"<="&TODAY())' % (CREATED_R, CREATED_R), "good",
+    ("Off-list category", '=SUMPRODUCT(--(%s<>""),--(N(%s)<N(%s)))' % (
+        NUM_R, rg(DB, C["Recognised"], DB_FIRST, DB_LAST),
+        rg(DB, C["Topics on chart"], DB_FIRST, DB_LAST)), "act",
+     "Carrying a category name in no dictionary row. Counted as charts, but toward no topic's coverage. Not filtered — this is a whole-pool figure."),
+    ("Audit-ready charts", '=COUNTIFS(%s,%s,%s,%s,%s,">=2",%s,"Active")' % (SPEC_R, SP, DIFF_R, DF, rg(DB, C["Audit versions"], DB_FIRST, DB_LAST), STAT_R), "good",
+     "Two or more authored versions, so rotation can actually vary what an auditor meets."),
+    ("Single-version charts", '=COUNTIFS(%s,%s,%s,%s,%s,1,%s,">0",%s,"Active")' % (SPEC_R, SP, DIFF_R, DF, rg(DB, C["Audit versions"], DB_FIRST, DB_LAST), rg(DB, C["Audit cycles"], DB_FIRST, DB_LAST), STAT_R), "warn",
+     "One version and already used, so every auditor meets the same planting. A tell."),
+    ("Topics with nothing at all", '=COUNTIFS(%s,0,%s,"<>")' % (
+        rg(DICT_S, "H", DICT_FIRST, DICT_LAST), rg(DICT_S, "D", DICT_FIRST, DICT_LAST)), "act",
+     "Topics with no chart. The sourcing list in one number. Whole pool, not filtered."),
+    ("Uploaded this month", '=COUNTIFS(%s,%s,%s,%s,%s,">="&DATE(YEAR(TODAY()),MONTH(TODAY()),1),%s,"<="&TODAY())' % (SPEC_R, SP, DIFF_R, DF, CREATED_R, CREATED_R), "good",
      "The build rate, measured rather than assumed."),
-    ("Uploaded last 90 days", '=COUNTIFS(%s,">="&TODAY()-90,%s,"<="&TODAY())' % (CREATED_R, CREATED_R), "",
-     "A steadier read than one month, which one trainer's backlog can distort."),
-    # MAX alone would include retired rows, which is what the label denies.
-    # SUMPRODUCT rather than MAXIFS, which needs Excel 2019 or later.
     ("Oldest active chart, days",
-     # Computed from created_at, not from the Days column: that column returns a
-     # text "" on empty rows, and text in arithmetic is #VALUE!. The blank mask
-     # is what stops an empty cell reading as 1900 and swamping the maximum.
-     '=SUMPRODUCT(MAX((%s="Active")*(%s<>"")*(TODAY()-%s)))' % (STAT_R, CREATED_R, CREATED_R), "warn",
-     "Days since the oldest chart was uploaded. Past about 540 it predates a code-set year."),
+     # MAX inside SUMPRODUCT, not a bare SUMPRODUCT: without it this sums every
+     # chart's age instead of reporting the oldest, which reads plausibly and
+     # is completely wrong.
+     '=SUMPRODUCT(MAX((%s="Active")*(%s<>"")*(((%s=$B$5)+($B$5="All"))>0)*(TODAY()-%s)))' % (
+         STAT_R, CREATED_R, SPEC_R, CREATED_R), "warn",
+     "Days since the oldest matching chart was uploaded. Past about 540 it predates a code-set year."),
 ]
 TONE = {"good": (FILL_GREEN, GREEN), "warn": (FILL_AMBER, AMBER), "act": (FILL_RED, RED)}
-r = 5
+r = 9
 for lab, formula, tone, why in TILES:
     a = ws.cell(row=r, column=1, value=lab)
     a.font, a.fill, a.border, a.alignment = F_LAB, FILL_CARD, BOX, Alignment(vertical="center", indent=1)
     b = ws.cell(row=r, column=2, value=formula)
     b.font, b.fill, b.border, b.alignment = F_VAL, FILL_CARD, BOX, CTR
     b.number_format = "0.0%" if tone == "pct" else "#,##0"
-    for cc in range(3, 10):
+    for cc in range(3, 14):
         ws.cell(row=r, column=cc).fill = FILL_CARD
     c = ws.cell(row=r, column=3, value=why)
     c.font, c.fill, c.alignment = F_SM, FILL_CARD, WRAP
-    ws.merge_cells(start_row=r, start_column=3, end_row=r, end_column=9)
-    ws.cell(row=r, column=9).border = BOX
-    ws.row_dimensions[r].height = max(20, 12 * (1 + len(why) // 110))
+    ws.merge_cells(start_row=r, start_column=3, end_row=r, end_column=13)
+    ws.cell(row=r, column=13).border = BOX
+    ws.row_dimensions[r].height = max(20, 12 * (1 + len(why) // 125))
     if tone in TONE:
         fill, colour = TONE[tone]
         ws.conditional_formatting.add("B%d" % r,
             CellIsRule(operator="greaterThan", formula=["0"], fill=fill,
                        font=Font(name="Calibri", bold=True, size=15, color=colour)))
     r += 1
-ws.conditional_formatting.add("B7",
+ws.conditional_formatting.add("B11",
     CellIsRule(operator="greaterThanOrEqual", formula=["0.8"], fill=FILL_GREEN,
                font=Font(name="Calibri", bold=True, size=15, color=GREEN)))
 
-r += 1
-section(ws, r, "BY SPECIALTY", 9)
+# ------------------------------------------------------------------ charts
+CH = r + 1
+section(ws, CH, "CHARTS  —  these refresh with the data, no action needed", 13)
+
+def _style(ch, title, h=7.4, w=13.6):
+    ch.title = title
+    ch.height, ch.width = h, w
+    ch.style = 2
+
+line = LineChart()
+_style(line, "Charts uploaded per month")
+line.add_data(Reference(wb["Monthly Trend"], min_col=9, min_row=7, max_row=31), titles_from_data=True)
+line.set_categories(Reference(wb["Monthly Trend"], min_col=1, min_row=8, max_row=31))
+line.y_axis.title, line.x_axis.title = "Charts", None
+ws.add_chart(line, "A%d" % (CH + 1))
+
+bar = BarChart()
+_style(bar, "Active against target, by specialty")
+bar.type, bar.grouping = "col", "clustered"
+bar.add_data(Reference(wb["Specialty Overview"], min_col=3, max_col=4, min_row=4, max_row=11), titles_from_data=True)
+bar.set_categories(Reference(wb["Specialty Overview"], min_col=1, min_row=5, max_row=11))
+ws.add_chart(bar, "H%d" % (CH + 1))
+
+pie = PieChart()
+_style(pie, "Difficulty mix of the live pool")
+pie.add_data(Reference(wsH, min_col=2, min_row=6, max_row=8), titles_from_data=False)
+pie.set_categories(Reference(wsH, min_col=1, min_row=6, max_row=8))
+pie.dataLabels = DataLabelList()
+pie.dataLabels.showVal, pie.dataLabels.showPercent = False, True
+ws.add_chart(pie, "A%d" % (CH + 17))
+
+pie2 = PieChart()
+_style(pie2, "Pool status against target")
+pie2.add_data(Reference(wsH, min_col=2, min_row=11, max_row=13), titles_from_data=False)
+pie2.set_categories(Reference(wsH, min_col=1, min_row=11, max_row=13))
+pie2.dataLabels = DataLabelList()
+pie2.dataLabels.showVal = True
+ws.add_chart(pie2, "H%d" % (CH + 17))
+
+gaps = BarChart()
+_style(gaps, "Ten largest topic gaps", h=7.4, w=28)
+gaps.type, gaps.grouping = "bar", "clustered"
+gaps.add_data(Reference(wsH, min_col=2, min_row=16, max_row=25), titles_from_data=False)
+gaps.set_categories(Reference(wsH, min_col=1, min_row=16, max_row=25))
+gaps.legend = None
+ws.add_chart(gaps, "A%d" % (CH + 33))
+
+r = CH + 49
+
+# -------------------------------------------------------------- by specialty
+section(ws, r, "BY SPECIALTY  —  the whole pool, ignoring the filters above", 13)
 r += 1
 header_row(ws, r, ["Specialty", "Target", "Active", "% of target", "Beginner",
-                   "Intermediate", "Advanced", "No key", "Status"], height=30)
+                   "Intermediate", "Advanced", "No key", "Audit ready",
+                   "Single ver.", "", "", "Status"], height=30)
 r += 1
 ls_first = r
 for i, spec in enumerate(SPECIALTIES):
-    src = 5 + i   # the row on Specialty Overview
+    src = 5 + i
     vals = [spec, "='Specialty Overview'!$C$%d" % src, "='Specialty Overview'!$D$%d" % src,
             "='Specialty Overview'!$G$%d" % src, "='Specialty Overview'!$H$%d" % src,
             "='Specialty Overview'!$I$%d" % src, "='Specialty Overview'!$J$%d" % src,
-            "='Specialty Overview'!$K$%d" % src, "='Specialty Overview'!$N$%d" % src]
+            "='Specialty Overview'!$K$%d" % src,
+            '=COUNTIFS(%s,$A%d,%s,">=2",%s,"Active")' % (SPEC_R, r, rg(DB, C["Audit versions"], DB_FIRST, DB_LAST), STAT_R),
+            '=COUNTIFS(%s,$A%d,%s,1,%s,">0",%s,"Active")' % (SPEC_R, r, rg(DB, C["Audit versions"], DB_FIRST, DB_LAST), rg(DB, C["Audit cycles"], DB_FIRST, DB_LAST), STAT_R),
+            None, None, "='Specialty Overview'!$N$%d" % src]
     for c, v in enumerate(vals, start=1):
         cell = ws.cell(row=r, column=c, value=v)
         cell.font, cell.border, cell.alignment = F_N, BOX, CTR
@@ -876,36 +994,43 @@ for i, spec in enumerate(SPECIALTIES):
             cell.font, cell.alignment = F_B, TOP
         if c == 4:
             cell.number_format = "0.0%"
-        if c == 9:
+        if c == 13:
             cell.font, cell.alignment = F_SM, WRAP
+    ws.merge_cells(start_row=r, start_column=11, end_row=r, end_column=12)
     ws.row_dimensions[r].height = 22
     r += 1
 ws.conditional_formatting.add("D%d:D%d" % (ls_first, r - 1),
     DataBarRule(start_type="num", start_value=0, end_type="num", end_value=1,
                 color=ACCENT, showValue=True, minLength=None, maxLength=None))
-ws.conditional_formatting.add("H%d:H%d" % (ls_first, r - 1),
-    CellIsRule(operator="greaterThan", formula=["0"], fill=FILL_RED,
-               font=Font(size=10, bold=True, color=RED)))
+for col, fill, colour in [("H", FILL_RED, RED), ("J", FILL_AMBER, AMBER)]:
+    ws.conditional_formatting.add("%s%d:%s%d" % (col, ls_first, col, r - 1),
+        CellIsRule(operator="greaterThan", formula=["0"], fill=fill,
+                   font=Font(size=10, bold=True, color=colour)))
+ws.conditional_formatting.add("I%d:I%d" % (ls_first, r - 1),
+    CellIsRule(operator="greaterThan", formula=["0"], fill=FILL_GREEN,
+               font=Font(size=10, bold=True, color=GREEN)))
 
 r += 1
-section(ws, r, "WHERE TO LOOK NEXT", 9)
+section(ws, r, "WHERE TO LOOK NEXT", 13)
 r += 1
 for text in [
-    "Topics with nothing at all  →  Category Dictionary, filter the In pool column to 0. That is the sourcing list.",
-    "Charts that cannot be graded  →  Chart Database, filter Answer key to No. Each one can reach a batch and then fail to score.",
-    "Who should practise what  →  Assignment Builder. Set the filters, then filter the database by Matches filter.",
-    "Is the build keeping up  →  Monthly Trend. The data bar in the Total column is the rate.",
-    "What changed lately  →  Recent Activity, by 7, 30 and 90 day windows and by trainer.",
-    "What a trainer should type  →  Category Dictionary, the SHORT NAME column. That is the whole vocabulary.",
+    "Topics with nothing at all  \u2192  Category Dictionary, filter In pool to 0. That is the sourcing list.",
+    "Charts that cannot be graded  \u2192  Chart Database, filter Answer key to No.",
+    "Charts with an off-list category  \u2192  Chart Database, filter Recognised below Topics on chart. Correct it, or register the name in the dictionary's spare rows.",
+    "Single-version audit charts  \u2192  Audit Versions. One version means every auditor meets the same planting.",
+    "Which version comes next  \u2192  Audit Versions, the NEXT column. It is arithmetic: uses modulo version count.",
+    "Who should practise what  \u2192  Assignment Builder, then filter the database by Matches filter.",
+    "What a trainer should type  \u2192  Category Dictionary, the SHORT NAME column.",
 ]:
     c = ws.cell(row=r, column=1, value=text)
     c.font, c.alignment = F_N, WRAP
-    ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=9)
+    ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=13)
     ws.row_dimensions[r].height = 17
     r += 1
 
-note(ws, r + 1, "Pool complete divides ACTIVE charts by the taxonomy target. It is a headcount: a chart carrying three topics still counts once here, and three times on the Category Dictionary, which is why that sheet's total is larger.", 9)
-note(ws, r + 2, "Every figure on this sheet reads Chart Database rows %d to %d. Paste beyond row %d and the dashboard silently stops counting the overflow, so extend the formulas rather than typing past the end." % (DB_FIRST, DB_LAST, DB_LAST), 9, FILL_RED)
+note(ws, r + 1, "The two filters drive the HEADLINE block only. The charts and the specialty table below show the whole pool deliberately: a trend line that moves when somebody changes a filter is read as a change in the data by the next person to open the file.", 13)
+note(ws, r + 2, "Four tiles ignore the filters because they are whole-pool questions: off-list categories, topics with nothing at all, and the two dictionary-level figures. Each says so in its own description.", 13)
+note(ws, r + 3, "Every figure reads Chart Database rows %d to %d. Paste beyond row %d and the dashboard silently stops counting the overflow." % (DB_FIRST, DB_LAST, DB_LAST), 13, FILL_RED)
 
 
 # =========================================================== Audit Versions
@@ -932,16 +1057,13 @@ ws.row_dimensions[4].height = 13
 header_row(ws, 5, [n_ for n_, _, _ in AUD_COLS], height=40)
 
 for r in range(AUD_FIRST, AUD_LAST + 1):
-    # specialty follows the chart, so it cannot disagree with the database
     f = ('=IF($A%d="","",IFERROR(INDEX(%s,MATCH($A%d,%s,0)),"UNKNOWN CHART"))'
          % (r, rg(DB, C["specialty"], DB_FIRST, DB_LAST), r,
             rg(DB, C["chart_number"], DB_FIRST, DB_LAST)))
     b = ws.cell(row=r, column=2, value=f)
-    # which version this is for its chart, counting active ones in sheet order
     f = ('=IF(OR($A%d="",$L%d<>"Active"),"",COUNTIFS($A$%d:$A%d,$A%d,$L$%d:$L%d,"Active"))'
          % (r, r, AUD_FIRST - 1, r, r, AUD_FIRST - 1, r))
     m = ws.cell(row=r, column=13, value=f)
-    # the allocator serves pool[uses mod count]; flag the row that is next
     f = ('=IF(OR($A%d="",$M%d=""),"",IF($M%d=IFERROR(INDEX(%s,MATCH($A%d,%s,0)),0),'
          '"NEXT",""))'
          % (r, r, r, rg(DB, C["Next version"], DB_FIRST, DB_LAST), r,
@@ -984,11 +1106,11 @@ ws.conditional_formatting.add("F%d:F%d" % (AUD_FIRST, AUD_LAST),
                font=Font(size=10, bold=True, color=BLUE)))
 
 n = AUD_LAST + 2
-note(ws, n, "Version rotation is arithmetic, not chance. The allocator serves pool[uses mod version count], so with three versions and seven previous uses the next cycle serves version 1 again. The NEXT column marks that row, and it moves on its own as the chart's use count changes.", len(AUD_COLS))
+note(ws, n, "Version rotation is arithmetic, not chance. The allocator serves pool[uses mod version count], so with three versions and seven previous uses the next cycle serves version 2. The NEXT column marks that row, and it moves on its own as the chart's use count changes.", len(AUD_COLS))
 note(ws, n + 1, "Rotation keys on the CHART's own use count, not on the cycle and not on the auditor. Keyed on the auditor, four auditors would meet three different versions in one sitting; keyed on the cycle, a chart that does not appear every cycle would be pinned to one version forever.", len(AUD_COLS))
-note(ws, n + 2, "A chart with ONE active version shows every auditor the same planting. That is a tell as soon as anyone has seen it, and the Chart Database flags it in amber once such a chart has been used. Two is the minimum for rotation to mean anything.", len(AUD_COLS), FILL_AMBER)
-note(ws, n + 3, "Planted findings of ZERO is legitimate and is shown in blue, not red: a curated clean chart. A set may carry no mutations and still author a query determination, which is why clean and authored are not mutually exclusive.", len(AUD_COLS))
-note(ws, n + 4, "Always plant exempts a set from the clean quota, so it is planted whenever drawn. Use it sparingly — a curated chart that never comes up clean becomes its own tell, which is the same failure as a chart that always carries the same version.", len(AUD_COLS), FILL_AMBER)
+note(ws, n + 2, "A chart with ONE active version shows every auditor the same planting. That is a tell as soon as anyone has seen it, and both the Chart Database and the dashboard flag it. Two is the minimum for rotation to mean anything.", len(AUD_COLS), FILL_AMBER)
+note(ws, n + 3, "Planted findings of ZERO is legitimate and reads blue, not red: a curated clean chart. A set may carry no mutations and still author a query determination, which is why clean and authored are not mutually exclusive.", len(AUD_COLS))
+note(ws, n + 4, "Always plant exempts a set from the clean quota, so it is planted whenever drawn. Use it sparingly — a curated chart that never comes up clean becomes its own tell, the same failure as a chart that always carries the same version.", len(AUD_COLS), FILL_AMBER)
 note(ws, n + 5, "Query expected applies to IP-DRG only. Blank is NA and is NOT scored against the auditor: the system cannot read whether documentation supported a code, so an unauthored answer is not an answer.", len(AUD_COLS))
 
 # ======================================================= Field Conventions
