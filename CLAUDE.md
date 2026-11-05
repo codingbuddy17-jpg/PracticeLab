@@ -201,10 +201,10 @@ string — a regenerated document carrying an old date is worse than an undated
 one, because the reader cannot tell it was refreshed. Never hand-edit a
 `.docx`: the next build silently discards the edit.
 
-The role access checklist is the auth build spec for the IT team: 70 actions
+The role access checklist is the auth build spec for the IT team: 74 actions
 across the four modules, each with the endpoint behind it, what the application
-gates TODAY, and a tick per role (Coder/Auditor 8, Trainer/Supervisor 33,
-Leader 52, Admin 64 — Admin is 64 not 70 because nobody submits another
+gates TODAY, and a tick per role (Coder/Auditor 8, Trainer/Supervisor 37,
+Leader 56, Admin 68 of 74 — Admin is not 74 because nobody submits another
 person's session). Roles are ordered supersets, not independent permission
 sets. Every row was read off the `@router` decorators, so Gate TODAY is what
 the code enforces rather than what anyone intended.
@@ -216,14 +216,37 @@ column flags every row the business moved, which is the list to walk IT
 through. The sheet is protected without a password and only the tick cells are
 unlocked, so a stray keystroke cannot break a formula.
 
-It records **six asymmetries, flagged on eight rows** — pairs where the app
+**The passphrase is enforced three ways, and only one is greppable.** An
+inline `if passphrase != MASTER_PASSPHRASE`, a helper call
+`require_passphrase(payload.passphrase, "...")`, and a dependency
+`_: None = Depends(require_passphrase)` — the third has no comparison line at
+all, and five routes use it (the question bank, question edit, question status,
+response override). A nested compare under `if chart.uploaded_by != actor` is
+conditional on ownership, not absolute. Searching for the word reports 42
+routes; **37 actually enforce it, 30 always and 7 conditionally**. Never
+establish a gate by text search.
+
+Conditional gates worth knowing: chart edit, retire, restore and add-files key
+on ownership; both bulk key uploads gate only when `replace` is set; and
+`upsert_answer_key_inline` gates only when a key already exists — so **the
+first answer key written to a chart is ungated in both IP/OP and E/M**, while
+changing one is gated.
+
+It records **five gaps and asymmetries** — pairs where the app
 gates one action and leaves its twin open, so one of the two is wrong today
 whatever the role model becomes. The worst: `GET /auditor/batches/{id}/plantings`
 is ungated, which does not merely leak answers but voids the restraint
 measurement the auditor module exists to produce; `POST /practicelab/em/answer-key`
-writes a key with no gate while the IP/OP equivalent needs the passphrase; and
+edits a key with no gate while the IP/OP equivalent needs the passphrase; and
 `GET /practicelab/answer-key/{id}/detail` reads per-chart keys ungated while the
 bulk export is gated, which protects nothing. Fix those regardless of roles.
+
+Two earlier claims were WITHDRAWN on checking the code: allocation and batch
+close are ungated in BOTH PracticeLab and Auditor, so neither was an asymmetry.
+Replacing a chart's page files IS stricter than adding them, deliberately, with
+a comment saying it destroys the only copy — design, not defect. 52 of the 74
+rows are now cross-checked against the routers mechanically, and the builder
+reports any mismatch.
 
 **`category` is free text, and the app never parses it.** Upload stores the
 string verbatim (`meta["category"].strip()`); the allocator splits the

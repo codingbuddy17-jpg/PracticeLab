@@ -51,18 +51,28 @@ RISK = {
 }
 
 # (module, action, risk, gate today, coder, trainer, leader, admin, note)
-# Gate today is what the code enforces. A note marked ASYMMETRY is a finding.
+#
+# Gate TODAY is VERIFIED, not inferred. Each value was established by finding
+# the route's own enforcement, which takes three forms in this codebase and a
+# text search for "passphrase" catches only the first:
+#   1. an inline compare    if passphrase != MASTER_PASSPHRASE
+#   2. a helper call        require_passphrase(payload.passphrase, "...")
+#   3. a dependency         _: None = Depends(require_passphrase)
+# Form 3 has no comparison line at all. A nested compare under
+# "if chart.uploaded_by != actor" is also conditional, not absolute.
+# Verified count: 37 routes enforce it -- 30 always, 7 conditionally.
 A = [
  ("Chart Management", "View and search the chart library", "Read", "None", 1,1,1,1, ""),
  ("Chart Management", "Send chart feedback", "Own work", "None", 1,1,1,1, ""),
  ("Chart Management", "Upload new charts", "Create", "None", 0,1,1,1, ""),
- ("Chart Management", "Edit a chart you uploaded", "Edit", "None", 0,1,1,1, ""),
+ ("Chart Management", "Edit a chart you uploaded", "Edit", "None", 0,1,1,1, "update_chart gates only when uploaded_by differs from the actor"),
  ("Chart Management", "Edit a chart someone else uploaded", "Edit", "Passphrase", 0,0,1,1, ""),
- ("Chart Management", "Add or replace chart page files", "Edit", "Passphrase", 0,0,1,1, ""),
+ ("Chart Management", "Add page files to a chart", "Edit", "Passphrase if not yours", 0,1,1,1, "Appending is additive and undoable, so it follows the ownership rule"),
+ ("Chart Management", "Replace a chart's page files", "Destructive", "Passphrase", 0,0,1,1, "Always gated, by design: destroys the only copy of the original pages"),
  ("Chart Management", "Resolve or reopen chart feedback", "Edit", "None", 0,1,1,1, ""),
- ("Chart Management", "Retire a chart", "Destructive", "Passphrase", 0,0,1,1, "Revokes access to the chart and its images"),
- ("Chart Management", "Restore a retired chart", "Destructive", "Passphrase", 0,0,1,1, ""),
- ("Chart Management", "Purge a chart permanently", "Irreversible", "Passphrase", 0,0,0,1, "Row and images gone; graded results lose their target"),
+ ("Chart Management", "Retire a chart you uploaded", "Destructive", "None", 0,1,1,1, "Ownership rule again: your own chart retires without the passphrase"),
+ ("Chart Management", "Retire or restore someone else's chart", "Destructive", "Passphrase", 0,0,1,1, "Revokes access to the chart and its images"),
+ ("Chart Management", "Purge a chart permanently", "Irreversible", "Passphrase", 0,0,0,1, "Always gated. Row and images gone; refused if a key or grading history exists"),
  ("Chart Management", "Export the chart library report", "Sensitive read", "None", 0,1,1,1, ""),
  ("Chart Management", "Load the CMS code sets", "Config", "Passphrase", 0,0,0,1, "~186,000 rows; a wrong source changes what auditors are scored on"),
 
@@ -72,20 +82,23 @@ A = [
  ("PracticeLab", "Create a batch", "Create", "None", 0,1,1,1, ""),
  ("PracticeLab", "Add coders to a batch", "Edit", "None", 0,1,1,1, ""),
  ("PracticeLab", "Generate practice session tokens", "Create", "None", 0,1,1,1, ""),
- ("PracticeLab", "Run allocation", "Edit", "Passphrase", 0,1,1,1, "ASYMMETRY: gated here, ungated in Auditor"),
- ("PracticeLab", "Close a batch", "Edit", "None", 0,1,1,1, "ASYMMETRY: ungated here, gated in Auditor"),
+ ("PracticeLab", "Run allocation", "Edit", "None", 0,1,1,1, ""),
+ ("PracticeLab", "Close a batch", "Edit", "None", 0,1,1,1, "Ends the write window for every coder on it"),
  ("PracticeLab", "Release or reassign a session", "Edit", "None", 0,1,1,1, ""),
  ("PracticeLab", "Grade an ED chart by hand", "Edit", "None", 0,1,1,1, ""),
  ("PracticeLab", "Regrade a submitted session", "Edit", "None", 0,0,1,1, "Changes a score already shown to a coder"),
  ("PracticeLab", "Reopen a closed batch", "Destructive", "Passphrase", 0,0,1,1, "Re-opens the write window a close deliberately shut"),
  ("PracticeLab", "Force-close a batch", "Destructive", "Passphrase", 0,0,1,1, ""),
- ("PracticeLab", "Enter or edit an IP/OP answer key", "Key / answer", "Passphrase", 0,1,1,1, "A wrong key silently grades everyone against it"),
- ("PracticeLab", "Upload answer keys in bulk", "Key / answer", "Passphrase", 0,1,1,1, ""),
- ("PracticeLab", "Enter or edit an E/M answer key", "Key / answer", "NONE", 0,1,1,1, "ASYMMETRY: the IP/OP equivalent is gated, this is not"),
+ ("PracticeLab", "View every open batch", "Sensitive read", "Passphrase", 0,0,1,1, "Cross-batch visibility; gated today"),
+ ("PracticeLab", "Create a NEW IP/OP answer key", "Key / answer", "None", 0,1,1,1, "Gated only when a key already exists, so the first write is open"),
+ ("PracticeLab", "Edit an EXISTING IP/OP answer key", "Key / answer", "Passphrase", 0,1,1,1, "A wrong key silently grades everyone against it"),
+ ("PracticeLab", "Upload answer keys in bulk", "Key / answer", "Passphrase to replace", 0,1,1,1, "Gated only when replace is set; adding new keys is open"),
+ ("PracticeLab", "Enter or edit an E/M answer key", "Key / answer", "NONE", 0,1,1,1, "ASYMMETRY: editing an existing IP/OP key is gated, the E/M equivalent is not"),
+ ("PracticeLab", "Upload E/M answer keys in bulk", "Key / answer", "Passphrase to replace", 0,1,1,1, ""),
  ("PracticeLab", "Delete an answer key (IP/OP)", "Irreversible", "Passphrase", 0,0,0,1, ""),
  ("PracticeLab", "Delete an E/M answer key", "Irreversible", "Passphrase", 0,0,0,1, ""),
- ("PracticeLab", "View or export all answer keys", "Sensitive read", "Passphrase", 0,0,1,1, "Top of the protect list: leaks void every score"),
- ("PracticeLab", "Read one chart's answer key detail", "Sensitive read", "None", 0,1,1,1, "ASYMMETRY: the export is gated, the per-chart read is not"),
+ ("PracticeLab", "Export every answer key", "Sensitive read", "Passphrase", 0,0,1,1, "Top of the protect list: a leak voids every score"),
+ ("PracticeLab", "Read one chart's answer key", "Sensitive read", "None", 0,1,1,1, "ASYMMETRY: the bulk export is gated, the per-chart read is not"),
  ("PracticeLab", "Change the scoring config (IP/OP)", "Config", "Passphrase", 0,0,0,1, "Re-weights every result, past and future"),
  ("PracticeLab", "Change the E/M scoring config", "Config", "Passphrase", 0,0,0,1, ""),
  ("PracticeLab", "View analytics and results", "Read", "None", 0,1,1,1, ""),
@@ -95,9 +108,9 @@ A = [
  ("Auditor", "Open own audit session and save a draft", "Own work", "Access code", 1,0,0,0, ""),
  ("Auditor", "Submit own audit session", "Own work", "Code + batch open", 1,0,0,0, ""),
  ("Auditor", "Create an audit batch", "Create", "None", 0,1,1,1, ""),
- ("Auditor", "Run audit allocation", "Edit", "NONE", 0,1,1,1, "ASYMMETRY: PracticeLab's equivalent is gated"),
+ ("Auditor", "Run audit allocation", "Edit", "None", 0,1,1,1, ""),
  ("Auditor", "Regenerate an assignment before it is opened", "Edit", "None", 0,1,1,1, "Locked once the auditor opens the chart"),
- ("Auditor", "Close an audit batch", "Edit", "Passphrase", 0,1,1,1, ""),
+ ("Auditor", "Close an audit batch", "Edit", "None", 0,1,1,1, ""),
  ("Auditor", "Reopen an audit batch", "Destructive", "Passphrase", 0,0,1,1, ""),
  ("Auditor", "Force-close an audit batch", "Destructive", "Passphrase", 0,0,1,1, ""),
  ("Auditor", "Create an error set (audit version)", "Key / answer", "Passphrase", 0,1,1,1, ""),
@@ -105,7 +118,7 @@ A = [
  ("Auditor", "Set the critical-care boundary flag", "Key / answer", "Passphrase", 0,1,1,1, "Decides whether 99285 vs 99291 may be planted at all"),
  ("Auditor", "Delete an error set", "Irreversible", "Passphrase", 0,0,0,1, ""),
  ("Auditor", "Preview a planted set", "Sensitive read", "None", 0,1,1,1, ""),
- ("Auditor", "View the planted errors for a batch", "Sensitive read", "NONE", 0,0,1,1, "ASYMMETRY: the most damaging leak in the app is ungated"),
+ ("Auditor", "View the planted errors for a batch", "Sensitive read", "NONE", 0,0,1,1, "GAP: the most damaging read in the app, and nothing gates it"),
  ("Auditor", "Export audit keys", "Sensitive read", "Passphrase", 0,0,1,1, ""),
  ("Auditor", "Change the audit score config", "Config", "Passphrase", 0,0,0,1, ""),
  ("Auditor", "View audit analytics and export", "Read", "None", 0,1,1,1, ""),
@@ -114,17 +127,17 @@ A = [
  ("Assessment", "Upload questions", "Create", "None", 0,1,1,1, ""),
  ("Assessment", "Generate an assessment", "Create", "None", 0,1,1,1, ""),
  ("Assessment", "Create sessions and issue tokens", "Create", "None", 0,1,1,1, ""),
- ("Assessment", "View the question bank", "Sensitive read", "Passphrase", 0,0,1,1, "Reused across cohorts: one leak contaminates every future sitting"),
- ("Assessment", "Edit a question", "Edit", "Passphrase", 0,0,1,1, ""),
- ("Assessment", "Change a question's status", "Edit", "Passphrase", 0,0,1,1, ""),
+ ("Assessment", "View the question bank", "Sensitive read", "Passphrase", 0,0,1,1, "Gated by a Depends, not an inline check. Reused across cohorts: one leak contaminates every future sitting"),
+ ("Assessment", "Edit a question", "Edit", "Passphrase", 0,0,1,1, "Gated by a Depends"),
+ ("Assessment", "Change a question's status", "Edit", "Passphrase", 0,0,1,1, "Gated by a Depends"),
  ("Assessment", "Export questions", "Sensitive read", "Passphrase", 0,0,1,1, ""),
- ("Assessment", "Export an assessment's answer key", "Sensitive read", "NONE", 0,0,1,1, "ASYMMETRY: the question bank is gated, this key export is not"),
+ ("Assessment", "Export an assessment's answer key", "Sensitive read", "NONE", 0,0,1,1, "ASYMMETRY: the question bank behind it is gated, this key export is not"),
  ("Assessment", "Export responses and student PDFs", "Sensitive read", "None", 0,1,1,1, ""),
  ("Assessment", "View the assessment audit log", "Sensitive read", "Passphrase", 0,0,1,1, ""),
  ("Assessment", "Delete sessions", "Destructive", "NONE", 0,0,1,1, "ASYMMETRY: deleting the assessment is gated, deleting its sessions is not"),
  ("Assessment", "Delete a question", "Irreversible", "Passphrase", 0,0,0,1, ""),
  ("Assessment", "Delete an assessment", "Irreversible", "Passphrase", 0,0,0,1, ""),
- ("Assessment", "Override a coder's response", "Irreversible", "Passphrase", 0,0,0,1, "Changes a graded answer; integrity, not convenience"),
+ ("Assessment", "Override a coder's response", "Irreversible", "Passphrase", 0,0,0,1, "Gated by a Depends. Changes a graded answer; integrity, not convenience"),
 
  ("System", "Manage coding resources", "Edit", "None", 0,1,1,1, ""),
 ]
@@ -137,10 +150,11 @@ EP = {
  "Upload new charts": "POST /upload/bulk · POST /upload/preview",
  "Edit a chart you uploaded": "PATCH /charts/{id}",
  "Edit a chart someone else uploaded": "PATCH /charts/{id}",
- "Add or replace chart page files": "POST /upload/{id}/add-files · /replace-files",
+ "Add page files to a chart": "POST /upload/{chart_id}/add-files",
+ "Replace a chart's page files": "POST /upload/{chart_id}/replace-files",
  "Resolve or reopen chart feedback": "POST /feedback/{id}/resolve · /reopen",
- "Retire a chart": "POST /charts/{id}/retire",
- "Restore a retired chart": "POST /charts/{id}/restore",
+ "Retire a chart you uploaded": "POST /charts/{chart_id}/retire",
+ "Retire or restore someone else's chart": "POST /charts/{chart_id}/retire · /restore",
  "Purge a chart permanently": "DELETE /charts/{id}/purge",
  "Export the chart library report": "GET /reports/export",
  "Load the CMS code sets": "POST /codes/ingest-job",
@@ -157,13 +171,16 @@ EP = {
  "Regrade a submitted session": "POST /practicelab/practice-sessions/{id}/regrade",
  "Reopen a closed batch": "POST /practicelab/batches/{id}/reopen",
  "Force-close a batch": "POST /practicelab/batches/{id}/force-close",
- "Enter or edit an IP/OP answer key": "PUT /practicelab/answer-key/{chart_id}",
+ "Create a NEW IP/OP answer key": "PUT /practicelab/answer-key/{chart_id}  (ungated while no key exists)",
+ "Edit an EXISTING IP/OP answer key": "PUT /practicelab/answer-key/{chart_id}",
+ "Upload E/M answer keys in bulk": "POST /practicelab/em/answer-key/upload",
+ "View every open batch": "GET /practicelab/admin/open-batches",
  "Upload answer keys in bulk": "POST /practicelab/answer-key/upload",
  "Enter or edit an E/M answer key": "POST /practicelab/em/answer-key",
  "Delete an answer key (IP/OP)": "DELETE /practicelab/answer-key/{chart_id}",
  "Delete an E/M answer key": "DELETE /practicelab/em/answer-key/{chart_id}",
- "View or export all answer keys": "GET /practicelab/answer-key/export · /status",
- "Read one chart's answer key detail": "GET /practicelab/answer-key/{id}/detail · /em/answer-key/{id}",
+ "Export every answer key": "GET /practicelab/answer-key/export",
+ "Read one chart's answer key": "GET /practicelab/answer-key/{chart_id}/detail · /em/answer-key/{chart_id}",
  "Change the scoring config (IP/OP)": "PUT /practicelab/config/scoring",
  "Change the E/M scoring config": "PUT /practicelab/em/scoring-config",
  "View analytics and results": "GET /practicelab/analytics/* · /results/*",
@@ -403,7 +420,7 @@ ws.cell(row=r, column=1, value="HOW TO READ AND USE THIS").font = Font(name="Cal
 r += 1
 for text in [
     "Gate TODAY is what the running application enforces right now — Passphrase, an access code, or NONE. It was read off the routes, not assumed.",
-    "Eight rows are marked ASYMMETRY, covering six pairs: the application gates an action in one module and leaves its twin ungated. Those are defects, not design, and the Build Reference tab lists them with their endpoints.",
+    "Five rows are marked ASYMMETRY or GAP: the application gates an action and leaves a comparable one open. Those are defects, not design, and the Build Reference tab lists them with their endpoints. Two more that an earlier draft of this sheet named have been WITHDRAWN after checking the code: allocation and batch close are ungated in both modules, so neither was an asymmetry.",
     "Required gate is what the role column implies. Where it disagrees with Gate TODAY, that row is work for the auth layer.",
     "Enforce on the SERVER, per route. Hiding a button is not a control: every row here is an HTTP endpoint anyone on the network can call directly today.",
     "Roles are exclusive and do not compose. A person holds exactly one. Leader includes everything Trainer has; Admin includes everything Leader has.",
@@ -494,17 +511,18 @@ ws2.sheet_properties.pageSetUpPr.fitToPage = True
 ws2.print_title_rows = "%d:%d" % (h, h)
 
 r += 1
-ws2.cell(row=r, column=1, value="SIX ASYMMETRIES, FLAGGED ON EIGHT ROWS  —  fix these whatever the role model ends up being").font = Font(name="Calibri", bold=True, size=11, color=RED)
+ws2.cell(row=r, column=1, value="FIVE GAPS AND ASYMMETRIES  —  fix these whatever the role model ends up being").font = Font(name="Calibri", bold=True, size=11, color=RED)
 ws2.merge_cells(start_row=r, start_column=1, end_row=r, end_column=7)
 r += 1
 for text in [
- "These are not role decisions. In each pair the application already gates one action and leaves its twin open, so one of the two is wrong today regardless of who ends up holding which role. Six pairs, flagged on eight rows, because two of them are visible from both sides.",
- "1.  E/M answer keys write with NO gate, while the IP/OP equivalent needs the passphrase. POST /practicelab/em/answer-key against PUT /practicelab/answer-key/{id}. A wrong key silently grades everyone against it, and this is the cheaper half to reach.",
- "2.  Audit allocation runs with NO gate, while PracticeLab's allocation needs the passphrase. POST /auditor/batches/{id}/run-allocation against POST /practicelab/batches/{id}/run-allocation.",
- "3.  PracticeLab batch close is ungated; the auditor's close needs the passphrase. The mirror image of the row above, in the same pair of modules.",
- "4.  The planted-error list is ungated: GET /auditor/batches/{id}/plantings and /sessions/{id}/review. This is the single most damaging read in the application — it does not merely leak answers, it voids the restraint measurement the auditor module exists to produce.",
- "5.  Per-chart answer keys read with NO gate, while the bulk export needs the passphrase. GET /practicelab/answer-key/{id}/detail and /em/answer-key/{id}. Gating the export and not the read protects nothing: the same data, one chart at a time.",
- "6.  An assessment's answer key exports with NO gate, while the question bank behind it is gated. GET /assessment/{id}/export-answer-key. Deleting sessions is ungated too, while deleting the assessment is gated: DELETE /assessment/{id}/sessions.",
+ "Not role decisions. In each case the application gates one action and leaves a comparable one open, so one of the two is wrong today whatever role model you land on. Every gate below was read off the route's own enforcement, including the ones injected as a FastAPI dependency, which a search for the word \"passphrase\" does not find.",
+ "1.  THE PLANTED-ERROR LIST IS UNGATED.  GET /auditor/batches/{id}/plantings and GET /auditor/sessions/{id}/review. The single most damaging read in the application: it does not merely leak answers, it voids the restraint measurement the auditor module exists to produce. Nothing comparable is left open anywhere else.",
+ "2.  E/M answer keys edit with NO gate, while editing an existing IP/OP key needs the passphrase. POST /practicelab/em/answer-key against PUT /practicelab/answer-key/{chart_id}. The same data, the same consequence, one of them free.",
+ "3.  Per-chart answer keys read with NO gate, while the bulk export needs it. GET /practicelab/answer-key/{chart_id}/detail and /em/answer-key/{chart_id}. Gating the export and not the read protects nothing: it is the same keys, one chart at a time.",
+ "4.  An assessment's answer key exports with NO gate, while the question bank behind it is gated by a dependency. GET /assessment/{id}/export-answer-key against GET /assessment/questions.",
+ "5.  Deleting an assessment's sessions is ungated, while deleting the assessment is gated. DELETE /assessment/{id}/sessions against DELETE /assessment/{id}.",
+ "AND ONE PATTERN WORTH DECIDING ON: the FIRST answer key written to a chart is ungated in both IP/OP and E/M. PUT /practicelab/answer-key/{chart_id} checks the passphrase only when a key already exists, and the bulk uploads check it only when replace is set. So creating a key is open and changing one is gated, which is a defensible rule but an undocumented one -- and it is why two rows on the checklist split what used to be a single \"enter or edit a key\" line.",
+ "WITHDRAWN after reading the code, and listed here because an earlier draft of this workbook named them as defects:  allocation is ungated in BOTH PracticeLab and Auditor, not gated in one;  batch close is ungated in BOTH, not gated in the auditor.  Neither was an asymmetry. Replacing a chart's page files IS stricter than adding them, but deliberately so, with a comment in the code explaining that it destroys the only copy of the original pages -- design, not defect.",
 ]:
     c = ws2.cell(row=r, column=1, value=text)
     c.font, c.alignment = (F_N if text[0].isdigit() else F_SM), WRAP
@@ -518,9 +536,10 @@ r += 1
 for lab, val, why in [
     ("API operations", "207", "Counted by walking every @router decorator in backend/routers."),
     ("With no authentication of any kind", "165  (80%)", "No login, no session cookie, no token validation on a route, no auth dependency anywhere."),
-    ("Behind the single shared passphrase", "42", "One secret, held by everyone who needs it. It cannot say who used it."),
+    ("Routes enforcing the passphrase", "37", "30 always, 7 only conditionally — on ownership, on replace, or on a key already existing. A text search for the word reports 42, because it counts routes that merely pass it through."),
+    ("Of those, gated by a dependency", "5", "_: None = Depends(require_passphrase) — real enforcement with no comparison line, so a text search misses all five."),
     ("Mutating operations", "74", "POST, PUT, PATCH or DELETE. 7 are outright deletes."),
-    ("Sensitive reads", "45", "Answer keys, planted errors, the question bank, exports and the audit log."),
+    ("Sensitive reads", "45", "Answer keys, planted errors, the question bank, exports and the audit log. 4 of the actions on the checklist are ungated today."),
     ("User records in the database", "0", "46 tables, none of them a person. A coder is a name typed into browser storage."),
 ]:
     a = ws2.cell(row=r, column=1, value=lab)
