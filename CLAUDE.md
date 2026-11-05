@@ -209,6 +209,13 @@ person's session). Roles are ordered supersets, not independent permission
 sets. Every row was read off the `@router` decorators, so Gate TODAY is what
 the code enforces rather than what anyone intended.
 
+Three states per cell, not two: tick allowed, cross NOT allowed, blank NOT YET
+DECIDED, each with its own live count row — a blank must never read as a
+considered refusal. A hidden column holds the shipped proposal and a CHANGED
+column flags every row the business moved, which is the list to walk IT
+through. The sheet is protected without a password and only the tick cells are
+unlocked, so a stray keystroke cannot break a formula.
+
 It records **six asymmetries, flagged on eight rows** — pairs where the app
 gates one action and leaves its twin open, so one of the two is wrong today
 whatever the role model becomes. The worst: `GET /auditor/batches/{id}/plantings`

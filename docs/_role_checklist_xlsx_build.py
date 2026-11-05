@@ -18,7 +18,7 @@ Dated when it is built, not when someone remembered to change a string.
 """
 import datetime as _dt
 from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side, Protection
 from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.utils import get_column_letter
 from openpyxl.formatting.rule import FormulaRule
@@ -34,6 +34,7 @@ RED, RED_BG = "A4262C", "FCE8E6"
 BLUE, BLUE_BG = "1F5C99", "E7F0FA"
 
 TICK = "✓"
+NO = "✗"   # explicit NOT allowed, so a blank means "not yet decided"
 ROLES = ["Coder /\nAuditor", "Trainer /\nSupervisor", "Leader", "Admin"]
 
 # risk classes, worst first; the fill is the row's own colour
@@ -271,11 +272,13 @@ ws.row_dimensions[HDR].height = 26
 # the role columns sit at E..H after the two gate columns -> recompute
 ROLE_COLS = ["F", "G", "H", "I"]
 # rebuild the header to match 10 columns
-for c, lab in enumerate(["Module", "Action", "Risk", "Gate TODAY", "Required gate"] + ROLES + ["Note"], start=1):
+for c, lab in enumerate(["Module", "Action", "Risk", "Gate TODAY", "Required gate"] + ROLES
+                        + ["Note", "Changed from\nproposal?", "proposal"], start=1):
     cell = ws.cell(row=HDR, column=c, value=lab)
     cell.font, cell.fill, cell.alignment, cell.border = F_H, FILL_H, WRAP_C, BOX
-for col, w in zip("ABCDEFGHIJ", [14, 44, 13, 13, 24, 9, 10, 8, 8, 40]):
+for col, w in zip("ABCDEFGHIJKL", [14, 42, 12, 12, 21, 9, 10, 8, 8, 36, 11, 2]):
     ws.column_dimensions[col].width = w
+ws.column_dimensions["L"].hidden = True
 
 r = HDR + 1
 first = r
@@ -288,8 +291,11 @@ for mod, act, risk, gate, co, tr, le, ad, note in A:
                 "Trainer and above" if (tr and not co) else
                 "Own session only" if (co and not tr) else
                 "Any signed-in user")
-    vals = [mod if mod != last_mod else "", act, risk, gate, required,
-            TICK if co else "", TICK if tr else "", TICK if le else "", TICK if ad else "", note]
+    marks = [TICK if f else NO for f in (co, tr, le, ad)]
+    vals = ([mod if mod != last_mod else "", act, risk, gate, required]
+            + marks + [note,
+                       '=IF($L%d="","",IF($F%d&$G%d&$H%d&$I%d=$L%d,"","CHANGED"))' % (r, r, r, r, r, r),
+                       "".join(marks)])
     last_mod = mod
     for c, v in enumerate(vals, start=1):
         cell = ws.cell(row=r, column=c, value=v)
@@ -310,40 +316,89 @@ for mod, act, risk, gate, co, tr, le, ad, note in A:
         elif c == 5:
             cell.font, cell.alignment = F_SM, WRAP_C
         elif c in (6, 7, 8, 9):
-            cell.font, cell.alignment = F_TICK, CTR
+            cell.alignment = CTR
+            cell.font = F_TICK if v == TICK else Font(name="Calibri", size=11, color="AAAAAA")
+            cell.protection = Protection(locked=False)
         elif c == 10:
             cell.font = F_SM
             if "ASYMMETRY" in note:
                 cell.font = Font(name="Calibri", bold=True, size=8, color=RED)
+        elif c == 11:
+            cell.font, cell.alignment = Font(name="Calibri", bold=True, size=8, color=AMBER), CTR
+        elif c == 12:
+            cell.font = Font(name="Calibri", size=8, color="FFFFFF")
     ws.row_dimensions[r].height = max(13, 10 * (1 + max(len(act) // 46, len(note) // 46)))
     r += 1
 LASTROW = r - 1
 
-dv = DataValidation(type="list", formula1='"%s,"' % TICK, allow_blank=True, showDropDown=False)
-dv.error = "Tick or leave blank."
-dv.errorTitle = "Tick or blank"
+dv = DataValidation(type="list", formula1='"%s,%s"' % (TICK, NO), allow_blank=True,
+                    showDropDown=False)
+dv.error = ("Pick the tick for allowed or the cross for not allowed. "
+            "Clear the cell to mark it as not yet decided.")
+dv.errorTitle = "Allowed, not allowed, or undecided"
 ws.add_data_validation(dv)
 for col in ROLE_COLS:
     dv.add("%s%d:%s%d" % (col, first, col, LASTROW))
 for col in ROLE_COLS:
-    ws.conditional_formatting.add(
-        "%s%d:%s%d" % (col, first, col, LASTROW),
-        FormulaRule(formula=['$%s%d="%s"' % (col, first, TICK)], fill=FILL_GREEN))
+    rng = "%s%d:%s%d" % (col, first, col, LASTROW)
+    ws.conditional_formatting.add(rng, FormulaRule(
+        formula=['$%s%d="%s"' % (col, first, TICK)], fill=FILL_GREEN,
+        font=Font(name="Calibri", bold=True, size=11, color=GREEN)))
+    ws.conditional_formatting.add(rng, FormulaRule(
+        formula=['$%s%d="%s"' % (col, first, NO)], fill=PatternFill("solid", fgColor="F2F2F2"),
+        font=Font(name="Calibri", size=11, color="9A9A9A")))
+    # a cell nobody has decided yet must not read as a refusal
+    ws.conditional_formatting.add(rng, FormulaRule(
+        formula=['$%s%d=""' % (col, first)], fill=FILL_EDIT))
+ws.conditional_formatting.add("K%d:K%d" % (first, LASTROW), FormulaRule(
+    formula=['$K%d="CHANGED"' % first], fill=FILL_AMBER,
+    font=Font(name="Calibri", bold=True, size=8, color=AMBER)))
 
-# counts per role, directly under the table
+# three live count rows, so an undecided cell cannot hide
 r = LASTROW + 1
-ws.cell(row=r, column=2, value="ACTIONS ALLOWED").font = F_H
-ws.cell(row=r, column=2).fill = FILL_SEC
-for c in (1, 3, 4, 5, 10):
-    ws.cell(row=r, column=c).fill = FILL_SEC
-for col in ROLE_COLS:
-    cell = ws.cell(row=r, column=ws[col + "1"].column,
-                   value='=COUNTIF(%s%d:%s%d,"%s")' % (col, first, col, LASTROW, TICK))
-    cell.font, cell.fill, cell.alignment, cell.border = F_H, FILL_SEC, CTR, BOX
-ws.cell(row=r, column=10, value="of %d actions" % len(A)).font = F_H
-ws.cell(row=r, column=10).fill = FILL_SEC
+for lab, mark, tone in [("ALLOWED", TICK, GREEN), ("NOT ALLOWED", NO, GREY),
+                        ("NOT YET DECIDED", "", RED)]:
+    a = ws.cell(row=r, column=2, value=lab)
+    a.font, a.fill, a.border, a.alignment = F_H, FILL_SEC, BOX, Alignment(horizontal="right", vertical="center")
+    for c in (1, 3, 4, 5):
+        ws.cell(row=r, column=c).fill = FILL_SEC
+        ws.cell(row=r, column=c).border = BOX
+    for col in ROLE_COLS:
+        f = ('=COUNTBLANK(%s%d:%s%d)' % (col, first, col, LASTROW) if mark == ""
+             else '=COUNTIF(%s%d:%s%d,"%s")' % (col, first, col, LASTROW, mark))
+        cell = ws.cell(row=r, column=ws[col + "1"].column, value=f)
+        cell.font, cell.fill, cell.alignment, cell.border = F_H, FILL_SEC, CTR, BOX
+    tail = ws.cell(row=r, column=10,
+                   value=("of %d actions" % len(A) if mark == TICK else
+                          "deliberately withheld" if mark == NO else
+                          "every one of these needs an answer before the auth layer is built"))
+    tail.font, tail.fill, tail.border = F_H, FILL_SEC, BOX
+    k = ws.cell(row=r, column=11,
+                value='=COUNTIF(K%d:K%d,"CHANGED")&" changed"' % (first, LASTROW) if mark == TICK else None)
+    k.fill, k.border = FILL_SEC, BOX
+    if mark == TICK:
+        k.font, k.alignment = F_H, CTR
+    ws.cell(row=r, column=12).fill = FILL_SEC
+    r += 1
+COUNTS_LAST = r - 1
 
-r += 2
+r += 1
+ws.cell(row=r, column=1, value="HOW TO CHANGE IT")
+ws.cell(row=r, column=1).font = Font(name="Calibri", bold=True, size=10, color=NAVY)
+r += 1
+for text in [
+    "Click any cell in the four role columns and pick from the dropdown: \u2713 allowed, \u2717 not allowed. Clear the cell to mark it as not yet decided — the cream fill makes those obvious and the NOT YET DECIDED row counts them.",
+    "Nothing else on this sheet can be typed into. The rest is locked, with no password, so a stray keystroke cannot damage a formula; Review then Unprotect Sheet opens it if you need to.",
+    "The CHANGED column flags every row where your answer differs from the proposal shipped with the file, and the count sits beside the ALLOWED row. That is the list to walk the IT team through: it is what the business decided, as distinct from what was suggested.",
+    "Add a row for an action nobody listed by inserting it inside the table, then fill its Required gate and ticks by hand. The counts extend over the whole table and will pick it up.",
+]:
+    c = ws.cell(row=r, column=1, value="\u2022  " + text)
+    c.font, c.alignment = F_N, WRAP
+    ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=11)
+    ws.row_dimensions[r].height = 11 * (1 + len(text) // 175)
+    r += 1
+
+r += 1
 ws.cell(row=r, column=1, value="HOW TO READ AND USE THIS").font = Font(name="Calibri", bold=True, size=10, color=NAVY)
 r += 1
 for text in [
@@ -361,8 +416,8 @@ for text in [
     r += 1
 
 ws.freeze_panes = "A%d" % (HDR + 1)
-ws.auto_filter.ref = "A%d:J%d" % (HDR, LASTROW)
-ws.print_area = "A1:J%d" % (r - 1)
+ws.auto_filter.ref = "A%d:K%d" % (HDR, LASTROW)
+ws.print_area = "A1:K%d" % (r - 1)
 ws.page_setup.orientation = "landscape"
 ws.page_setup.paperSize = ws.PAPERSIZE_A4
 ws.page_setup.fitToWidth = 1
@@ -370,6 +425,13 @@ ws.page_setup.fitToHeight = 0
 ws.sheet_properties.pageSetUpPr.fitToPage = True
 ws.print_options.horizontalCentered = True
 ws.print_title_rows = "%d:%d" % (HDR, HDR)
+# Locked with no password: the tick cells are the only unlocked ones, so a
+# stray keystroke cannot break a formula, and Review > Unprotect opens it.
+ws.protection.sheet = True
+ws.protection.formatCells = False
+ws.protection.insertRows = True
+ws.protection.autoFilter = False
+ws.protection.sort = False
 
 # ====================================================== 2. Build Reference
 ws2 = wb.create_sheet("Build Reference")
