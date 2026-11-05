@@ -194,11 +194,29 @@ keep the builders authoritative and rebuild:
 | `PracticeLab_Chart_Composition_Taxonomy.xlsx` | `_chart_composition_xlsx_build.py` (openpyxl) |
 | `PracticeLab_Chart_Inventory_Tracker.xlsx` | `_chart_inventory_xlsx_build.py` (openpyxl) |
 | `PracticeLab_Chart_Pool_Tracker.xlsx` | `_chart_pool_xlsx_build.py` (openpyxl) |
+| `PracticeLab_Role_Access_Checklist.xlsx` | `_role_checklist_xlsx_build.py` (openpyxl) |
 
 Every builder dates the document **when it is built**, not from a hardcoded
 string — a regenerated document carrying an old date is worse than an undated
 one, because the reader cannot tell it was refreshed. Never hand-edit a
 `.docx`: the next build silently discards the edit.
+
+The role access checklist is the auth build spec for the IT team: 70 actions
+across the four modules, each with the endpoint behind it, what the application
+gates TODAY, and a tick per role (Coder/Auditor 8, Trainer/Supervisor 33,
+Leader 52, Admin 64 — Admin is 64 not 70 because nobody submits another
+person's session). Roles are ordered supersets, not independent permission
+sets. Every row was read off the `@router` decorators, so Gate TODAY is what
+the code enforces rather than what anyone intended.
+
+It records **six asymmetries, flagged on eight rows** — pairs where the app
+gates one action and leaves its twin open, so one of the two is wrong today
+whatever the role model becomes. The worst: `GET /auditor/batches/{id}/plantings`
+is ungated, which does not merely leak answers but voids the restraint
+measurement the auditor module exists to produce; `POST /practicelab/em/answer-key`
+writes a key with no gate while the IP/OP equivalent needs the passphrase; and
+`GET /practicelab/answer-key/{id}/detail` reads per-chart keys ungated while the
+bulk export is gated, which protects nothing. Fix those regardless of roles.
 
 **`category` is free text, and the app never parses it.** Upload stores the
 string verbatim (`meta["category"].strip()`); the allocator splits the
