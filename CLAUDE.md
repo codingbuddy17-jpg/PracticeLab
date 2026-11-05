@@ -177,9 +177,11 @@ prefer extending a shared function over copying it.
 
 ### The handover documents are cascaded — regenerate, never retype
 
-`docs/` holds the IT handover set, and as of 2026-10-15 the role-based
-training docs and the auth/access documents **have been sent to the IT team**.
-A change to any of them is a re-issue to people who already hold a copy, so
+`docs/` holds the IT handover set. The role-based training guides went to the
+IT team on 2026-10-15. The **access-control design has NOT been issued yet** —
+corrected by the user on 2026-11-05 — so it can still be changed freely, and
+should be made right before it goes rather than re-issued afterwards. For
+anything already cascaded, a change is a re-issue to people holding a copy, so
 keep the builders authoritative and rebuild:
 
 | Document | Builder |
