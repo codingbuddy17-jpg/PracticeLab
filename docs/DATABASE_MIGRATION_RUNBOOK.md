@@ -407,8 +407,10 @@ curl -s "https://YOUR-INTERNAL-API/charts/search?page_size=1"
 ## 8. Reference code sets — a manual step nothing will remind you about
 
 The application carries the CMS code sets: **ICD-10-CM, ICD-10-PCS and HCPCS
-Level II**, plus the CC/MCC severity list from the MS-DRG Definitions Manual.
-They are loaded by a **standalone script that nothing calls automatically**:
+Level II**, plus the CC/MCC severity list from the MS-DRG Definitions Manual
+and the **POA exempt list** (the ICD-10-CM codes for which present-on-admission
+is not reported — 38,399 codes for FY2027). They are loaded by a **standalone
+script that nothing calls automatically**:
 
 ```bash
 DATABASE_URL="postgresql://..." python scripts/ingest_code_sets.py            # report only
@@ -417,6 +419,16 @@ DATABASE_URL="postgresql://..." python scripts/ingest_code_sets.py --write    # 
 
 Roughly 186,000 rows, about two minutes. It needs `DATABASE_URL` and creates
 its own tables, so it can be run before the API has ever booted.
+
+**Before the first run after CR-005,** the `code_descriptions` table must have
+its `poa_exempt` column (`ALTER TABLE code_descriptions ADD COLUMN poa_exempt
+BOOLEAN;`). The application adds it on boot; a deployment whose schema is
+managed elsewhere must add it first, or the load fails on insert.
+
+**The run also corrects answer keys.** Once the POA exempt list is loaded, the
+script sets POA to `E` on every exempt code in every inpatient answer key, and
+prints how many lines it changed. This is intended: an exempt code's POA is E,
+and keys entered before the list was known may say Y, N or blank.
 
 **Read this part.** If the script is never run, the application does not fail
 and nothing in the logs says anything is missing. Every feature that depends on
@@ -430,12 +442,16 @@ exist:
 | Answer-key upload flagging codes that do not exist | No warning |
 | Answer-key upload checking CC/MCC labels | No warning |
 | Auditor error generator constrained to real PCS codes | Two-thirds of planted PCS errors are strings that are not codes |
+| POA box greyed and set to E on exempt codes | Nothing greyed; trainers and coders pick E by hand from memory |
+| POA on exempt codes left out of grading | Graded — a key with Y on an exempt code marks a correct coder wrong |
 
 That last row is the one with teeth: it changes what auditors are scored on,
 not just what they see.
 
-`GET /codes/status` reports what is loaded and when. It is the quickest way to
-answer "has anyone run this here?".
+`GET /codes/status` reports what is loaded and when — including
+`poa_exempt_loaded` and `poa_exempt_codes` (the count) for the exempt list. It
+is the quickest way to answer "has anyone run this here?". The trainer's Code
+Set Maintenance panel shows the same as a **POA exempt list** tile.
 
 ### 8.1 No outbound route to cms.gov?
 
@@ -446,11 +462,18 @@ a directory, and point the script at it:
 DATABASE_URL="postgresql://..." python scripts/ingest_code_sets.py --from-dir /path/to/cms/files --write
 ```
 
-It matches files by name, so keep the names CMS ships them under. The four
+It matches files by name, so keep the names CMS ships them under. The five
 sources are the ICD-10-CM code descriptions, the ICD-10-PCS code tables, the
-alphanumeric HCPCS file, and the MS-DRG Definitions Manual (for `appendix_C`).
-Each is independent — a missing one is skipped with a message, and the rest
-still load.
+alphanumeric HCPCS file, the MS-DRG Definitions Manual (for `appendix_C`), and
+the **POA exempt codes** zip (`{FY}-poa-exempt-codes.zip` on the CMS ICD-10
+page; the script reads `POAexemptCodesFY27.txt` from it). Each is independent —
+a missing one is skipped with a message, and the rest still load. A missing
+POA list leaves every code unmarked rather than marked "not exempt", so nothing
+is greyed on a guess.
+
+All the files may sit in one directory. The POA file's name contains "codes",
+like the ICD-10-CM file, and the script deliberately skips it when looking for
+the code set.
 
 ### 8.2 Where to run it — not on the API service
 
@@ -479,6 +502,12 @@ without opening a server shell. It still runs in the web service process, so a
 dedicated scheduled job remains cleaner for production if the hosting plan has
 tight memory limits.
 
+The button calls the API, which starts the **Python** script. A deployment whose
+API is not this Python application has the button only if it implements that
+endpoint (`POST /codes/ingest-job`); otherwise run the script directly as in
+§8.2 or schedule it as in §8.4. The panel's status tiles read
+`GET /codes/status` and work either way.
+
 ### 8.4 Scheduling it instead of remembering it
 
 The source URLs are **derived from the current date**, not hardcoded, so the
@@ -497,7 +526,8 @@ code set is only deleted at the moment its replacement is ready to insert.
 
 ### 8.5 When to run it again
 
-- **ICD-10-CM and ICD-10-PCS** — annually, effective 1 October.
+- **ICD-10-CM and ICD-10-PCS** — annually, effective 1 October. The **POA
+  exempt list** is published with them and loads in the same run.
 - **HCPCS Level II** — quarterly.
 - **MS-DRG manual** — annually, and it is usually published *after* the code
   set, so the script will tell you when the severity list is a year behind the

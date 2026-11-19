@@ -406,7 +406,7 @@ brk(),
 
 // ── 9 ───────────────────────────────────────────────────────────────────────
 h1('9. Reference code sets'),
-p('ICD-10-CM, ICD-10-PCS, HCPCS Level II and the MS-DRG CC/MCC list — roughly 186,000 rows — are loaded by hand, once, per environment:'),
+p('ICD-10-CM, ICD-10-PCS, HCPCS Level II, the MS-DRG CC/MCC list and the CMS POA exempt list — roughly 186,000 rows — are loaded by hand in each environment, and again when CMS republishes (ICD-10 and the POA exempt list every October, HCPCS quarterly):'),
 code(['python3 scripts/ingest_code_sets.py --write']),
 p('Nothing calls this automatically, and deliberately so: it downloads several megabytes from cms.gov, and attaching that to startup would make every deployment slow and a CMS outage a failed start.'),
 rich([{ t: 'Everything that reads this data degrades to silence, so an environment where it was never loaded is indistinguishable from one where the feature does not exist. ' }, { t: 'GET /codes/status', code: true }, { t: ' reports what is present. Use ' }, { t: '--from-dir', code: true }, { t: ' to load from local files where there is no route to cms.gov.' }]),
@@ -418,6 +418,7 @@ table(['Symptom', 'Cause and remedy'], [
   ['Interface loads but every chart image is broken', 'Object storage credentials are wrong, or the keys were altered during transfer. Object keys must be preserved exactly; a transfer that adds a prefix breaks every chart with no error.'],
   ['Restore fails on duplicate keys', 'The container was started before the restore and seeded sample questions. Drop and recreate the database, then restore, then start.'],
   ['Code descriptions render blank everywhere', 'The reference code sets were never ingested in this environment. See section 9.'],
+  ['POA boxes are never greyed for exempt codes', 'The POA exempt list is not loaded: the code_descriptions.poa_exempt column is missing or the ingest has not run since it was added. Add the column, run the ingest, and check poa_exempt_loaded in GET /codes/status. See section 9.'],
   [[{ t: 'Migration DDL failed', code: true }, { t: ' in the logs' }], 'A schema migration did not apply. Startup continued regardless, so the application is running against an incomplete schema. Investigate before accepting the environment.'],
   ['Image will not start on the server', 'Built for the wrong architecture. Rebuild with --platform linux/amd64.'],
 ], [3000, 6360]),

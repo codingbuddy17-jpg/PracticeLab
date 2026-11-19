@@ -242,10 +242,13 @@ this is safe, though staggering starts avoids noise in the logs.
 interface and the API from one origin, so there is no path rewriting to
 configure — proxy everything to port 8000.
 
-**Reference code sets.** ICD-10-CM, ICD-10-PCS and HCPCS descriptions are
-loaded by hand, once, with `scripts/ingest_code_sets.py --write` — about
-186,000 rows fetched from cms.gov. Nothing calls it automatically, so that a
+**Reference code sets.** ICD-10-CM, ICD-10-PCS and HCPCS descriptions, the
+CC/MCC list and the POA exempt list are loaded by hand with
+`scripts/ingest_code_sets.py --write` — about 186,000 rows fetched from
+cms.gov — and again when CMS republishes (ICD-10 and the POA exempt list each
+October, HCPCS quarterly). Nothing calls it automatically, so that a
 CMS outage cannot become a failed deployment. Everything that reads it degrades
 to silence, so an environment where it was never run looks identical to one
-where the feature does not exist. `GET /codes/status` reports what is loaded,
-and `--from-dir` reads the files from disk where there is no route to cms.gov.
+where the feature does not exist. `GET /codes/status` reports what is loaded
+(`poa_exempt_loaded` for the exempt list), and `--from-dir` reads the files
+from disk where there is no route to cms.gov.
