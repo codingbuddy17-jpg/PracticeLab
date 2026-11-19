@@ -399,7 +399,13 @@ def _em_sections(r: dict, ak: Optional[dict], em: Optional[dict], cfg: Optional[
     # secondaries (the other half, wherever listed). Built from score_em_dx,
     # the grader's own function, so the explanation is the rule that scored it.
     # Compared as the grader compares (no dots, upper case), displayed as typed.
-    shown_k, shown_c = _codes(r.get("sdx_answer_key")), _codes(r.get("sdx_submitted"))
+    # The stored lists first; when they are empty, the sources. Results
+    # written before the lists were stored (submitted before late Aug 2026),
+    # and results re-graded by a path that did not store them, have empty
+    # lists beside a real Dx score — the section showed no rows next to
+    # "23.3 of 35". The key and the coder's form are both already loaded.
+    shown_k = _codes(r.get("sdx_answer_key")) or _codes(ak.get("dx_codes") or "[]")
+    shown_c = _codes(r.get("sdx_submitted")) or _codes(em.get("em_dx") or [])
     dx_k, dx_c = [_norm(c) for c in shown_k], [_norm(c) for c in shown_c]
     dx_pts, dx_out = _fb_points(feedback, "Dx:")
     weight = dx_out if dx_out is not None else 0.0
@@ -438,12 +444,18 @@ def _em_sections(r: dict, ak: Optional[dict], em: Optional[dict], cfg: Optional[
                        "(%.1f pts). Re-grade the session to apply the current rule: %s"
                        % (dx_pts, dx_note))
     else:
-        dx_note = "The key lists no diagnoses, so this component earns full credit."
+        # Only say "full credit" when the score agrees; a partial score with
+        # no key codes on hand means the codes could not be read, not that
+        # there were none.
+        dx_note = ("The key lists no diagnoses, so this component earns full credit."
+                   if dx_pts is None or dx_out is None or round(dx_pts, 1) >= round(dx_out, 1)
+                   else "The diagnoses behind this score could not be read for this result.")
     sections.append(_section("dx", "Diagnoses", "Coding", dx_rows, dx_pts, dx_out, dx_note))
 
     # CPT / procedures
-    cpt_k = normalise_cpts(r.get("cpt_answer_key") or [])
-    cpt_c = normalise_cpts(r.get("cpt_submitted") or [])
+    cpt_k = normalise_cpts(r.get("cpt_answer_key") or []) or normalise_cpts(ak.get("procedure_cpts") or "[]")
+    cpt_c = normalise_cpts(r.get("cpt_submitted") or []) or normalise_cpts(
+        [c for c in (em.get("em_cpt") or []) if (c or {}).get("code")])
     if cpt_k or cpt_c:
         pts, out = _fb_points(feedback, "CPT:")
         notes = [f["issue"] for f in feedback

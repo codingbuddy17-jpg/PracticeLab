@@ -1630,6 +1630,10 @@ def regrade_practice_session(session_id: int, db: Session = Depends(get_db)):
                 "weighted_score": total,
                 "pass_fail": "PASS" if total >= em_cfg["pass_threshold"] else "FAIL",
                 "drg_flag": False,
+                # Stored as submit stores them, or a re-graded result keeps
+                # its score but loses the key's codes from the review.
+                "em_dx_ak": [{"code": c} for c in json.loads(em_ak.get("dx_codes") or "[]") if c],
+                "em_cpt_ak": normalise_cpts(em_ak.get("procedure_cpts", "[]")),
             }
             feedback_items = _em_feedback_items(scoring, em_ak, entry.em_data or {}, em_cfg)
         else:

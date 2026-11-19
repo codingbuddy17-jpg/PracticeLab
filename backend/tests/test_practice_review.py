@@ -450,3 +450,46 @@ def test_pcs_grader_and_op_sdx_pair_too():
     assert fb[0].issue_type == "Wrong_Code" and "approach" in fb[0].detail
     _, _, fb = _match_sdx_op([{"code": "E11.22"}], [{"code": "E11.9"}], True)
     assert (fb[0].issue_type, fb[0].coder_code) == ("Wrong_Code", "E11.9")
+
+
+# ── E/M results stored without code lists (submitted before they were kept) ──
+
+def _blank_lists(db, session_id):
+    db.execute(text("UPDATE practice_results SET sdx_answer_key='[]', sdx_submitted='[]', "
+                    "cpt_answer_key='[]', cpt_submitted='[]' WHERE session_id=:s"), {"s": session_id})
+    db.commit()
+
+
+def test_em_review_reads_the_diagnoses_when_the_stored_lists_are_empty(client, db):
+    """Live case: EM007 showed 'Dx 23.3 of 35' over an empty section."""
+    chart = _em_chart_with_key(db, "RVW-EM-OLD")
+    session = _coder_session(client, Specialty.EM, chart.id)
+    em = dict(EM, em_dx=[{"code": "E11.9"}])        # coded 1 of the key's 2
+    client.post(f"/practicelab/practice-sessions/{session['session_id']}/submit",
+                json={"entries": [{"chart_id": chart.id, "em_data": em, "flagged": False, "coder_notes": ""}]})
+    _blank_lists(db, session["session_id"])
+    dx = _sec(client.get(f"/practicelab/practice-sessions/{session['session_id']}/review").json()["charts"][0]["review"], "dx")
+    rows = [(r["item"], r["key"], r["coded"], r["status"]) for r in dx["rows"]]
+    assert ("Primary Dx", "E11.9", "E11.9", "correct") in rows
+    assert ("Secondary Dx", "I10", "", "missed") in rows
+    assert "full credit" not in (dx["note"] or "")
+
+
+def test_regrade_stores_the_em_code_lists(client, db):
+    chart = _em_chart_with_key(db, "RVW-EM-RG")
+    session = _coder_session(client, Specialty.EM, chart.id)
+    client.post(f"/practicelab/practice-sessions/{session['session_id']}/submit",
+                json={"entries": [{"chart_id": chart.id, "em_data": EM, "flagged": False, "coder_notes": ""}]})
+    _blank_lists(db, session["session_id"])
+    res = client.post(f"/practicelab/practice-sessions/{session['session_id']}/regrade", json={})
+    assert res.status_code == 200, res.text
+    row = db.execute(text("SELECT sdx_answer_key FROM practice_results WHERE session_id=:s"),
+                     {"s": session["session_id"]}).scalar()
+    assert json.loads(row) == [{"code": "E11.9"}, {"code": "I10"}]
+
+
+def test_a_partial_dx_score_never_claims_full_credit():
+    r = {"specialty": "E/M", "sdx_submitted": [], "sdx_answer_key": [], "cpt_submitted": [], "cpt_answer_key": [],
+         "feedback": [{"section": "Coding Accuracy", "issue": "Dx: 23.3/35.0 pts", "ak_code": "", "coder_code": ""}]}
+    note = _sec(build_review(r, {"em_code": "99214"}, {}, CFG), "dx")["note"]
+    assert "full credit" not in note
