@@ -131,6 +131,16 @@ CRS.append({
                 "the offline file, the status fields, and the October re-run."),
 })
 
+CRS.append({
+    "id": "CR-009", "title": "Coding aids: seven quiet cue categories behind one menu",
+    "kind": "A", "module": "Chart viewer — Text / Side-by-side", "score_impact": "No", "schema": "None",
+    "commits": "cd9a0c9", "date": "2026-11-19", "order": "Any time after CR-004: frontend patch only",
+    "spec": "change_requests/CR-009/CR-009.md",
+    "summary": ("Coding aids grow from two highlight colours to seven categories (uncertain, negated/history, "
+                "linkage, query, specificity, site, POA timing) as thin underlines, behind one menu with counts, "
+                "per-category switches and next/previous; setting-aware tooltips; final-diagnosis emphasis."),
+})
+
 # What a team running THIS SAME Python backend does instead of rebuilding.
 # Every CR folder carries code.patch (the complete committed change); applied
 # in order to the pre-CR-001 code, all of them reproduce the original app exactly.
@@ -143,6 +153,7 @@ SAME_BACKEND = {
     "CR-006": "git am code.patch (frontend only); deploy.",
     "CR-007": "git am code.patch; deploy.",
     "CR-008": "Nothing to apply — read the updated documents.",
+    "CR-009": "git am code.patch (frontend only); deploy.",
 }
 
 # Proposed and agreed in principle, NOT built. Listed so nothing raised is
@@ -387,6 +398,13 @@ CHANGES = [
     ("CR-008", "Docs", "docs/CONTAINER_DEPLOYMENT.md · PracticeLab_Container_Deployment.docx", "§9 Reference code sets · Troubleshooting", "Modified",
      "Load repeats each October; POA list named; new troubleshooting row for POA boxes never greyed.",
      "Load called a one-off.", "Rebuilt from _container_docx_build.js.", "None (reference)", "No", "CR-008"),
+    # ── CR-009 ──
+    ("CR-009", "Frontend", "frontend/src/components/chartDocument.ts", "AID_CATEGORIES / findAids / aidTip / FINAL_DX_SECTIONS", "Added",
+     "Seven cue categories, one non-overlapping match pass, setting-aware tooltips, final-diagnosis sections.",
+     "Two regexes: uncertain and linkage.", "Seven categories; POA cues on inpatient charts only.", "Apply patch", "No", "CR-009"),
+    ("CR-009", "Frontend", "frontend/src/components/ChartViewer.tsx", "Coding aids menu · HighlightedText", "Modified",
+     "Toolbar menu with per-category counts, switches and previous/next; thin-underline marks; final-diagnosis emphasis; Esc closes the menu first.",
+     "One toggle; filled highlights; legend bar in the document.", "Quiet underlines; menu instead of a bar.", "Apply patch", "No", "CR-009"),
     ("CR-003", "Test", "backend/tests/test_practice_review.py", "Description tests", "Added",
      "Descriptions on review rows and export columns; unknown codes silent; E/M level and MDM never described.", "—", "—",
      "None (reference)", "No", "CR-003 §5"),

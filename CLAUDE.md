@@ -693,6 +693,15 @@ exists only for PDFs with a text layer; scans have none (OCR is backlog B-002).
 Inside a flex-column scroll pane, children need `flexShrink: 0` or the browser
 squeezes them and clips their text — only a screenshot showed that.
 
+Coding aids (CR-009) are wording cues in seven categories, defined once in
+`chartDocument.ts → AID_CATEGORIES` and matched by `findAids` (earliest start,
+then longest, wins — so "complicated by" is linkage, not specificity). Never
+draw a cue from an answer key. They are quiet on purpose — thin underlines, one
+menu, four categories on by default — at the user's request ("not crowded, like
+an encoder"); the one fill is uncertain wording in a final-diagnosis section on
+an inpatient chart, because only there does the inpatient rule apply. Menu
+counts come from the same strings the view highlights, or they drift.
+
 ### The Auditor module
 
 **Charts must render identically whether or not they carry errors.** A clean
