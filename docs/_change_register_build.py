@@ -77,6 +77,20 @@ CRS = [
     },
 ]
 
+CRS.append({
+    "id": "CR-004",
+    "title": "Chart viewer reads charts as documents and sections, like an EHR",
+    "kind": "A", "module": "Chart Library viewer (the chart screen coders and auditors work from)",
+    "score_impact": "No", "schema": "None",
+    "commits": "3846e06", "date": "2026-11-19",
+    "order": "Any time: frontend patch only",
+    "spec": "change_requests/CR-004/CR-004.md",
+    "summary": ("Section detection went from 3 of 17 to 15 of 15 on a sample H&P. Navigator of "
+                "documents and sections that follows the reader, jump to the exact heading, side-by-side "
+                "scan view, optional coding-aid highlighting, keyboard section stepping, reopens where "
+                "the reader left off."),
+})
+
 # Proposed and agreed in principle, NOT built. Listed so nothing raised is
 # lost; an item moves to CRS when it is built.
 BACKLOG = [
@@ -86,6 +100,11 @@ BACKLOG = [
      "auditor side has no equivalent. Would show each planted error found / missed / corrected "
      "wrongly, with code descriptions, when the trainer has released results.",
      "Logged at the user's request; design to be proposed before building."),
+    ("B-002", "2026-11-19", "Text for scanned / image-only charts (OCR)",
+     "Chart text comes only from a PDF's embedded text layer, so a scan or an uploaded image has no "
+     "text view or sections. OCR would add a server dependency (Tesseract), upload time and memory, "
+     "and .NET work for IT.",
+     "Deferred: the user reports scanned charts are rare."),
 ]
 
 # One row per file-level change.
@@ -224,6 +243,19 @@ CHANGES = [
      "Bare codes.", "Description on hover.", "Apply patch", "No", "CR-003 frontend.patch"),
     ("CR-003", "Frontend", "frontend/src/pages/practicelab/{ResultsView,InsightsPanel,PLAnalyticsView}.tsx · styles.ts · auditor/styles.ts", "Most-missed chips; styles", "Modified",
      "Tooltips on most-missed chips; shared styles for the new layouts.", "—", "—", "Apply patch", "No", "CR-003 frontend.patch"),
+    # ── CR-004 ──
+    ("CR-004", "Frontend", "frontend/src/components/chartDocument.ts", "parseChart()", "Added",
+     "Parses extracted page text into documents and sections: ~45-section and 13-document vocabulary, heading-shape rules, inline 'HEADER: text', lists, signatures, wrapped-line joining.",
+     "3 of 17 sections on a sample H&P; one bookmark per page; one per label per chart.",
+     "15 of 15; 24 sections in 3 documents on a 4-page chart; no false headings on 17 trick lines.",
+     "Apply patch", "No", "CR-004 §1-3"),
+    ("CR-004", "Frontend", "frontend/src/components/chartDocument.ts", "AID_PATTERNS", "Added",
+     "Uncertain-diagnosis and linkage wording patterns for the coding-aid highlight.", "—",
+     "Generic wording only, never from an answer key.", "Apply patch", "No", "CR-004 §3"),
+    ("CR-004", "Frontend", "frontend/src/components/ChartViewer.tsx", "Text view", "Modified",
+     "Navigator of documents and sections with scroll tracking; jump to the exact heading; note styling; Side by side mode; Coding aids toggle; Alt+Up/Down and '/'; remembers mode and section per chart.",
+     "Flat chip row of up to one section per page; Image and Text only.",
+     "EHR-style reading view.", "Apply patch", "No", "CR-004 §2"),
     ("CR-003", "Test", "backend/tests/test_practice_review.py", "Description tests", "Added",
      "Descriptions on review rows and export columns; unknown codes silent; E/M level and MDM never described.", "—", "—",
      "None (reference)", "No", "CR-003 §5"),

@@ -654,6 +654,20 @@ off-ladder, so planting abstains — which fails safe per chart but makes
 "preventive means clean" stops reading them, and the render-identically rule
 does not catch it.
 
+### The chart viewer is the coders' only chart screen
+
+Coding and audit screens do not show the chart: coders work dual-screen with
+the Chart Library viewer (`components/ChartViewer.tsx`) on the other monitor.
+Its text view is built by `components/chartDocument.ts → parseChart`, which
+reads extracted page text as DOCUMENTS made of SECTIONS. A line is a heading
+only when shaped like one (whole line a known name, known name + colon +
+content, or ALL CAPS ending in a colon), never because it starts with a
+section word. Extend the vocabulary there and re-measure on sample text —
+the version before CR-004 found 3 of 17 sections and nothing noticed. Text
+exists only for PDFs with a text layer; scans have none (OCR is backlog B-002).
+Inside a flex-column scroll pane, children need `flexShrink: 0` or the browser
+squeezes them and clips their text — only a screenshot showed that.
+
 ### The Auditor module
 
 **Charts must render identically whether or not they carry errors.** A clean

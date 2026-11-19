@@ -1,0 +1,3 @@
+Generated from FastAPI OpenAPI around commit 3846e06.
+
+No routes added, removed or changed. CR-004 is frontend only.
