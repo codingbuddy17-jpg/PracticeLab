@@ -117,21 +117,72 @@ def test_em_is_classified_into_the_sections_a_trainer_reads():
     assert groups["em_level"] == "Coding" and groups["copa"] == "Reasoning"
 
 
-def test_dx_is_one_scored_section_and_order_is_never_marked_wrong():
-    """
-    E/M scores diagnoses as a set. The score sits on ONE Diagnoses section with
-    a note naming what it is for, so it can never read as a penalty for order.
-    """
+def test_primary_coded_second_earns_no_primary_credit_and_says_why():
+    """Key E11.9, I10, J45.909; coder I10, E11.9. Primary must be listed first."""
     _, review = _em_review()
     dx = _sec(review, "dx")
-    assert (dx["points"], dx["max_points"]) == (23.3, 35.0)
-    assert "2 of 3 key diagnoses coded" in dx["note"]
+    # primary 0 of 17.5 + secondaries 1 of 2 (I10) = 8.75
+    assert (dx["points"], dx["max_points"]) == (8.8, 35.0)
     rows = [(r["item"], r["key"], r["coded"], r["status"]) for r in dx["rows"]]
-    assert rows == [("Primary Dx", "E11.9", "E11.9", "correct"),
+    assert rows == [("Primary Dx", "E11.9", "I10", "different"),
                     ("Secondary Dx", "I10", "I10", "correct"),
                     ("Secondary Dx", "J45.909", "", "missed")]
-    assert "not scored" in dx["rows"][0]["note"]
-    assert not any(r["status"] == "order" for s in review["sections"] for r in s["rows"])
+    assert "position 2" in dx["rows"][0]["note"]
+    assert dx["note"].startswith("Primary 0.0 of 17.5 pts (must be listed first)")
+    assert "Secondary 1 of 2 coded, 8.8 of 17.5 pts" in dx["note"]
+
+
+def test_a_result_scored_under_the_old_rule_says_so():
+    """Past scores were left as graded; the review must not pretend otherwise."""
+    _, review = _em_review()
+    r = {"specialty": "E/M", "sdx_submitted": EM["em_dx"],
+         "sdx_answer_key": [{"code": c} for c in json.loads(AK["dx_codes"])],
+         "cpt_submitted": [], "cpt_answer_key": [],
+         "feedback": [{"section": "Coding Accuracy", "issue": "Dx: 23.3/35.0 pts",
+                       "ak_code": "", "coder_code": ""}]}
+    note = _sec(build_review(r, AK, EM, CFG), "dx")["note"]
+    assert "earlier rule" in note and "Re-grade" in note
+
+
+# ── the grader: primary diagnosis is a scoring factor ─────────────────────────
+
+def _dx(sub, key=("E11.9", "I10", "J45.909"), w=35.0, over=True):
+    from routers.practicelab_pkg.em_grading import score_em_dx
+    return round(score_em_dx(list(key), list(sub), w, over)["score"], 2)
+
+
+def test_all_codes_with_the_primary_first_earn_the_full_weight():
+    assert _dx(["E11.9", "J45.909", "I10"]) == 35.0
+
+
+def test_the_same_codes_with_the_primary_not_first_lose_the_primary_half():
+    assert _dx(["I10", "E11.9", "J45.909"]) == 17.5
+
+
+def test_only_the_primary_right_earns_half():
+    assert _dx(["E11.9"]) == 17.5
+
+
+def test_a_single_diagnosis_key_puts_the_whole_weight_on_the_primary():
+    assert _dx(["E11.9"], key=("E11.9",)) == 35.0
+    assert _dx(["I10"], key=("E11.9",)) == 0.0
+
+
+def test_over_coding_still_costs_one_key_code_share():
+    # full 35, one extra code beyond three: -35/3
+    assert _dx(["E11.9", "I10", "J45.909", "R05.9"]) == round(35 - 35 / 3, 2)
+
+
+def test_no_key_diagnoses_still_earns_full_credit():
+    assert _dx(["I10"], key=()) == 35.0
+
+
+def test_the_grader_applies_the_primary_rule_end_to_end():
+    ak = dict(AK)
+    first = grade_em_chart(ak, _em_submission_dict(dict(EM, em_dx=[{"code": "E11.9"}, {"code": "I10"}, {"code": "J45.909"}])), CFG)
+    second = grade_em_chart(ak, _em_submission_dict(dict(EM, em_dx=[{"code": "I10"}, {"code": "E11.9"}, {"code": "J45.909"}])), CFG)
+    assert round(first["dx_score"], 1) == 35.0
+    assert round(second["dx_score"], 1) == 17.5
 
 
 def test_time_levelled_chart_shows_a_time_section_not_mdm():
@@ -218,6 +269,8 @@ def test_em_review_through_the_routes_explains_the_copa_points(client, db):
     charts = client.get(f"/practicelab/practice-sessions/{session['session_id']}/review").json()["charts"]
     copa = _sec(charts[0]["review"], "copa")
     assert copa["points"] == 6.7 and "Matched 2 of 3" in copa["note"]
+    # E11.9 listed first: primary earned
+    assert _sec(charts[0]["review"], "dx")["rows"][0]["status"] == "correct"
     # The coder's own result screen gets the same review, not a lesser one.
     assert sub.json()["results"][0]["review"] == charts[0]["review"]
 
@@ -288,3 +341,11 @@ def test_a_builder_fault_never_takes_down_the_results(client, db, monkeypatch):
     assert res.status_code == 200
     c = res.json()["charts"][0]
     assert c["review"] is None and c["total_score"] == 100
+
+
+def test_a_dotless_diagnosis_scores_like_the_dotted_one():
+    """The coder's Dx box says 'dot optional'; the grader must agree."""
+    assert _dx(["E119", "I10", "J45909"]) == 35.0
+    ak = dict(AK)
+    sub = _em_submission_dict(dict(EM, em_dx=[{"code": "E119"}, {"code": "I10"}, {"code": "J45909"}]))
+    assert round(grade_em_chart(ak, sub, CFG)["dx_score"], 1) == 35.0

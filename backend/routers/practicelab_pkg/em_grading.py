@@ -329,7 +329,11 @@ def _j(v):
 
 
 def _clean_codes(lst: list) -> list:
-    return [str(c).strip().upper() for c in lst if c and str(c).strip().lower() not in ("", "none")]
+    # Dots dropped, as IP/OP grading does. The coder's Dx box says "dot
+    # optional", and a code typed without one (E119) used to score as wrong
+    # against a key holding E11.9. CPT codes carry no dots, so are unaffected.
+    return [str(c).strip().upper().replace(".", "") for c in lst
+            if c and str(c).strip().lower() not in ("", "none")]
 
 
 # ── Time-based levelling (2021+ office/outpatient E/M) ───────────────────────
@@ -451,6 +455,48 @@ RISK_FIELDS = [
     "risk_emergency_major_surgery", "risk_hospitalization_escalation",
     "risk_dnr_deescalate", "risk_parenteral_controlled",
 ]
+
+
+def score_em_dx(ak_dx: list, sub_dx: list, weight: float,
+                overcoding_penalty: bool = True) -> dict:
+    """
+    The E/M diagnosis component. The PRIMARY diagnosis is a scoring factor
+    (user, 2026-11-19): it was order-blind before, so a coder who buried the
+    right primary at the bottom of the list lost nothing.
+
+    - Primary: half the weight, all or nothing, earned only when the coder's
+      FIRST code is the key's first — the IP/OP PDx rule. Coded at another
+      position, it earns no primary credit and is not a secondary either.
+    - Secondaries: the other half, split evenly across the key's remaining
+      codes, credited wherever the coder lists them.
+    - A key with one diagnosis puts the whole weight on the primary, or half
+      the weight would be free.
+    - Over-coding: unchanged — each code beyond the key's count costs one
+      key code's share of the weight, floored at zero.
+    - No key diagnoses: full weight, as before.
+
+    Shared with services/practice_review so the review explains the score
+    with the same rule that produced it.
+    """
+    ak_dx, sub_dx = _clean_codes(ak_dx), _clean_codes(sub_dx)   # idempotent
+    if not ak_dx:
+        return {"score": weight, "primary_ok": None, "primary_pts": 0.0,
+                "primary_max": 0.0, "sec_matched": 0, "sec_total": 0,
+                "sec_pts": 0.0, "sec_max": 0.0, "over": 0, "penalty": 0.0}
+    secondaries = ak_dx[1:]
+    primary_max = weight / 2 if secondaries else weight
+    sec_max = weight - primary_max
+    primary_ok = bool(sub_dx) and sub_dx[0] == ak_dx[0]
+    primary_pts = primary_max if primary_ok else 0.0
+    sec_matched = sum(1 for c in secondaries if c in sub_dx)
+    sec_pts = (sec_max / len(secondaries)) * sec_matched if secondaries else 0.0
+    over = max(0, len(sub_dx) - len(ak_dx)) if overcoding_penalty else 0
+    penalty = over * (weight / len(ak_dx))
+    return {"score": max(0.0, primary_pts + sec_pts - penalty),
+            "primary_ok": primary_ok, "primary_pts": primary_pts,
+            "primary_max": primary_max, "sec_matched": sec_matched,
+            "sec_total": len(secondaries), "sec_pts": sec_pts, "sec_max": sec_max,
+            "over": over, "penalty": penalty}
 
 
 def grade_em_chart(ak: dict, sub: dict, cfg: dict, overcoding_penalty: bool = True) -> dict:
@@ -632,20 +678,10 @@ def grade_em_chart(ak: dict, sub: dict, cfg: dict, overcoding_penalty: bool = Tr
             over = max(0, len(sub_cpt_rows) - len(ak_cpt_rows))
             cpt_score = max(0.0, cpt_score - over * per_cpt)
 
-    # Dx (proportional, overcoding penalty)
+    # Dx — primary first, then the rest (see score_em_dx)
     ak_dx = _clean_codes(_j(ak.get("dx_codes", "[]")))
     sub_dx = _clean_codes(_j(sub.get("sub_dx_codes", "[]")))
-    dx_score = 0.0
-    if ak_dx:
-        per_dx = dx_w_adj / len(ak_dx)
-        matched_dx = sum(1 for c in ak_dx if c in sub_dx)
-        dx_score = matched_dx * per_dx
-        if overcoding_penalty:
-            over_dx = max(0, len(sub_dx) - len(ak_dx))
-            dx_score = max(0.0, dx_score - over_dx * per_dx)
-    # No AK dx → full dx score (chart has no expected dx)
-    elif dx_w_adj > 0:
-        dx_score = dx_w_adj
+    dx_score = score_em_dx(ak_dx, sub_dx, dx_w_adj, overcoding_penalty)["score"]
 
     coding_accuracy_total = em_level_score + cpt_score + dx_score
 

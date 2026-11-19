@@ -343,7 +343,7 @@ def _mdm_section(key: str, title: str, fields: List[str], ak: dict, em: dict,
 def _em_sections(r: dict, ak: Optional[dict], em: Optional[dict], cfg: Optional[dict]) -> List[dict]:
     from routers.practicelab_pkg.em_grading import (
         COPA_FIELDS, DR_FIELDS, RISK_FIELDS,
-        applicable_weights, normalise_cpts, resolve_category,
+        applicable_weights, normalise_cpts, resolve_category, score_em_dx,
     )
     ak, em, feedback = ak or {}, em or {}, r.get("feedback") or []
     sections = []
@@ -373,38 +373,49 @@ def _em_sections(r: dict, ak: Optional[dict], em: Optional[dict], cfg: Optional[
     pts, out = _fb_points(feedback, "E/M Level")
     sections.append(_section("em_level", "E/M Level", "Coding", rows, pts, out))
 
-    # Diagnoses: ONE section, because E/M grades them as ONE component — a set,
-    # order-blind: (key codes coded anywhere ÷ key codes) × weight, less an
-    # over-coding penalty. Primary is a row, not a section, so the score never
-    # sits beside a position mark and reads as a penalty for order; the first
-    # version did exactly that, and "order only" next to "23.3 of 35" looked
-    # like a deduction the grader never makes.
-    dx_k, dx_c = _codes(r.get("sdx_answer_key")), _codes(r.get("sdx_submitted"))
+    # Diagnoses: one section carrying the one Dx score, broken into its two
+    # parts — the primary (half, all or nothing, must be listed first) and the
+    # secondaries (the other half, wherever listed). Built from score_em_dx,
+    # the grader's own function, so the explanation is the rule that scored it.
+    # Compared as the grader compares (no dots, upper case), displayed as typed.
+    shown_k, shown_c = _codes(r.get("sdx_answer_key")), _codes(r.get("sdx_submitted"))
+    dx_k, dx_c = [_norm(c) for c in shown_k], [_norm(c) for c in shown_c]
     dx_pts, dx_out = _fb_points(feedback, "Dx:")
+    weight = dx_out if dx_out is not None else 0.0
+    sc = score_em_dx(dx_k, dx_c, weight, bool((cfg or {}).get("overcoding_penalty", True)))
     dx_rows = []
     consumed = None
     if dx_k or dx_c:
         k1, c1 = (dx_k[0] if dx_k else ""), (dx_c[0] if dx_c else "")
-        c_norm = [_norm(c) for c in dx_c]
-        if k1 and _norm(k1) in c_norm:
-            consumed = c_norm.index(_norm(k1))
-            if consumed == 0:
-                dx_rows.append(_row("Primary Dx", k1, c1, "correct"))
-            else:
-                dx_rows.append(_row("Primary Dx", k1, dx_c[consumed], "correct",
-                                    "Coded at position %d, not first. Order is not scored on E/M"
-                                    % (consumed + 1)))
+        sk1, sc1 = (shown_k[0] if shown_k else ""), (shown_c[0] if shown_c else "")
+        if k1 and c1 == k1:
+            consumed = 0
+            dx_rows.append(_row("Primary Dx", sk1, sc1, "correct"))
         elif k1:
-            dx_rows.append(_row("Primary Dx", k1, "", "missed"))
-    k_rest = dx_k[1:]
-    c_rest = [c for i, c in enumerate(dx_c) if i != consumed]
-    dx_rows += _set_rows("Secondary Dx", k_rest, c_rest)
+            where = dx_c.index(k1) if k1 in dx_c else None
+            if where is not None:
+                consumed = where
+                note = ("Coded at position %d, not first: no primary credit. "
+                        "The primary must be listed first" % (where + 1))
+            else:
+                note = "Not coded"
+            dx_rows.append(_row("Primary Dx", sk1, sc1, "different" if c1 else "missed", note))
+    c_rest = [c for i, c in enumerate(shown_c) if i != consumed]
+    dx_rows += _set_rows("Secondary Dx", shown_k[1:], c_rest)
     if dx_k:
-        hit = sum(1 for c in dx_k if _norm(c) in [_norm(x) for x in dx_c])
-        over = max(0, len(dx_c) - len(dx_k))
-        dx_note = ("Scored as a set: %d of %d key diagnoses coded%s. "
-                   "Order, including which is listed first, is not scored."
-                   % (hit, len(dx_k), (", %d over-coded" % over) if over else ""))
+        parts = ["Primary %.1f of %.1f pts (must be listed first)" % (sc["primary_pts"], sc["primary_max"])]
+        if sc["sec_total"]:
+            parts.append("Secondary %d of %d coded, %.1f of %.1f pts"
+                         % (sc["sec_matched"], sc["sec_total"], sc["sec_pts"], sc["sec_max"]))
+        if sc["over"]:
+            parts.append("%d over-coded, -%.1f pts" % (sc["over"], sc["penalty"]))
+        dx_note = " · ".join(parts)
+        if dx_pts is not None and round(dx_pts, 1) != round(sc["score"], 1):
+            # Graded before the primary rule existed; stored scores were left
+            # as they were. Say so rather than show parts that do not add up.
+            dx_note = ("Scored under the earlier rule, where diagnosis order did not count "
+                       "(%.1f pts). Re-grade the session to apply the current rule: %s"
+                       % (dx_pts, dx_note))
     else:
         dx_note = "The key lists no diagnoses, so this component earns full credit."
     sections.append(_section("dx", "Diagnoses", "Coding", dx_rows, dx_pts, dx_out, dx_note))
