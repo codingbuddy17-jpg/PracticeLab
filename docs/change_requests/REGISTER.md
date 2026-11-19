@@ -22,6 +22,11 @@ port line by line.
 
 Kinds: **A** frontend only · **B** backend only · **C** both · **D** schema.
 
-| CR | Title | Kind | Schema | Commit | Backend (.NET) | Frontend patch | Verified by IT |
-|---|---|---|---|---|---|---|---|
-| [001](CR-001/CR-001.md) | Practice review shows right as well as wrong; E/M review classified; Excel export | C | none | `db51300` | ☐ | ☐ | ☐ |
+<!-- register:start -->
+| CR | Title | Kind | Score impact | Schema | Commits | Apply order |
+|---|---|---|---|---|---|---|
+| [001](CR-001/CR-001.md) | Practice review shows right as well as wrong; E/M review classified; Excel export | C | No | None | `db51300, f6198ef` | Backend first, then frontend patch |
+| [002](CR-002/CR-002.md) | E/M primary diagnosis becomes a scoring factor; diagnosis dots ignored | B | Yes | None | `bccf4ff` | After CR-001 |
+
+Built 19 November 2026 by `docs/_change_register_build.py`, which also writes `docs/PracticeLab_Change_Register.xlsx` — the detailed version, with one row per file-level change and the columns IT uses to track progress.
+<!-- register:end -->

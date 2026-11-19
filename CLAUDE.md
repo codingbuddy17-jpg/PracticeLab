@@ -196,6 +196,7 @@ keep the builders authoritative and rebuild:
 | `PracticeLab_Chart_Composition_Taxonomy.xlsx` | `_chart_composition_xlsx_build.py` (openpyxl) |
 | `PracticeLab_Chart_Inventory_Tracker.xlsx` | `_chart_inventory_xlsx_build.py` (openpyxl) |
 | `PracticeLab_Chart_Pool_Tracker.xlsx` | `_chart_pool_xlsx_build.py` (openpyxl) |
+| `PracticeLab_Change_Register.xlsx` + `change_requests/REGISTER.md` table | `_change_register_build.py` (openpyxl) |
 | `PracticeLab_Role_Access_Checklist.xlsx` | `_role_checklist_xlsx_build.py` (openpyxl) |
 
 Every builder dates the document **when it is built**, not from a hardcoded
@@ -359,6 +360,11 @@ Every change to this app gets a folder in `docs/change_requests/` and a row in
 its `REGISTER.md`: the spec (`CR-NNN.md`), `frontend.patch` (applies as-is),
 `openapi.diff.txt` (generated), and a `smoke_deployed.py` check IT can point at
 their own API. One logical change per commit, so a patch carries nothing else.
+**Every change is also logged in `docs/_change_register_build.py`** (user,
+2026-11-19): one CR entry plus one row per file-level change — file, function
+or route, before, after, IT action, score impact. Rebuild it; it writes both
+the Excel register and the REGISTER.md table, so the two cannot drift. A
+change that moves scores gets its own CR, separate from display work.
 
 Two things learned on CR-001. **The OpenAPI diff cannot see response-shape
 changes** on routes that return plain dicts, which is most of them, so a new

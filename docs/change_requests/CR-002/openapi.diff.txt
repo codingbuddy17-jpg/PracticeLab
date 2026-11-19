@@ -1,0 +1,3 @@
+Generated from FastAPI OpenAPI before and after commit bccf4ff.
+
+No routes added, removed or changed. CR-002 changes scoring only; see CR-002.md.
