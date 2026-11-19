@@ -361,13 +361,13 @@ complete committed change, `git am` onto the same Python app) and the spec plus
 commits restricted to backend/frontend/scripts, and prove the set applies in
 order to the pre-CR-001 code and reproduces the current tree.
 **From the tenth change on, every change ships as its own pull request**
-(user, 2026-11-19), numbered **by month, restarting each month**:
-`CR-YYYY-MM-NN`. CR-001 to CR-009 keep their IDs and are November 2026's
-first nine, so the next is `CR-2026-11-10` and December starts at
-`CR-2026-12-01`. Work on a branch named `harish/cr-YYYY-MM-NN-short-title`,
-open a PR into `main` titled `[Mon YYYY] CR-YYYY-MM-NN: title`, put the month
-on the first line of its description, and merge only when the user says to
-deploy. The PR link is what goes to IT — it stays valid after the
+(user, 2026-11-19), numbered **by month, restarting each month**, in the
+user's format `CR-NNN-Mon` (`CR-010-Nov`; December starts at `CR-001-Dec`).
+CR-001 to CR-009 are November 2026's first nine. The ID carries no year, so
+the year goes on the PR description's first line ("Month: November 2026") and
+in the register's Month column. PR title: `CR-010-Nov - Short title`. Branch:
+`harish/cr-010-nov-short-title` (lowercase, no spaces). Merge only when the
+user says to deploy. The PR link is what goes to IT — it stays valid after the
 merge and shows only that change — and it is recorded on the CR's register
 row. CR-001 to CR-009 went straight to `main` and have no PR; the compare link
 `9f232cb...7220be1` covers them.
