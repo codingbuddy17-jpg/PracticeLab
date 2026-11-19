@@ -1,0 +1,1 @@
+No route, parameter or schema change. One new optional response field, review.sections[].rows[].weight ("CC" | "MCC"), on the routes that already return review; the OpenAPI document cannot show it because those routes return plain dicts.

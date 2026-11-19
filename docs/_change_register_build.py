@@ -151,6 +151,16 @@ CRS.append({
                 "re-grade now stores the lists. Found live on EM007."),
 })
 
+CRS.append({
+    "id": "CR-011-Nov", "title": "One review standard for every specialty",
+    "kind": "C", "module": "Practice review (trainer, coder, export); batch Results; Auditor review", "score_impact": "No",
+    "schema": "None", "commits": "d88e158", "date": "2026-11-19", "order": "After CR-010-Nov; backend first, then frontend patch",
+    "spec": "change_requests/CR-011-Nov/CR-011-Nov.md",
+    "summary": ("Scoring notes removed (they repeated the review rows); the four facts only they held -- PDx POA, "
+                "CPT pointers, ED level, CC/MCC weight -- moved onto rows. Correct rows fold behind a click; one "
+                "header and one colour set on every review screen."),
+})
+
 # What a team running THIS SAME Python backend does instead of rebuilding.
 # Every CR folder carries code.patch (the complete committed change); applied
 # in order to the pre-CR-001 code, all of them reproduce the original app exactly.
@@ -165,6 +175,7 @@ SAME_BACKEND = {
     "CR-008": "Nothing to apply — read the updated documents.",
     "CR-009": "git am code.patch (frontend only); deploy.",
     "CR-010-Nov": "git am code.patch; deploy. Past E/M results show their diagnoses without a re-grade.",
+    "CR-011-Nov": "git am code.patch; deploy. Display only.",
 }
 
 # Proposed and agreed in principle, NOT built. Listed so nothing raised is
@@ -427,6 +438,22 @@ CHANGES = [
     ("CR-010-Nov", "Test", "backend/tests/test_practice_review.py", "3 tests", "Added",
      "Blanked-list E/M result shows its rows; re-grade stores lists; partial score never says full credit.", "—", "—",
      "None (reference)", "No", "CR-010-Nov"),
+    # ── CR-011-Nov ──
+    ("CR-011-Nov", "Backend", "backend/services/practice_review.py", "_code_sections · _cpt_note · _set_rows · review_workbook", "Modified",
+     "PDx POA mismatch, CPT pointer mismatch and wrong ED level become review rows; key lines carry weight CC/MCC (screen badge, Excel key cell).",
+     "Those four facts only in the Scoring notes; PDx with wrong POA read Correct.", "Every fact on the row it concerns.",
+     "Implement in .NET", "No", "CR-011-Nov rules 1-4"),
+    ("CR-011-Nov", "Frontend", "frontend/src/components/SubmissionReview.tsx · theme.ts", "SubmissionReview · ReviewHeader · REVIEW_STATUS", "Modified",
+     "Correct rows fold per section; zero chips hidden; one header and one colour set.", "All rows open; per-screen headers and colours.", "One standard.",
+     "Apply patch", "No", "CR-011-Nov"),
+    ("CR-011-Nov", "Frontend", "frontend/src/pages/practicelab/BatchDetailView.tsx · pages/PracticeSession.tsx", "Review modal · coder results", "Modified",
+     "Scoring notes block removed (kept only as fallback when no review); shared header.", "Rows plus Scoring notes repeating them.", "Rows only.",
+     "Apply patch", "No", "CR-011-Nov"),
+    ("CR-011-Nov", "Frontend", "frontend/src/pages/practicelab/ResultsView.tsx · pages/auditor/AuditReview.tsx", "Batch results expand · auditor review", "Modified",
+     "Batch expand uses the grouped findings renderer; auditor review uses the shared colours and folds found-and-corrected lines.",
+     "Own list style and colours.", "Shared renderer and colours.", "Apply patch", "No", "CR-011-Nov"),
+    ("CR-011-Nov", "Test", "backend/tests/test_practice_review.py", "4 tests", "Added",
+     "One per rule; each fails without it.", "—", "—", "None (reference)", "No", "CR-011-Nov"),
     ("CR-003", "Test", "backend/tests/test_practice_review.py", "Description tests", "Added",
      "Descriptions on review rows and export columns; unknown codes silent; E/M level and MDM never described.", "—", "—",
      "None (reference)", "No", "CR-003 §5"),

@@ -1,0 +1,731 @@
+From d88e158387b42342588a5919b6ecbddca69325c6 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 19 Nov 2026 13:56:58 +0000
+Subject: [PATCH] CR-011-Nov - One review standard for every specialty
+
+Scoring notes removed from the review screens; the four facts only they
+held (PDx POA, CPT pointers, ED level, CC/MCC weight) now sit on review
+rows. Correct rows fold behind one click per section; one header and one
+colour set across the practice review, batch results and auditor review.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01GAgNTxNNybv6W7GXL33G6z
+---
+ backend/services/practice_review.py           | 50 ++++++++--
+ backend/tests/test_practice_review.py         | 45 +++++++++
+ frontend/src/components/SubmissionReview.tsx  | 97 ++++++++++++++-----
+ frontend/src/pages/PracticeSession.tsx        | 32 ++----
+ frontend/src/pages/auditor/AuditReview.tsx    | 43 +++++---
+ .../src/pages/practicelab/BatchDetailView.tsx | 53 ++++------
+ .../src/pages/practicelab/ResultsView.tsx     | 20 ++--
+ frontend/src/theme.ts                         | 27 ++++++
+ 8 files changed, 259 insertions(+), 108 deletions(-)
+
+diff --git a/backend/services/practice_review.py b/backend/services/practice_review.py
+index 00560a1..c396e6b 100644
+--- a/backend/services/practice_review.py
++++ b/backend/services/practice_review.py
+@@ -116,9 +116,18 @@ def _codes(lst) -> List[str]:
+     return [c for c in (_code_of(x) for x in (lst or [])) if c]
+ 
+ 
+-def _row(item, key, coded, status, note="") -> dict:
+-    return {"item": item, "key": key or "", "coded": coded or "",
+-            "status": status, "note": note}
++def _row(item, key, coded, status, note="", weight="") -> dict:
++    row = {"item": item, "key": key or "", "coded": coded or "",
++           "status": status, "note": note}
++    if weight:
++        row["weight"] = weight
++    return row
++
++
++def _weight(item) -> str:
++    """CC / MCC from the key line: what moves the DRG on an inpatient chart."""
++    v = str((item or {}).get("ccmcc") or "").strip().upper() if isinstance(item, dict) else ""
++    return v if v in ("CC", "MCC") else ""
+ 
+ 
+ def _set_rows(item_label: str, key_items: list, coded_items: list,
+@@ -140,13 +149,13 @@ def _set_rows(item_label: str, key_items: list, coded_items: list,
+                 break
+         if hit is None:
+             missed_at.append((len(rows), k))
+-            rows.append(_row(item_label, _display(k), "", "missed"))
++            rows.append(_row(item_label, _display(k), "", "missed", weight=_weight(k)))
+             continue
+         used[hit] = True
+         c = coded_items[hit]
+         note = detail(k, c) if detail else ""
+         rows.append(_row(item_label, _display(k), _display(c),
+-                         "different" if note else "correct", note))
++                         "different" if note else "correct", note, _weight(k)))
+     # A coder code of the same family as a missed key code is a WRONG code
+     # (Z77.9 for Z77.8), not a miss plus an unrelated extra — the grader's own
+     # rule (grading_engine.pair_near_misses), so the screen and the feedback agree.
+@@ -160,7 +169,8 @@ def _set_rows(item_label: str, key_items: list, coded_items: list,
+             ci = left[b]
+             used[ci] = True
+             rows[at] = _row(item_label, _display(k), _display(coded_items[ci]), "wrong",
+-                            _near_miss_detail(_code_of(k), _code_of(coded_items[ci]), kind))
++                            _near_miss_detail(_code_of(k), _code_of(coded_items[ci]), kind),
++                            _weight(k))
+     for i, c in enumerate(coded_items):
+         if not used[i] and _code_of(c):
+             rows.append(_row(item_label, "", _display(c), "extra"))
+@@ -201,6 +211,12 @@ def _cpt_note(k, c) -> str:
+     cm = str(c.get("modifier") or "").strip().upper()
+     if km != cm:
+         notes.append("Modifier: key %s, coded %s" % (km or "(none)", cm or "(none)"))
++    # Pointers are judged only where the key states them — the grader's rule
++    # (grading_engine: `if ak_ptr and ak_ptr != cdr_ptr`, half credit).
++    kp = [str(x) for x in (k.get("pointers") or [])]
++    cp = [str(x) for x in (c.get("pointers") or [])]
++    if kp and kp != cp:
++        notes.append("Dx pointers: key %s, coded %s" % (",".join(kp), ",".join(cp) or "(none)"))
+     # Units are judged only where the key states them — the grader's rule.
+     if k.get("units") not in (None, ""):
+         if norm_units(k.get("units")) != norm_units(c.get("units")):
+@@ -258,6 +274,16 @@ def _code_sections(r: dict) -> List[dict]:
+                 from services.grading_engine import _near_miss_detail, code_family
+                 if code_family(pdx_k, "dx") == code_family(pdx_c, "dx"):
+                     note = _near_miss_detail(pdx_k, pdx_c, "dx")
++            else:
++                # Same code, wrong POA: the grader withheld the PDx points, so
++                # the row must not read Correct. The stored lists carry no PDx
++                # POA; the grader's own line does ("POA: Y vs N").
++                fb = next((f for f in (r.get("feedback") or [])
++                           if f.get("section") == "PDx"
++                           and (f.get("issue_type") or f.get("issue")) == "Wrong_POA"), None)
++                m = re.search(r"POA:\s*(\S*)\s*vs\s*(\S*)", str((fb or {}).get("detail") or ""))
++                if m:
++                    st, note = "different", "POA: key %s, coded %s" % (m.group(1) or "(none)", m.group(2) or "(none)")
+         else:
+             st = "missed" if pdx_k else "extra"
+         sections.append(_section("pdx", "Principal Diagnosis", "Coding",
+@@ -277,6 +303,15 @@ def _code_sections(r: dict) -> List[dict]:
+     if _codes(cpt_k) or _codes(cpt_c):
+         sections.append(_section("cpt", "CPT / HCPCS", "Coding",
+                                  _set_rows("CPT", cpt_k, cpt_c, _cpt_note, kind="cpt")))
++
++    # ED Single Path levels. The stored result keeps only the grader's line for
++    # a level that was WRONG, so a correct level has nothing to draw from and
++    # is left out rather than guessed at.
++    lv = [_row(f.get("detail"), f.get("ak_code"), f.get("coder_code"), "wrong")
++          for f in (r.get("feedback") or [])
++          if f.get("detail") in ("Facility ED level", "Professional ED level")]
++    if lv:
++        sections.insert(0, _section("ed_level", "ED Level", "Coding", lv))
+     return sections
+ 
+ 
+@@ -622,7 +657,8 @@ def review_workbook(header: dict, charts: List[dict]) -> bytes:
+                 if i == 0 and sec.get("note"):
+                     note = (sec["note"] + (" | " + note if note else ""))
+                 rv.append([c.get("chart_number"), c.get("total_score"), sec["title"],
+-                           pts if i == 0 else "", row["item"], row["key"],
++                           pts if i == 0 else "", row["item"],
++                           row["key"] + ("  " + row["weight"] if row.get("weight") else ""),
+                            row.get("key_desc") or "", row["coded"], row.get("coded_desc") or "",
+                            STATUS_LABELS.get(row["status"], row["status"]), note])
+                 st = status_style.get(row["status"])
+diff --git a/backend/tests/test_practice_review.py b/backend/tests/test_practice_review.py
+index 3ae321d..056d56b 100644
+--- a/backend/tests/test_practice_review.py
++++ b/backend/tests/test_practice_review.py
+@@ -493,3 +493,48 @@ def test_a_partial_dx_score_never_claims_full_credit():
+          "feedback": [{"section": "Coding Accuracy", "issue": "Dx: 23.3/35.0 pts", "ak_code": "", "coder_code": ""}]}
+     note = _sec(build_review(r, {"em_code": "99214"}, {}, CFG), "dx")["note"]
+     assert "full credit" not in note
++
++
++# ── CR-011-Nov: the review carries what only the Scoring notes used to ────────
++# The notes block is gone from every screen, so each fact it alone held is
++# asserted here on the review row that now holds it.
++
++def _ip(**kw):
++    r = {"specialty": "IP-DRG", "pdx_answer_key": "J18.9", "pdx_submitted": "J18.9",
++         "sdx_answer_key": [], "sdx_submitted": [], "pcs_answer_key": [], "pcs_submitted": [],
++         "cpt_answer_key": [], "cpt_submitted": [], "feedback": []}
++    r.update(kw)
++    return build_review(r)
++
++
++def test_a_principal_diagnosis_with_the_wrong_poa_does_not_read_correct():
++    rv = _ip(feedback=[{"section": "PDx", "issue_type": "Wrong_POA", "ak_code": "J18.9",
++                        "coder_code": "J18.9", "detail": "POA: Y vs N"}])
++    row = _sec(rv, "pdx")["rows"][0]
++    assert row["status"] == "different"
++    assert row["note"] == "POA: key Y, coded N"
++
++
++def test_a_key_line_carries_its_cc_or_mcc_weight():
++    rv = _ip(sdx_answer_key=[{"code": "I50.21", "poa": "Y", "ccmcc": "MCC"}, {"code": "I10", "poa": "Y"}],
++             sdx_submitted=[{"code": "I10", "poa": "Y"}])
++    rows = {r["key"].split("  ")[0]: r for r in _sec(rv, "sdx")["rows"]}
++    assert rows["I50.21"]["weight"] == "MCC" and rows["I50.21"]["status"] == "missed"
++    assert "weight" not in rows["I10"]
++
++
++def test_a_cpt_line_with_the_wrong_pointers_does_not_read_correct():
++    rv = _ip(specialty="OP", pdx_answer_key="", pdx_submitted="",
++             cpt_answer_key=[{"code": "71046", "pointers": [1]}],
++             cpt_submitted=[{"code": "71046", "pointers": [2]}])
++    row = _sec(rv, "cpt")["rows"][0]
++    assert row["status"] == "different" and "Dx pointers: key 1, coded 2" in row["note"]
++
++
++def test_a_wrong_ed_level_appears_in_the_review():
++    rv = _ip(specialty="ED Single Path", feedback=[
++        {"section": "CPT", "issue_type": "Wrong_Code", "ak_code": "99285",
++         "coder_code": "99284", "detail": "Facility ED level"}])
++    sec = rv["sections"][0]
++    assert sec["key"] == "ed_level"
++    assert sec["rows"][0]["key"] == "99285" and sec["rows"][0]["status"] == "wrong"
+diff --git a/frontend/src/components/SubmissionReview.tsx b/frontend/src/components/SubmissionReview.tsx
+index bbdc524..c31335c 100644
+--- a/frontend/src/components/SubmissionReview.tsx
++++ b/frontend/src/components/SubmissionReview.tsx
+@@ -1,4 +1,5 @@
+-import { Download } from 'lucide-react'
++import { ChevronDown, ChevronRight, Download, Flag } from 'lucide-react'
++import { REVIEW_STATUS, passFailStyle, reviewScoreColor } from '../theme'
+ import { useState } from 'react'
+ import toast from 'react-hot-toast'
+ import { downloadPracticeReview, downloadPracticeReviewByToken } from '../api/practicelabApi'
+@@ -12,6 +13,12 @@ import { downloadPracticeReview, downloadPracticeReviewByToken } from '../api/pr
+  * only draws it. Sections arrive already classified: Coding (E/M level, primary
+  * and secondary diagnoses, CPT) and, for E/M, Reasoning — COPA, Data Review and
+  * Risk element by element, or Time.
++ *
++ * The standard for every specialty (CR-011-Nov): the chart header and the rows
++ * that cost or could cost points are open; correct rows fold behind one line
++ * per section. There is no separate "Scoring notes" block — every fact it held
++ * (POA, pointers, CC/MCC weight, ED level) is on the row it concerns, so the
++ * same finding is never shown twice.
+  */
+ 
+ export type ReviewStatus = 'correct' | 'wrong' | 'missed' | 'extra' | 'different' | 'order' | 'info'
+@@ -19,6 +26,7 @@ export type ReviewStatus = 'correct' | 'wrong' | 'missed' | 'extra' | 'different
+ export interface ReviewRow {
+   item: string; key: string; coded: string; status: ReviewStatus; note: string
+   key_desc?: string; coded_desc?: string
++  weight?: 'CC' | 'MCC'
+ }
+ export interface ReviewSection {
+   key: string; title: string; group: 'Coding' | 'Reasoning'
+@@ -30,17 +38,7 @@ export interface ChartReview {
+   summary: { correct: number; wrong?: number; missed: number; extra: number; different: number }
+ }
+ 
+-const STATUS: Record<ReviewStatus, { label: string; color: string; bg: string }> = {
+-  correct:   { label: '✓ Correct',  color: '#047857', bg: '#ecfdf5' },
+-  // A same-family code in place of the key's (Z77.9 for Z77.8): an error, but
+-  // not an omission — the coder found the condition and missed the specificity.
+-  wrong:     { label: '✗ Wrong code', color: '#b91c1c', bg: '#fef2f2' },
+-  missed:    { label: '✗ Missed',   color: '#b91c1c', bg: '#fef2f2' },
+-  extra:     { label: '+ Extra',    color: '#9a3412', bg: '#fff7ed' },
+-  different: { label: '≠ Differs',  color: '#92400e', bg: '#fffbeb' },
+-  order:     { label: '↕ Order only', color: '#1e40af', bg: '#eff6ff' },
+-  info:      { label: '',           color: '#6b7280', bg: 'transparent' },
+-}
++const STATUS: Record<ReviewStatus, { label: string; color: string; bg: string }> = REVIEW_STATUS
+ 
+ const GROUP_ACCENT = { Coding: '#5b21b6', Reasoning: '#065f46' }
+ 
+@@ -67,8 +65,41 @@ const s = {
+   },
+   note: { fontSize: 11, color: '#6b7280', marginTop: 2 },
+   empty: { fontSize: 12, color: '#9ca3af', padding: '6px 12px' },
++  toggle: { display: 'flex', alignItems: 'center', gap: 4, width: '100%', padding: '6px 12px', background: '#fcfcfd', border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 600, color: STATUS.correct.color, textAlign: 'left' as const },
++  weight: { fontFamily: 'system-ui, sans-serif', fontSize: 9.5, fontWeight: 800, letterSpacing: 0.3, padding: '1px 5px', borderRadius: 4, marginLeft: 6 },
++  mcc: { background: '#fee2e2', color: '#b91c1c', border: '1px solid #fca5a5' },
++  cc: { background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d' },
++  card: { background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: '14px 18px' },
++  head: { display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' as const },
++  badge: { fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6 },
++}
++
++/**
++ * The one header every review card opens with, for every specialty: chart,
++ * score, PASS/FAIL, flag, then whatever that screen adds (status badges, the
++ * E/M coding + reasoning sum). Same sizes and the same colours everywhere.
++ */
++export function ReviewHeader({ chartNumber, score, passFail, flagged, children }: {
++  chartNumber: string; score?: number | null; passFail?: string | null
++  flagged?: boolean; children?: any
++}) {
++  const pf = passFailStyle(passFail)
++  return (
++    <div style={s.head}>
++      <span style={{ fontWeight: 700, fontSize: 14 }}>{chartNumber}</span>
++      {score !== null && score !== undefined && (
++        <span style={{ fontWeight: 800, fontSize: 15, color: reviewScoreColor(score) }}>{Number(score).toFixed(1)}%</span>
++      )}
++      {passFail && <span style={{ ...s.badge, color: pf.color, background: pf.bg }}>{passFail}</span>}
++      {flagged && <span title="Flagged by the coder"><Flag size={13} color="#d97706" /></span>}
++      {children}
++    </div>
++  )
+ }
+ 
++/** The card a chart's review sits in, on every screen. */
++export const reviewCardStyle = s.card
++
+ function fmtPts(sec: ReviewSection) {
+   if (sec.points === null || sec.points === undefined) return null
+   return sec.max_points !== null && sec.max_points !== undefined
+@@ -83,11 +114,12 @@ export function SubmissionReview({ review }: { review?: ChartReview | null }) {
+   return (
+     <div style={s.wrap}>
+       <div style={s.summary}>
+-        <span style={{ ...s.chip, color: STATUS.correct.color, background: STATUS.correct.bg }}>{summary.correct} correct</span>
+-        {!!summary.wrong && <span style={{ ...s.chip, color: STATUS.wrong.color, background: STATUS.wrong.bg }}>{summary.wrong} wrong code</span>}
+-        <span style={{ ...s.chip, color: STATUS.missed.color, background: STATUS.missed.bg }}>{summary.missed} missed</span>
+-        <span style={{ ...s.chip, color: STATUS.extra.color, background: STATUS.extra.bg }}>{summary.extra} extra</span>
+-        <span style={{ ...s.chip, color: STATUS.different.color, background: STATUS.different.bg }}>{summary.different} differ</span>
++        {(['correct', 'wrong', 'missed', 'extra', 'different'] as const).map(k => {
++          const n = (summary as any)[k] || 0
++          if (!n && k !== 'correct') return null
++          const label = { correct: 'correct', wrong: 'wrong code', missed: 'missed', extra: 'extra', different: 'differ' }[k]
++          return <span key={k} style={{ ...s.chip, color: STATUS[k].color, background: STATUS[k].bg }}>{n} {label}</span>
++        })}
+       </div>
+       {groups.map(g => {
+         const secs = review.sections.filter(x => x.group === g)
+@@ -107,6 +139,11 @@ export function SubmissionReview({ review }: { review?: ChartReview | null }) {
+ 
+ function Section({ sec, accent }: { sec: ReviewSection; accent: string }) {
+   const pts = fmtPts(sec)
++  const [showCorrect, setShowCorrect] = useState(false)
++  const nCorrect = sec.rows.filter(r => r.status === 'correct').length
++  // Correct rows fold away only when something else is left to read; a
++  // section that is all correct still shows one line saying so.
++  const rows = showCorrect ? sec.rows : sec.rows.filter(r => r.status !== 'correct')
+   return (
+     <div style={{ ...s.section, borderLeft: `3px solid ${accent}` }}>
+       <div style={s.secHead}>
+@@ -116,7 +153,8 @@ function Section({ sec, accent }: { sec: ReviewSection; accent: string }) {
+       {sec.note && <div style={s.secNote}>{sec.note}</div>}
+       {sec.rows.length === 0 ? (
+         !sec.note && <div style={s.empty}>Nothing coded or expected.</div>
+-      ) : (
++      ) : (<>
++        {rows.length > 0 && (
+         <table style={s.table}>
+           <thead>
+             <tr>
+@@ -127,12 +165,12 @@ function Section({ sec, accent }: { sec: ReviewSection; accent: string }) {
+             </tr>
+           </thead>
+           <tbody>
+-            {sec.rows.map((r, i) => {
++            {rows.map((r, i) => {
+               const st = STATUS[r.status] || STATUS.info
+               return (
+                 <tr key={i}>
+                   <td style={s.td}>{r.item}</td>
+-                  <CodeCell code={r.key} desc={r.key_desc} />
++                  <CodeCell code={r.key} desc={r.key_desc} weight={r.weight} />
+                   {/* Same code both sides: say what it means once, not twice. */}
+                   <CodeCell code={r.coded}
+                     desc={sameCode(r.key, r.coded) ? '' : r.coded_desc} />
+@@ -145,7 +183,14 @@ function Section({ sec, accent }: { sec: ReviewSection; accent: string }) {
+             })}
+           </tbody>
+         </table>
+-      )}
++        )}
++        {nCorrect > 0 && (
++          <button onClick={() => setShowCorrect(v => !v)} style={s.toggle}>
++            {showCorrect ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
++            {showCorrect ? 'Hide' : 'Show'} {nCorrect} correct {nCorrect === 1 ? 'line' : 'lines'}
++          </button>
++        )}
++      </>)}
+     </div>
+   )
+ }
+@@ -175,10 +220,16 @@ function sameCode(a: string, b: string) {
+   return !!a && norm(a) === norm(b)
+ }
+ 
+-function CodeCell({ code, desc }: { code: string; desc?: string }) {
++function CodeCell({ code, desc, weight }: { code: string; desc?: string; weight?: string }) {
+   return (
+     <td style={s.td}>
+-      <div style={s.code}>{code || '—'}</div>
++      <div style={s.code}>
++        {code || '—'}
++        {weight && (
++          <span title={weight === 'MCC' ? 'Major complication or comorbidity — moves the DRG' : 'Complication or comorbidity — can move the DRG'}
++            style={{ ...s.weight, ...(weight === 'MCC' ? s.mcc : s.cc) }}>{weight}</span>
++        )}
++      </div>
+       {desc && <div style={s.desc} title={desc}>{desc}</div>}
+     </td>
+   )
+diff --git a/frontend/src/pages/PracticeSession.tsx b/frontend/src/pages/PracticeSession.tsx
+index ab24730..a24b805 100644
+--- a/frontend/src/pages/PracticeSession.tsx
++++ b/frontend/src/pages/PracticeSession.tsx
+@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
+ import { deviceId } from '../hooks/useDeviceId'
+ import { GradingFeedback } from '../components/GradingFeedback'
+ import { PoaSelect } from '../components/PoaSelect'
+-import { SubmissionReview, ReviewExportButton, type ChartReview } from '../components/SubmissionReview'
++import { SubmissionReview, ReviewExportButton, ReviewHeader, reviewCardStyle, type ChartReview } from '../components/SubmissionReview'
+ import { checkCpt, checkDx, checkModifier, checkPcs } from '../codeFormat'
+ import { useCodeDescriptions } from '../hooks/useCodeDescriptions'
+ import { CodeSuggest } from '../components/CodeSuggest'
+@@ -1813,13 +1813,8 @@ function parseEMFeedback(feedback: ResultRow['feedback']) {
+ function EMResultCard({ r }: { r: ResultRow }) {
+   const em = parseEMFeedback(r.feedback || [])
+   return (
+-    <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: '14px 18px' }}>
+-      {/* Header row */}
+-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+-        <span style={{ fontWeight: 700, fontSize: 14 }}>{r.chart_number}</span>
+-        {r.total_score !== null && (
+-          <span style={{ fontSize: 16, fontWeight: 800, color: (r.total_score ?? 0) >= 80 ? '#059669' : '#dc2626' }}>{r.total_score?.toFixed(1)}%</span>
+-        )}
++    <div style={reviewCardStyle}>
++      <ReviewHeader chartNumber={r.chart_number} score={r.total_score} passFail={r.pass_fail} flagged={r.flagged}>
+         {/* The Coding and Reasoning sections below add up to the score above,
+             out of 100. Without this a reader compares the headline against a
+             subtotal — 58 points of coding against an 88% chart — and concludes
+@@ -1828,9 +1823,7 @@ function EMResultCard({ r }: { r: ResultRow }) {
+           {em.ca_total.toFixed(1)} coding + {em.ra_total.toFixed(1)} reasoning
+           {' '}= {(em.ca_total + em.ra_total).toFixed(1)} of 100
+         </span>
+-        <span style={{ fontSize: 12, fontWeight: 700, padding: '2px 10px', borderRadius: 6, background: r.pass_fail === 'PASS' ? '#d1fae5' : '#fee2e2', color: r.pass_fail === 'PASS' ? '#059669' : '#dc2626' }}>{r.pass_fail || '—'}</span>
+-        {r.flagged && <Flag size={13} color="#f59e0b" />}
+-      </div>
++      </ReviewHeader>
+       {/* Classified like IP/OP: E/M level, diagnoses, CPT — then the
+           reasoning, COPA / Data Review / Risk element by element, so a
+           partial score (6.7 of 10) shows which element it lost. */}
+@@ -1882,18 +1875,13 @@ function ResultsView({ results, coderName, token }: { results: ReturnType<typeof
+         {results.map((r, i) => {
+           if (isEMSession) return <EMResultCard key={i} r={r} />
+           return (
+-            <div key={i} style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: '14px 18px' }}>
+-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: r.feedback?.length ? 10 : 0 }}>
+-                <span style={{ fontWeight: 700, fontSize: 14 }}>{r.chart_number}</span>
+-                {r.total_score !== null && (
+-                  <span style={{ fontSize: 13, fontWeight: 700, color: (r.total_score ?? 0) >= 80 ? '#059669' : '#dc2626' }}>{r.total_score}%</span>
+-                )}
+-                <span style={{ fontSize: 12, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: r.pass_fail === 'PASS' ? '#d1fae5' : '#fee2e2', color: r.pass_fail === 'PASS' ? '#059669' : '#dc2626' }}>{r.pass_fail || '—'}</span>
+-                {r.flagged && <Flag size={13} color="#f59e0b" />}
+-              </div>
++            <div key={i} style={reviewCardStyle}>
++              <ReviewHeader chartNumber={r.chart_number} score={r.total_score} passFail={r.pass_fail} flagged={r.flagged} />
+               <SubmissionReview review={r.review} />
+-              {r.feedback?.length > 0 && (
+-                <details open={!r.review} style={{ marginTop: 8 }}>
++              {/* Only when the review could not be built for this result:
++                  otherwise every fact here is already on a review row. */}
++              {!r.review && r.feedback?.length > 0 && (
++                <details open style={{ marginTop: 8 }}>
+                   <summary style={{ fontSize: 12, fontWeight: 600, color: '#6b7280', cursor: 'pointer' }}>Scoring notes, with code descriptions</summary>
+                   <GradingFeedback
+                     feedback={r.feedback as any}
+diff --git a/frontend/src/pages/auditor/AuditReview.tsx b/frontend/src/pages/auditor/AuditReview.tsx
+index 88bf406..fe7fdb1 100644
+--- a/frontend/src/pages/auditor/AuditReview.tsx
++++ b/frontend/src/pages/auditor/AuditReview.tsx
+@@ -1,10 +1,11 @@
+ import { useCallback, useEffect, useState } from 'react'
+ import { useCodeDescriptions } from '../../hooks/useCodeDescriptions'
+ import toast from 'react-hot-toast'
+-import { AlertTriangle, CheckCircle, ChevronLeft, Circle, XCircle } from 'lucide-react'
++import { AlertTriangle, CheckCircle, ChevronDown, ChevronLeft, ChevronRight, Circle, XCircle } from 'lucide-react'
+ import { getAuditReview } from '../../api/auditorApi'
+ import { ISSUE_COLORS } from '../practicelab/shared'
+ import s from './styles'
++import { REVIEW_STATUS } from '../../theme'
+ 
+ /**
+  * What one auditor did, chart by chart.
+@@ -18,10 +19,12 @@ import s from './styles'
+  * auditor's own results never do.
+  */
+ 
++// The practice review's colours (theme.REVIEW_STATUS), so green, red and amber
++// mean the same thing on every review screen in the app.
+ const OUTCOME = {
+-  correct: { label: 'Found and corrected', color: '#059669', Icon: CheckCircle },
+-  detected_not_corrected: { label: 'Found, corrected wrongly', color: '#d97706', Icon: Circle },
+-  missed: { label: 'Missed', color: '#dc2626', Icon: XCircle },
++  correct: { label: 'Found and corrected', color: REVIEW_STATUS.correct.color, Icon: CheckCircle },
++  detected_not_corrected: { label: 'Found, corrected wrongly', color: REVIEW_STATUS.different.color, Icon: Circle },
++  missed: { label: 'Missed', color: REVIEW_STATUS.missed.color, Icon: XCircle },
+ } as const
+ 
+ const ACTION_COLORS: Record<string, string> = {
+@@ -34,6 +37,9 @@ export function AuditReview({ sessionId, onBack }: {
+   sessionId: number; onBack: () => void
+ }) {
+   const [data, setData] = useState<any>(null)
++  // Found-and-corrected lines fold away per chart, as correct lines do on the
++  // practice review: what cost points is open, the rest is one click.
++  const [showCorrect, setShowCorrect] = useState<Record<number, boolean>>({})
+ 
+   const load = useCallback(async () => {
+     try { setData(await getAuditReview(sessionId)) }
+@@ -103,7 +109,7 @@ export function AuditReview({ sessionId, onBack }: {
+         </div>
+       </div>
+ 
+-      {(data.charts || []).map((c: any) => (
++      {(data.charts || []).map((c: any, ci: number) => (
+         <div key={c.chart_id} style={s.panel}>
+           <div style={s.panelHead}>
+             <span style={{ fontWeight: 700, fontSize: 13 }}>{c.chart_number}</span>
+@@ -126,19 +132,19 @@ export function AuditReview({ sessionId, onBack }: {
+                 </span>
+               ))}
+               {c.over_calls > 0 && (
+-                <span style={{ color: '#dc2626', fontWeight: 600 }}>
++                <span style={{ color: REVIEW_STATUS.missed.color, fontWeight: 600 }}>
+                   {c.over_calls} finding(s) on correct items
+                   {c.over_call_deduction ? ` · −${c.over_call_deduction}%` : ''}
+                 </span>
+               )}
+               {c.query_correct === false && (
+-                <span style={{ color: '#dc2626', fontWeight: 600 }}>
++                <span style={{ color: REVIEW_STATUS.missed.color, fontWeight: 600 }}>
+                   query {c.query_expected ? 'was needed and not raised' : 'raised unnecessarily'}
+                 </span>
+               )}
+               {c.drg_impacting_planted > 0 && (
+                 <span style={{ color: c.drg_impacting_found === c.drg_impacting_planted
+-                                 ? '#059669' : '#dc2626', fontWeight: 600 }}>
++                                 ? REVIEW_STATUS.correct.color : REVIEW_STATUS.missed.color, fontWeight: 600 }}>
+                   DRG-impacting {c.drg_impacting_found}/{c.drg_impacting_planted}
+                 </span>
+               )}
+@@ -154,6 +160,7 @@ export function AuditReview({ sessionId, onBack }: {
+             ) : (
+               <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                 {(c.outcomes || []).map((o: any, i: number) => {
++                  if (o.outcome === 'correct' && !showCorrect[ci]) return null
+                   // An over-call has no planting — nothing was introduced
+                   // where the auditor raised a finding, which is exactly what
+                   // makes it an over-call. Rendering it through the planting
+@@ -161,10 +168,10 @@ export function AuditReview({ sessionId, onBack }: {
+                   if (o.outcome === 'over_call') {
+                     const f = o.finding || {}
+                     return (
+-                      <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '6px 8px', borderRadius: 6, background: '#fffbeb' }}>
+-                        <AlertTriangle size={14} color="#d97706" style={{ flexShrink: 0, marginTop: 2 }} />
++                      <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '6px 8px', borderRadius: 6, background: REVIEW_STATUS.extra.bg }}>
++                        <AlertTriangle size={14} color={REVIEW_STATUS.extra.color} style={{ flexShrink: 0, marginTop: 2 }} />
+                         <div style={{ fontSize: 12, lineHeight: 1.5, minWidth: 0, flex: 1 }}>
+-                          <strong style={{ color: '#b45309' }}>Over-call</strong>{' '}
++                          <strong style={{ color: REVIEW_STATUS.extra.color }}>Over-call</strong>{' '}
+                           {f.section}
+                           {f.field && f.field !== 'code' ? ` ${f.field}` : ''}
+                           {typeof f.line === 'number' ? ` line ${f.line + 1}` : ''}
+@@ -216,6 +223,18 @@ export function AuditReview({ sessionId, onBack }: {
+                     </div>
+                   )
+                 })}
++                {(() => {
++                  const n = (c.outcomes || []).filter((o: any) => o.outcome === 'correct').length
++                  if (!n) return null
++                  const open = !!showCorrect[ci]
++                  return (
++                    <button onClick={() => setShowCorrect(m => ({ ...m, [ci]: !open }))}
++                      style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 600, color: REVIEW_STATUS.correct.color }}>
++                      {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
++                      {open ? 'Hide' : 'Show'} {n} found and corrected
++                    </button>
++                  )
++                })()}
+               </div>
+             )}
+ 
+@@ -256,5 +275,5 @@ function pct(v: number | null | undefined) {
+ 
+ function tone(v: number | null | undefined) {
+   if (v === null || v === undefined) return '#9ca3af'
+-  return v >= 90 ? '#059669' : v >= 70 ? '#d97706' : '#dc2626'
++  return v >= 90 ? REVIEW_STATUS.correct.color : v >= 70 ? REVIEW_STATUS.different.color : REVIEW_STATUS.missed.color
+ }
+diff --git a/frontend/src/pages/practicelab/BatchDetailView.tsx b/frontend/src/pages/practicelab/BatchDetailView.tsx
+index ead28aa..e6c9d6d 100644
+--- a/frontend/src/pages/practicelab/BatchDetailView.tsx
++++ b/frontend/src/pages/practicelab/BatchDetailView.tsx
+@@ -1,6 +1,6 @@
+ import { useState, useEffect, useCallback } from 'react'
+ import { GradingFeedback } from '../../components/GradingFeedback'
+-import { SubmissionReview, ReviewExportButton, describeFromReview } from '../../components/SubmissionReview'
++import { SubmissionReview, ReviewExportButton, ReviewHeader, describeFromReview } from '../../components/SubmissionReview'
+ import { Loader, Download, BarChart2, Search, CheckSquare, Square, CheckCircle, Circle, AlertCircle, ChevronDown, ChevronRight, Key, Copy, Eye } from 'lucide-react'
+ import toast from 'react-hot-toast'
+ import RandomisationStatsCard from '../../components/RandomisationStatsCard'
+@@ -1142,12 +1142,6 @@ const QUERY_VERDICT_LABELS: Record<string, string> = {
+   not_warranted: 'Query was not warranted',
+ }
+ 
+-// E/M and ED Profee grade on the E/M path, so their review has no PDx line.
+-function isEMReview(sp: string) {
+-  const s = (sp || '').toUpperCase().replace(/[\s_]/g, '')
+-  return s.includes('E/M') || s.includes('PROFEE')
+-}
+-
+ function isEDSpecialty(sp: string) {
+   const s = sp.toUpperCase()
+   return s.includes('EDIT') || s.includes('DENIAL')
+@@ -1253,16 +1247,12 @@ function ReviewModal({ reviewData, onClose, onRefresh }: { reviewData: any; onCl
+               return (
+                 <div key={i} style={{ border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
+                   {/* chart header */}
+-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
+-                    <span style={{ fontWeight: 700, fontSize: 14 }}>{c.chart_number}</span>
+-                    {c.ed_scored && (
+-                      <>
+-                        <span style={{ fontWeight: 700, fontSize: 13, color: (c.total_score ?? 0) >= 80 ? '#059669' : '#dc2626' }}>{c.total_score}%</span>
+-                        <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: c.pass_fail === 'PASS' ? '#d1fae5' : '#fee2e2', color: c.pass_fail === 'PASS' ? '#059669' : '#dc2626' }}>{c.pass_fail}</span>
+-                      </>
+-                    )}
+-                    {!c.ed_scored && <span style={{ fontSize: 11, background: '#fef3c7', color: '#b45309', borderRadius: 6, padding: '2px 8px' }}>Pending Score</span>}
+-                    {c.flagged && <span style={{ fontSize: 11, background: '#fef9c3', color: '#b45309', borderRadius: 6, padding: '1px 6px' }}>Flagged</span>}
++                  <div style={{ padding: '10px 16px', background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
++                    <ReviewHeader chartNumber={c.chart_number}
++                      score={c.ed_scored ? c.total_score : null} passFail={c.ed_scored ? c.pass_fail : null}
++                      flagged={c.flagged}>
++                      {!c.ed_scored && <span style={{ fontSize: 11, fontWeight: 700, background: '#fef3c7', color: '#b45309', borderRadius: 6, padding: '2px 8px' }}>Pending Score</span>}
++                    </ReviewHeader>
+                   </div>
+ 
+                   {/* coder responses */}
+@@ -1341,20 +1331,16 @@ function ReviewModal({ reviewData, onClose, onRefresh }: { reviewData: any; onCl
+             const bg = noAK ? '#fffbeb' : hasDRG && !drgDone ? '#fff5f5' : '#fff'
+             return (
+               <div key={i} style={{ border: `1px solid ${borderColor}`, borderRadius: 10, padding: '12px 16px', background: bg }}>
+-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
+-                  <span style={{ fontWeight: 700, fontSize: 14 }}>{c.chart_number}</span>
+-                  {!noAK && c.total_score !== null && (
+-                    <span style={{ fontWeight: 700, fontSize: 13, color: c.total_score >= 80 ? '#059669' : '#dc2626' }}>{c.total_score}%</span>
+-                  )}
+-                  {!noAK && c.pass_fail && (
+-                    <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: c.pass_fail === 'PASS' ? '#d1fae5' : '#fee2e2', color: c.pass_fail === 'PASS' ? '#059669' : '#dc2626' }}>{c.pass_fail}</span>
+-                  )}
++                <div style={{ marginBottom: 8 }}>
++                <ReviewHeader chartNumber={c.chart_number}
++                  score={noAK ? null : c.total_score} passFail={noAK ? null : c.pass_fail}
++                  flagged={c.flagged}>
+                   {noAK && <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: '#fef3c7', color: '#b45309' }}>⚠ No Answer Key</span>}
+-                  {hasDRG && !drgDone && <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: '#fee2e2', color: '#dc2626' }}>⚑ DRG Review Needed</span>}
+-                  {hasDRG && drgDone && <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: '#d1fae5', color: '#059669' }}>✓ DRG Reviewed{c.drg_override ? ` — ${c.drg_override}` : ''}</span>}
+-                  {c.flagged && <span style={{ fontSize: 11, background: '#fef9c3', color: '#b45309', borderRadius: 6, padding: '1px 6px' }}>Flagged</span>}
++                  {hasDRG && !drgDone && <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: '#fee2e2', color: '#b91c1c' }}>⚑ DRG Review Needed</span>}
++                  {hasDRG && drgDone && <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: '#ecfdf5', color: '#047857' }}>✓ DRG Reviewed{c.drg_override ? ` — ${c.drg_override}` : ''}</span>}
+                   {c.query_flag && !c.query_reviewed && <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: '#fef3c7', color: '#b45309' }}>⚑ Query Review Needed</span>}
+-                  {c.query_flag && c.query_reviewed && <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: '#d1fae5', color: '#059669' }}>✓ Query Reviewed</span>}
++                  {c.query_flag && c.query_reviewed && <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: '#ecfdf5', color: '#047857' }}>✓ Query Reviewed</span>}
++                </ReviewHeader>
+                 </div>
+                 {noAK ? (
+                   <div style={{ fontSize: 12, color: '#92400e' }}>
+@@ -1367,10 +1353,11 @@ function ReviewModal({ reviewData, onClose, onRefresh }: { reviewData: any; onCl
+                         for E/M that is level, diagnoses, CPT, then COPA / Data
+                         Review / Risk element by element. */}
+                     <SubmissionReview review={c.review} />
+-                    {/* What lost points, in the grader's words. E/M's are the
+-                        score lines the review above already breaks down. */}
+-                    {(!isEMReview(c.specialty || reviewData.specialty) || !c.review) && c.feedback?.length > 0 && (
+-                      <details open={!c.review} style={{ marginTop: 8 }}>
++                    {/* The grader's own lines only when the review could not
++                        be built for this result — otherwise every fact they
++                        carry is already on a review row (CR-011-Nov). */}
++                    {!c.review && c.feedback?.length > 0 && (
++                      <details open style={{ marginTop: 8 }}>
+                         <summary style={{ fontSize: 12, fontWeight: 600, color: '#6b7280', cursor: 'pointer' }}>Scoring notes</summary>
+                         <GradingFeedback
+                           feedback={c.feedback}
+diff --git a/frontend/src/pages/practicelab/ResultsView.tsx b/frontend/src/pages/practicelab/ResultsView.tsx
+index 26860e0..22c6a41 100644
+--- a/frontend/src/pages/practicelab/ResultsView.tsx
++++ b/frontend/src/pages/practicelab/ResultsView.tsx
+@@ -4,6 +4,8 @@ import { Loader, Download, Copy, Check, ChevronDown, ChevronRight } from 'lucide
+ import toast from 'react-hot-toast'
+ import { getBatchResults, downloadBatchResultsExcel, getBatchInsights, setBatchScoring } from '../../api'
+ import { InsightsPanel } from './InsightsPanel'
++import { GradingFeedback } from '../../components/GradingFeedback'
++import { reviewScoreColor } from '../../theme'
+ import styles from './styles'
+ 
+ export function ResultsView({ batchId }: any) {
+@@ -301,7 +303,7 @@ export function ResultsView({ batchId }: any) {
+                             {ch.category || '—'}
+                             {ch.specialty && <span style={{ ...styles.badge, marginLeft: 6, fontSize: 10, padding: '1px 6px' }}>{ch.specialty}</span>}
+                           </span>
+-                          <span style={{ textAlign: 'center', fontWeight: 700, fontSize: 13, color: ch.total_score != null ? scoreColor(ch.total_score) : '#9ca3af' }}>
++                          <span style={{ textAlign: 'center', fontWeight: 700, fontSize: 13, color: reviewScoreColor(ch.total_score) }}>
+                             {ch.total_score != null ? `${ch.total_score}%` : '—'}
+                             {ch.drg_flag && !ch.drg_reviewed && <span title="DRG review pending" style={{ marginLeft: 4, fontSize: 10, color: '#d97706' }}>⏳</span>}
+                             {ch.drg_reviewed && ch.drg_reviewed_by && (
+@@ -324,16 +326,12 @@ export function ResultsView({ batchId }: any) {
+ 
+                         {/* Feedback detail */}
+                         {chartOpen && ch.feedback?.length > 0 && (
+-                          <div style={{ ...styles.fbList, margin: '0 0 4px 24px' }}>
+-                            {ch.feedback.map((f: any, fi: number) => (
+-                              <div key={fi} style={styles.fbRow}>
+-                                <span style={styles.fbSection}>{f.section}</span>
+-                                <span style={styles.fbIssue}>{f.issue_type}</span>
+-                                {f.ak_code && <span style={{ fontSize: 11 }}>AK:{f.ak_code}</span>}
+-                                {f.coder_code && <span style={{ fontSize: 11 }}>Cdr:{f.coder_code}</span>}
+-                                {f.detail && <span style={{ fontSize: 11, color: '#6b7280' }}>{f.detail}</span>}
+-                              </div>
+-                            ))}
++                          // The same grouped renderer the review screens fall
++                          // back to, so a finding reads the same everywhere.
++                          <div style={{ margin: '0 12px 8px 24px' }}>
++                            <GradingFeedback feedback={ch.feedback}
++                              sdxKey={ch.sdx_answer_key || []}
++                              pdxKey={ch.pdx_answer_key ? [{ code: ch.pdx_answer_key }] : []} />
+                           </div>
+                         )}
+                       </div>
+diff --git a/frontend/src/theme.ts b/frontend/src/theme.ts
+index f4793d5..285ba31 100644
+--- a/frontend/src/theme.ts
++++ b/frontend/src/theme.ts
+@@ -36,3 +36,30 @@ export const DIFFICULTY_COLORS = {
+   Intermediate: { bg: '#fef9c3', text: '#854d0e' },
+   Advanced:     { bg: '#fee2e2', text: '#991b1b' },
+ }
++
++// ── Review screens ────────────────────────────────────────────────────────────
++// One vocabulary of result colours for every screen that marks work against a
++// key: the practice review (trainer modal, coder results, Excel export) and the
++// auditor review. Green is right, red is an error the score paid for, orange is
++// something added that the key lacks, amber is a line that matched but differs
++// in a detail (POA, modifier, pointer, units). Before this the four screens
++// each kept their own greens and reds and a PASS badge in three shades.
++export const REVIEW_STATUS = {
++  correct:   { label: '✓ Correct',      color: '#047857', bg: '#ecfdf5' },
++  wrong:     { label: '✗ Wrong code',   color: '#b91c1c', bg: '#fef2f2' },
++  missed:    { label: '✗ Missed',       color: '#b91c1c', bg: '#fef2f2' },
++  extra:     { label: '+ Extra',        color: '#9a3412', bg: '#fff7ed' },
++  different: { label: '≠ Differs',      color: '#92400e', bg: '#fffbeb' },
++  order:     { label: '↕ Order only',   color: '#1e40af', bg: '#eff6ff' },
++  info:      { label: '',               color: '#6b7280', bg: 'transparent' },
++} as const
++
++/** Score colour on review screens: the 80% pass line, the same everywhere. */
++export function reviewScoreColor(score: number | null | undefined) {
++  if (score === null || score === undefined) return '#9ca3af'
++  return score >= 80 ? REVIEW_STATUS.correct.color : REVIEW_STATUS.missed.color
++}
++
++export function passFailStyle(pf: string | null | undefined) {
++  return pf === 'PASS' ? REVIEW_STATUS.correct : pf === 'FAIL' ? REVIEW_STATUS.missed : REVIEW_STATUS.info
++}
+-- 
+2.43.0
+
