@@ -360,6 +360,13 @@ complete committed change, `git am` onto the same Python app) and the spec plus
 `frontend.patch` for a rebuilt backend. Generate `code.patch` from the CR's
 commits restricted to backend/frontend/scripts, and prove the set applies in
 order to the pre-CR-001 code and reproduces the current tree.
+**From CR-010 on, every change ships as its own pull request** (user,
+2026-11-19): work on a branch named `harish/cr-NNN-short-title`, open a PR into
+`main` with the CR summary as its description, and merge only when the user
+says to deploy. The PR link is what goes to IT — it stays valid after the
+merge and shows only that change — and it is recorded on the CR's register
+row. CR-001 to CR-009 went straight to `main` and have no PR; the compare link
+`9f232cb...7220be1` covers them.
 Every change to this app gets a folder in `docs/change_requests/` and a row in
 its `REGISTER.md`: the spec (`CR-NNN.md`), `frontend.patch` (applies as-is),
 `openapi.diff.txt` (generated), and a `smoke_deployed.py` check IT can point at
