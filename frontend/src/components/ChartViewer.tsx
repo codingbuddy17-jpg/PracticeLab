@@ -4,7 +4,7 @@ import toast from 'react-hot-toast'
 import { getChartPages, getChartText, searchInChart, submitFeedback } from '../api'
 import type { Chart } from '../types'
 import { SPECIALTY_COLORS, DIFFICULTY_COLORS } from '../theme'
-import { parseChart, AID_PATTERNS, type Block } from './chartDocument'
+import { parseChart, findAids, aidTip, AID_CATEGORIES, FINAL_DX_SECTIONS, type AidCategory, type Block } from './chartDocument'
 
 interface Props {
   chart: Chart
@@ -21,22 +21,44 @@ function escapedRegex(raw: string) {
   return raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-const AID_RE = new RegExp(`(${AID_PATTERNS.uncertain.source})|(${AID_PATTERNS.linkage.source})`, 'gi')
+// One colour per category, drawn as a thin underline only — no fill, the
+// text keeps its colour — so a page with aids on still reads as a page.
+// Negation is dashed and grey: it marks what NOT to code.
+const AID_COLOR: Record<AidCategory, string> = {
+  uncertain: '#d97706', negation: '#94a3b8', linkage: '#0284c7', query: '#e11d48',
+  specificity: '#7c3aed', site: '#0d9488', poa: '#16a34a',
+}
+const DEFAULT_AID_CATS: AidCategory[] = ['uncertain', 'negation', 'linkage', 'query']
 
-/** Search matches always; uncertain / linkage wording only when aids are on. */
-function HighlightedText({ text, query, aids = false }: { text: string; query: string; aids?: boolean }) {
+interface AidCtx { cats: Set<AidCategory>; inpatient: boolean; finalDx: boolean }
+
+function aidStyle(cat: AidCategory, strong: boolean): React.CSSProperties {
+  const c = AID_COLOR[cat]
+  return {
+    background: strong ? '#fef3c7' : 'transparent', color: 'inherit', padding: 0, borderRadius: 2,
+    borderBottom: `2px ${cat === 'negation' ? 'dashed' : 'solid'} ${c}`,
+    fontWeight: strong ? 700 : 'inherit', cursor: 'help',
+  }
+}
+
+/** Search matches always; coding aids for the categories the reader has on. */
+function HighlightedText({ text, query, aids }: { text: string; query: string; aids?: AidCtx | null }) {
   const q = query.trim()
   const withAids = (chunk: string, key: string) => {
-    if (!aids) return <span key={key}>{chunk}</span>
+    if (!aids || !aids.cats.size) return <span key={key}>{chunk}</span>
+    const hits = findAids(chunk, aids.inpatient).filter(h => aids.cats.has(h.cat))
+    if (!hits.length) return <span key={key}>{chunk}</span>
     const out: React.ReactNode[] = []
     let last = 0
-    chunk.replace(AID_RE, (m, unc, _u2, link, _l2, offset: number) => {
-      if (offset > last) out.push(chunk.slice(last, offset))
-      out.push(<mark key={`${key}-${offset}`} style={unc ? styles.aidUncertain : styles.aidLinkage}
-        title={unc ? 'Uncertain diagnosis wording' : 'Linkage wording'}>{m}</mark>)
-      last = offset + m.length
-      return m
-    })
+    for (const h of hits) {
+      if (h.start > last) out.push(chunk.slice(last, h.start))
+      // Uncertain wording in a final-diagnosis section is where the inpatient
+      // rule bites, so only there it earns a soft fill.
+      const strong = h.cat === 'uncertain' && aids.finalDx && aids.inpatient
+      out.push(<mark key={`${key}-${h.start}`} data-aid={h.cat} style={aidStyle(h.cat, strong)}
+        title={aidTip(h.cat, aids.inpatient, aids.finalDx)}>{chunk.slice(h.start, h.end)}</mark>)
+      last = h.end
+    }
     if (last < chunk.length) out.push(chunk.slice(last))
     return <span key={key}>{out}</span>
   }
@@ -49,6 +71,19 @@ function HighlightedText({ text, query, aids = false }: { text: string; query: s
         : withAids(part, `p${idx}`))}
     </>
   )
+}
+
+/** Exactly the strings the text view runs through the highlighter, so the
+ *  counts in the aids menu match what is drawn (a heading's title is shown as
+ *  a label, not highlighted, so it is not counted). */
+function highlightedTexts(b: Block): string[] {
+  switch (b.kind) {
+    case 'doc': return [b.title]
+    case 'heading': return b.inline ? [b.inline] : []
+    case 'field': return [`${b.label}:`, b.value]
+    case 'list': case 'text': case 'signature': return [b.text]
+    default: return []
+  }
 }
 
 function blockText(b: Block) {
@@ -87,6 +122,17 @@ export function ChartViewer({ chart, viewerName = 'anonymous', onClose }: Props)
   // Coding aids are the reader's choice, off unless they turn them on, and
   // remembered across charts for that reader.
   const [aidsOn, setAidsOn] = useState(() => readPref('cv:aids') === '1')
+  // Which categories are on. The four decision cues by default; the three that
+  // fire on many words (specificity, site, POA) are opt-in. Remembered.
+  const [aidCats, setAidCats] = useState<Set<AidCategory>>(() => {
+    const saved = readPref('cv:aidcats')
+    return new Set((saved ? saved.split(',').filter(Boolean) : DEFAULT_AID_CATS) as AidCategory[])
+  })
+  const [aidMenu, setAidMenu] = useState(false)
+  const aidMenuRef = useRef<HTMLDivElement>(null)
+  const aidMenuOpen = useRef(false)
+  aidMenuOpen.current = aidMenu
+  const aidIdx = useRef<Record<string, number>>({})
   const textPaneRef = useRef<HTMLDivElement>(null)
   const restoredRef = useRef(false)
   const jumpLockRef = useRef<{ id: string; until: number } | null>(null)  // set by a jump, cleared by the reader's own scrolling
@@ -234,7 +280,10 @@ export function ChartViewer({ chart, viewerName = 'anonymous', onClose }: Props)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { if (showSearch) setShowSearch(false); else onClose() }
+      if (e.key === 'Escape') {
+        if (aidMenuOpen.current) { setAidMenu(false); return }
+        if (showSearch) setShowSearch(false); else onClose()
+      }
       if (e.key === 'ArrowRight' && !showSearch) setCurrentPage(p => Math.min(p + 1, pages.length - 1))
       if (e.key === 'ArrowLeft' && !showSearch) setCurrentPage(p => Math.max(p - 1, 0))
       if ((e.ctrlKey || e.metaKey) && e.key === 'f') { e.preventDefault(); setShowSearch(true); setTimeout(() => searchInputRef.current?.focus(), 50) }
@@ -252,6 +301,65 @@ export function ChartViewer({ chart, viewerName = 'anonymous', onClose }: Props)
   const isMatchPage = searchResults.includes(currentPage)
   const parsed = useMemo(() => parseChart(textPages), [textPages])
   const flatSections = useMemo(() => parsed.docs.flatMap(d => d.sections), [parsed])
+
+  // Coding aids: the chart's setting decides what the uncertain rule says, and
+  // each block knows which section it sits in, so final-diagnosis sections can
+  // be told apart from the HPI.
+  const inpatient = String(chart.specialty) === 'IP-DRG'
+  const blockSection = useMemo(() => {
+    const m = new Map<string, string>()
+    let cur = ''
+    for (const pg of parsed.pages) pg.blocks.forEach((b, i) => {
+      if (b.kind === 'heading') cur = b.label
+      else if (b.kind === 'doc') cur = ''
+      m.set(`${pg.page}:${i}`, cur)
+    })
+    return m
+  }, [parsed])
+  const aidCounts = useMemo(() => {
+    const c: Record<string, number> = {}
+    for (const pg of parsed.pages) for (const b of pg.blocks) {
+      for (const t of highlightedTexts(b)) for (const h of findAids(t, inpatient)) c[h.cat] = (c[h.cat] || 0) + 1
+    }
+    return c
+  }, [parsed, inpatient])
+  const aidTotal = AID_CATEGORIES.reduce((n, c) => n + (aidCats.has(c.key) ? aidCounts[c.key] || 0 : 0), 0)
+
+  function toggleAidCat(cat: AidCategory) {
+    setAidCats(prev => {
+      const next = new Set(prev)
+      if (next.has(cat)) next.delete(cat); else next.add(cat)
+      writePref('cv:aidcats', [...next].join(','))
+      return next
+    })
+    if (!aidsOn) { setAidsOn(true); writePref('cv:aids', '1') }
+  }
+
+  /** Step to the next / previous highlight of one category, in reading order. */
+  function jumpAid(cat: AidCategory, dir: number) {
+    const pane = textPaneRef.current
+    if (!pane) return
+    const marks = Array.from(pane.querySelectorAll<HTMLElement>(`mark[data-aid="${cat}"]`))
+    if (!marks.length) return
+    const n = ((aidIdx.current[cat] ?? -1) + dir + marks.length) % marks.length
+    aidIdx.current[cat] = n
+    const el = marks[n]
+    const top = el.getBoundingClientRect().top - pane.getBoundingClientRect().top + pane.scrollTop - 80
+    jumpLockRef.current = null
+    pane.scrollTo({ top: Math.max(0, top), behavior: 'smooth' })
+    el.animate?.([{ boxShadow: `0 0 0 3px ${AID_COLOR[cat]}66` }, { boxShadow: '0 0 0 3px transparent' }],
+      { duration: 1400, easing: 'ease-out' })
+  }
+
+  // The menu closes on a click anywhere outside it.
+  useEffect(() => {
+    if (!aidMenu) return
+    const close = (e: MouseEvent) => {
+      if (aidMenuRef.current && !aidMenuRef.current.contains(e.target as Node)) setAidMenu(false)
+    }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [aidMenu])
 
   /** Scroll the text pane so an element sits at its top. */
   const jumpTo = useCallback((id: string) => {
@@ -363,13 +471,48 @@ export function ChartViewer({ chart, viewerName = 'anonymous', onClose }: Props)
               ))}
             </div>
             {viewMode !== 'image' && (
-              <button
-                style={{ ...styles.iconBtn, gap: 5, fontSize: 12, fontWeight: 700, color: aidsOn ? '#92400e' : '#6b7280', background: aidsOn ? '#fffbeb' : '#fff', borderColor: aidsOn ? '#fcd34d' : '#e5e7eb' }}
-                onClick={toggleAids}
-                title="Highlight uncertain-diagnosis and linkage wording"
-              >
-                <Highlighter size={14} /> Coding aids
-              </button>
+              <div ref={aidMenuRef} style={{ position: 'relative' }}>
+                <button
+                  style={{ ...styles.iconBtn, gap: 6, fontSize: 12, fontWeight: 700,
+                           color: aidsOn ? '#334155' : '#6b7280', background: aidMenu ? '#f8fafc' : '#fff' }}
+                  onClick={() => setAidMenu(o => !o)}
+                  title="Coding aids — highlight wording that decides how a chart is coded"
+                  aria-expanded={aidMenu}
+                >
+                  <Highlighter size={14} color={aidsOn ? '#d97706' : '#6b7280'} /> Coding aids
+                  {aidsOn && aidTotal > 0 && <span style={styles.aidBadge}>{aidTotal}</span>}
+                  <ChevronDown size={13} />
+                </button>
+                {aidMenu && (
+                  <div style={styles.aidMenu} role="menu">
+                    <div style={styles.aidMenuHead}>
+                      <span>Coding aids</span>
+                      <label style={styles.aidSwitchLabel}>
+                        <input type="checkbox" checked={aidsOn} onChange={toggleAids} /> {aidsOn ? 'On' : 'Off'}
+                      </label>
+                    </div>
+                    {AID_CATEGORIES.filter(c => !c.inpatientOnly || inpatient).map(c => {
+                      const on = aidsOn && aidCats.has(c.key)
+                      const n = aidCounts[c.key] || 0
+                      return (
+                        <div key={c.key} style={{ ...styles.aidRow, opacity: aidsOn ? 1 : 0.55 }}
+                          title={aidTip(c.key, inpatient, false)}>
+                          <label style={styles.aidRowLabel}>
+                            <input type="checkbox" checked={aidCats.has(c.key)} onChange={() => toggleAidCat(c.key)} />
+                            <span style={{ ...styles.aidSwatch, borderBottomColor: AID_COLOR[c.key],
+                                           borderBottomStyle: c.key === 'negation' ? 'dashed' : 'solid' }} />
+                            <span>{c.label}</span>
+                          </label>
+                          <span style={styles.aidCount}>{n}</span>
+                          <button style={styles.aidStep} disabled={!on || !n} onClick={() => jumpAid(c.key, -1)} title="Previous"><ChevronUp size={13} /></button>
+                          <button style={styles.aidStep} disabled={!on || !n} onClick={() => jumpAid(c.key, 1)} title="Next"><ChevronDown size={13} /></button>
+                        </div>
+                      )
+                    })}
+                    <div style={styles.aidFoot}>Wording only — never drawn from an answer key.</div>
+                  </div>
+                )}
+              </div>
             )}
             <button style={styles.iconBtn} onClick={() => { setShowSearch(s => !s); setTimeout(() => searchInputRef.current?.focus(), 50) }} title="Search in chart (Ctrl+F)">
               <Search size={15} color={showSearch ? specialtyColor.bg : '#6b7280'} />
@@ -561,13 +704,6 @@ export function ChartViewer({ chart, viewerName = 'anonymous', onClose }: Props)
                   {/* The document, as a note */}
                   <div ref={textPaneRef} onScroll={onTextScroll} style={styles.docPane}
                     onWheel={releaseJump} onTouchStart={releaseJump} onMouseDown={releaseJump} onKeyDown={releaseJump}>
-                    {aidsOn && (
-                      <div style={styles.aidLegend}>
-                        <mark style={styles.aidUncertain}>uncertain wording</mark>
-                        <mark style={styles.aidLinkage}>linkage wording</mark>
-                        <span>highlighted to notice, not an answer</span>
-                      </div>
-                    )}
                     {parsed.pages.map(page => (
                       <section id={`chart-text-page-${page.page}`} data-page-anchor={page.page} key={page.page} style={{ ...styles.textPage, flexShrink: 0 }}>
                         <div style={styles.textPageHeader}>
@@ -583,7 +719,11 @@ export function ChartViewer({ chart, viewerName = 'anonymous', onClose }: Props)
                             {page.blocks.map((block, idx) => {
                               const matchId = page.page === targetMatchPage && containsQuery(blockText(block), searchQuery)
                                 ? `chart-text-match-${page.page}` : undefined
-                              const hl = (t: string) => <HighlightedText text={t} query={searchQuery} aids={aidsOn} />
+                              const ctx: AidCtx | null = aidsOn ? {
+                                cats: aidCats, inpatient,
+                                finalDx: FINAL_DX_SECTIONS.has(blockSection.get(`${page.page}:${idx}`) || ''),
+                              } : null
+                              const hl = (t: string) => <HighlightedText text={t} query={searchQuery} aids={ctx} />
                               switch (block.kind) {
                                 case 'gap': return <div key={idx} style={styles.textGap} />
                                 case 'doc': return (
@@ -764,9 +904,16 @@ const styles: Record<string, React.CSSProperties> = {
   noteListLine: { display: 'grid', gridTemplateColumns: '26px 1fr', gap: 4, padding: '2px 0', color: '#1f2937', wordBreak: 'break-word' as const },
   noteListMarker: { color: '#64748b', fontWeight: 700, textAlign: 'right' as const, paddingRight: 4 },
   noteSignature: { margin: '10px 0 4px', color: '#64748b', fontSize: 12, fontStyle: 'italic', borderTop: '1px dashed #e2e8f0', paddingTop: 6 },
-  aidLegend: { flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: '#64748b', background: '#fff', border: '1px solid #e5e7eb', borderRadius: 7, padding: '6px 10px' },
-  aidUncertain: { background: '#fef3c7', color: '#92400e', borderBottom: '2px solid #f59e0b', borderRadius: 2, padding: '0 1px' },
-  aidLinkage: { background: '#e0f2fe', color: '#075985', borderBottom: '2px solid #0ea5e9', borderRadius: 2, padding: '0 1px' },
+  aidBadge: { fontSize: 10.5, fontWeight: 800, color: '#92400e', background: '#fef3c7', borderRadius: 9, padding: '1px 6px', marginLeft: 1 },
+  aidMenu: { position: 'absolute' as const, top: 'calc(100% + 6px)', right: 0, zIndex: 30, width: 268, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, boxShadow: '0 12px 32px rgba(15,23,42,0.16)', padding: '6px 0' },
+  aidMenuHead: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 12px 8px', borderBottom: '1px solid #f1f5f9', marginBottom: 4, fontSize: 11, fontWeight: 800, color: '#334155', textTransform: 'uppercase' as const, letterSpacing: 0.5 },
+  aidSwitchLabel: { display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'none' as const, letterSpacing: 0, cursor: 'pointer' },
+  aidRow: { display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px 3px 12px' },
+  aidRowLabel: { display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0, fontSize: 12.5, color: '#1e293b', cursor: 'pointer', whiteSpace: 'nowrap' as const },
+  aidSwatch: { display: 'inline-block', width: 14, height: 8, borderBottomWidth: 2.5, flexShrink: 0 },
+  aidCount: { fontSize: 11, fontWeight: 700, color: '#64748b', minWidth: 22, textAlign: 'right' as const },
+  aidStep: { border: '1px solid #e5e7eb', background: '#fff', borderRadius: 5, width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0, color: '#475569' },
+  aidFoot: { fontSize: 10.5, color: '#94a3b8', padding: '8px 12px 4px', borderTop: '1px solid #f1f5f9', marginTop: 4 },
   splitImagePane: { width: '44%', flexShrink: 0, display: 'flex', flexDirection: 'column', borderLeft: '1px solid #e5e7eb', background: '#e5e7eb', minHeight: 0 },
   splitImageHead: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '6px 8px', background: '#fafafa', borderBottom: '1px solid #e5e7eb' },
   splitImageScroll: { flex: 1, overflow: 'auto', padding: 12 },

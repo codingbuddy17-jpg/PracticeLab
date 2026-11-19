@@ -248,15 +248,97 @@ export function parseChart(pages: ChartPageText[]): ParsedChart {
 }
 
 // ── Coding aids ───────────────────────────────────────────────────────────────
+//
+// Wording a coder must notice, in seven categories. Generic language only —
+// never anything drawn from an answer key — so highlighting it gives nothing
+// away. Each match is resolved once (findAids): overlapping phrases go to the
+// one that starts first, then to the longer, so "complicated by" is linkage
+// and never also "complicated" (specificity).
 
-/**
- * Wording a coder must notice. Generic language, never anything drawn from an
- * answer key, so highlighting it gives nothing away.
- *  - uncertain: inpatient guidelines code a condition documented as probable /
- *    suspected / rule out at discharge as if it were established.
- *  - linkage: the words that tie a condition to a cause.
- */
-export const AID_PATTERNS = {
-  uncertain: /\b(probable|probably|likely|suspected|suspect|suspicious for|possible|possibly|questionable|rule out|r\/o|consistent with|compatible with|indicative of|suggestive of|concern for|concerning for|cannot be ruled out|cannot be excluded|presumed|presumptive|working diagnosis)\b/gi,
-  linkage: /\b(due to|secondary to|associated with|related to|caused by|in the setting of|attributed to|as a result of|resulting from|complicated by|manifested by)\b/gi,
+export type AidCategory =
+  'uncertain' | 'negation' | 'linkage' | 'specificity' | 'site' | 'poa' | 'query'
+
+const W = (words: string) => new RegExp(`\\b(?:${words})\\b`, 'gi')
+
+export const AID_CATEGORIES: Array<{ key: AidCategory; label: string; re: RegExp; inpatientOnly?: boolean }> = [
+  { key: 'uncertain', label: 'Uncertain', re: W(
+    'probable|probably|likely|suspected|suspect|suspicious for|possible|possibly|questionable|rule out|r/o|' +
+    'consistent with|compatible with|indicative of|suggestive of|concern for|concerning for|' +
+    'cannot be ruled out|cannot be excluded|presumed|presumptive|working diagnosis|still to be ruled out') },
+  { key: 'negation', label: 'Negated / history', re: W(
+    'no evidence of|no signs? of|no|denies|denied|negative for|ruled out|resolved|' +
+    'history of|h/o|hx of|status post|s/p|past history of|remote history of') },
+  { key: 'linkage', label: 'Linkage', re: W(
+    'due to|secondary to|associated with|related to|caused by|in the setting of|attributed to|' +
+    'as a result of|resulting from|complicated by|manifested by|leading to|induced') },
+  { key: 'specificity', label: 'Specificity', re: W(
+    'acute on chronic|acute|subacute|chronic|exacerbation|exacerbated|decompensated|uncontrolled|' +
+    'poorly controlled|controlled|severe|moderate|mild|stage [1-5][ab]?|stage (?:iv|v|i{1,3})[ab]?|' +
+    'end[- ]stage|with complications?|without complications?|complicated|uncomplicated|recurrent|' +
+    'persistent|intractable|malignant|benign|metastatic|type [12]|systolic|diastolic|' +
+    'combined systolic and diastolic|hfref|hfpef|nstemi|stemi|initial encounter|subsequent encounter|sequela') },
+  { key: 'site', label: 'Site / laterality', re: W(
+    'bilateral|bilaterally|unilateral|left|right|upper|lower|proximal|distal|anterior|posterior|medial|lateral') },
+  { key: 'poa', label: 'POA timing', inpatientOnly: true, re: W(
+    'present on admission|on admission|at admission|upon admission|present on arrival|on arrival|' +
+    'prior to admission|pta|before admission|at the time of admission|admitted with|after admission|' +
+    'developed|new onset|hospital[- ]acquired|iatrogenic|during (?:this|the) (?:admission|hospitalization|stay)|' +
+    'hospital day #?\\s?\\d+|hd #?\\s?\\d+|post-?op(?:erative)? day #?\\s?\\d+|pod #?\\s?\\d+') },
+  { key: 'query', label: 'Query cue', re: new RegExp(
+    '\\b(?:versus|vs\\.?)(?=\\s+\\w)|\\b(?:conflicting|discrepancy|unclear|undetermined|clinically undetermined|' +
+    'cannot be determined|unable to determine|clarification|clarify)\\b|\\?\\s?[a-z]{3,}', 'gi') },
+]
+
+export interface AidHit { start: number; end: number; cat: AidCategory }
+
+/** Every aid phrase in a string, non-overlapping, in order. */
+export function findAids(text: string, inpatient: boolean): AidHit[] {
+  const all: AidHit[] = []
+  for (const c of AID_CATEGORIES) {
+    if (c.inpatientOnly && !inpatient) continue
+    c.re.lastIndex = 0
+    let m: RegExpExecArray | null
+    while ((m = c.re.exec(text)) !== null) {
+      if (!m[0]) { c.re.lastIndex++; continue }
+      all.push({ start: m.index, end: m.index + m[0].length, cat: c.key })
+    }
+  }
+  all.sort((a, b) => a.start - b.start || (b.end - b.start) - (a.end - a.start))
+  const out: AidHit[] = []
+  let upTo = -1
+  for (const h of all) {
+    if (h.start >= upTo) { out.push(h); upTo = h.end }
+  }
+  return out
+}
+
+/** Sections where a diagnosis is FINAL — the inpatient uncertain-diagnosis
+ *  rule applies to what is documented at discharge, not to the HPI. */
+export const FINAL_DX_SECTIONS = new Set([
+  'Discharge Diagnoses', 'Diagnoses', 'Assessment & Plan', 'Assessment', 'Impression',
+  'Post-op Diagnosis', 'Problem List',
+])
+
+/** What each highlight means, by setting. Inpatient and outpatient code an
+ *  uncertain diagnosis in opposite ways, so the tooltip must say which. */
+export function aidTip(cat: AidCategory, inpatient: boolean, inFinalDx: boolean): string {
+  switch (cat) {
+    case 'uncertain':
+      return inpatient
+        ? 'Uncertain diagnosis. Inpatient: if still documented this way at discharge, code it as if established (ICD-10-CM Guidelines Section II.H / III.C).'
+          + (inFinalDx ? ' This is in a final-diagnosis section, where that rule applies.' : '')
+        : 'Uncertain diagnosis. Outpatient / professional: do not code it as established — code the signs and symptoms instead (ICD-10-CM Guidelines Section IV.H).'
+    case 'negation':
+      return 'Negated or historical — not a current condition. Do not code it as active; a resolved past condition may be a history (Z) code.'
+    case 'linkage':
+      return 'Linkage — the provider ties two conditions together. It can call for a combination code or change sequencing.'
+    case 'specificity':
+      return 'Specificity — acuity, severity, type, stage or encounter. These words decide the 4th to 7th characters.'
+    case 'site':
+      return 'Site / laterality — left, right, bilateral and anatomical site decide the code.'
+    case 'poa':
+      return 'POA timing — evidence for whether the condition was present on admission.'
+    case 'query':
+      return 'Query cue — conflicting, unclear or alternative diagnoses. A physician query may be warranted.'
+  }
 }
