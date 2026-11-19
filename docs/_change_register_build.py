@@ -457,6 +457,13 @@ def _title(ws, text, sub):
     ws["A2"].font = Font(italic=True, size=9, color="595959")
 
 
+def _month(iso_date: str) -> str:
+    """'2026-11-19' -> 'Nov 2026'. CRs are numbered by month, restarting each
+    month (CR-YYYY-MM-NN from the tenth November change on)."""
+    d = _dt.date.fromisoformat(iso_date)
+    return d.strftime("%b %Y")
+
+
 def build():
     wb = Workbook()
 
@@ -474,6 +481,7 @@ def build():
         ("Change Detail", "One row per file-level change. Filter 'IT action' for what you must build, or 'Score impact' for anything that moves scores."),
         ("Full specification", "docs/change_requests/CR-NNN/CR-NNN.md — the business rules, API contract and acceptance tests. This workbook indexes it; the CR file is the authority."),
         ("Order", "Within a CR marked Kind C, implement the backend before applying the frontend patch: the frontend is shared, and a patch calling new backend behaviour breaks your deployment until it exists. CRs apply in number order."),
+        ("Numbering", "Changes are numbered by month, restarting each month: CR-NNN-Mon (e.g. CR-010-Nov; December starts at CR-001-Dec). CR-001 to CR-009 are November 2026's first nine. The ID has no year, so the Month column carries it (Nov 2026). From CR-010-Nov on, each change also has its own pull request link."),
         ("Kinds", "A frontend only · B backend only · C both · D schema."),
         ("Verify", "python3 scripts/smoke_deployed.py --base <your API> [--session <submitted session id>]"),
         ("Python code", "Reference reading only — never port it line by line."),
@@ -488,28 +496,28 @@ def build():
     # Register
     rg = wb.create_sheet("Register")
     _title(rg, "Change requests", "Built %s · grey-yellow columns are for the IT team" % BUILT)
-    heads = ["CR", "Title", "Kind", "Module", "Score impact", "Schema", "Commits", "Date",
+    heads = ["CR", "Month", "Title", "Kind", "Module", "Score impact", "Schema", "Commits", "Date",
              "Apply order", "Summary", "Spec file", "If same Python backend",
              "Backend (.NET)", "Frontend patch", "Verified by IT", "IT owner", "Done on", "IT notes"]
-    rows = [(c["id"], c["title"], c["kind"], c["module"], c["score_impact"], c["schema"],
+    rows = [(c["id"], _month(c["date"]), c["title"], c["kind"], c["module"], c["score_impact"], c["schema"],
              c["commits"], c["date"], c["order"], c["summary"], "docs/" + c["spec"],
              SAME_BACKEND.get(c["id"], ""),
              "N/A" if c["kind"] in ("A", "Docs") else "Not started",
              "Not started" if c["kind"] in ("A", "C", "C+D") else "N/A",
              "Not started", "", "", "") for c in CRS]
-    _table(rg, 4, heads, rows, [9, 40, 6, 24, 9, 9, 16, 11, 18, 60, 30, 44, 14, 14, 14, 14, 11, 30])
+    _table(rg, 4, heads, rows, [11, 10, 40, 6, 24, 9, 9, 16, 11, 18, 60, 30, 44, 14, 14, 14, 14, 11, 30])
     dv = DataValidation(type="list", formula1='"Not started,In progress,Done,Blocked,N/A"', allow_blank=True)
     rg.add_data_validation(dv)
     last = rg.max_row
-    dv.add("M5:O%d" % last)
-    for row in rg.iter_rows(min_row=5, max_row=last, min_col=13, max_col=18):
+    dv.add("N5:P%d" % last)
+    for row in rg.iter_rows(min_row=5, max_row=last, min_col=14, max_col=19):
         for c in row:
             c.fill = INPUT
             c.border = BORDER
     for r in range(5, last + 1):
-        if rg.cell(row=r, column=5).value == "Yes":
-            rg.cell(row=r, column=5).fill = YES
-            rg.cell(row=r, column=5).font = Font(bold=True, color="991B1B")
+        if rg.cell(row=r, column=6).value == "Yes":
+            rg.cell(row=r, column=6).fill = YES
+            rg.cell(row=r, column=6).font = Font(bold=True, color="991B1B")
 
     # Change Detail
     cd = wb.create_sheet("Change Detail")
@@ -541,12 +549,12 @@ START, END = "<!-- register:start -->", "<!-- register:end -->"
 
 def write_register_md():
     lines = [START,
-             "| CR | Title | Kind | Score impact | Schema | Commits | Apply order |",
-             "|---|---|---|---|---|---|---|"]
+             "| CR | Month | Title | Kind | Score impact | Schema | Commits | Apply order |",
+             "|---|---|---|---|---|---|---|---|"]
     for c in CRS:
         rel = c["spec"].replace("change_requests/", "")
-        lines.append("| [%s](%s) | %s | %s | %s | %s | `%s` | %s |" % (
-            c["id"].replace("CR-", ""), rel, c["title"], c["kind"], c["score_impact"],
+        lines.append("| [%s](%s) | %s | %s | %s | %s | %s | `%s` | %s |" % (
+            c["id"].replace("CR-", ""), rel, _month(c["date"]), c["title"], c["kind"], c["score_impact"],
             c["schema"], c["commits"], c["order"]))
     lines.append("")
     lines.append("Built %s by `docs/_change_register_build.py`, which also writes "
