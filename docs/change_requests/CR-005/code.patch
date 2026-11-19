@@ -1,0 +1,1303 @@
+From 6e3271041f3a61c456e54a45204914f40089a107 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 19 Nov 2026 09:54:12 +0000
+Subject: [PATCH] Apply the CMS POA exempt list everywhere POA is keyed, coded,
+ audited or graded
+
+Nothing in the app knew which ICD-10-CM codes CMS exempts from POA
+reporting: trainers checked the list and picked E by hand, and coders
+did the same. The code-set loader now loads the FY exempt list (38,399
+codes for FY2027) and stamps each code; NULL means not loaded, and then
+nothing changes.
+
+An exempt code's POA is set to E and greyed on the coder form, the key
+editor, the auditor's add and claim rows and the authored-error editor.
+Keys are stored with E on exempt codes on upload and edit, and existing
+keys are corrected once when the list loads. POA on an exempt code is
+never graded, and the auditor generator never plants a POA error on one:
+on an exempt code keyed Y it planted 'N, should be Y', wrong twice.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01GAgNTxNNybv6W7GXL33G6z
+---
+ backend/database.py                           |   2 +
+ backend/models/codes.py                       |   3 +
+ backend/routers/codes.py                      |  11 +
+ .../routers/practicelab_pkg/chart_grading.py  |   6 +-
+ backend/routers/practicelab_pkg/config.py     |  10 +
+ .../practicelab_pkg/practice_sessions.py      |   4 +-
+ backend/services/audit_allocation.py          |   4 +-
+ backend/services/audit_mutation.py            |  19 +-
+ backend/services/grading_engine.py            |  27 ++-
+ backend/services/poa_exempt.py                | 112 +++++++++
+ backend/tests/test_poa_exempt.py              | 228 ++++++++++++++++++
+ frontend/src/api/codesApi.ts                  |   2 +
+ frontend/src/components/PoaSelect.tsx         |  64 +++++
+ frontend/src/pages/AuditSession.tsx           |  42 +++-
+ frontend/src/pages/PracticeSession.tsx        |  23 +-
+ frontend/src/pages/auditor/AuditKeys.tsx      |  17 +-
+ .../src/pages/practicelab/AnswerKeyEditor.tsx |  17 +-
+ scripts/ingest_code_sets.py                   |  91 ++++++-
+ 18 files changed, 635 insertions(+), 47 deletions(-)
+ create mode 100644 backend/services/poa_exempt.py
+ create mode 100644 backend/tests/test_poa_exempt.py
+ create mode 100644 frontend/src/components/PoaSelect.tsx
+
+diff --git a/backend/database.py b/backend/database.py
+index 4ae68c5..4f7d3fd 100644
+--- a/backend/database.py
++++ b/backend/database.py
+@@ -572,6 +572,8 @@ def _run_migrations():
+     _add_col("practice_chart_drafts", "ed_resolution", "TEXT", "TEXT")
+     _add_col("practice_chart_drafts", "ed_rationale", "TEXT", "TEXT")
+     _add_col("practice_chart_drafts", "em_data", "TEXT", "TEXT")
++    # CMS POA exempt flag on each ICD-10-CM code. NULL = list not loaded.
++    _add_col("code_descriptions", "poa_exempt", "BOOLEAN")
+     # Physician query: the coder's judgement that the record is not codeable as
+     # documented. Inpatient only — the query text itself goes in coder_notes.
+     _add_col("practice_chart_drafts", "query_flag", "BOOLEAN DEFAULT FALSE", "BOOLEAN DEFAULT FALSE")
+diff --git a/backend/models/codes.py b/backend/models/codes.py
+index f4435c2..e0cda87 100644
+--- a/backend/models/codes.py
++++ b/backend/models/codes.py
+@@ -72,6 +72,9 @@ class CodeDescription(Base):
+     # for coders and drg_impacting for auditors, so having the published truth
+     # to check it against is the point of carrying this.
+     cc_mcc_status = Column(String(4), nullable=True)
++    # True / False from the CMS POA exempt list; NULL when no list was loaded,
++    # which every reader treats as "unknown" and never as "not exempt".
++    poa_exempt = Column(Boolean, nullable=True)
+     # A header code is a category, not something anyone codes to.
+     is_billable = Column(Boolean, nullable=False, default=True)
+ 
+diff --git a/backend/routers/codes.py b/backend/routers/codes.py
+index ef7f0f9..35f92b0 100644
+--- a/backend/routers/codes.py
++++ b/backend/routers/codes.py
+@@ -102,6 +102,9 @@ def describe(codes: str = Query(..., description="comma separated"),
+             "chapter": row.chapter,
+             "chapter_no": row.chapter_no,
+             "billable": row.is_billable,
++            # True / False from the CMS POA exempt list; None when the list is
++            # not loaded — screens grey a POA box only on True.
++            "poa_exempt": getattr(row, "poa_exempt", None),
+         })
+     # Which systems have ANY rows. Without this a caller cannot tell "that is
+     # not a real code" from "nobody ran the ingest" — both look like an absent
+@@ -210,9 +213,17 @@ def status(db: Session = Depends(get_db)):
+         # being re-derived in the frontend.
+         "needs_attention": bool(missing) or any(
+             not v["current"] for v in seen.values()),
++        # Whether the CMS POA exempt list is loaded. Without it no POA box is
++        # greyed and no POA is skipped in grading, silently — so say so.
++        "poa_exempt_loaded": _poa_loaded(db),
+     }
+ 
+ 
++def _poa_loaded(db) -> bool:
++    from services.poa_exempt import list_loaded
++    return list_loaded(db)
++
++
+ @router.get("/ingest-job")
+ def ingest_job_status():
+     from services.code_ingest_job import current_job
+diff --git a/backend/routers/practicelab_pkg/chart_grading.py b/backend/routers/practicelab_pkg/chart_grading.py
+index 89d7a83..af2f5c4 100644
+--- a/backend/routers/practicelab_pkg/chart_grading.py
++++ b/backend/routers/practicelab_pkg/chart_grading.py
+@@ -42,7 +42,7 @@ def _dpo_fields(dpo, include_poa: bool):
+     }
+ 
+ 
+-def _grade_chart_for_sp(chart, ak_rec, sub_data, ip_cfg, op_cfg, edsp_cfg=None):
++def _grade_chart_for_sp(chart, ak_rec, sub_data, ip_cfg, op_cfg, edsp_cfg=None, db=None):
+     """Grade a single chart submission, return (result_kwargs, feedback_items)."""
+     is_ip = chart.specialty in IP_SPECIALTIES
+     feedback_items = []
+@@ -91,11 +91,13 @@ def _grade_chart_for_sp(chart, ak_rec, sub_data, ip_cfg, op_cfg, edsp_cfg=None):
+         return result, feedback_items
+ 
+     if is_ip:
++        from services.poa_exempt import exempt_among
+         ak = IPAnswerKey(
+             pdx_code=ak_rec.pdx_code or "",
+             pdx_poa=ak_rec.pdx_poa or "",
+             sdx=ak_rec.sdx or [],
+             pcs=ak_rec.pcs or [],
++            poa_exempt=exempt_among(db, [ak_rec.pdx_code] + [x.get("code") for x in (ak_rec.sdx or [])]),
+         )
+         s = IPSubmission(
+             pdx_code=sub_data.get("pdx_code", ""),
+@@ -305,7 +307,7 @@ def regrade_chart_everywhere(db, chart_id: int, ip_cfg, op_cfg, edsp_cfg=None,
+             "profee_level": entry.profee_level or "",
+         }
+         result_kwargs, feedback_items = _grade_chart_for_sp(
+-            chart, ak_rec, sub_data, ip_cfg, op_cfg, edsp_cfg)
++            chart, ak_rec, sub_data, ip_cfg, op_cfg, edsp_cfg, db=db)
+         _upsert_practice_result(db, session_id, entry, chart.specialty, graded=True,
+                                 result_kwargs=result_kwargs, feedback_items=feedback_items,
+                                 ak_rec=ak_rec)
+diff --git a/backend/routers/practicelab_pkg/config.py b/backend/routers/practicelab_pkg/config.py
+index 4e8a867..b24e2f3 100644
+--- a/backend/routers/practicelab_pkg/config.py
++++ b/backend/routers/practicelab_pkg/config.py
+@@ -277,6 +277,12 @@ def upload_answer_keys(
+             wrong_specialty.append(matched_chart_num)
+             continue
+ 
++        # An exempt code's POA is E, whatever the sheet says — the trainer
++        # never has to check the CMS list (services/poa_exempt).
++        from services.poa_exempt import normalise_key_poa
++        row["pdx_poa"], row["sdx"], _ = normalise_key_poa(
++            db, chart.specialty, row.get("pdx_code", ""), row.get("pdx_poa", ""), row.get("sdx", []))
++
+         existing = db.query(AnswerKey).filter(AnswerKey.chart_id == chart.id).first()
+         if existing:
+             if replace:
+@@ -683,6 +689,10 @@ def upsert_answer_key_inline(chart_id: int, payload: AnswerKeyPayload,
+                     "Re-grading rewrites closed history — resend with regrade_closed=true to proceed."),
+         )
+ 
++    from services.poa_exempt import normalise_key_poa
++    payload.pdx_poa, payload.sdx, _ = normalise_key_poa(
++        db, chart.specialty, payload.pdx_code, payload.pdx_poa or "", payload.sdx)
++
+     if existing:
+         existing.pdx_code = payload.pdx_code
+         existing.pdx_poa = payload.pdx_poa or ""
+diff --git a/backend/routers/practicelab_pkg/practice_sessions.py b/backend/routers/practicelab_pkg/practice_sessions.py
+index 7018e84..3e3890a 100644
+--- a/backend/routers/practicelab_pkg/practice_sessions.py
++++ b/backend/routers/practicelab_pkg/practice_sessions.py
+@@ -728,7 +728,7 @@ def submit_practice_session(session_id: int, payload: SubmitPracticeSession, db:
+                 "profee_level": entry.profee_level or "",
+             }
+             result_kwargs, feedback_items = _grade_chart_for_sp(
+-                chart, ak_rec, sub_data, ip_cfg, op_cfg, edsp_cfg)
++                chart, ak_rec, sub_data, ip_cfg, op_cfg, edsp_cfg, db=db)
+             _upsert_practice_result(db, session_id, entry, specialty, graded=True,
+                                     result_kwargs=result_kwargs, feedback_items=feedback_items,
+                                     ak_rec=ak_rec)
+@@ -1634,7 +1634,7 @@ def regrade_practice_session(session_id: int, db: Session = Depends(get_db)):
+             feedback_items = _em_feedback_items(scoring, em_ak, entry.em_data or {}, em_cfg)
+         else:
+             result_kwargs, feedback_items = _grade_chart_for_sp(
+-                chart, ak_rec, sub_data, ip_cfg, op_cfg, edsp_cfg)
++                chart, ak_rec, sub_data, ip_cfg, op_cfg, edsp_cfg, db=db)
+         _upsert_practice_result(db, session_id, entry, specialty, graded=True,
+                                 result_kwargs=result_kwargs, feedback_items=feedback_items,
+                                 ak_rec=ak_rec)
+diff --git a/backend/services/audit_allocation.py b/backend/services/audit_allocation.py
+index 51d1798..a439a14 100644
+--- a/backend/services/audit_allocation.py
++++ b/backend/services/audit_allocation.py
+@@ -150,11 +150,13 @@ def build_corpus(answer_keys, db=None) -> Corpus:
+                 mods.add(str(row["modifier"]).strip())
+     dx_candidates = _icd_specificity_candidates(db, dx)
+     valid_pcs, pcs_axes = _real_pcs_neighbours(db, pcs)
++    from services.poa_exempt import exempt_among
+     return Corpus(dx_codes=sorted(dx), pcs_codes=sorted(pcs),
+                   cpt_codes=sorted(cpt), modifiers=sorted(mods),
+                   valid_pcs=valid_pcs,
+                   dx_candidates_by_prefix=dx_candidates,
+-                  pcs_axes=pcs_axes)
++                  pcs_axes=pcs_axes,
++                  poa_exempt=exempt_among(db, dx))
+ 
+ 
+ def _icd_specificity_candidates(db, dx_codes) -> dict[str, list[str]]:
+diff --git a/backend/services/audit_mutation.py b/backend/services/audit_mutation.py
+index a302cc2..84fff5f 100644
+--- a/backend/services/audit_mutation.py
++++ b/backend/services/audit_mutation.py
+@@ -153,6 +153,13 @@ class Corpus:
+     valid_pcs: set = field(default_factory=set)
+     dx_candidates_by_prefix: dict[str, list[str]] = field(default_factory=dict)
+     pcs_axes: dict[str, dict] = field(default_factory=dict)
++    # Bare ICD-10-CM codes CMS exempts from POA reporting. A POA error is never
++    # planted on one: its correct POA is E, so flipping Y/N plants an answer
++    # that is wrong twice over. Empty = list not loaded = no exclusion.
++    poa_exempt: frozenset = field(default_factory=frozenset)
++
++    def is_poa_exempt(self, code) -> bool:
++        return str(code or "").strip().upper().replace(".", "") in self.poa_exempt
+ 
+     def dx_family(self, code: str, prefix_len: int = 3) -> list[str]:
+         """
+@@ -396,8 +403,10 @@ def _feasible(kind: str, claim: dict, specialty: Specialty, corpus: Corpus,
+         # that is where a plausible principal candidate actually sits.
+         return bool(claim.get("pdx_code")) and len(sdx) >= 3
+     if kind == "poa":
+-        return _is_ip(specialty) and bool(claim.get("pdx_poa") or
+-                                          any(s.get("poa") for s in sdx))
++        # Only lines whose code is not POA exempt can carry a POA error.
++        return _is_ip(specialty) and bool(
++            (claim.get("pdx_poa") and not corpus.is_poa_exempt(claim.get("pdx_code")))
++            or any(s.get("poa") and not corpus.is_poa_exempt(s.get("code")) for s in sdx))
+     if kind == "spurious":
+         # Always possible — you can always add a code that should not be there.
+         # So it never renormalises out, and it grows on sparse charts.
+@@ -1009,7 +1018,8 @@ def _apply(kind: str, claim: dict, specialty: Specialty, corpus: Corpus,
+         # Prefer a CC/MCC-bearing secondary: a POA flip there can strip the
+         # code's severity contribution entirely.
+         candidates = [i for i in range(len(sdx))
+-                      if (sdx[i] or {}).get("poa") and ("SDx", i) not in used]
++                      if (sdx[i] or {}).get("poa") and ("SDx", i) not in used
++                      and not corpus.is_poa_exempt((sdx[i] or {}).get("code"))]
+         if candidates:
+             i = _pick_sdx_index([sdx[j] for j in candidates], rng, cfg, set())
+             i = candidates[i] if i is not None else rng.choice(candidates)
+@@ -1024,7 +1034,8 @@ def _apply(kind: str, claim: dict, specialty: Specialty, corpus: Corpus,
+                 "drg_impacting": _is_drg_impacting("SDx", sdx[i], specialty),
+                 "revenue_impacting": False,
+             }
+-        if claim.get("pdx_poa") and ("PDx", 0) not in used:
++        if (claim.get("pdx_poa") and ("PDx", 0) not in used
++                and not corpus.is_poa_exempt(claim.get("pdx_code"))):
+             current = str(claim["pdx_poa"]).upper()
+             new = "N" if current == "Y" else "Y"
+             claim["pdx_poa"] = new
+diff --git a/backend/services/grading_engine.py b/backend/services/grading_engine.py
+index ed643f0..c0b715b 100644
+--- a/backend/services/grading_engine.py
++++ b/backend/services/grading_engine.py
+@@ -75,6 +75,11 @@ class IPAnswerKey:
+     pdx_poa: str = ""
+     sdx: list[dict] = field(default_factory=list)   # [{code, poa, ccmcc}]
+     pcs: list[dict] = field(default_factory=list)   # [{code}]
++    # Bare codes CMS exempts from POA reporting (services/poa_exempt). POA on
++    # one of these is never graded: whatever the key or the coder says, it is
++    # not a coder error. Empty when the list is not loaded — then every POA is
++    # graded as before.
++    poa_exempt: frozenset = field(default_factory=frozenset)
+ 
+ 
+ @dataclass
+@@ -217,6 +222,13 @@ def norm_poa(poa) -> str:
+     return "E" if v == "1" else v
+ 
+ 
++def poa_same(code, a, b, exempt: frozenset = frozenset()) -> bool:
++    """POA agreement, where a POA-exempt code always agrees — it is not graded."""
++    if norm_dx(code) in exempt:
++        return True
++    return norm_poa(a) == norm_poa(b)
++
++
+ def norm_pcs(code) -> str:
+     c = _clean(code).replace(" ", "").upper()
+     return c.replace("O", "0").replace("I", "1")
+@@ -280,7 +292,8 @@ def norm_units(raw) -> int:
+ 
+ # ── Order-independent matching ────────────────────────────────────────────────
+ 
+-def _match_sdx_ip(ak_sdx: list[dict], cdr_sdx: list[dict], penalty: bool):
++def _match_sdx_ip(ak_sdx: list[dict], cdr_sdx: list[dict], penalty: bool,
++                  exempt: frozenset = frozenset()):
+     ak_used = [False] * len(ak_sdx)
+     cdr_used = [False] * len(cdr_sdx)
+     matched = 0
+@@ -294,7 +307,7 @@ def _match_sdx_ip(ak_sdx: list[dict], cdr_sdx: list[dict], penalty: bool):
+         for ai, ak in enumerate(ak_sdx):
+             if ak_used[ai]:
+                 continue
+-            if norm_dx(ak.get("code", "")) == c_code and norm_poa(ak.get("poa", "")) == c_poa:
++            if norm_dx(ak.get("code", "")) == c_code and poa_same(c_code, ak.get("poa", ""), cs.get("poa", ""), exempt):
+                 matched += 1
+                 ak_used[ai] = True
+                 cdr_used[ci] = True
+@@ -644,7 +657,7 @@ def grade_ip(ak: IPAnswerKey, sub: IPSubmission,
+ 
+     # PDx
+     pdx_ok = (norm_dx(sub.pdx_code) == norm_dx(ak.pdx_code) and
+-               norm_poa(sub.pdx_poa) == norm_poa(ak.pdx_poa))
++               poa_same(ak.pdx_code, sub.pdx_poa, ak.pdx_poa, ak.poa_exempt))
+     result.pdx_score = cfg.pdx_weight if pdx_ok else 0
+     if not pdx_ok:
+         if norm_dx(sub.pdx_code) != norm_dx(ak.pdx_code):
+@@ -657,7 +670,7 @@ def grade_ip(ak: IPAnswerKey, sub: IPSubmission,
+     ak_sdx_cnt = len([s for s in ak.sdx if norm_dx(s.get("code", ""))])
+     cdr_sdx_cnt = len([s for s in sub.sdx if norm_dx(s.get("code", ""))])
+     if ak_sdx_cnt > 0:
+-        sdx_matched, sdx_extra, sdx_fb = _match_sdx_ip(ak.sdx, sub.sdx, penalty)
++        sdx_matched, sdx_extra, sdx_fb = _match_sdx_ip(ak.sdx, sub.sdx, penalty, ak.poa_exempt)
+         sdx_per = cfg.sdx_weight / ak_sdx_cnt
+         result.sdx_score = max(0, round((sdx_matched - sdx_extra) * sdx_per))
+         feedback.extend(sdx_fb)
+@@ -812,13 +825,17 @@ def compute_dpo_ip(ak: IPAnswerKey, sub: IPSubmission, overcoding_penalty: bool)
+     poa_opp = 0
+     poa_defects = 0
+ 
+-    if pdx_code_ok:
++    # A POA-exempt code is no POA opportunity at all: not graded, so neither
++    # counted as a chance nor as a defect.
++    if pdx_code_ok and norm_dx(ak.pdx_code) not in ak.poa_exempt:
+         poa_opp += 1
+         if norm_poa(sub.pdx_poa) != norm_poa(ak.pdx_poa):
+             poa_defects += 1
+ 
+     cdr_sdx_used_set = {ci for _, ci in sdx_code_matched_idx}
+     for ai, ci in sdx_code_matched_idx:
++        if norm_dx(ak_sdx[ai].get("code", "")) in ak.poa_exempt:
++            continue
+         poa_opp += 1
+         if norm_poa(cdr_sdx[ci].get("poa", "")) != norm_poa(ak_sdx[ai].get("poa", "")):
+             poa_defects += 1
+diff --git a/backend/services/poa_exempt.py b/backend/services/poa_exempt.py
+new file mode 100644
+index 0000000..cf8b7b0
+--- /dev/null
++++ b/backend/services/poa_exempt.py
+@@ -0,0 +1,112 @@
++"""
++Which ICD-10-CM codes CMS exempts from present-on-admission reporting.
++
++The list is loaded with the code sets (scripts/ingest_code_sets.py stamps
++code_descriptions.poa_exempt from the CMS POA exempt file each fiscal year).
++NULL there means the list was never loaded — so an empty answer here means
++"none known to be exempt", never "confirmed reportable". Every reader treats
++it that way: nothing is greyed, skipped or rewritten on a guess.
++
++Used by grading (POA on an exempt code is never a coder error), the auditor's
++error generator (never plants a POA error on an exempt code), and the answer
++key paths (an exempt code's POA is E).
++"""
++from typing import Iterable
++
++
++def _bare(code) -> str:
++    return str(code or "").strip().upper().replace(".", "").replace(" ", "")
++
++
++def exempt_among(db, codes: Iterable) -> frozenset:
++    """The bare forms of those codes that are POA exempt. One query."""
++    wanted = {_bare(c) for c in codes if _bare(c)}
++    if not wanted or db is None:
++        return frozenset()
++    from models.codes import CodeDescription
++    try:
++        rows = (db.query(CodeDescription.code)
++                .filter(CodeDescription.code_system == "ICD10CM",
++                        CodeDescription.code.in_(list(wanted)),
++                        CodeDescription.poa_exempt.is_(True))
++                .all())
++    except Exception:  # noqa: BLE001 — an aid, never a failure
++        return frozenset()
++    return frozenset(r[0] for r in rows)
++
++
++def list_loaded(db) -> bool:
++    """Whether any POA exempt list has been loaded into this database."""
++    from models.codes import CodeDescription
++    try:
++        return db.query(CodeDescription.id).filter(
++            CodeDescription.poa_exempt.isnot(None)).first() is not None
++    except Exception:  # noqa: BLE001
++        return False
++
++
++def is_exempt(code, exempt: frozenset) -> bool:
++    return _bare(code) in exempt
++
++
++def _is_ip(specialty) -> bool:
++    return getattr(specialty, "value", specialty) == "IP-DRG"
++
++
++def normalise_key_poa(db, specialty, pdx_code, pdx_poa, sdx, exempt=None):
++    """
++    An inpatient key's POA, with every exempt code set to E.
++
++    POA is reported only on inpatient claims, so other specialties are
++    returned untouched. A trainer never has to look a code up in the CMS
++    list: whatever was typed — Y, N, U, W or nothing — an exempt code's POA
++    is E. Returns (pdx_poa, sdx, lines_changed).
++    """
++    if not _is_ip(specialty):
++        return pdx_poa, sdx, 0
++    sdx = list(sdx or [])
++    if exempt is None:
++        exempt = exempt_among(db, [pdx_code] + [(r or {}).get("code") for r in sdx])
++    if not exempt:
++        return pdx_poa, sdx, 0
++    changed = 0
++    if is_exempt(pdx_code, exempt) and (pdx_poa or "").strip().upper() != "E":
++        pdx_poa = "E"
++        changed += 1
++    out = []
++    for r in sdx:
++        if isinstance(r, dict) and is_exempt(r.get("code"), exempt) \
++                and str(r.get("poa") or "").strip().upper() != "E":
++            r = dict(r, poa="E")
++            changed += 1
++        out.append(r)
++    return pdx_poa, out, changed
++
++
++def correct_existing_keys(db) -> dict:
++    """
++    One pass over every inpatient answer key, setting E on exempt codes.
++
++    Run by the code-set loader right after it loads the exempt list, which is
++    the moment the list becomes known. Keys saved afterwards are corrected on
++    save. Commits; returns counts for the loader to print.
++    """
++    from models import AnswerKey
++    if not list_loaded(db):
++        return {"keys": 0, "lines": 0, "skipped": "list not loaded"}
++    keys = db.query(AnswerKey).filter(AnswerKey.specialty == "IP-DRG").all()
++    codes = set()
++    for k in keys:
++        codes.add(k.pdx_code)
++        codes.update((r or {}).get("code") for r in (k.sdx or []))
++    exempt = exempt_among(db, codes)
++    n_keys = n_lines = 0
++    for k in keys:
++        poa, sdx, changed = normalise_key_poa(db, k.specialty, k.pdx_code, k.pdx_poa,
++                                              k.sdx, exempt)
++        if changed:
++            k.pdx_poa, k.sdx = poa, sdx
++            n_keys += 1
++            n_lines += changed
++    db.commit()
++    return {"keys": n_keys, "lines": n_lines}
+diff --git a/backend/tests/test_poa_exempt.py b/backend/tests/test_poa_exempt.py
+new file mode 100644
+index 0000000..42c451e
+--- /dev/null
++++ b/backend/tests/test_poa_exempt.py
+@@ -0,0 +1,228 @@
++"""
++CMS POA exempt codes: loaded with the code sets, applied everywhere POA is
++keyed, graded or planted.
++
++The rule each test pins: a code CMS exempts from POA reporting carries E, is
++never a POA error for a coder, and never receives a planted POA error — and
++when the list is NOT loaded, nothing changes at all.
++"""
++import importlib.util
++import pathlib
++import random
++
++from conftest import make_chart
++from models import AnswerKey, Specialty
++from models.codes import CodeDescription
++from routers.practicelab_pkg.shared import MASTER_PASSPHRASE
++from services.audit_mutation import Corpus, MutationConfig, claim_from_key, generate
++from services.grading_engine import IPAnswerKey, IPSubmission, compute_dpo_ip, grade_ip
++from services.poa_exempt import correct_existing_keys, exempt_among, normalise_key_poa
++
++ROOT = pathlib.Path(__file__).resolve().parents[2]
++_spec = importlib.util.spec_from_file_location("ingest", ROOT / "scripts" / "ingest_code_sets.py")
++ingest = importlib.util.module_from_spec(_spec)
++_spec.loader.exec_module(ingest)
++
++EXEMPT = ["Z87891", "Y929", "Z3800"]      # history of nicotine, place NOS, liveborn
++REPORTABLE = ["J189", "I10", "E119"]
++
++
++def _load(db, loaded=True):
++    for c in EXEMPT:
++        db.add(CodeDescription(code_system="ICD10CM", code=c, description=c,
++                               poa_exempt=True if loaded else None))
++    for c in REPORTABLE:
++        db.add(CodeDescription(code_system="ICD10CM", code=c, description=c,
++                               poa_exempt=False if loaded else None))
++    db.commit()
++
++
++# ── the CMS file ─────────────────────────────────────────────────────────────
++
++CMS_SAMPLE = (b"Order27\tPOAexemptCode\tDescription\r\n"
++              b"01238\tB90.0\tSequelae of central nervous system tuberculosis\r\n"
++              b"13001\tZ87.891\tPersonal history of nicotine dependence\r\n")
++
++
++def test_the_cms_file_parses_by_its_header_and_drops_dots():
++    assert ingest.parse_poa_exempt(CMS_SAMPLE) == {"B900", "Z87891"}
++
++
++def test_a_folder_holding_both_files_still_loads_the_real_code_set(tmp_path):
++    """POAexemptCodesFY27.txt contains 'codes' and sorts first; it must not be read as the CM set."""
++    (tmp_path / "POAexemptCodesFY27.txt").write_bytes(CMS_SAMPLE)
++    (tmp_path / "icd10cm_codes_2027.txt").write_bytes(b"A000 Cholera\n")
++    got = ingest._local(tmp_path, "codes", ".txt", exclude="poa")
++    assert got == b"A000 Cholera\n"
++    assert ingest._local(tmp_path, "poaexemptcodes", ".txt") == CMS_SAMPLE
++
++
++def test_the_url_follows_the_fiscal_year():
++    import datetime
++    urls = ingest.poa_urls(datetime.date(2026, 11, 19))
++    assert urls[0].endswith("/2027-poa-exempt-codes.zip")
++
++
++# ── grading ──────────────────────────────────────────────────────────────────
++
++def _ip(sdx_key, sdx_sub, exempt=frozenset(), pdx_poa=("Y", "Y"), pdx="J18.9"):
++    ak = IPAnswerKey(pdx_code=pdx, pdx_poa=pdx_poa[0], sdx=sdx_key, poa_exempt=exempt)
++    sub = IPSubmission(pdx_code=pdx, pdx_poa=pdx_poa[1], sdx=sdx_sub)
++    return ak, sub
++
++
++def test_poa_on_an_exempt_secondary_is_never_a_coder_error():
++    ak, sub = _ip([{"code": "Z87.891", "poa": "Y"}], [{"code": "Z87.891", "poa": "E"}],
++                  exempt=frozenset({"Z87891"}))
++    res = grade_ip(ak, sub)
++    assert not any(f.issue_type == "Wrong_POA" for f in res.feedback)
++
++
++def test_the_same_mismatch_on_a_reportable_code_is_still_an_error():
++    ak, sub = _ip([{"code": "I10", "poa": "Y"}], [{"code": "I10", "poa": "N"}],
++                  exempt=frozenset({"Z87891"}))
++    assert any(f.issue_type == "Wrong_POA" for f in grade_ip(ak, sub).feedback)
++
++
++def test_an_exempt_principal_is_not_graded_on_poa():
++    ak, sub = _ip([], [], exempt=frozenset({"Z3800"}), pdx="Z38.00", pdx_poa=("", "E"))
++    assert grade_ip(ak, sub).pdx_score > 0
++
++
++def test_without_the_list_everything_is_graded_as_before():
++    ak, sub = _ip([{"code": "Z87.891", "poa": "Y"}], [{"code": "Z87.891", "poa": "E"}])
++    assert any(f.issue_type == "Wrong_POA" for f in grade_ip(ak, sub).feedback)
++
++
++def test_an_exempt_code_is_no_poa_opportunity():
++    ak, sub = _ip([{"code": "Z87.891", "poa": "Y"}, {"code": "I10", "poa": "Y"}],
++                  [{"code": "Z87.891", "poa": "N"}, {"code": "I10", "poa": "Y"}],
++                  exempt=frozenset({"Z87891"}))
++    dpo = compute_dpo_ip(ak, sub, True)
++    # PDx + I10 only; Z87.891 is neither a chance nor a defect.
++    assert (dpo.poa.opportunities, dpo.poa.defects) == (2, 0)
++
++
++# ── keys ─────────────────────────────────────────────────────────────────────
++
++def test_an_exempt_code_in_an_inpatient_key_becomes_e(db):
++    _load(db)
++    poa, sdx, n = normalise_key_poa(db, Specialty.IP_DRG, "J18.9", "Y",
++                                    [{"code": "Z87.891", "poa": "Y"}, {"code": "I10", "poa": "N"}])
++    assert (poa, [r["poa"] for r in sdx], n) == ("Y", ["E", "N"], 1)
++
++
++def test_outpatient_keys_are_left_alone(db):
++    _load(db)
++    _, sdx, n = normalise_key_poa(db, Specialty.SDS, "J18.9", "", [{"code": "Z87.891", "poa": ""}])
++    assert n == 0 and sdx[0]["poa"] == ""
++
++
++def test_nothing_is_rewritten_when_the_list_is_not_loaded(db):
++    _load(db, loaded=False)
++    _, sdx, n = normalise_key_poa(db, Specialty.IP_DRG, "J18.9", "Y", [{"code": "Z87.891", "poa": "Y"}])
++    assert n == 0 and sdx[0]["poa"] == "Y"
++
++
++def test_saving_a_key_in_the_editor_sets_e_on_exempt_codes(client, db):
++    _load(db)
++    chart = make_chart(db, specialty="IP-DRG", chart_number="POA-ED-1")
++    db.commit()
++    res = client.put(f"/practicelab/answer-key/{chart.id}", json={
++        "pdx_code": "Z38.00", "pdx_poa": "Y", "entered_by": "T", "passphrase": MASTER_PASSPHRASE,
++        "sdx": [{"code": "Y92.9", "poa": "N"}, {"code": "I10", "poa": "Y"}]})
++    assert res.status_code == 200, res.text
++    db.expire_all()
++    ak = db.query(AnswerKey).filter(AnswerKey.chart_id == chart.id).first()
++    assert ak.pdx_poa == "E"
++    assert [r["poa"] for r in ak.sdx] == ["E", "Y"]
++
++
++def test_existing_keys_are_corrected_once_the_list_is_loaded(db):
++    _load(db)
++    chart = make_chart(db, specialty="IP-DRG", chart_number="POA-OLD-1")
++    db.add(AnswerKey(chart_id=chart.id, specialty=Specialty.IP_DRG, pdx_code="J18.9", pdx_poa="Y",
++                     sdx=[{"code": "Z87.891", "poa": "Y"}, {"code": "Y92.9", "poa": ""}], entered_by="t"))
++    db.commit()
++    assert correct_existing_keys(db) == {"keys": 1, "lines": 2}
++    db.expire_all()
++    ak = db.query(AnswerKey).filter(AnswerKey.chart_id == chart.id).first()
++    assert [r["poa"] for r in ak.sdx] == ["E", "E"] and ak.pdx_poa == "Y"
++
++
++# ── the auditor's error generator ────────────────────────────────────────────
++
++def _key(sdx):
++    return AnswerKey(pdx_code="J18.9", pdx_poa="Y", sdx=sdx, pcs=[], cpt=[], entered_by="t")
++
++
++ONLY_POA = MutationConfig(**{f: (100 if f == "mix_poa" else 0)
++                             for f in MutationConfig.__dataclass_fields__ if f.startswith("mix_")})
++
++
++def test_a_poa_error_is_never_planted_on_an_exempt_code():
++    """Measured over many seeds, not one: the planting is random."""
++    key = _key([{"code": "Z87.891", "poa": "E"}, {"code": "Y92.9", "poa": "E"},
++                {"code": "I10", "poa": "Y"}, {"code": "E11.9", "poa": "Y"}])
++    corpus = Corpus(poa_exempt=frozenset({"Z87891", "Y929"}))
++    planted = []
++    for seed in range(200):
++        _, truth = generate(key, Specialty.IP_DRG, seed=seed, cfg=ONLY_POA, corpus=corpus, budget=1)
++        planted += [t for t in truth if t.get("field") == "poa"]
++    assert planted, "expected POA errors on the reportable lines"
++    assert not any(str(t.get("code") or "").replace(".", "") in {"Z87891", "Y929"} for t in planted)
++
++
++def test_a_chart_whose_only_poa_lines_are_exempt_gets_no_poa_error():
++    key = AnswerKey(pdx_code="Z38.00", pdx_poa="E", sdx=[{"code": "Z87.891", "poa": "E"}],
++                    pcs=[], cpt=[], entered_by="t")
++    corpus = Corpus(poa_exempt=frozenset({"Z3800", "Z87891"}))
++    for seed in range(50):
++        _, truth = generate(key, Specialty.IP_DRG, seed=seed, cfg=ONLY_POA, corpus=corpus, budget=1)
++        assert not [t for t in truth if t.get("field") == "poa"]
++
++
++# ── the API screens read ─────────────────────────────────────────────────────
++
++def test_describe_says_which_codes_are_exempt(client, db):
++    _load(db)
++    d = client.get("/codes/describe", params={"codes": "Z87.891,I10", "section": "SDx"}).json()["descriptions"]
++    assert d["Z87891"]["poa_exempt"] is True and d["I10"]["poa_exempt"] is False
++
++
++def test_status_reports_whether_the_list_is_loaded(client, db):
++    assert client.get("/codes/status").json()["poa_exempt_loaded"] is False
++    _load(db)
++    assert client.get("/codes/status").json()["poa_exempt_loaded"] is True
++
++
++def test_exempt_among_is_one_bare_set(db):
++    _load(db)
++    assert exempt_among(db, ["Z87.891", "I10", "y92.9", ""]) == frozenset({"Z87891", "Y929"})
++
++
++# ── the Excel template upload ────────────────────────────────────────────────
++
++def test_a_template_upload_stores_e_on_exempt_codes(client, db):
++    """Through the real template and upload route: Y and blank on exempt codes become E."""
++    from test_answer_key_upload_phase1 import _fill, _template, _upload_standard
++    _load(db)
++    make_chart(db, specialty="IP-DRG", chart_number="POA-UP-1")
++    db.commit()
++    data = _fill(_template(Specialty.IP_DRG), {
++        "Chart_Number": "POA-UP-1", "PDx_Code": "Z38.00", "PDx_POA": "Y",
++        "SDx_1": "Z87.891", "SDx_1_POA": "N",
++        "SDx_2": "Y92.9",
++        "SDx_3": "I10", "SDx_3_POA": "Y",
++    })
++    res = _upload_standard(client, Specialty.IP_DRG, data)
++    assert res.status_code == 200, res.text
++    db.expire_all()
++    ak = db.query(AnswerKey).join(AnswerKey.chart).filter_by(chart_number="POA-UP-1").first() \
++        if hasattr(AnswerKey, "chart") else None
++    if ak is None:
++        from models import Chart
++        cid = db.query(Chart.id).filter(Chart.chart_number == "POA-UP-1").scalar()
++        ak = db.query(AnswerKey).filter(AnswerKey.chart_id == cid).first()
++    assert ak.pdx_poa == "E"
++    assert [r.get("poa") for r in ak.sdx] == ["E", "E", "Y"]
+diff --git a/frontend/src/api/codesApi.ts b/frontend/src/api/codesApi.ts
+index ea5244c..eae0b84 100644
+--- a/frontend/src/api/codesApi.ts
++++ b/frontend/src/api/codesApi.ts
+@@ -21,6 +21,8 @@ export type CodeInfo = {
+   chapter?: string | null
+   chapter_no?: number | null
+   billable?: boolean
++  /** CMS POA exempt list: true / false, or null when the list is not loaded. */
++  poa_exempt?: boolean | null
+ }
+ 
+ export type DescribeResult = {
+diff --git a/frontend/src/components/PoaSelect.tsx b/frontend/src/components/PoaSelect.tsx
+new file mode 100644
+index 0000000..209297f
+--- /dev/null
++++ b/frontend/src/components/PoaSelect.tsx
+@@ -0,0 +1,64 @@
++import { useEffect, useRef } from 'react'
++import type { CSSProperties } from 'react'
++
++/**
++ * A POA box that knows the CMS exempt list.
++ *
++ * When the code beside it is POA exempt (`exempt` true, from /codes/describe),
++ * the box shows E, greyed and locked, and sets the value to E itself — nobody
++ * looks the code up in the CMS list or picks E by hand. If the code is then
++ * changed to one that is not exempt, an E this box set is cleared again, so
++ * the person must choose rather than inherit a wrong E.
++ *
++ * `exempt` undefined or null (list not loaded, code unknown, still loading)
++ * leaves the box exactly as it always was: nothing is greyed on a guess.
++ */
++export function PoaSelect({ value, onChange, exempt, options, style, placeholder = 'POA…', disabled }: {
++  value: string
++  onChange: (v: string) => void
++  exempt?: boolean | null
++  options: Array<{ value: string; label: string }>
++  style?: CSSProperties
++  placeholder?: string
++  disabled?: boolean
++}) {
++  const autoSet = useRef(false)
++  // Runs after EVERY render, not on dependency change. Several rows can turn
++  // exempt in one render, and a parent that rebuilds its list from that
++  // render's copy keeps only the last row's E. With dependencies, the lost
++  // rows would never retry — their own value never changed. Checked every
++  // render, a lost E is simply set again; it stops once every row holds E.
++  useEffect(() => {
++    if (disabled) return
++    if (exempt === true && (value || '').toUpperCase() !== 'E') {
++      autoSet.current = true
++      onChange('E')
++    } else if (exempt === false && autoSet.current && (value || '').toUpperCase() === 'E') {
++      autoSet.current = false
++      onChange('')
++    }
++  })
++
++  if (exempt === true) {
++    return (
++      <div
++        title="This code is on the CMS POA exempt list — POA is reported as exempt (E)."
++        style={{
++          ...style,
++          display: 'flex', alignItems: 'center', gap: 6,
++          background: '#f3f4f6', color: '#6b7280', borderColor: '#e5e7eb',
++          cursor: 'not-allowed', userSelect: 'none',
++        }}
++      >
++        <span style={{ fontWeight: 700, color: '#374151' }}>E</span>
++        <span style={{ fontSize: 11, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>POA exempt</span>
++      </div>
++    )
++  }
++  return (
++    <select style={style} value={value} onChange={e => { autoSet.current = false; onChange(e.target.value) }} disabled={disabled}>
++      <option value="">{placeholder}</option>
++      {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
++    </select>
++  )
++}
+diff --git a/frontend/src/pages/AuditSession.tsx b/frontend/src/pages/AuditSession.tsx
+index 9101237..bd144e8 100644
+--- a/frontend/src/pages/AuditSession.tsx
++++ b/frontend/src/pages/AuditSession.tsx
+@@ -1,4 +1,5 @@
+ import { useCallback, useEffect, useRef, useState } from 'react'
++import { PoaSelect } from '../components/PoaSelect'
+ import { useParams } from 'react-router-dom'
+ import {
+   AlertTriangle, Check, CheckCircle, ChevronRight, Circle, Copy, Plus,
+@@ -725,6 +726,7 @@ function SectionBlock({ spec, chart, state, onVerdict, onUpsert }: {
+                         autoFocus={field === 'code' && !f.correct_value}
+                         required={field === 'code' || field === 'poa'}
+                         section={key}
++                        poaExempt={field === 'poa' ? describe(String(f.correct_value || ''))?.poa_exempt : null}
+                       />
+                     ))}
+                     {addComplete(f) && (
+@@ -816,6 +818,8 @@ function PdxRow({ chart, spec, open, revisionOf, setRevision, describe }: {
+           field={field}
+           options={field === 'poa' ? POA_VALUES : undefined}
+           describe={describe}
++          poaExempt={field === 'poa' && describe
++            ? describe(revisionOf(0, 'code')?.correct_value || values.code)?.poa_exempt : null}
+           onChange={v => setRevision(0, field, values[field] || '', v)}
+         />
+       ))}
+@@ -867,6 +871,10 @@ function LineRow({ index, row, fields, open, deleted, canDelete, revisionOf, set
+           field={field}
+           options={field === 'poa' ? POA_VALUES : undefined}
+           describe={describe}
++          // The code the line will carry: the auditor's revision when there is
++          // one, so revising to an exempt code locks its POA at once.
++          poaExempt={field === 'poa' && describe
++            ? describe(revisionOf(index, 'code')?.correct_value || String(row.code ?? ''))?.poa_exempt : null}
+           onChange={v => setRevision(index, field, String(row[field] ?? ''), v)}
+         />
+       ))}
+@@ -895,7 +903,7 @@ function LineRow({ index, row, fields, open, deleted, canDelete, revisionOf, set
+ }
+ 
+ function AddField({ field, finding, onChange, onEnter, fieldId, autoFocus, required,
+-                   section }: {
++                   section, poaExempt }: {
+   field: string
+   finding: Finding
+   onChange: (v: string) => void
+@@ -904,6 +912,7 @@ function AddField({ field, finding, onChange, onEnter, fieldId, autoFocus, requi
+   autoFocus?: boolean
+   required?: boolean
+   section: string
++  poaExempt?: boolean | null
+ }) {
+   const value = field === 'code'
+     ? finding.correct_value || ''
+@@ -917,6 +926,11 @@ function AddField({ field, finding, onChange, onEnter, fieldId, autoFocus, requi
+     <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+       <span style={s.fieldLabel}>{FIELD_LABEL[field] || field}{required ? ' *' : ''}</span>
+       {field === 'poa' ? (
++        poaExempt ? (
++          <PoaSelect value={value} onChange={onChange} exempt
++            options={POA_VALUES.map(v => ({ value: v, label: v }))}
++            style={{ ...s.input, width: Math.max(width, 120), boxSizing: 'border-box' }} />
++        ) : (
+         <select
+           style={{ ...s.input, width, borderColor: missing ? '#dc2626' : value ? ACTION_COLOR.Add + '66' : '#e5e7eb' }}
+           value={value}
+@@ -927,6 +941,7 @@ function AddField({ field, finding, onChange, onEnter, fieldId, autoFocus, requi
+           <option value="">POA</option>
+           {POA_VALUES.map(v => <option key={v} value={v}>{v}</option>)}
+         </select>
++        )
+       ) : (
+         field === 'code' ? (
+           <CodeSuggest
+@@ -960,7 +975,7 @@ function AddField({ field, finding, onChange, onEnter, fieldId, autoFocus, requi
+ }
+ 
+ function Field({ label, value, open, revision, strike, onChange, section, field,
+-                describe, options }: {
++                describe, options, poaExempt }: {
+   label: string
+   value: string
+   open: boolean
+@@ -972,7 +987,29 @@ function Field({ label, value, open, revision, strike, onChange, section, field,
+   describe?: (code: string) => CodeInfo | null
+   /** A fixed vocabulary. Present means a select, absent means a text box. */
+   options?: string[]
++  /** The line's code is on the CMS POA exempt list (POA field only). */
++  poaExempt?: boolean | null
+ }) {
++  // An exempt code's POA is E and nothing to audit — locked, so no auditor
++  // spends a finding on it. Locked only while the claim already says E (or
++  // nothing): a claim generated before this rule may carry a planted POA
++  // error on an exempt code, and locking that would stop the auditor fixing
++  // an error they are scored on. That case stays editable, with the reason.
++  const shown = String(revision?.correct_value ?? value ?? '').toUpperCase()
++  if (field === 'poa' && poaExempt && open && (shown === 'E' || shown === '')) {
++    return (
++      <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
++        <span style={s.fieldLabel}>{label}</span>
++        <div title="This code is on the CMS POA exempt list — POA is reported as exempt (E)."
++          style={{ ...s.input, width: 150, boxSizing: 'border-box', background: '#f3f4f6',
++                   color: '#6b7280', cursor: 'not-allowed', display: 'flex', alignItems: 'center', gap: 6 }}>
++          <b style={{ color: '#374151' }}>E</b><span style={{ fontSize: 11 }}>POA exempt</span>
++        </div>
++      </div>
++    )
++  }
++  const exemptHint = field === 'poa' && poaExempt && open
++    ? <span style={{ fontSize: 10.5, color: '#b45309' }}>POA exempt — should be E</span> : null
+   const changed = !!revision
+   // Checked only once the auditor has typed a correction — the claim's own
+   // value is whatever it is, and flagging the chart's existing codes would be
+@@ -1037,6 +1074,7 @@ function Field({ label, value, open, revision, strike, onChange, section, field,
+       )}
+       {changed && <span style={s.wasNote}>was {value || '—'}</span>}
+       {!check.ok && <span style={s.formatHint}>{check.hint}</span>}
++      {exemptHint}
+     </div>
+   )
+ }
+diff --git a/frontend/src/pages/PracticeSession.tsx b/frontend/src/pages/PracticeSession.tsx
+index 2bcdb56..ab24730 100644
+--- a/frontend/src/pages/PracticeSession.tsx
++++ b/frontend/src/pages/PracticeSession.tsx
+@@ -1,6 +1,7 @@
+ import { useState, useEffect, useCallback, useRef } from 'react'
+ import { deviceId } from '../hooks/useDeviceId'
+ import { GradingFeedback } from '../components/GradingFeedback'
++import { PoaSelect } from '../components/PoaSelect'
+ import { SubmissionReview, ReviewExportButton, type ChartReview } from '../components/SubmissionReview'
+ import { checkCpt, checkDx, checkModifier, checkPcs } from '../codeFormat'
+ import { useCodeDescriptions } from '../hooks/useCodeDescriptions'
+@@ -1412,14 +1413,13 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
+           </div>
+           {ip && (
+             <div style={{ width: 200 }}>
+-              <select
++              <PoaSelect
+                 style={{ ...s.selectField, borderColor: pdxPOAMissing ? '#fca5a5' : '#e5e7eb' }}
+                 value={entry.pdx_poa}
+-                onChange={e => onChange({ pdx_poa: e.target.value })}
+-              >
+-                <option value="">POA…</option>
+-                {POA_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+-              </select>
++                onChange={v => onChange({ pdx_poa: v })}
++                exempt={entry.pdx_code.trim() ? describeDx(entry.pdx_code)?.poa_exempt : null}
++                options={POA_OPTIONS}
++              />
+               {pdxPOAMissing && <div style={s.warningLine}><AlertTriangle size={11} color="#f59e0b" /> POA required</div>}
+             </div>
+           )}
+@@ -1448,14 +1448,13 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
+               <CodeSays info={describeDx(row.code)} />
+             </div>
+             {ip && (
+-              <select
++              <PoaSelect
+                 style={{ ...s.selectField, width: 180, marginBottom: 0, borderColor: row.code.trim() && !row.poa ? '#fca5a5' : '#e5e7eb' }}
+                 value={row.poa}
+-                onChange={e => updateSdx(i, 'poa', e.target.value)}
+-              >
+-                <option value="">POA…</option>
+-                {POA_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+-              </select>
++                onChange={v => updateSdx(i, 'poa', v)}
++                exempt={row.code.trim() ? describeDx(row.code)?.poa_exempt : null}
++                options={POA_OPTIONS}
++              />
+             )}
+             <button onClick={() => removeSdx(i)} style={s.removeBtn}><X size={14} /></button>
+           </div>
+diff --git a/frontend/src/pages/auditor/AuditKeys.tsx b/frontend/src/pages/auditor/AuditKeys.tsx
+index ed52b66..c950425 100644
+--- a/frontend/src/pages/auditor/AuditKeys.tsx
++++ b/frontend/src/pages/auditor/AuditKeys.tsx
+@@ -904,18 +904,25 @@ function KeySection({ spec, answerKey, mutations, setMutations }: {
+                     {r.field}: {r.correct_value || '—'} → <strong>{r.claim_value}</strong>
+                   </span>
+                 ))}
+-                {spec.fields.map((f: string) => (
++                {spec.fields.map((f: string) => {
++                  // An exempt code's POA is E and not auditable: a planted POA
++                  // error there teaches a wrong answer, so it cannot be authored.
++                  const poaLocked = f === 'poa' && describe(String(row.code || ''))?.poa_exempt === true
++                  return (
+                   <input key={f} style={{
+                     ...s.input, width: f === 'code' ? 110 : 68, padding: '4px 8px',
+                     fontSize: 12, textTransform: 'uppercase',
+                     borderColor: find('Revise', i, f) ? ACTION_COLORS.Revise : '#d1d5db',
++                    ...(poaLocked ? { background: '#f3f4f6', cursor: 'not-allowed' } : {}),
+                   }}
+-                    placeholder={f === 'code' ? 'wrong code' : `wrong ${f}`}
+-                    title={`Show a wrong ${f} on the claim instead of ${row[f] || '—'}`}
+-                    disabled={omitted}
++                    placeholder={poaLocked ? 'exempt' : f === 'code' ? 'wrong code' : `wrong ${f}`}
++                    title={poaLocked ? 'POA exempt (CMS) — no POA error can be planted on this code'
++                      : `Show a wrong ${f} on the claim instead of ${row[f] || '—'}`}
++                    disabled={omitted || poaLocked}
+                     value={find('Revise', i, f)?.claim_value || ''}
+                     onChange={e => setRevision(i, f, e.target.value, String(row[f] ?? ''))} />
+-                ))}
++                  )
++                })}
+                 {spec.actions.includes('Add') && (
+                   <button
+                     title={omitted ? 'Keep this code on the claim' : 'Remove it — the auditor must add it back'}
+diff --git a/frontend/src/pages/practicelab/AnswerKeyEditor.tsx b/frontend/src/pages/practicelab/AnswerKeyEditor.tsx
+index 9ec4413..75edeb8 100644
+--- a/frontend/src/pages/practicelab/AnswerKeyEditor.tsx
++++ b/frontend/src/pages/practicelab/AnswerKeyEditor.tsx
+@@ -8,11 +8,13 @@ import {
+ import { CodeSuggest } from '../../components/CodeSuggest'
+ import { CodeCaption } from '../../components/CodeCaption'
+ import { useCodeDescriptions } from '../../hooks/useCodeDescriptions'
++import { PoaSelect } from '../../components/PoaSelect'
+ import { errorMessage } from '../../api/errors'
+ import { trainerName } from './shared'
+ import styles from './styles'
+ 
+ const POA_OPTIONS = ['', 'Y', 'N', 'U', 'W', 'E']
++const POA_CHOICES = POA_OPTIONS.filter(Boolean).map(o => ({ value: o, label: o }))
+ const CCMCC_OPTIONS = ['', 'MCC', 'CC', '-']
+ 
+ /**
+@@ -224,10 +226,9 @@ export function AnswerKeyEditor({ chartId, onClose, onSaved }: {
+               if (v.trim() && sdx.length === 0) setSdx([{ code: '', poa: '', ccmcc: '' }])
+             }} />
+           {detail.is_ip && (
+-            <select style={{ ...styles.select, marginBottom: 0, width: 110 }} value={pdxPoa}
+-              onChange={e => setPdxPoa(e.target.value)}>
+-              {POA_OPTIONS.map(o => <option key={o} value={o}>{o || 'POA'}</option>)}
+-            </select>
++            <PoaSelect style={{ ...styles.select, marginBottom: 0, width: 110 }} value={pdxPoa}
++              onChange={setPdxPoa} options={POA_CHOICES} placeholder="POA"
++              exempt={pdx.trim() ? describeDx(pdx)?.poa_exempt : null} />
+           )}
+         </div>
+         <div style={{ marginBottom: 12 }}>
+@@ -244,10 +245,10 @@ export function AnswerKeyEditor({ chartId, onClose, onSaved }: {
+               onEnter={v => addSdxOnEnter(i, v)} />
+             {detail.is_ip && (
+               <>
+-                <select style={{ ...styles.select, marginBottom: 0, width: 90 }} value={s.poa || ''}
+-                  onChange={e => setSdx(sdx.map((x, j) => j === i ? { ...x, poa: e.target.value } : x))}>
+-                  {POA_OPTIONS.map(o => <option key={o} value={o}>{o || 'POA'}</option>)}
+-                </select>
++                <PoaSelect style={{ ...styles.select, marginBottom: 0, width: 90 }} value={s.poa || ''}
++                  onChange={v => setSdx(prev => prev.map((x, j) => j === i ? { ...x, poa: v } : x))}
++                  options={POA_CHOICES} placeholder="POA"
++                  exempt={s.code.trim() ? describeDx(s.code)?.poa_exempt : null} />
+                 <select style={{ ...styles.select, marginBottom: 0, width: 100 }} value={s.ccmcc || ''}
+                   onChange={e => setSdx(sdx.map((x, j) => j === i ? { ...x, ccmcc: e.target.value } : x))}>
+                   {CCMCC_OPTIONS.map(o => <option key={o} value={o}>{o || 'CC/MCC'}</option>)}
+diff --git a/scripts/ingest_code_sets.py b/scripts/ingest_code_sets.py
+index 592e303..5a5b1a6 100644
+--- a/scripts/ingest_code_sets.py
++++ b/scripts/ingest_code_sets.py
+@@ -137,6 +137,16 @@ def drg_urls(today=None) -> list:
+             f"files-v{year - 1983}.zip" for year in (fy, fy - 1)]
+ 
+ 
++def poa_urls(today=None) -> list:
++    """
++    The POA exempt list — the ICD-10-CM codes for which present-on-admission
++    is not reported. Published per fiscal year beside the code descriptions.
++    """
++    fy = fiscal_year(today)
++    return [f"https://www.cms.gov/files/zip/{year}-poa-exempt-codes.zip"
++            for year in (fy, fy - 1)]
++
++
+ EDITION = f"FY{fiscal_year()}"
+ 
+ 
+@@ -152,18 +162,25 @@ def _download(urls: Iterable[str]) -> Optional[bytes]:
+     return None
+ 
+ 
+-def _from_zip(blob: bytes, contains: str, ext: str) -> Optional[bytes]:
++def _from_zip(blob: bytes, contains: str, ext: str,
++              exclude: str = "") -> Optional[bytes]:
+     with zipfile.ZipFile(io.BytesIO(blob)) as z:
+         for name in z.namelist():
+             low = name.lower()
+-            if contains in low and low.endswith(ext):
++            if contains in low and low.endswith(ext) and not (exclude and exclude in low):
+                 return z.read(name)
+     return None
+ 
+ 
+-def _local(directory: pathlib.Path, contains: str, ext: str) -> Optional[bytes]:
++def _local(directory: pathlib.Path, contains: str, ext: str,
++           exclude: str = "") -> Optional[bytes]:
++    # `exclude` exists because names overlap: the POA exempt list is
++    # "POAexemptCodesFY27.txt", which contains "codes" and sorts before the CM
++    # codes file — so a --from-dir holding both would load the exempt list AS
++    # the code set.
+     for path in sorted(directory.rglob(f"*{ext}")):
+-        if contains in path.name.lower():
++        low = path.name.lower()
++        if contains in low and not (exclude and exclude in low):
+             return path.read_bytes()
+     return None
+ 
+@@ -432,6 +449,31 @@ def parse_hcpcs(txt_bytes: bytes) -> tuple[list[dict], list[dict]]:
+     return codes, modifiers
+ 
+ 
++def parse_poa_exempt(txt_bytes: bytes) -> set:
++    """
++    The CMS POA exempt list: tab-delimited, a header row naming the columns
++    (Order27, POAexemptCode, Description). The code column is found by its
++    header rather than by position, since the order column's name changes
++    every year. Codes come dotted (B90.0) and are stored bare, like the CM set.
++    """
++    text = txt_bytes.decode("utf-8", "replace").replace("\r\n", "\n")
++    lines = [ln for ln in text.split("\n") if ln.strip()]
++    if not lines:
++        return set()
++    header = [h.strip().lower() for h in lines[0].split("\t")]
++    col = next((i for i, h in enumerate(header) if "code" in h and "order" not in h), None)
++    if col is None:
++        return set()
++    out = set()
++    for ln in lines[1:]:
++        parts = ln.split("\t")
++        if len(parts) > col:
++            code = parts[col].strip().upper().replace(".", "")
++            if code:
++                out.add(code)
++    return out
++
++
+ def parse_cc_mcc(txt_bytes: bytes) -> dict:
+     """
+     Appendix C Part 1 of the MS-DRG Definitions Manual: every code that acts as
+@@ -557,8 +599,8 @@ def main() -> int:
+         print("\nICD-10-CM")
+         order = codes = tabular = None
+         if src:
+-            order = _local(src, "order", ".txt")
+-            codes = _local(src, "codes", ".txt")
++            order = _local(src, "order", ".txt", exclude="poa")
++            codes = _local(src, "codes", ".txt", exclude="poa")
+             if not order:
+                 tabular = _local(src, "tabular", ".xml")
+         else:
+@@ -624,9 +666,46 @@ def main() -> int:
+             else:
+                 print("  no source found — skipped, codes load without severity")
+ 
++            # ── POA exempt ───────────────────────────────────────────────────
++            #
++            # Stamped like severity: a property of the code. Without a list,
++            # every code is left NULL — unknown — rather than False, so no
++            # screen ever greys a POA box on a guess, or claims a code is
++            # reportable because a file was missing.
++            print("\nPOA exempt list")
++            if src:
++                poa = _local(src, "poaexemptcodes", ".txt")
++            else:
++                blob = _download(poa_urls())
++                poa = _from_zip(blob, "poaexemptcodes", ".txt") if blob else None
++                del blob
++            exempt = parse_poa_exempt(poa) if poa else set()
++            del poa
++            if exempt:
++                for row in cm_rows:
++                    row["poa_exempt"] = row["code"] in exempt
++                n = sum(1 for r in cm_rows if r.get("poa_exempt"))
++                print(f"  {n:,} codes are POA exempt")
++                known = {r["code"] for r in cm_rows}
++                orphans = [c for c in exempt if c not in known]
++                if orphans:
++                    print(f"  {len(orphans)} exempt codes are not in this CM edition, "
++                          f"e.g. {sorted(orphans)[:4]} — the list is from a different year.")
++                del known
++            else:
++                print("  no source found — skipped, no code is marked exempt")
++            del exempt
++
+             loaded += len(cm_rows)
+             if db:
+                 _write(db, "ICD10CM", cm_rows, EDITION, args.loaded_by, source_url)
++                # Keys written before the list was known: set E on every exempt
++                # code in an inpatient key, once, now that the list exists.
++                from services.poa_exempt import correct_existing_keys
++                fixed = correct_existing_keys(db)
++                if fixed.get("keys"):
++                    print(f"  POA set to E on {fixed['lines']} exempt line(s) "
++                          f"in {fixed['keys']} inpatient answer key(s)")
+         else:
+             print("  no source found — skipped")
+         del cm_rows
+-- 
+2.43.0
+
+From 2847e8ba2004b6526649d880a7b19921b3dc4292 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 19 Nov 2026 10:02:53 +0000
+Subject: [PATCH] Show whether the POA exempt list is loaded in Code Set
+ Maintenance
+
+A finished ingest gave no confirmation the exempt list had loaded. The
+panel now has its own tile with the exempt-code count, red when missing,
+and status counts a loaded ICD-10-CM set without the list as needing
+attention.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01GAgNTxNNybv6W7GXL33G6z
+---
+ backend/routers/codes.py                      | 26 ++++++++++++++-----
+ backend/tests/test_poa_exempt.py              |  3 ++-
+ .../practicelab/CodeSetMaintenancePanel.tsx   | 20 +++++++++++++-
+ 3 files changed, 40 insertions(+), 9 deletions(-)
+
+diff --git a/backend/routers/codes.py b/backend/routers/codes.py
+index 35f92b0..d559629 100644
+--- a/backend/routers/codes.py
++++ b/backend/routers/codes.py
+@@ -202,6 +202,7 @@ def status(db: Session = Depends(get_db)):
+     # only what IS loaded makes a half-loaded installation look complete, which
+     # is the failure this endpoint exists to prevent.
+     missing = [s for s in ANNUAL_SYSTEMS + QUARTERLY_SYSTEMS if s not in seen]
++    poa_count = _poa_count(db)
+ 
+     return {
+         "loaded": list(seen.values()),
+@@ -211,17 +212,28 @@ def status(db: Session = Depends(get_db)):
+         "expected_edition": current_edition(),
+         # One flag for the screen to key on, so the rule lives here rather than
+         # being re-derived in the frontend.
++        # A loaded ICD-10-CM set without the POA exempt list looks healthy and
++        # greys nothing — so it counts as needing attention.
+         "needs_attention": bool(missing) or any(
+-            not v["current"] for v in seen.values()),
+-        # Whether the CMS POA exempt list is loaded. Without it no POA box is
+-        # greyed and no POA is skipped in grading, silently — so say so.
+-        "poa_exempt_loaded": _poa_loaded(db),
++            not v["current"] for v in seen.values())
++            or ("ICD10CM" in seen and not poa_count),
++        # Whether the CMS POA exempt list is loaded, and how many codes it
++        # marks. Without it no POA box is greyed and no POA is skipped in
++        # grading, silently — so the screen says so.
++        "poa_exempt_loaded": poa_count > 0,
++        "poa_exempt_codes": poa_count,
+     }
+ 
+ 
+-def _poa_loaded(db) -> bool:
+-    from services.poa_exempt import list_loaded
+-    return list_loaded(db)
++def _poa_count(db) -> int:
++    """Codes marked POA exempt — counted in SQL."""
++    from sqlalchemy import func
++    from models.codes import CodeDescription
++    try:
++        return int(db.query(func.count(CodeDescription.id))
++                   .filter(CodeDescription.poa_exempt.is_(True)).scalar() or 0)
++    except Exception:  # noqa: BLE001
++        return 0
+ 
+ 
+ @router.get("/ingest-job")
+diff --git a/backend/tests/test_poa_exempt.py b/backend/tests/test_poa_exempt.py
+index 42c451e..5e992aa 100644
+--- a/backend/tests/test_poa_exempt.py
++++ b/backend/tests/test_poa_exempt.py
+@@ -193,7 +193,8 @@ def test_describe_says_which_codes_are_exempt(client, db):
+ def test_status_reports_whether_the_list_is_loaded(client, db):
+     assert client.get("/codes/status").json()["poa_exempt_loaded"] is False
+     _load(db)
+-    assert client.get("/codes/status").json()["poa_exempt_loaded"] is True
++    st = client.get("/codes/status").json()
++    assert st["poa_exempt_loaded"] is True and st["poa_exempt_codes"] == 3
+ 
+ 
+ def test_exempt_among_is_one_bare_set(db):
+diff --git a/frontend/src/pages/practicelab/CodeSetMaintenancePanel.tsx b/frontend/src/pages/practicelab/CodeSetMaintenancePanel.tsx
+index 5f098e1..f4192ce 100644
+--- a/frontend/src/pages/practicelab/CodeSetMaintenancePanel.tsx
++++ b/frontend/src/pages/practicelab/CodeSetMaintenancePanel.tsx
+@@ -75,7 +75,9 @@ export function CodeSetMaintenancePanel({ onClose }: Props) {
+         )}
+         {codeSets?.needs_attention && (
+           <div style={s.warnBox}>
+-            {codeSets.any ? 'Code sets need refreshing.' : 'CMS code sets have not been loaded.'}
++            {!codeSets.any ? 'CMS code sets have not been loaded.'
++              : codeSets.poa_exempt_loaded ? 'Code sets need refreshing.'
++                : 'The POA exempt list is not loaded — run the ingest.'}
+           </div>
+         )}
+ 
+@@ -89,6 +91,22 @@ export function CodeSetMaintenancePanel({ onClose }: Props) {
+               </div>
+             </div>
+           ))}
++          {/* The POA exempt list rides on the ICD-10-CM load but is its own
++              CMS file, and a load without it looks healthy while greying
++              nothing — so it gets its own tile. */}
++          {codeSets && (
++            <div style={s.mini}>
++              <span style={{ ...s.dot, background: codeSets.poa_exempt_loaded ? '#16a34a' : '#dc2626' }} />
++              <div>
++                <div style={s.miniLabel}>POA exempt list</div>
++                <div style={s.miniSub}>
++                  {codeSets.poa_exempt_loaded
++                    ? `${(codeSets.poa_exempt_codes || 0).toLocaleString()} exempt codes`
++                    : 'not loaded — run the ingest'}
++                </div>
++              </div>
++            </div>
++          )}
+           {(codeSets?.missing || []).map((r: any) => (
+             <div key={r.code_system} style={s.mini}>
+               <span style={{ ...s.dot, background: '#dc2626' }} />
+-- 
+2.43.0
+

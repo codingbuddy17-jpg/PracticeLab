@@ -121,6 +121,30 @@ CRS.append({
                 "unmatched codes in the same ICD-10-CM category, PCS root operation or CPT first four. Display only."),
 })
 
+CRS.append({
+    "id": "CR-008", "title": "Runbook and container guide updated for the POA exempt list (documentation)",
+    "kind": "Docs", "module": "IT handover documents", "score_impact": "No", "schema": "None",
+    "commits": "30daf10", "date": "2026-11-19", "order": "Read with CR-005",
+    "spec": "change_requests/CR-008/CR-008.md",
+    "summary": ("No application change. DATABASE_MIGRATION_RUNBOOK.md §8 and the container guide (markdown and "
+                "Word) now cover the POA exempt list: the column it needs first, the one-time key correction, "
+                "the offline file, the status fields, and the October re-run."),
+})
+
+# What a team running THIS SAME Python backend does instead of rebuilding.
+# Every CR folder carries code.patch (the complete committed change); applied
+# in order to the pre-CR-001 code, all of them reproduce the original app exactly.
+SAME_BACKEND = {
+    "CR-001": "git am code.patch; run the four checks; deploy.",
+    "CR-002": "git am code.patch; deploy. Scores change for new and re-graded E/M sessions.",
+    "CR-003": "git am code.patch; deploy. Needs the code sets loaded.",
+    "CR-004": "git am code.patch (frontend only); deploy.",
+    "CR-005": "git am code.patch; deploy (column added automatically on startup — no manual DDL); check logs for 'Migration DDL failed'; then Code Set Maintenance → Run CMS Ingest; confirm the POA tile.",
+    "CR-006": "git am code.patch (frontend only); deploy.",
+    "CR-007": "git am code.patch; deploy.",
+    "CR-008": "Nothing to apply — read the updated documents.",
+}
+
 # Proposed and agreed in principle, NOT built. Listed so nothing raised is
 # lost; an item moves to CRS when it is built.
 BACKLOG = [
@@ -356,6 +380,13 @@ CHANGES = [
     ("CR-007", "Test", "backend/tests/test_practice_review.py", "near-miss tests", "Added",
      "Z77.8/Z77.9, cross-family, PCS character, CPT, OP SDx, and scores unchanged.", "—", "—",
      "None (reference)", "No", "CR-007 §5"),
+    # ── CR-008 ──
+    ("CR-008", "Docs", "docs/DATABASE_MIGRATION_RUNBOOK.md", "§8 Reference code sets", "Modified",
+     "Adds the POA exempt list: column first, one-time key correction, offline file and name trap, status fields, October re-run, in-app button only where the API implements it.",
+     "Load described without the POA list.", "Matches CR-005.", "None (reference)", "No", "CR-008"),
+    ("CR-008", "Docs", "docs/CONTAINER_DEPLOYMENT.md · PracticeLab_Container_Deployment.docx", "§9 Reference code sets · Troubleshooting", "Modified",
+     "Load repeats each October; POA list named; new troubleshooting row for POA boxes never greyed.",
+     "Load called a one-off.", "Rebuilt from _container_docx_build.js.", "None (reference)", "No", "CR-008"),
     ("CR-003", "Test", "backend/tests/test_practice_review.py", "Description tests", "Added",
      "Descriptions on review rows and export columns; unknown codes silent; E/M level and MDM never described.", "—", "—",
      "None (reference)", "No", "CR-003 §5"),
@@ -417,7 +448,9 @@ def build():
     _title(rm, "PracticeLab — Change Register", "Built %s from docs/_change_register_build.py" % BUILT)
     lines = [
         ("What this is", "Every change made to the original PracticeLab application since the migration, for the IT team to carry into the migrated deployment."),
-        ("Your deployment", "Kept this React frontend and the restored PostgreSQL database; the backend is .NET. Frontend changes arrive as a patch to apply; backend changes as a specification to implement; database changes as portable DDL."),
+        ("Start here", "This workbook is the INDEX of every change: what changed, where, and what you must do. The step-by-step detail for each change is in docs/change_requests/CR-NNN/CR-NNN.md, next to its patch files."),
+        ("Two routes", "Each CR works for either kind of deployment. (A) Same Python backend as the original app: apply code.patch from the CR folder (git am), in CR order, and deploy — schema columns are added automatically on startup. Applied in order to the pre-CR-001 code, all patches reproduce the original app exactly. (B) Backend rebuilt in another language (e.g. .NET): implement the rules in CR-NNN.md, apply frontend.patch to the unchanged React frontend, and run any DDL listed. The Register's 'If same Python backend' column gives route A's action per CR."),
+        ("One-off actions", "CR-005 needs the POA exempt list loaded once (and every October): route A uses Code Set Maintenance → Run CMS Ingest after deploying; route B adds the column first, then runs scripts/ingest_code_sets.py --write against its database."),
         ("Register", "One row per change request (CR). The grey-yellow columns are yours: status, owner, dates, notes."),
         ("Backlog", "Items raised and agreed in principle but not built yet."),
         ("Change Detail", "One row per file-level change. Filter 'IT action' for what you must build, or 'Score impact' for anything that moves scores."),
@@ -438,18 +471,20 @@ def build():
     rg = wb.create_sheet("Register")
     _title(rg, "Change requests", "Built %s · grey-yellow columns are for the IT team" % BUILT)
     heads = ["CR", "Title", "Kind", "Module", "Score impact", "Schema", "Commits", "Date",
-             "Apply order", "Summary", "Spec file",
+             "Apply order", "Summary", "Spec file", "If same Python backend",
              "Backend (.NET)", "Frontend patch", "Verified by IT", "IT owner", "Done on", "IT notes"]
     rows = [(c["id"], c["title"], c["kind"], c["module"], c["score_impact"], c["schema"],
              c["commits"], c["date"], c["order"], c["summary"], "docs/" + c["spec"],
-             "Not started", "Not started" if c["kind"] in ("A", "C") else "N/A",
+             SAME_BACKEND.get(c["id"], ""),
+             "N/A" if c["kind"] in ("A", "Docs") else "Not started",
+             "Not started" if c["kind"] in ("A", "C", "C+D") else "N/A",
              "Not started", "", "", "") for c in CRS]
-    _table(rg, 4, heads, rows, [9, 40, 6, 24, 9, 9, 16, 11, 18, 60, 30, 14, 14, 14, 14, 11, 30])
+    _table(rg, 4, heads, rows, [9, 40, 6, 24, 9, 9, 16, 11, 18, 60, 30, 44, 14, 14, 14, 14, 11, 30])
     dv = DataValidation(type="list", formula1='"Not started,In progress,Done,Blocked,N/A"', allow_blank=True)
     rg.add_data_validation(dv)
     last = rg.max_row
-    dv.add("L5:N%d" % last)
-    for row in rg.iter_rows(min_row=5, max_row=last, min_col=12, max_col=17):
+    dv.add("M5:O%d" % last)
+    for row in rg.iter_rows(min_row=5, max_row=last, min_col=13, max_col=18):
         for c in row:
             c.fill = INPUT
             c.border = BORDER

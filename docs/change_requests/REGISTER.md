@@ -1,26 +1,24 @@
 # Change request register
 
-Changes made in the original application, for the IT team to carry into the
-migrated deployment. That deployment kept this React frontend, restored the
-PostgreSQL dump, and **reimplemented the backend in .NET**, so:
+Changes made in the original application after the migration, for the IT team
+to carry into their deployment. **Every CR works for either kind of
+deployment:**
 
-| Part of a change | Arrives as | IT does |
-|---|---|---|
-| Frontend | `frontend.patch` | `git apply` it to the frontend, unchanged |
-| Backend | the CR's business rules + API contract | implement in .NET |
-| Database | portable DDL in the CR | run it; a new column on an existing table also needs your migration step |
-| Proof | `scripts/smoke_deployed.py --base <your API> …` | run it against your deployment |
+| If your deployment… | For each CR, in number order |
+|---|---|
+| **runs this same Python backend** | `git am docs/change_requests/CR-NNN/code.patch`, run the checks, deploy. `code.patch` is the complete committed change (backend, frontend, scripts, tests); schema columns are added automatically on startup. Applied in order to the pre-CR-001 code, all patches reproduce the original app exactly. |
+| **rebuilt the backend** (e.g. .NET) and kept this React frontend | implement the rules in `CR-NNN.md`, run any DDL it lists, then `git apply frontend.patch`. For a Kind C change, the backend comes first: the shared frontend calls the new behaviour. |
 
-**Order matters for Kind C.** The frontend is shared, so a frontend patch that
-calls new backend behaviour breaks your deployment until that behaviour
-exists. Implement the backend half first, then apply the patch.
+Each CR folder holds `CR-NNN.md` (what changed, why, the exact rules, acceptance
+tests, and a section for the same-backend route), `code.patch`,
+`frontend.patch`, and `openapi.diff.txt`. Verify a deployment with
+`python3 scripts/smoke_deployed.py --base <your API> [--session <id>]`.
 
-Each CR folder holds `CR-NNN.md` (the spec), `frontend.patch`,
-`openapi.diff.txt` (generated: routes added, removed or changed), and the
-originating commit. Python in a CR is reference reading, never something to
-port line by line.
+`docs/PracticeLab_Change_Register.xlsx` is the detailed index: one row per CR
+(with the same-backend action and IT's status columns), one row per file-level
+change, and a backlog of what is proposed but not built.
 
-Kinds: **A** frontend only · **B** backend only · **C** both · **D** schema.
+Kinds: **A** frontend only · **B** backend only · **C** both · **D** schema · **Docs** documentation.
 
 <!-- register:start -->
 | CR | Title | Kind | Score impact | Schema | Commits | Apply order |
@@ -32,6 +30,7 @@ Kinds: **A** frontend only · **B** backend only · **C** both · **D** schema.
 | [005](CR-005/CR-005.md) | CMS POA exempt list applied everywhere POA is keyed, coded, audited or graded | C+D | Yes | code_descriptions.poa_exempt BOOLEAN | `6e32710, 2847e8b` | DDL, backend rules, run loader, then frontend patch |
 | [006](CR-006/CR-006.md) | Report button on each Auditor batch row | A | No | None | `9c443bc` | Any time: frontend patch only |
 | [007](CR-007/CR-007.md) | A same-family code is a wrong code, not a miss | C | No | None | `78256e8` | Backend first, then frontend patch |
+| [008](CR-008/CR-008.md) | Runbook and container guide updated for the POA exempt list (documentation) | Docs | No | None | `30daf10` | Read with CR-005 |
 
 Built 19 November 2026 by `docs/_change_register_build.py`, which also writes `docs/PracticeLab_Change_Register.xlsx` — the detailed version, with one row per file-level change and the columns IT uses to track progress.
 

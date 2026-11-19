@@ -354,8 +354,12 @@ see, which is the one thing the split exists to prevent.
 ### Changes for the migrated app go through a change request
 
 The IT team's deployment kept this React frontend and restored the PostgreSQL
-dump, but **reimplemented the backend in .NET** (user, 2026-11-19). A Python
-diff is therefore useless to them for backend work; only behaviour transfers.
+dump. The user believes they **reimplemented the backend in .NET** but has NOT
+confirmed it (2026-11-19) — so every CR serves both routes: `code.patch` (the
+complete committed change, `git am` onto the same Python app) and the spec plus
+`frontend.patch` for a rebuilt backend. Generate `code.patch` from the CR's
+commits restricted to backend/frontend/scripts, and prove the set applies in
+order to the pre-CR-001 code and reproduces the current tree.
 Every change to this app gets a folder in `docs/change_requests/` and a row in
 its `REGISTER.md`: the spec (`CR-NNN.md`), `frontend.patch` (applies as-is),
 `openapi.diff.txt` (generated), and a `smoke_deployed.py` check IT can point at

@@ -1,0 +1,1793 @@
+From db513003bc5d8e7c374d9ba44599305b738adf8d Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 19 Nov 2026 08:25:14 +0000
+Subject: [PATCH] Show the whole practice review, classify E/M, and export it
+ to Excel
+
+The post-submit review listed only what lost points. Every chart now
+carries a classified side-by-side of key and coder, line by line, built
+once in services/practice_review and rendered by the trainer Review
+modal, the coder results screen and a new .xlsx export.
+
+E/M and ED Profee get their own sections (level, primary and secondary
+Dx, CPT) and the MDM tables element by element, so a partial reasoning
+score such as 6.7 of 10 shows which element it lost. Display only: no
+score changes.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01GAgNTxNNybv6W7GXL33G6z
+---
+ backend/routers/practicelab_pkg/em_grading.py |  41 +-
+ .../practicelab_pkg/practice_sessions.py      |  86 ++-
+ backend/services/practice_review.py           | 543 ++++++++++++++++++
+ backend/tests/test_practice_review.py         | 283 +++++++++
+ frontend/src/api/download.ts                  |   9 +-
+ frontend/src/api/practicelabApi.ts            |  28 +-
+ frontend/src/components/SubmissionReview.tsx  | 167 ++++++
+ frontend/src/pages/PracticeSession.tsx        |  75 +--
+ .../src/pages/practicelab/BatchDetailView.tsx |  38 +-
+ scripts/smoke_deployed.py                     |  43 ++
+ 10 files changed, 1228 insertions(+), 85 deletions(-)
+ create mode 100644 backend/services/practice_review.py
+ create mode 100644 backend/tests/test_practice_review.py
+ create mode 100644 frontend/src/components/SubmissionReview.tsx
+
+diff --git a/backend/routers/practicelab_pkg/em_grading.py b/backend/routers/practicelab_pkg/em_grading.py
+index 1d5f8b5..fdfffbb 100644
+--- a/backend/routers/practicelab_pkg/em_grading.py
++++ b/backend/routers/practicelab_pkg/em_grading.py
+@@ -430,6 +430,29 @@ def _sanitise_level_method(method, em_code) -> str:
+     return "TIME" if code_supports_time(em_code) else "MDM"
+ 
+ 
++# The MDM elements Reasoning Accuracy is scored on, one list per table. Module
++# level because the grader and the post-submit review (services/practice_review)
++# must read the SAME list: an element the review omitted would make a 6.7 look
++# like arithmetic nobody can reproduce.
++COPA_FIELDS = [
++    "copa_self_limited", "copa_stable_acute", "copa_stable_chronic",
++    "copa_acute_uncomplicated", "copa_chronic_exacerbation",
++    "copa_undiagnosed_new", "copa_acute_systemic",
++    "copa_acute_complicated_injury", "copa_chronic_severe", "copa_threat_to_life",
++]
++DR_FIELDS = [
++    "dr_prior_external_notes", "dr_review_test_results", "dr_order_tests",
++    "dr_independent_historian", "dr_independent_interpretation", "dr_external_discussion",
++]
++RISK_FIELDS = [
++    "risk_low", "risk_prescription_drug_mgmt", "risk_minor_surgery_with_factors",
++    "risk_elective_major_no_factors", "risk_hospitalization", "risk_sdoh",
++    "risk_drug_intensive_monitoring", "risk_elective_major_with_factors",
++    "risk_emergency_major_surgery", "risk_hospitalization_escalation",
++    "risk_dnr_deescalate", "risk_parenteral_controlled",
++]
++
++
+ def grade_em_chart(ak: dict, sub: dict, cfg: dict, overcoding_penalty: bool = True) -> dict:
+     """
+     Grade one E/M chart submission against its answer key.
+@@ -627,23 +650,7 @@ def grade_em_chart(ak: dict, sub: dict, cfg: dict, overcoding_penalty: bool = Tr
+     coding_accuracy_total = em_level_score + cpt_score + dx_score
+ 
+     # ── Reasoning Accuracy (element proportion) ───────────────────────────────
+-    copa_fields = [
+-        "copa_self_limited", "copa_stable_acute", "copa_stable_chronic",
+-        "copa_acute_uncomplicated", "copa_chronic_exacerbation",
+-        "copa_undiagnosed_new", "copa_acute_systemic",
+-        "copa_acute_complicated_injury", "copa_chronic_severe", "copa_threat_to_life",
+-    ]
+-    dr_fields = [
+-        "dr_prior_external_notes", "dr_review_test_results", "dr_order_tests",
+-        "dr_independent_historian", "dr_independent_interpretation", "dr_external_discussion",
+-    ]
+-    risk_fields = [
+-        "risk_low", "risk_prescription_drug_mgmt", "risk_minor_surgery_with_factors",
+-        "risk_elective_major_no_factors", "risk_hospitalization", "risk_sdoh",
+-        "risk_drug_intensive_monitoring", "risk_elective_major_with_factors",
+-        "risk_emergency_major_surgery", "risk_hospitalization_escalation",
+-        "risk_dnr_deescalate", "risk_parenteral_controlled",
+-    ]
++    copa_fields, dr_fields, risk_fields = COPA_FIELDS, DR_FIELDS, RISK_FIELDS
+ 
+     def _element_score(fields: list, ak_row: dict, sub_row: dict, weight: float) -> float:
+         ak_vals = [int(ak_row.get(f, 0) or 0) for f in fields]
+diff --git a/backend/routers/practicelab_pkg/practice_sessions.py b/backend/routers/practicelab_pkg/practice_sessions.py
+index ed2e050..d495754 100644
+--- a/backend/routers/practicelab_pkg/practice_sessions.py
++++ b/backend/routers/practicelab_pkg/practice_sessions.py
+@@ -971,7 +971,8 @@ def _build_coder_results(session_id: int, db) -> list:
+                pr.ed_resolution_pass, pr.ed_rationale_tier, pr.ed_trainer_note,
+                pr.drg_reviewed, pr.drg_override,
+                pr.query_flag, pr.query_reviewed, pr.query_verdict,
+-               pr.query_trainer_note, pr.query_reviewed_by, pr.query_reviewed_at
++               pr.query_trainer_note, pr.query_reviewed_by, pr.query_reviewed_at,
++               pcd.em_data
+         FROM practice_results pr
+         JOIN charts c ON c.id = pr.chart_id
+         LEFT JOIN practice_chart_drafts pcd
+@@ -1012,6 +1013,35 @@ def _build_coder_results(session_id: int, db) -> list:
+             "query_reviewed_by": r[37],
+             "query_reviewed_at": _iso(r[38]),
+         })
++
++    # The full side-by-side — what was right as well as what was wrong — built
++    # once here so both review screens and the Excel export render the same
++    # thing. E/M needs the key's MDM elements and the coder's ticks, which
++    # live outside practice_results, so they are read per chart.
++    from services.practice_review import build_review, is_em_specialty
++    em_cfg = None
++    for res, r in zip(results, rows):
++        ak = em = None
++        if is_em_specialty(res["specialty"]):
++            if em_cfg is None:
++                em_cfg = _em_scoring_cfg(db)
++            ak = _em_answer_key(db, res["chart_id"])
++            raw = r[39]
++            try:
++                em = json.loads(raw) if isinstance(raw, str) else (raw or {})
++            except ValueError:
++                em = {}
++        try:
++            res["review"] = build_review(res, ak, em, em_cfg)
++        except Exception as exc:  # noqa: BLE001
++            # The review is additive. A builder fault on some legacy row must
++            # not take down the results it sits beside, which worked before
++            # it existed; the screens fall back to the scoring notes.
++            import logging
++            logging.getLogger(__name__).warning(
++                "practice review build failed (session %s, chart %s): %s",
++                session_id, res["chart_id"], exc)
++            res["review"] = None
+     return results
+ 
+ 
+@@ -1108,6 +1138,60 @@ def trainer_review_session(session_id: int, db: Session = Depends(get_db)):
+     }
+ 
+ 
++
++# ── Review export (Excel) ─────────────────────────────────────────────────────
++
++def _review_xlsx_response(session_id: int, db):
++    from fastapi.responses import Response
++    from sqlalchemy import text
++    from services.practice_review import review_workbook
++
++    sess = db.execute(text(
++        "SELECT coder_name, specialty, submitted_at FROM practice_sessions WHERE id=:s"
++    ), {"s": session_id}).fetchone()
++    header = {"coder_name": sess[0], "specialty": sess[1], "submitted_at": _iso(sess[2])}
++    data = review_workbook(header, _build_coder_results(session_id, db))
++    safe = "".join(ch if ch.isalnum() else "_" for ch in (sess[0] or "coder")).strip("_")
++    return Response(
++        content=data,
++        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
++        headers={"Content-Disposition":
++                 'attachment; filename="PracticeReview_%s_%d.xlsx"' % (safe or "coder", session_id)},
++    )
++
++
++@router.get("/practice-sessions/{session_id}/review/export")
++def export_review_trainer(session_id: int, db: Session = Depends(get_db)):
++    """The trainer's Review screen as a workbook — same content, every line."""
++    from sqlalchemy import text
++    row = db.execute(text(
++        "SELECT status FROM practice_sessions WHERE id=:s"), {"s": session_id}).fetchone()
++    if not row:
++        raise HTTPException(status_code=404, detail="Session not found")
++    if row[0] != "submitted":
++        raise HTTPException(status_code=400, detail="Session not yet submitted")
++    return _review_xlsx_response(session_id, db)
++
++
++@router.get("/practice-sessions/by-token/{token}/review/export")
++def export_review_coder(token: str, db: Session = Depends(get_db)):
++    """
++    The coder's own results as a workbook. Gated exactly as the results screen
++    is: submitted, and released to the coder. A coder whose trainer has not
++    released results must not get them by downloading instead.
++    """
++    from sqlalchemy import text
++    row = db.execute(text(
++        "SELECT id, status, show_results_to_coder FROM practice_sessions WHERE token=:t"
++    ), {"t": token}).fetchone()
++    if not row:
++        raise HTTPException(status_code=404, detail="Practice session not found")
++    if row[1] != "submitted":
++        raise HTTPException(status_code=400, detail="Session not yet submitted")
++    if not row[2]:
++        raise HTTPException(status_code=403, detail="Results have not been released")
++    return _review_xlsx_response(row[0], db)
++
+ # ── Trainer-facing: batch grid view ──────────────────────────────────────────
+ 
+ @router.get("/practice-sessions/batch/{batch_id}/grid")
+diff --git a/backend/services/practice_review.py b/backend/services/practice_review.py
+new file mode 100644
+index 0000000..d5cd52c
+--- /dev/null
++++ b/backend/services/practice_review.py
+@@ -0,0 +1,543 @@
++"""
++The post-submit review of one practice chart: what was right as well as wrong.
++
++Grading writes `feedback`, which lists what LOST points. A reviewer reading only
++that cannot see what the coder got right, so cannot tell a careful coder who
++slipped once from one who guessed — and the E/M reasoning score (6.7 of 10)
++reads as arithmetic nobody can reproduce, because the elements behind it are
++not shown at all.
++
++This module builds the full side-by-side once, section by section, and both the
++review screens and the Excel export render it. One builder, so the screen and
++the spreadsheet cannot disagree.
++
++It DESCRIBES the grading; it never re-scores. Points come from what grading
++stored. Comparisons here mirror the grader's own rules (codes compared without
++dots or case; E/M diagnoses as a set, not a sequence) so a row never says
++"wrong" where the score said right.
++
++Shape, per chart:
++
++    {"sections": [ {"key", "title", "group", "points", "max_points", "note",
++                    "rows": [{"item", "key", "coded", "status", "note"}]} ],
++     "summary": {"correct": n, "missed": n, "extra": n, "different": n}}
++
++status is one of: correct · missed (in the key, not coded) · extra (coded, not
++in the key) · different (both present, a detail differs) · order (right code,
++different position — not scored) · info (context, not judged).
++"""
++import io
++import json
++import re
++from typing import Dict, List, Optional
++
++from services.grading_engine import norm_units
++
++# em_grading lives in routers/ and that package imports this module's callers,
++# so it is imported inside the functions that need it — the convention
++# audit_mutation and excel_service already follow.
++
++
++# ── Element labels — the wording on the coder's E/M form ─────────────────────
++#
++# A test asserts every field in the grader's three lists has a label here, so a
++# new element cannot be scored and then silently left out of the review.
++ELEMENT_LABELS: Dict[str, str] = {
++    # COPA
++    "copa_self_limited": "Self-limited / minor (Minimal)",
++    "copa_stable_chronic": "Stable, chronic illness (Low)",
++    "copa_stable_acute": "Stable, acute illness (Low)",
++    "copa_acute_uncomplicated": "Acute, uncomplicated illness/injury (Low)",
++    "copa_chronic_exacerbation": "Chronic illness with exacerbation (Moderate)",
++    "copa_undiagnosed_new": "Undiagnosed new problem (Moderate)",
++    "copa_acute_systemic": "Acute illness with systemic symptoms (Moderate)",
++    "copa_acute_complicated_injury": "Acute, complicated injury (Moderate)",
++    "copa_chronic_severe": "Chronic illness, severe exacerbation (High)",
++    "copa_threat_to_life": "Threat to life or bodily function (High)",
++    # Data Review — the first three are COUNTS, the rest yes/no
++    "dr_order_tests": "Tests ordered (count)",
++    "dr_review_test_results": "Test results reviewed (count)",
++    "dr_prior_external_notes": "Prior external notes reviewed (count)",
++    "dr_independent_historian": "Independent historian",
++    "dr_independent_interpretation": "Category 2 — Independent interpretation of test results",
++    "dr_external_discussion": "Category 3 — Discussion with treating/consulting provider",
++    # Risk
++    "risk_low": "Minor/OTC medications; lab tests; X-rays; limited ultrasound (Low)",
++    "risk_prescription_drug_mgmt": "Prescription drug management (Moderate)",
++    "risk_minor_surgery_with_factors": "Minor surgery with identified risk factors (Moderate)",
++    "risk_elective_major_no_factors": "Elective major surgery without identified risk factors (Moderate)",
++    "risk_hospitalization": "Decision regarding hospitalization (Moderate)",
++    "risk_sdoh": "Social determinants of health (Moderate)",
++    "risk_drug_intensive_monitoring": "Drug therapy requiring intensive monitoring for toxicity (High)",
++    "risk_elective_major_with_factors": "Elective major surgery with identified risk factors (High)",
++    "risk_emergency_major_surgery": "Emergency major surgery (High)",
++    "risk_hospitalization_escalation": "Hospitalization or escalation of care (High)",
++    "risk_dnr_deescalate": "Decision not to resuscitate or de-escalate care (High)",
++    "risk_parenteral_controlled": "Parenteral controlled substances (High)",
++}
++COUNT_FIELDS = {"dr_order_tests", "dr_review_test_results", "dr_prior_external_notes"}
++
++STATUS_LABELS = {
++    "correct": "Correct", "missed": "Missed", "extra": "Extra (not in key)",
++    "different": "Differs", "order": "Order only", "info": "",
++}
++
++
++def is_em_specialty(specialty) -> bool:
++    """E/M and ED Profee are graded on the E/M path (em_answer_keys)."""
++    s = str(specialty or "").upper()
++    return "E/M" in s or "PROFEE" in s.replace(" ", "").replace("_", "")
++
++
++def is_ed_rubric_specialty(specialty) -> bool:
++    """Edits and Denials — free-text responses, scored by a trainer rubric."""
++    s = str(specialty or "").upper()
++    return "EDIT" in s or "DENIAL" in s
++
++
++# ── small helpers ─────────────────────────────────────────────────────────────
++
++def _norm(code) -> str:
++    return str(code or "").strip().upper().replace(".", "")
++
++
++def _code_of(item) -> str:
++    if isinstance(item, dict):
++        return str(item.get("code") or "").strip()
++    return str(item or "").strip()
++
++
++def _codes(lst) -> List[str]:
++    if isinstance(lst, str):
++        try:
++            lst = json.loads(lst)
++        except ValueError:
++            lst = []
++    return [c for c in (_code_of(x) for x in (lst or [])) if c]
++
++
++def _row(item, key, coded, status, note="") -> dict:
++    return {"item": item, "key": key or "", "coded": coded or "",
++            "status": status, "note": note}
++
++
++def _set_rows(item_label: str, key_items: list, coded_items: list,
++              detail=None) -> List[dict]:
++    """
++    Compare two code lists as multisets: each key code pairs with the first
++    unused coded code that matches. `detail(k, c)` may return a note when a
++    paired line differs in something other than the code (POA, modifier...).
++    """
++    rows = []
++    used = [False] * len(coded_items)
++    for k in key_items:
++        kc = _norm(_code_of(k))
++        hit = None
++        for i, c in enumerate(coded_items):
++            if not used[i] and _norm(_code_of(c)) == kc:
++                hit = i
++                break
++        if hit is None:
++            rows.append(_row(item_label, _display(k), "", "missed"))
++            continue
++        used[hit] = True
++        c = coded_items[hit]
++        note = detail(k, c) if detail else ""
++        rows.append(_row(item_label, _display(k), _display(c),
++                         "different" if note else "correct", note))
++    for i, c in enumerate(coded_items):
++        if not used[i] and _code_of(c):
++            rows.append(_row(item_label, "", _display(c), "extra"))
++    return rows
++
++
++def _display(item) -> str:
++    """A code line as a person reads it: code, then modifier/units/POA."""
++    if not isinstance(item, dict):
++        return _code_of(item)
++    bits = [_code_of(item)]
++    if item.get("poa"):
++        bits.append("POA " + str(item["poa"]))
++    if item.get("modifier"):
++        bits.append("mod " + str(item["modifier"]))
++    units = item.get("units")
++    if units not in (None, "", 1, "1"):
++        bits.append("x" + str(units))
++    ptrs = item.get("pointers")
++    if ptrs:
++        bits.append("ptr " + ",".join(str(p) for p in ptrs))
++    return "  ".join(b for b in bits if b)
++
++
++def _poa_note(k, c) -> str:
++    kp = str((k or {}).get("poa") or "").strip().upper() if isinstance(k, dict) else ""
++    cp = str((c or {}).get("poa") or "").strip().upper() if isinstance(c, dict) else ""
++    if kp and kp != cp:
++        return "POA: key %s, coded %s" % (kp, cp or "(none)")
++    return ""
++
++
++def _cpt_note(k, c) -> str:
++    if not (isinstance(k, dict) and isinstance(c, dict)):
++        return ""
++    notes = []
++    km = str(k.get("modifier") or "").strip().upper()
++    cm = str(c.get("modifier") or "").strip().upper()
++    if km != cm:
++        notes.append("Modifier: key %s, coded %s" % (km or "(none)", cm or "(none)"))
++    # Units are judged only where the key states them — the grader's rule.
++    if k.get("units") not in (None, ""):
++        if norm_units(k.get("units")) != norm_units(c.get("units")):
++            notes.append("Units: key %s, coded %s" % (
++                norm_units(k.get("units")), norm_units(c.get("units"))))
++    return "; ".join(notes)
++
++
++def _section(key, title, group, rows, points=None, max_points=None, note=None):
++    return {"key": key, "title": title, "group": group, "rows": rows,
++            "points": points, "max_points": max_points, "note": note}
++
++
++_PTS = re.compile(r"(-?[\d.]+)\s*(?:/\s*([\d.]+))?\s*pts")
++
++
++def _fb_points(feedback: list, prefix: str):
++    """(earned, out_of) from a stored E/M feedback line such as 'Dx: 11.7/23.3 pts'."""
++    for f in feedback or []:
++        issue = str(f.get("issue") or "")
++        if issue.strip().upper().startswith(prefix.upper()):
++            m = _PTS.search(issue)
++            if m:
++                return float(m.group(1)), (float(m.group(2)) if m.group(2) else None)
++    return None, None
++
++
++def _fb_row(feedback: list, prefix: str) -> Optional[dict]:
++    for f in feedback or []:
++        if str(f.get("issue") or "").strip().upper().startswith(prefix.upper()):
++            return f
++    return None
++
++
++def _summarise(sections: List[dict]) -> dict:
++    out = {"correct": 0, "missed": 0, "extra": 0, "different": 0}
++    for sec in sections:
++        for r in sec["rows"]:
++            st = r["status"]
++            if st in out:
++                out[st] += 1
++    return out
++
++
++# ── IP / OP / Surgery / ED Facility ───────────────────────────────────────────
++
++def _code_sections(r: dict) -> List[dict]:
++    sections = []
++    pdx_k, pdx_c = (r.get("pdx_answer_key") or ""), (r.get("pdx_submitted") or "")
++    if pdx_k or pdx_c:
++        if pdx_k and pdx_c:
++            st = "correct" if _norm(pdx_k) == _norm(pdx_c) else "different"
++        else:
++            st = "missed" if pdx_k else "extra"
++        sections.append(_section("pdx", "Principal Diagnosis", "Coding",
++                                 [_row("PDx", pdx_k, pdx_c, st)]))
++
++    sdx_k, sdx_c = r.get("sdx_answer_key") or [], r.get("sdx_submitted") or []
++    if _codes(sdx_k) or _codes(sdx_c):
++        sections.append(_section("sdx", "Secondary Diagnoses", "Coding",
++                                 _set_rows("SDx", sdx_k, sdx_c, _poa_note)))
++
++    pcs_k, pcs_c = r.get("pcs_answer_key") or [], r.get("pcs_submitted") or []
++    if _codes(pcs_k) or _codes(pcs_c):
++        sections.append(_section("pcs", "Procedures (ICD-10-PCS)", "Coding",
++                                 _set_rows("PCS", pcs_k, pcs_c)))
++
++    cpt_k, cpt_c = r.get("cpt_answer_key") or [], r.get("cpt_submitted") or []
++    if _codes(cpt_k) or _codes(cpt_c):
++        sections.append(_section("cpt", "CPT / HCPCS", "Coding",
++                                 _set_rows("CPT", cpt_k, cpt_c, _cpt_note)))
++    return sections
++
++
++def _ed_rubric_sections(r: dict) -> List[dict]:
++    scored = bool(r.get("ed_scored"))
++    items = [
++        ("Review", r.get("ed_review"), r.get("ed_review_pass")),
++        ("Research", r.get("ed_research"),
++         None if not scored else all(bool(r.get(k)) for k in (
++             "ed_research_coding_pass", "ed_research_payer_pass", "ed_research_nuances_pass"))),
++        ("Resolution", r.get("ed_resolution"), r.get("ed_resolution_pass")),
++        ("Final Rationale", r.get("ed_rationale"), None),
++    ]
++    rows = []
++    for label, text, passed in items:
++        if not scored or passed is None:
++            st = "info"
++        else:
++            st = "correct" if passed else "missed"
++        rows.append(_row(label, "", text or "(not answered)", st))
++    note = None if scored else "Awaiting trainer rubric scoring."
++    if scored and r.get("ed_rationale_tier"):
++        note = "Rationale rated: %s" % str(r["ed_rationale_tier"]).replace("_", " ")
++    return [_section("ed", "Responses", "Coding", rows, note=note)]
++
++
++# ── E/M and ED Profee ─────────────────────────────────────────────────────────
++
++def _flag(v) -> int:
++    try:
++        return int(v or 0)
++    except (TypeError, ValueError):
++        return 1 if v else 0
++
++
++def _mdm_section(key: str, title: str, fields: List[str], ak: dict, em: dict,
++                 fb_prefix: str, level_key: str, feedback: list,
++                 max_points: Optional[float]) -> dict:
++    """
++    One MDM table, element by element — the rows that explain the points.
++
++    The grader awards (key elements matched ÷ key elements) × weight, counting
++    only elements the key ticked; an element the coder adds that the key lacks
++    costs nothing. The note says exactly that, with the numbers.
++    """
++    rows = []
++    expected = matched = 0
++    for f in fields:
++        kv, cv = _flag(ak.get(f)), _flag(em.get(f))
++        if not kv and not cv:
++            continue
++        label = ELEMENT_LABELS.get(f, f)
++        shown = (lambda v: str(v) if v else "") if f in COUNT_FIELDS else (lambda v: "Yes" if v else "")
++        if kv:
++            expected += 1
++            if cv == kv:
++                matched += 1
++                st, note = "correct", ""
++            elif cv:
++                st, note = "different", "Count must match the key exactly"
++            else:
++                st, note = "missed", ""
++        else:
++            st, note = "extra", "Not penalised"
++        rows.append(_row(label, shown(kv), shown(cv), st, note))
++
++    fb = _fb_row(feedback, fb_prefix)
++    ak_level = (fb or {}).get("ak_code") or ak.get(level_key) or ""
++    coded_level = (fb or {}).get("coder_code") or ""
++    if ak_level or coded_level:
++        lvl_st = "correct" if ak_level and _norm(ak_level) == _norm(coded_level) else "different"
++        rows.insert(0, _row("Level", ak_level, coded_level, lvl_st,
++                            "Derived from the elements below"))
++
++    earned, _ = _fb_points(feedback, fb_prefix)
++    if expected:
++        note = ("Matched %d of %d element%s the key expects. Points = %d/%d x %s"
++                % (matched, expected, "" if expected == 1 else "s", matched, expected,
++                   ("%g" % max_points) if max_points is not None else "weight"))
++    else:
++        note = "The key expects no elements here, so this table earns full credit."
++    return _section(key, title, "Reasoning", rows, earned, max_points, note)
++
++
++def _em_sections(r: dict, ak: Optional[dict], em: Optional[dict], cfg: Optional[dict]) -> List[dict]:
++    from routers.practicelab_pkg.em_grading import (
++        COPA_FIELDS, DR_FIELDS, RISK_FIELDS,
++        applicable_weights, normalise_cpts, resolve_category,
++    )
++    ak, em, feedback = ak or {}, em or {}, r.get("feedback") or []
++    sections = []
++
++    # E/M level
++    rows = []
++    k_code, c_code = ak.get("em_code") or "", em.get("em_code") or ""
++    if k_code or c_code:
++        rows.append(_row("E/M code", k_code, c_code,
++                         "correct" if k_code and _norm(k_code) == _norm(c_code) else "different"))
++    k_mod = str(ak.get("em_modifier") or "").strip().upper()
++    c_mod = str(em.get("em_modifier") or "").strip().upper()
++    if k_mod or c_mod:
++        rows.append(_row("Modifier", k_mod, c_mod, "correct" if k_mod == c_mod else "different"))
++    k_pt = str(ak.get("patient_type") or "").upper()
++    c_pt = str(em.get("patient_type") or "").upper()
++    if (k_pt and k_pt != "NA") or (c_pt and c_pt != "NA"):
++        rows.append(_row("Patient type", k_pt, c_pt, "correct" if k_pt == c_pt else "different"))
++    k_m = str(ak.get("level_method") or "MDM").upper()
++    c_m = str(em.get("level_method") or "MDM").upper()
++    rows.append(_row("Levelled by", k_m, c_m, "correct" if k_m == c_m else "different",
++                     "" if k_m == c_m else "Reasoning points are not earned on the wrong route"))
++    k_cc, c_cc = ak.get("critical_care_minutes"), em.get("critical_care_minutes")
++    if k_cc not in (None, "") or c_cc not in (None, ""):
++        rows.append(_row("Critical care minutes", str(k_cc or ""), str(c_cc or ""),
++                         "correct" if str(k_cc or "").strip() == str(c_cc or "").strip() else "different"))
++    pts, out = _fb_points(feedback, "E/M Level")
++    sections.append(_section("em_level", "E/M Level", "Coding", rows, pts, out))
++
++    # Diagnoses: graded as a SET, so order is shown but not judged.
++    dx_k, dx_c = _codes(r.get("sdx_answer_key")), _codes(r.get("sdx_submitted"))
++    dx_pts, dx_out = _fb_points(feedback, "Dx:")
++    pd_rows = []
++    if dx_k or dx_c:
++        k1, c1 = (dx_k[0] if dx_k else ""), (dx_c[0] if dx_c else "")
++        if k1 and c1 and _norm(k1) == _norm(c1):
++            st, note = "correct", ""
++        elif k1 and _norm(k1) in [_norm(c) for c in dx_c]:
++            st, note = "order", "Coded, but not listed first. E/M scores diagnoses as a set, so order costs nothing"
++        elif k1 and c1:
++            st, note = "different", ""
++        else:
++            st, note = ("missed", "") if k1 else ("extra", "")
++        pd_rows.append(_row("Primary Dx", k1, c1, st, note))
++    sections.append(_section("pdx", "Primary Diagnosis", "Coding", pd_rows, dx_pts, dx_out,
++                             "Primary and secondary share one Dx score, shown here."))
++    # Secondary: everything except whichever code each side listed first,
++    # compared as a set — but a key secondary the coder listed FIRST is still
++    # coded, so pair against the coder's full list minus what Primary consumed.
++    k_rest = dx_k[1:]
++    consumed = None
++    if dx_k and dx_c:
++        k1n = _norm(dx_k[0])
++        for i, c in enumerate(dx_c):
++            if _norm(c) == k1n:
++                consumed = i
++                break
++    if consumed is None and dx_c and pd_rows and pd_rows[0]["status"] in ("different", "extra"):
++        consumed = 0
++    c_rest = [c for i, c in enumerate(dx_c) if i != consumed]
++    if k_rest or c_rest:
++        sections.append(_section("sdx", "Secondary Diagnoses", "Coding",
++                                 _set_rows("SDx", k_rest, c_rest)))
++
++    # CPT / procedures
++    cpt_k = normalise_cpts(r.get("cpt_answer_key") or [])
++    cpt_c = normalise_cpts(r.get("cpt_submitted") or [])
++    if cpt_k or cpt_c:
++        pts, out = _fb_points(feedback, "CPT:")
++        notes = [f["issue"] for f in feedback
++                 if str(f.get("issue") or "").startswith("Dx pointers on CPT")]
++        sections.append(_section("cpt", "CPT / Procedures", "Coding",
++                                 _set_rows("CPT", cpt_k, cpt_c, _cpt_note), pts, out,
++                                 "; ".join(notes) or None))
++
++    # Reasoning
++    category = resolve_category(ak.get("em_category"), ak.get("em_code"))
++    weights = {}
++    if cfg:
++        weights = applicable_weights(cfg, category, bool(cpt_k), ak.get("level_method"))
++    if k_m == "TIME":
++        pts, _ = _fb_points(feedback, "Time supports")
++        rows = [_row("Total time (minutes)", str(ak.get("total_time") or ""),
++                     str(em.get("total_time") or ""), "info")]
++        sections.append(_section("time", "Time", "Reasoning", rows, pts,
++                                 weights.get("time"),
++                                 "Levelled by time: full credit for the time route with time in band, "
++                                 "half for the right route with time out of band."))
++    elif "copa" in weights or (not cfg and _fb_row(feedback, "COPA")):
++        if k_m != c_m:
++            note = "Levelled by %s instead of %s — reasoning points not earned." % (c_m, k_m)
++        else:
++            note = None
++        for key, title, fields, prefix, lvl in (
++            ("copa", "Problems Addressed (COPA)", COPA_FIELDS, "COPA", "copa_level"),
++            ("dr", "Data Reviewed and Analysed", DR_FIELDS, "Data Review", "dr_level"),
++            ("risk", "Risk of Patient Management", RISK_FIELDS, "Risk", "risk_level"),
++        ):
++            sec = _mdm_section(key, title, fields, ak, em, prefix, lvl, feedback, weights.get(key))
++            if note:
++                sec["note"] = note
++            sections.append(sec)
++    else:
++        sections.append(_section("mdm", "Medical Decision Making", "Reasoning", [], None, None,
++                                 "Not assessed on MDM for this kind of visit; its weight "
++                                 "is folded into the coding score."))
++    return sections
++
++
++# ── entry point ───────────────────────────────────────────────────────────────
++
++def build_review(r: dict, ak: Optional[dict] = None, em_data: Optional[dict] = None,
++                 cfg: Optional[dict] = None) -> dict:
++    """Sections for one result row from _build_coder_results."""
++    if is_em_specialty(r.get("specialty")):
++        sections = _em_sections(r, ak, em_data, cfg)
++    elif is_ed_rubric_specialty(r.get("specialty")):
++        sections = _ed_rubric_sections(r)
++    else:
++        sections = _code_sections(r)
++    return {"sections": sections, "summary": _summarise(sections)}
++
++
++# ── Excel ─────────────────────────────────────────────────────────────────────
++
++def review_workbook(header: dict, charts: List[dict]) -> bytes:
++    """
++    Two sheets. Summary: one row per chart. Review: every compared line, one
++    row each, filterable — so "show me everything this coder missed" is one
++    click on the Result column rather than a read of the whole sheet.
++    """
++    from openpyxl import Workbook
++    from openpyxl.styles import Alignment, Font, PatternFill
++    from services.excel_style import (CELL_BORDER, FAIL_FILL, FAIL_FONT,
++                                      PASS_FILL, PASS_FONT, finish)
++
++    status_style = {
++        "correct": (PASS_FILL, PASS_FONT),
++        "missed": (FAIL_FILL, FAIL_FONT),
++        "extra": (PatternFill("solid", fgColor="FFF7ED"), Font(color="9A3412", bold=True, size=10)),
++        "different": (PatternFill("solid", fgColor="FFFBEB"), Font(color="92400E", bold=True, size=10)),
++        "order": (PatternFill("solid", fgColor="EFF6FF"), Font(color="1E40AF", bold=True, size=10)),
++    }
++
++    wb = Workbook()
++    ws = wb.active
++    ws.title = "Summary"
++    ws.append(["Coder", "Specialty", "Submitted", "Chart", "Score %", "Result",
++               "Correct", "Missed", "Extra", "Differs"])
++    for c in charts:
++        s = (c.get("review") or {}).get("summary") or {}
++        ws.append([header.get("coder_name"), c.get("specialty") or header.get("specialty"),
++                   header.get("submitted_at"), c.get("chart_number"), c.get("total_score"),
++                   c.get("pass_fail"), s.get("correct", 0), s.get("missed", 0),
++                   s.get("extra", 0), s.get("different", 0)])
++        pf = ws.cell(row=ws.max_row, column=6)
++        if pf.value in ("PASS", "FAIL"):
++            pf.fill, pf.font = (PASS_FILL, PASS_FONT) if pf.value == "PASS" else (FAIL_FILL, FAIL_FONT)
++    finish(ws)
++
++    rv = wb.create_sheet("Review")
++    rv.append(["Chart", "Score %", "Section", "Points", "Item", "Answer key",
++               "Coded", "Result", "Note"])
++    for c in charts:
++        for sec in (c.get("review") or {}).get("sections") or []:
++            if sec.get("points") is None:
++                pts = ""
++            elif sec.get("max_points") is not None:
++                pts = "%.1f / %.1f" % (sec["points"], sec["max_points"])
++            else:
++                pts = "%.1f" % sec["points"]
++            rows = sec.get("rows") or []
++            if not rows:
++                rv.append([c.get("chart_number"), c.get("total_score"), sec["title"], pts,
++                           "", "", "", "", sec.get("note") or ""])
++                continue
++            for i, row in enumerate(rows):
++                note = row.get("note") or ""
++                if i == 0 and sec.get("note"):
++                    note = (sec["note"] + (" | " + note if note else ""))
++                rv.append([c.get("chart_number"), c.get("total_score"), sec["title"],
++                           pts if i == 0 else "", row["item"], row["key"], row["coded"],
++                           STATUS_LABELS.get(row["status"], row["status"]), note])
++                st = status_style.get(row["status"])
++                if st:
++                    cell = rv.cell(row=rv.max_row, column=8)
++                    cell.fill, cell.font = st
++    for row in rv.iter_rows(min_row=2):
++        for cell in row:
++            cell.border = CELL_BORDER
++            cell.alignment = Alignment(vertical="top", wrap_text=cell.column == 9)
++    finish(rv)
++    rv.column_dimensions["I"].width = 60
++
++    buf = io.BytesIO()
++    wb.save(buf)
++    return buf.getvalue()
+diff --git a/backend/tests/test_practice_review.py b/backend/tests/test_practice_review.py
+new file mode 100644
+index 0000000..89faa57
+--- /dev/null
++++ b/backend/tests/test_practice_review.py
+@@ -0,0 +1,283 @@
++"""
++The post-submit review: what was right as well as wrong, and its Excel export.
++
++Grading's `feedback` lists only what lost points. These tests pin the full
++side-by-side that both review screens and the workbook render from
++services/practice_review.build_review — and, for E/M, that the element rows
++explain the reasoning points (the "6.7 of 10" a trainer could not reproduce).
++"""
++import io
++import json
++
++from openpyxl import load_workbook
++from sqlalchemy import text
++
++from conftest import make_chart
++from models import Specialty
++from routers.practicelab_pkg.em_grading import (
++    COPA_FIELDS, DR_FIELDS, RISK_FIELDS, grade_em_chart,
++)
++from routers.practicelab_pkg.practice_sessions import (
++    _em_feedback_items, _em_submission_dict,
++)
++from services.practice_review import ELEMENT_LABELS, build_review
++from test_practice_submission_phase3a import _add_answer_key, _coder_session, _entry
++
++CFG = {"line1_weight": 70.0, "line2_weight": 30.0, "em_level_weight": 23.33,
++       "cpt_weight": 23.33, "dx_weight": 23.34, "copa_weight": 10.0,
++       "dr_weight": 10.0, "risk_weight": 10.0, "pass_threshold": 80.0,
++       "overcoding_penalty": True}
++
++AK = {"em_code": "99214", "em_category": None, "level_method": "MDM",
++      "patient_type": "ESTABLISHED",
++      "dx_codes": json.dumps(["E11.9", "I10", "J45.909"]), "procedure_cpts": "[]",
++      "copa_stable_chronic": 1, "copa_chronic_exacerbation": 1,
++      "copa_acute_uncomplicated": 1, "dr_review_test_results": 2,
++      "risk_prescription_drug_mgmt": 1,
++      "copa_level": "Moderate", "dr_level": "Limited", "risk_level": "Moderate"}
++
++EM = {"em_code": "99214", "level_method": "MDM", "patient_type": "ESTABLISHED",
++      "em_dx": [{"code": "I10"}, {"code": "E11.9"}], "em_cpt": [],
++      "copa_stable_chronic": True, "copa_chronic_exacerbation": True,
++      "copa_undiagnosed_new": True, "dr_review_test_results": 3,
++      "risk_prescription_drug_mgmt": True}
++
++
++def _em_review():
++    scoring = grade_em_chart(AK, _em_submission_dict(EM), CFG)
++    r = {"specialty": "E/M",
++         "feedback": _em_feedback_items(scoring, AK, EM, CFG),
++         "sdx_submitted": EM["em_dx"],
++         "sdx_answer_key": [{"code": c} for c in json.loads(AK["dx_codes"])],
++         "cpt_submitted": [], "cpt_answer_key": []}
++    return scoring, build_review(r, AK, EM, CFG)
++
++
++def _sec(review, key):
++    return next(s for s in review["sections"] if s["key"] == key)
++
++
++def _row(section, item):
++    return next(r for r in section["rows"] if r["item"] == item)
++
++
++# ── every scored element can be shown ─────────────────────────────────────────
++
++def test_every_scored_mdm_element_has_a_review_label():
++    """
++    Per FIELD, not per file: an element the grader scores but the review cannot
++    name would leave its points unexplained — the exact complaint this fixes.
++    """
++    for field in COPA_FIELDS + DR_FIELDS + RISK_FIELDS:
++        assert field in ELEMENT_LABELS, field
++
++
++# ── E/M: the reasoning points explain themselves ──────────────────────────────
++
++def test_copa_two_of_three_elements_reads_as_six_point_seven():
++    scoring, review = _em_review()
++    assert scoring["copa_element_score"] == 6.67
++    copa = _sec(review, "copa")
++    assert copa["points"] == 6.7
++    assert copa["max_points"] == 10.0
++    assert "Matched 2 of 3" in copa["note"]
++
++
++def test_an_element_the_key_lacks_is_shown_as_extra_and_unpenalised():
++    _, review = _em_review()
++    row = _row(_sec(review, "copa"), "Undiagnosed new problem (Moderate)")
++    assert row["status"] == "extra"
++    assert "Not penalised" in row["note"]
++
++
++def test_a_missed_element_is_shown_as_missed():
++    _, review = _em_review()
++    row = _row(_sec(review, "copa"), "Acute, uncomplicated illness/injury (Low)")
++    assert (row["key"], row["coded"], row["status"]) == ("Yes", "", "missed")
++
++
++def test_a_count_off_by_one_is_why_data_review_scored_zero():
++    scoring, review = _em_review()
++    assert scoring["dr_element_score"] == 0.0
++    row = _row(_sec(review, "dr"), "Test results reviewed (count)")
++    assert (row["key"], row["coded"], row["status"]) == ("2", "3", "different")
++
++
++def test_each_mdm_table_reports_key_level_against_derived_level():
++    _, review = _em_review()
++    lvl = _row(_sec(review, "copa"), "Level")
++    assert (lvl["key"], lvl["coded"], lvl["status"]) == ("Moderate", "Moderate", "correct")
++
++
++def test_em_is_classified_into_the_sections_a_trainer_reads():
++    _, review = _em_review()
++    keys = [s["key"] for s in review["sections"]]
++    assert keys == ["em_level", "pdx", "sdx", "copa", "dr", "risk"]
++    groups = {s["key"]: s["group"] for s in review["sections"]}
++    assert groups["em_level"] == "Coding" and groups["copa"] == "Reasoning"
++
++
++def test_dx_order_is_noted_but_never_marked_wrong():
++    """E/M scores diagnoses as a set. The primary row must not contradict that."""
++    _, review = _em_review()
++    pdx = _row(_sec(review, "pdx"), "Primary Dx")
++    assert pdx["status"] == "order"
++    sdx = _sec(review, "sdx")
++    assert [(r["key"], r["status"]) for r in sdx["rows"]] == [
++        ("I10", "correct"), ("J45.909", "missed")]
++
++
++def test_time_levelled_chart_shows_a_time_section_not_mdm():
++    ak = dict(AK, level_method="TIME", total_time=35)
++    em = dict(EM, level_method="TIME", total_time="35")
++    scoring = grade_em_chart(ak, _em_submission_dict(em), CFG)
++    r = {"specialty": "E/M", "feedback": _em_feedback_items(scoring, ak, em, CFG),
++         "sdx_submitted": [], "sdx_answer_key": [], "cpt_submitted": [], "cpt_answer_key": []}
++    keys = [s["key"] for s in build_review(r, ak, em, CFG)["sections"]]
++    assert "time" in keys and "copa" not in keys
++
++
++def test_ed_profee_takes_the_em_path():
++    r = {"specialty": "ED Profee", "feedback": [], "sdx_submitted": [],
++         "sdx_answer_key": [], "cpt_submitted": [], "cpt_answer_key": []}
++    keys = [s["key"] for s in build_review(r, AK, EM, CFG)["sections"]]
++    assert keys[0] == "em_level"
++
++
++# ── IP / OP: right as well as wrong ───────────────────────────────────────────
++
++def test_ip_review_lists_correct_missed_extra_and_poa_differences():
++    r = {"specialty": "IP-DRG", "pdx_submitted": "J18.9", "pdx_answer_key": "J18.9",
++         "sdx_answer_key": [{"code": "I10", "poa": "Y"}, {"code": "E11.9", "poa": "Y"}],
++         "sdx_submitted": [{"code": "I10", "poa": "N"}, {"code": "N17.9", "poa": "Y"}],
++         "pcs_answer_key": [{"code": "0DTJ4ZZ"}], "pcs_submitted": [{"code": "0DTJ4ZZ"}],
++         "cpt_answer_key": [], "cpt_submitted": [], "feedback": []}
++    review = build_review(r)
++    assert _sec(review, "pdx")["rows"][0]["status"] == "correct"
++    statuses = {(x["key"] or x["coded"]): x["status"] for x in _sec(review, "sdx")["rows"]}
++    assert statuses == {"I10  POA Y": "different", "E11.9  POA Y": "missed",
++                        "N17.9  POA Y": "extra"}
++    assert _sec(review, "pcs")["rows"][0]["status"] == "correct"
++    assert review["summary"] == {"correct": 2, "missed": 1, "extra": 1, "different": 1}
++
++
++def test_cpt_modifier_difference_is_reported_as_differs():
++    r = {"specialty": "SDS", "pdx_submitted": "", "pdx_answer_key": "",
++         "sdx_answer_key": [], "sdx_submitted": [], "pcs_answer_key": [], "pcs_submitted": [],
++         "cpt_answer_key": [{"code": "11042", "modifier": "59"}],
++         "cpt_submitted": [{"code": "11042", "modifier": ""}], "feedback": []}
++    row = _sec(build_review(r), "cpt")["rows"][0]
++    assert row["status"] == "different" and "Modifier" in row["note"]
++
++
++# ── through the real routes ───────────────────────────────────────────────────
++
++def test_review_endpoint_carries_the_review_for_a_standard_chart(client, db):
++    chart = make_chart(db, specialty=Specialty.IP_DRG.value, chart_number="RVW-IP-1")
++    _add_answer_key(db, chart, Specialty.IP_DRG)
++    session = _coder_session(client, Specialty.IP_DRG, chart.id)
++    entry = _entry(chart.id, Specialty.IP_DRG)
++    client.post(f"/practicelab/practice-sessions/{session['session_id']}/submit",
++                json={"entries": [entry]})
++    body = client.get(f"/practicelab/practice-sessions/{session['session_id']}/review").json()
++    review = body["charts"][0]["review"]
++    assert review["summary"]["missed"] == 0
++    assert review["summary"]["correct"] >= 3          # PDx, SDx, PCS all right
++
++
++def _em_chart_with_key(db, number):
++    chart = make_chart(db, specialty=Specialty.EM.value, chart_number=number)
++    db.execute(text("""
++        INSERT INTO em_answer_keys
++          (chart_id, em_code, em_modifier, dx_codes, procedure_cpts, level_method,
++           patient_type, copa_level, dr_level, risk_level,
++           copa_stable_chronic, copa_chronic_exacerbation, copa_acute_uncomplicated,
++           risk_prescription_drug_mgmt, entered_by)
++        VALUES (:c, '99214', '', :dx, '[]', 'MDM', 'ESTABLISHED',
++                'Moderate', 'Minimal', 'Moderate', 1, 1, 1, 1, 't')"""),
++        {"c": chart.id, "dx": json.dumps(["E11.9", "I10"])})
++    db.commit()
++    return chart
++
++
++def test_em_review_through_the_routes_explains_the_copa_points(client, db):
++    chart = _em_chart_with_key(db, "RVW-EM-1")
++    session = _coder_session(client, Specialty.EM, chart.id)
++    em = dict(EM, em_dx=[{"code": "E11.9"}, {"code": "I10"}], dr_review_test_results=0)
++    entry = {"chart_id": chart.id, "em_data": em, "flagged": False, "coder_notes": ""}
++    sub = client.post(f"/practicelab/practice-sessions/{session['session_id']}/submit",
++                      json={"entries": [entry]})
++    assert sub.status_code == 200, sub.text
++    charts = client.get(f"/practicelab/practice-sessions/{session['session_id']}/review").json()["charts"]
++    copa = _sec(charts[0]["review"], "copa")
++    assert copa["points"] == 6.7 and "Matched 2 of 3" in copa["note"]
++    # The coder's own result screen gets the same review, not a lesser one.
++    assert sub.json()["results"][0]["review"] == charts[0]["review"]
++
++
++# ── the export ────────────────────────────────────────────────────────────────
++
++def test_trainer_export_is_a_two_sheet_workbook_with_every_line(client, db):
++    chart = _em_chart_with_key(db, "RVW-EM-2")
++    session = _coder_session(client, Specialty.EM, chart.id)
++    entry = {"chart_id": chart.id, "em_data": EM, "flagged": False, "coder_notes": ""}
++    client.post(f"/practicelab/practice-sessions/{session['session_id']}/submit",
++                json={"entries": [entry]})
++    res = client.get(f"/practicelab/practice-sessions/{session['session_id']}/review/export")
++    assert res.status_code == 200, res.text
++    assert "spreadsheetml" in res.headers["content-type"]
++    wb = load_workbook(io.BytesIO(res.content))
++    assert wb.sheetnames == ["Summary", "Review"]
++    review = [[c.value for c in row] for row in wb["Review"].iter_rows(min_row=2)]
++    sections = {r[2] for r in review}
++    assert {"E/M Level", "Primary Diagnosis", "Problems Addressed (COPA)",
++            "Data Reviewed and Analysed", "Risk of Patient Management"} <= sections
++    assert any(r[7] == "Correct" for r in review) and any(r[7] == "Missed" for r in review)
++
++
++def test_coder_export_needs_results_released(client, db):
++    chart = make_chart(db, specialty=Specialty.SDS.value, chart_number="RVW-SDS-1")
++    _add_answer_key(db, chart, Specialty.SDS)
++    session = _coder_session(client, Specialty.SDS, chart.id, show_results=False)
++    url = f"/practicelab/practice-sessions/by-token/{session['token']}/review/export"
++    assert client.get(url).status_code == 400            # not submitted yet
++    client.post(f"/practicelab/practice-sessions/{session['session_id']}/submit",
++                json={"entries": [_entry(chart.id, Specialty.SDS)]})
++    assert client.get(url).status_code == 403            # submitted, not released
++
++
++def test_coder_export_works_once_released(client, db):
++    chart = make_chart(db, specialty=Specialty.SDS.value, chart_number="RVW-SDS-2")
++    _add_answer_key(db, chart, Specialty.SDS)
++    session = _coder_session(client, Specialty.SDS, chart.id, show_results=True)
++    client.post(f"/practicelab/practice-sessions/{session['session_id']}/submit",
++                json={"entries": [_entry(chart.id, Specialty.SDS)]})
++    res = client.get(f"/practicelab/practice-sessions/by-token/{session['token']}/review/export")
++    assert res.status_code == 200
++    assert load_workbook(io.BytesIO(res.content)).sheetnames == ["Summary", "Review"]
++
++
++def test_trainer_export_refuses_an_unsubmitted_session(client, db):
++    chart = make_chart(db, specialty=Specialty.SDS.value, chart_number="RVW-SDS-3")
++    _add_answer_key(db, chart, Specialty.SDS)
++    session = _coder_session(client, Specialty.SDS, chart.id)
++    res = client.get(f"/practicelab/practice-sessions/{session['session_id']}/review/export")
++    assert res.status_code == 400
++
++
++def test_a_builder_fault_never_takes_down_the_results(client, db, monkeypatch):
++    """The review is additive; the results beside it worked before it existed."""
++    import services.practice_review as pr
++
++    def boom(*a, **k):
++        raise RuntimeError("legacy row")
++    monkeypatch.setattr(pr, "build_review", boom)
++    chart = make_chart(db, specialty=Specialty.SDS.value, chart_number="RVW-SDS-4")
++    _add_answer_key(db, chart, Specialty.SDS)
++    session = _coder_session(client, Specialty.SDS, chart.id)
++    client.post(f"/practicelab/practice-sessions/{session['session_id']}/submit",
++                json={"entries": [_entry(chart.id, Specialty.SDS)]})
++    res = client.get(f"/practicelab/practice-sessions/{session['session_id']}/review")
++    assert res.status_code == 200
++    c = res.json()["charts"][0]
++    assert c["review"] is None and c["total_score"] == 100
+diff --git a/frontend/src/api/download.ts b/frontend/src/api/download.ts
+index 208b0f3..6d3981a 100644
+--- a/frontend/src/api/download.ts
++++ b/frontend/src/api/download.ts
+@@ -30,7 +30,12 @@ export async function downloadFile(
+   } catch (e: any) {
+     throw new Error(await detailOf(e))
+   }
+-  const url = URL.createObjectURL(res.data as Blob)
++  saveBlob(res.data as Blob, filename)
++}
++
++/** Hand a fetched blob to the browser as a download. */
++export function saveBlob(blob: Blob, filename: string) {
++  const url = URL.createObjectURL(blob)
+   const a = document.createElement('a')
+   a.href = url
+   a.download = filename
+@@ -45,7 +50,7 @@ export async function downloadFile(
+  * `e.response.data.detail` is a Blob rather than a string and reads as
+  * "[object Blob]" if used directly.
+  */
+-async function detailOf(e: any): Promise<string> {
++export async function detailOf(e: any): Promise<string> {
+   const data = e?.response?.data
+   if (data instanceof Blob) {
+     try {
+diff --git a/frontend/src/api/practicelabApi.ts b/frontend/src/api/practicelabApi.ts
+index f233678..c8bfd22 100644
+--- a/frontend/src/api/practicelabApi.ts
++++ b/frontend/src/api/practicelabApi.ts
+@@ -1,6 +1,6 @@
+ /// <reference types="vite/client" />
+ import api from './client'
+-import { downloadFile } from './download'
++import { detailOf, downloadFile, saveBlob } from './download'
+ import { adminAuth } from './adminAuth'
+ 
+ export function downloadAnswerKeyTemplate(specialty: string) {
+@@ -343,6 +343,32 @@ export async function downloadBatchReportPdf(batchId: number) {
+   setTimeout(() => URL.revokeObjectURL(url), 60_000)
+ }
+ 
++/**
++ * The post-submit review as a formatted workbook. Literal paths on purpose:
++ * check_api_contracts.py reads api.get('...') calls statically, and a path
++ * held in a variable is invisible to it.
++ */
++export async function downloadPracticeReview(sessionId: number, filename: string) {
++  try {
++    const res = await api.get(`/practicelab/practice-sessions/${sessionId}/review/export`,
++                              { responseType: 'blob' })
++    saveBlob(res.data as Blob, filename)
++  } catch (e) {
++    throw new Error(await detailOf(e))
++  }
++}
++
++/** The coder's own copy, by access code. Refused until results are released. */
++export async function downloadPracticeReviewByToken(token: string, filename: string) {
++  try {
++    const res = await api.get(`/practicelab/practice-sessions/by-token/${token}/review/export`,
++                              { responseType: 'blob' })
++    saveBlob(res.data as Blob, filename)
++  } catch (e) {
++    throw new Error(await detailOf(e))
++  }
++}
++
+ export async function getPLAnalyticsByCategory(f: PLFilters = {}, scope: 'formal' | 'direct' | 'all' = 'formal') {
+   const { data } = await api.get('/practicelab/analytics/by-category', { params: { ...fp(f), scope } })
+   return data as { team: any[]; coder_category: any[] }
+diff --git a/frontend/src/components/SubmissionReview.tsx b/frontend/src/components/SubmissionReview.tsx
+new file mode 100644
+index 0000000..43a387e
+--- /dev/null
++++ b/frontend/src/components/SubmissionReview.tsx
+@@ -0,0 +1,167 @@
++import { Download } from 'lucide-react'
++import { useState } from 'react'
++import toast from 'react-hot-toast'
++import { downloadPracticeReview, downloadPracticeReviewByToken } from '../api/practicelabApi'
++
++/**
++ * The post-submit review of one chart: every line the key and the coder
++ * produced, side by side — what was right as well as what was wrong.
++ *
++ * Built server-side (services/practice_review.py) so this screen, the coder's
++ * results screen and the Excel export all show the same thing. This component
++ * only draws it. Sections arrive already classified: Coding (E/M level, primary
++ * and secondary diagnoses, CPT) and, for E/M, Reasoning — COPA, Data Review and
++ * Risk element by element, or Time.
++ */
++
++export type ReviewStatus = 'correct' | 'missed' | 'extra' | 'different' | 'order' | 'info'
++
++export interface ReviewRow { item: string; key: string; coded: string; status: ReviewStatus; note: string }
++export interface ReviewSection {
++  key: string; title: string; group: 'Coding' | 'Reasoning'
++  points: number | null; max_points: number | null; note: string | null
++  rows: ReviewRow[]
++}
++export interface ChartReview {
++  sections: ReviewSection[]
++  summary: { correct: number; missed: number; extra: number; different: number }
++}
++
++const STATUS: Record<ReviewStatus, { label: string; color: string; bg: string }> = {
++  correct:   { label: '✓ Correct',  color: '#047857', bg: '#ecfdf5' },
++  missed:    { label: '✗ Missed',   color: '#b91c1c', bg: '#fef2f2' },
++  extra:     { label: '+ Extra',    color: '#9a3412', bg: '#fff7ed' },
++  different: { label: '≠ Differs',  color: '#92400e', bg: '#fffbeb' },
++  order:     { label: '↕ Order only', color: '#1e40af', bg: '#eff6ff' },
++  info:      { label: '',           color: '#6b7280', bg: 'transparent' },
++}
++
++const GROUP_ACCENT = { Coding: '#5b21b6', Reasoning: '#065f46' }
++
++const s = {
++  wrap: { display: 'flex', flexDirection: 'column' as const, gap: 10, marginTop: 8 },
++  summary: { display: 'flex', gap: 6, flexWrap: 'wrap' as const, alignItems: 'center' },
++  chip: { fontSize: 11, fontWeight: 700, borderRadius: 6, padding: '2px 8px' },
++  groupHead: { fontSize: 11, fontWeight: 800, textTransform: 'uppercase' as const, letterSpacing: 0.6, marginTop: 4 },
++  section: { border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' },
++  secHead: { display: 'flex', alignItems: 'baseline', gap: 10, padding: '7px 12px', background: '#f9fafb', borderBottom: '1px solid #e5e7eb' },
++  secTitle: { fontSize: 13, fontWeight: 700, color: '#111827', flex: 1 },
++  secPts: { fontSize: 12, fontWeight: 700, color: '#374151' },
++  secNote: { fontSize: 11, color: '#6b7280', padding: '6px 12px', background: '#fcfcfd', borderBottom: '1px solid #f3f4f6' },
++  table: { width: '100%', borderCollapse: 'collapse' as const, fontSize: 12 },
++  th: { textAlign: 'left' as const, fontSize: 10, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' as const, letterSpacing: 0.4, padding: '6px 12px', borderBottom: '1px solid #f3f4f6' },
++  td: { padding: '6px 12px', borderBottom: '1px solid #f3f4f6', verticalAlign: 'top' as const },
++  code: { fontFamily: 'ui-monospace, monospace', color: '#111827' },
++  note: { fontSize: 11, color: '#6b7280', marginTop: 2 },
++  empty: { fontSize: 12, color: '#9ca3af', padding: '6px 12px' },
++}
++
++function fmtPts(sec: ReviewSection) {
++  if (sec.points === null || sec.points === undefined) return null
++  return sec.max_points !== null && sec.max_points !== undefined
++    ? `${sec.points.toFixed(1)} of ${sec.max_points.toFixed(1)} pts`
++    : `${sec.points.toFixed(1)} pts`
++}
++
++export function SubmissionReview({ review }: { review?: ChartReview | null }) {
++  if (!review || !review.sections?.length) return null
++  const groups: Array<'Coding' | 'Reasoning'> = ['Coding', 'Reasoning']
++  const { summary } = review
++  return (
++    <div style={s.wrap}>
++      <div style={s.summary}>
++        <span style={{ ...s.chip, color: STATUS.correct.color, background: STATUS.correct.bg }}>{summary.correct} correct</span>
++        <span style={{ ...s.chip, color: STATUS.missed.color, background: STATUS.missed.bg }}>{summary.missed} missed</span>
++        <span style={{ ...s.chip, color: STATUS.extra.color, background: STATUS.extra.bg }}>{summary.extra} extra</span>
++        <span style={{ ...s.chip, color: STATUS.different.color, background: STATUS.different.bg }}>{summary.different} differ</span>
++      </div>
++      {groups.map(g => {
++        const secs = review.sections.filter(x => x.group === g)
++        if (!secs.length) return null
++        return (
++          <div key={g} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
++            {review.sections.some(x => x.group === 'Reasoning') && (
++              <div style={{ ...s.groupHead, color: GROUP_ACCENT[g] }}>{g === 'Coding' ? 'Coding' : 'Reasoning (MDM / Time)'}</div>
++            )}
++            {secs.map(sec => <Section key={sec.key} sec={sec} accent={GROUP_ACCENT[g]} />)}
++          </div>
++        )
++      })}
++    </div>
++  )
++}
++
++function Section({ sec, accent }: { sec: ReviewSection; accent: string }) {
++  const pts = fmtPts(sec)
++  return (
++    <div style={{ ...s.section, borderLeft: `3px solid ${accent}` }}>
++      <div style={s.secHead}>
++        <span style={s.secTitle}>{sec.title}</span>
++        {pts && <span style={s.secPts}>{pts}</span>}
++      </div>
++      {sec.note && <div style={s.secNote}>{sec.note}</div>}
++      {sec.rows.length === 0 ? (
++        !sec.note && <div style={s.empty}>Nothing coded or expected.</div>
++      ) : (
++        <table style={s.table}>
++          <thead>
++            <tr>
++              <th style={{ ...s.th, width: '34%' }}>Item</th>
++              <th style={{ ...s.th, width: '20%' }}>Answer key</th>
++              <th style={{ ...s.th, width: '20%' }}>Coded</th>
++              <th style={s.th}>Result</th>
++            </tr>
++          </thead>
++          <tbody>
++            {sec.rows.map((r, i) => {
++              const st = STATUS[r.status] || STATUS.info
++              return (
++                <tr key={i}>
++                  <td style={s.td}>{r.item}</td>
++                  <td style={{ ...s.td, ...s.code }}>{r.key || '—'}</td>
++                  <td style={{ ...s.td, ...s.code }}>{r.coded || '—'}</td>
++                  <td style={s.td}>
++                    {st.label && <span style={{ ...s.chip, color: st.color, background: st.bg }}>{st.label}</span>}
++                    {r.note && <div style={s.note}>{r.note}</div>}
++                  </td>
++                </tr>
++              )
++            })}
++          </tbody>
++        </table>
++      )}
++    </div>
++  )
++}
++
++/**
++ * Download the review as a formatted workbook. Two URLs: the trainer's by
++ * session, the coder's by their own access code (refused until results are
++ * released, as the results screen is).
++ */
++export function ReviewExportButton({ sessionId, token, coderName }: {
++  sessionId?: number; token?: string; coderName?: string
++}) {
++  const [busy, setBusy] = useState(false)
++  const safe = (coderName || 'coder').replace(/[^A-Za-z0-9]+/g, '_')
++  async function go() {
++    setBusy(true)
++    try {
++      const name = `PracticeReview_${safe}.xlsx`
++      if (token) await downloadPracticeReviewByToken(token, name)
++      else if (sessionId) await downloadPracticeReview(sessionId, name)
++    } catch (e: any) {
++      toast.error(e?.message || 'Export failed')
++    }
++    setBusy(false)
++  }
++  return (
++    <button
++      onClick={go}
++      disabled={busy}
++      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: '#fff', color: '#047857', border: '1.5px solid #10b981', borderRadius: 8, cursor: busy ? 'wait' : 'pointer', fontWeight: 700, fontSize: 13, opacity: busy ? 0.7 : 1 }}
++    >
++      <Download size={14} /> {busy ? 'Preparing…' : 'Export to Excel'}
++    </button>
++  )
++}
+diff --git a/frontend/src/pages/PracticeSession.tsx b/frontend/src/pages/PracticeSession.tsx
+index e38941f..2bcdb56 100644
+--- a/frontend/src/pages/PracticeSession.tsx
++++ b/frontend/src/pages/PracticeSession.tsx
+@@ -1,6 +1,7 @@
+ import { useState, useEffect, useCallback, useRef } from 'react'
+ import { deviceId } from '../hooks/useDeviceId'
+ import { GradingFeedback } from '../components/GradingFeedback'
++import { SubmissionReview, ReviewExportButton, type ChartReview } from '../components/SubmissionReview'
+ import { checkCpt, checkDx, checkModifier, checkPcs } from '../codeFormat'
+ import { useCodeDescriptions } from '../hooks/useCodeDescriptions'
+ import { CodeSuggest } from '../components/CodeSuggest'
+@@ -513,7 +514,7 @@ export function PracticeSession() {
+   // ── Submitted view ──────────────────────────────────────────────────────────
+   if (view === 'submitted') {
+     if (submitResult?.show_results && submitResult.results) {
+-      return <ResultsView results={submitResult.results as ReturnType<typeof _shapeResult>[]} coderName={session.coder_name} />
++      return <ResultsView results={submitResult.results as ReturnType<typeof _shapeResult>[]} coderName={session.coder_name} token={token} />
+     }
+     return (
+       <div style={s.center}>
+@@ -1769,6 +1770,7 @@ interface ResultRow {
+   feedback: Array<{ section: string; issue: string; ak_code: string; coder_code: string; detail?: string }>
+   sdx_answer_key?: Array<{ code: string; poa?: string; ccmcc?: string }>
+   flagged: boolean
++  review?: ChartReview
+ }
+ 
+ function _shapeResult(r: unknown): ResultRow { return r as ResultRow }
+@@ -1811,7 +1813,6 @@ function parseEMFeedback(feedback: ResultRow['feedback']) {
+ 
+ function EMResultCard({ r }: { r: ResultRow }) {
+   const em = parseEMFeedback(r.feedback || [])
+-  const levelMatch = em.em_level?.ak && em.em_level?.sub && em.em_level.ak === em.em_level.sub
+   return (
+     <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: '14px 18px' }}>
+       {/* Header row */}
+@@ -1820,10 +1821,10 @@ function EMResultCard({ r }: { r: ResultRow }) {
+         {r.total_score !== null && (
+           <span style={{ fontSize: 16, fontWeight: 800, color: (r.total_score ?? 0) >= 80 ? '#059669' : '#dc2626' }}>{r.total_score?.toFixed(1)}%</span>
+         )}
+-        {/* The two panels below add up to the score above, out of 100. Without
+-            this a reader compares the headline against a panel subtotal — 58
+-            points of coding against an 88% chart — and concludes one of them
+-            is wrong. */}
++        {/* The Coding and Reasoning sections below add up to the score above,
++            out of 100. Without this a reader compares the headline against a
++            subtotal — 58 points of coding against an 88% chart — and concludes
++            one of them is wrong. */}
+         <span style={{ fontSize: 11, color: '#6b7280' }}>
+           {em.ca_total.toFixed(1)} coding + {em.ra_total.toFixed(1)} reasoning
+           {' '}= {(em.ca_total + em.ra_total).toFixed(1)} of 100
+@@ -1831,50 +1832,15 @@ function EMResultCard({ r }: { r: ResultRow }) {
+         <span style={{ fontSize: 12, fontWeight: 700, padding: '2px 10px', borderRadius: 6, background: r.pass_fail === 'PASS' ? '#d1fae5' : '#fee2e2', color: r.pass_fail === 'PASS' ? '#059669' : '#dc2626' }}>{r.pass_fail || '—'}</span>
+         {r.flagged && <Flag size={13} color="#f59e0b" />}
+       </div>
+-      {/* Two-panel accuracy breakdown */}
+-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+-        {/* Coding Accuracy */}
+-        <div style={{ background: '#f5f3ff', border: '1px solid #ddd6fe', borderRadius: 8, padding: '10px 12px' }}>
+-          <div style={{ fontSize: 11, fontWeight: 700, color: '#5b21b6', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+-            Coding Accuracy — {em.ca_total.toFixed(1)} of {em.ca_max ?? 70} pts
+-          </div>
+-          <EMScoreLine label="E/M Level" pts={em.em_level?.pts} ak={em.em_level?.ak} sub={em.em_level?.sub} isMatch={levelMatch === null ? null : !!levelMatch} />
+-          <EMScoreLine label="CPT" pts={em.cpt?.pts} />
+-          <EMScoreLine label="Dx Coding" pts={em.dx?.pts} />
+-        </div>
+-        {/* Reasoning Accuracy */}
+-        <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '10px 12px' }}>
+-          <div style={{ fontSize: 11, fontWeight: 700, color: '#065f46', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+-            Reasoning Accuracy — {em.ra_total.toFixed(1)} of {em.ra_max ?? 30} pts
+-          </div>
+-          <EMScoreLine label="COPA" pts={em.copa?.pts} ak={em.copa?.ak} sub={em.copa?.sub} isMatch={em.copa?.ak === em.copa?.sub && !!em.copa?.ak} />
+-          <EMScoreLine label="Data Review" pts={em.dr?.pts} ak={em.dr?.ak} sub={em.dr?.sub} isMatch={em.dr?.ak === em.dr?.sub && !!em.dr?.ak} />
+-          <EMScoreLine label="Risk" pts={em.risk?.pts} ak={em.risk?.ak} sub={em.risk?.sub} isMatch={em.risk?.ak === em.risk?.sub && !!em.risk?.ak} />
+-        </div>
+-      </div>
+-    </div>
+-  )
+-}
+-
+-function EMScoreLine({ label, pts, ak, sub, isMatch }: { label: string; pts: number | null | undefined; ak?: string; sub?: string; isMatch?: boolean | null }) {
+-  return (
+-    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
+-      {isMatch !== undefined && isMatch !== null && (
+-        <span style={{ fontSize: 12, flexShrink: 0 }}>{isMatch ? '✓' : '✗'}</span>
+-      )}
+-      <span style={{ fontSize: 12, color: '#374151', flex: 1 }}>{label}</span>
+-      {pts !== null && pts !== undefined && (
+-        <span style={{ fontSize: 12, fontWeight: 700, color: pts > 0 ? '#059669' : '#9ca3af' }}>{pts.toFixed(1)} pts</span>
+-      )}
+-      {ak && sub && ak !== sub && (
+-        <span style={{ fontSize: 10, color: '#dc2626', marginLeft: 2 }}>({sub} ≠ {ak})</span>
+-      )}
++      {/* Classified like IP/OP: E/M level, diagnoses, CPT — then the
++          reasoning, COPA / Data Review / Risk element by element, so a
++          partial score (6.7 of 10) shows which element it lost. */}
++      <SubmissionReview review={r.review} />
+     </div>
+   )
+ }
+ 
+-
+-function ResultsView({ results, coderName }: { results: ReturnType<typeof _shapeResult>[]; coderName: string }) {
++function ResultsView({ results, coderName, token }: { results: ReturnType<typeof _shapeResult>[]; coderName: string; token?: string }) {
+   const avg = results.filter(r => r.total_score !== null).reduce((a, r) => a + (r.total_score ?? 0), 0) / (results.filter(r => r.total_score !== null).length || 1)
+   const isEMSession = results.some(r => r.specialty && isEM(r.specialty))
+ 
+@@ -1911,6 +1877,7 @@ function ResultsView({ results, coderName }: { results: ReturnType<typeof _shape
+           <div style={{ fontSize: 20, fontWeight: 800 }}>Practice Complete — {coderName}</div>
+           <div style={{ fontSize: 13, color: '#6b7280' }}>Average score: {avg.toFixed(1)}%</div>
+         </div>
++        {token && <div style={{ marginLeft: 'auto' }}><ReviewExportButton token={token} coderName={coderName} /></div>}
+       </div>
+       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+         {results.map((r, i) => {
+@@ -1925,13 +1892,17 @@ function ResultsView({ results, coderName }: { results: ReturnType<typeof _shape
+                 <span style={{ fontSize: 12, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: r.pass_fail === 'PASS' ? '#d1fae5' : '#fee2e2', color: r.pass_fail === 'PASS' ? '#059669' : '#dc2626' }}>{r.pass_fail || '—'}</span>
+                 {r.flagged && <Flag size={13} color="#f59e0b" />}
+               </div>
++              <SubmissionReview review={r.review} />
+               {r.feedback?.length > 0 && (
+-                <GradingFeedback
+-                  feedback={r.feedback as any}
+-                  sdxKey={r.sdx_answer_key || []}
+-                  pdxKey={r.pdx_answer_key ? [{ code: r.pdx_answer_key }] : []}
+-                  describe={(code: string, section: string) => describeFor(section)(code)}
+-                />
++                <details open={!r.review} style={{ marginTop: 8 }}>
++                  <summary style={{ fontSize: 12, fontWeight: 600, color: '#6b7280', cursor: 'pointer' }}>Scoring notes, with code descriptions</summary>
++                  <GradingFeedback
++                    feedback={r.feedback as any}
++                    sdxKey={r.sdx_answer_key || []}
++                    pdxKey={r.pdx_answer_key ? [{ code: r.pdx_answer_key }] : []}
++                    describe={(code: string, section: string) => describeFor(section)(code)}
++                  />
++                </details>
+               )}
+             </div>
+           )
+diff --git a/frontend/src/pages/practicelab/BatchDetailView.tsx b/frontend/src/pages/practicelab/BatchDetailView.tsx
+index 90a4936..1d62566 100644
+--- a/frontend/src/pages/practicelab/BatchDetailView.tsx
++++ b/frontend/src/pages/practicelab/BatchDetailView.tsx
+@@ -1,5 +1,6 @@
+ import { useState, useEffect, useCallback } from 'react'
+ import { GradingFeedback } from '../../components/GradingFeedback'
++import { SubmissionReview, ReviewExportButton } from '../../components/SubmissionReview'
+ import { Loader, Download, BarChart2, Search, CheckSquare, Square, CheckCircle, Circle, AlertCircle, ChevronDown, ChevronRight, Key, Copy, Eye } from 'lucide-react'
+ import toast from 'react-hot-toast'
+ import RandomisationStatsCard from '../../components/RandomisationStatsCard'
+@@ -1141,6 +1142,12 @@ const QUERY_VERDICT_LABELS: Record<string, string> = {
+   not_warranted: 'Query was not warranted',
+ }
+ 
++// E/M and ED Profee grade on the E/M path, so their review has no PDx line.
++function isEMReview(sp: string) {
++  const s = (sp || '').toUpperCase().replace(/[\s_]/g, '')
++  return s.includes('E/M') || s.includes('PROFEE')
++}
++
+ function isEDSpecialty(sp: string) {
+   const s = sp.toUpperCase()
+   return s.includes('EDIT') || s.includes('DENIAL')
+@@ -1229,7 +1236,10 @@ function ReviewModal({ reviewData, onClose, onRefresh }: { reviewData: any; onCl
+             <div style={{ fontWeight: 800, fontSize: 16 }}>{reviewData.coder_name} — Practice Submission</div>
+             <div style={{ fontSize: 12, color: '#6b7280' }}>{reviewData.specialty} · Submitted {reviewData.submitted_at ? new Date(reviewData.submitted_at).toLocaleString() : '—'}</div>
+           </div>
+-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: '#6b7280' }}>✕</button>
++          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
++            <ReviewExportButton sessionId={reviewData.session_id} coderName={reviewData.coder_name} />
++            <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: '#6b7280' }}>✕</button>
++          </div>
+         </div>
+ 
+         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+@@ -1353,17 +1363,21 @@ function ReviewModal({ reviewData, onClose, onRefresh }: { reviewData: any; onCl
+                   </div>
+                 ) : (
+                   <>
+-                    <div style={{ fontSize: 12, color: '#374151' }}>
+-                      <span style={{ color: '#6b7280' }}>PDx submitted:</span> <code>{c.pdx_submitted || '—'}</code>
+-                      {' '}<span style={{ color: '#6b7280' }}>· AK:</span> <code>{c.pdx_answer_key || '—'}</code>
+-                      {' '}{c.pdx_correct === true ? <span style={{ color: '#059669' }}>✓</span> : c.pdx_correct === false ? <span style={{ color: '#dc2626' }}>✗</span> : null}
+-                    </div>
+-                    {c.feedback?.length > 0 && (
+-                      <GradingFeedback
+-                        feedback={c.feedback}
+-                        sdxKey={c.sdx_answer_key}
+-                        pdxKey={c.pdx_answer_key ? [{ code: c.pdx_answer_key }] : []}
+-                      />
++                    {/* Every line, right and wrong, classified by section —
++                        for E/M that is level, diagnoses, CPT, then COPA / Data
++                        Review / Risk element by element. */}
++                    <SubmissionReview review={c.review} />
++                    {/* What lost points, in the grader's words. E/M's are the
++                        score lines the review above already breaks down. */}
++                    {(!isEMReview(c.specialty || reviewData.specialty) || !c.review) && c.feedback?.length > 0 && (
++                      <details open={!c.review} style={{ marginTop: 8 }}>
++                        <summary style={{ fontSize: 12, fontWeight: 600, color: '#6b7280', cursor: 'pointer' }}>Scoring notes</summary>
++                        <GradingFeedback
++                          feedback={c.feedback}
++                          sdxKey={c.sdx_answer_key}
++                          pdxKey={c.pdx_answer_key ? [{ code: c.pdx_answer_key }] : []}
++                        />
++                      </details>
+                     )}
+                     {hasDRG && (
+                       <div style={{ marginTop: 10, padding: '10px 12px', background: drgDone ? '#f0fdf4' : '#fff1f2', borderRadius: 8, border: `1px solid ${drgDone ? '#bbf7d0' : '#fecaca'}` }}>
+diff --git a/scripts/smoke_deployed.py b/scripts/smoke_deployed.py
+index 6d7cba9..d2509eb 100644
+--- a/scripts/smoke_deployed.py
++++ b/scripts/smoke_deployed.py
+@@ -96,6 +96,9 @@ def main() -> int:
+                     help="perform one real write per module, then undo it")
+     ap.add_argument("--passphrase", default="",
+                     help="MASTER_ADMIN_PASSPHRASE, for the write checks")
++    ap.add_argument("--session", type=int, default=0,
++                    help="a SUBMITTED practice session id; checks its review "
++                         "and Excel export (CR-001)")
+     args = ap.parse_args()
+ 
+     s = Smoke(args.base)
+@@ -154,6 +157,14 @@ def main() -> int:
+     s.expect("J18.9 has a description", code == 200 and bool(got.get("J189")),
+              "got %s %s" % (code, str(body)[:160]))
+ 
++    print("\npractice review and export (CR-001)")
++    if args.session:
++        _review_checks(s, args.session)
++    else:
++        # Not a failure: a fresh environment may hold no submitted session.
++        # Named, so a reader does not mistake silence for a pass.
++        print("  note skipped — pass --session <id of a submitted practice session>")
++
+     if args.write:
+         print("\nWRITES — the half that reads cannot cover")
+         if not args.passphrase:
+@@ -170,6 +181,38 @@ def main() -> int:
+     return 0
+ 
+ 
++
++REVIEW_STATUSES = {"correct", "missed", "extra", "different", "order", "info"}
++
++
++def _review_checks(s, session_id):
++    """
++    The post-submit review carries every line, right and wrong, per chart —
++    and E/M explains its reasoning points. Shape only: which codes are right
++    depends on the environment's data, the structure does not.
++    """
++    body = s.get_ok("session review", "/practicelab/practice-sessions/%d/review" % session_id)
++    charts = (body or {}).get("charts") if isinstance(body, dict) else None
++    s.expect("review lists charts", bool(charts), "no charts in %s" % str(body)[:120])
++    for c in charts or []:
++        rv = c.get("review") or {}
++        secs = rv.get("sections")
++        label = "chart %s carries a classified review" % c.get("chart_number")
++        bad = [r.get("status") for sec in (secs or []) for r in sec.get("rows", [])
++               if r.get("status") not in REVIEW_STATUSES]
++        s.expect(label, isinstance(secs, list) and bool(secs) and not bad
++                 and set(rv.get("summary", {})) >= {"correct", "missed", "extra", "different"},
++                 "sections=%s bad statuses=%s" % (str(secs)[:80], bad[:3]))
++        mdm = [sec for sec in (secs or []) if sec.get("key") in ("copa", "dr", "risk")]
++        if mdm:
++            s.expect("chart %s explains its MDM points" % c.get("chart_number"),
++                     all("Matched" in (sec.get("note") or "") or "no elements" in (sec.get("note") or "")
++                         or "not earned" in (sec.get("note") or "") for sec in mdm),
++                     "notes: %s" % [sec.get("note") for sec in mdm])
++    code, raw = call(s.base, "/practicelab/practice-sessions/%d/review/export" % session_id)
++    s.expect("review export is an .xlsx", code == 200 and isinstance(raw, str) and raw.startswith("PK"),
++             "got %s %s" % (code, str(raw)[:80]))
++
+ def _write_checks(s, passphrase):
+     """
+     One real write, on the table whose failure started all this.
+-- 
+2.43.0
+
+From f6198eff153968dd3eef29ef8c467f432dff8496 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 19 Nov 2026 08:32:40 +0000
+Subject: [PATCH] Show E/M diagnoses as one scored section, and pass the schema
+ guards
+
+The E/M Dx score sat beside an 'order only' badge on a Primary section
+and read as a deduction for order, which the grader never makes. It is
+one component, so it is now one Diagnoses section with the primary as
+a row and a note naming what the points are for.
+
+Also: the review's Excel writer is registered with the house-style
+guard (its extra/differs fills join excel_style), and a test fixture no
+longer writes 1 into a boolean column, which PostgreSQL rejects.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01GAgNTxNNybv6W7GXL33G6z
+---
+ backend/services/excel_style.py         | 10 ++++
+ backend/services/practice_review.py     | 71 +++++++++++++------------
+ backend/tests/test_excel_house_style.py |  4 +-
+ backend/tests/test_practice_review.py   | 27 ++++++----
+ 4 files changed, 67 insertions(+), 45 deletions(-)
+
+diff --git a/backend/services/excel_style.py b/backend/services/excel_style.py
+index e1e35f2..7637ac0 100644
+--- a/backend/services/excel_style.py
++++ b/backend/services/excel_style.py
+@@ -39,6 +39,16 @@ PASS_FILL = PatternFill("solid", fgColor="ECFDF5")
+ FAIL_FILL = PatternFill("solid", fgColor="FFF1F2")
+ PASS_FONT = Font(color="166534", bold=True, size=10)
+ FAIL_FONT = Font(color="991B1B", bold=True, size=10)
++# A review line that is neither right nor wrong: coded but not in the key, or
++# present on both sides with a detail that differs (POA, modifier, a count).
++# Distinct from FAIL on purpose — an extra code and a missed one are different
++# coaching conversations. INFO reuses the palette's existing blue.
++EXTRA_FILL = PatternFill("solid", fgColor="FFF7ED")
++EXTRA_FONT = Font(color="9A3412", bold=True, size=10)
++DIFFER_FILL = PatternFill("solid", fgColor="FFFBEB")
++DIFFER_FONT = Font(color="92400E", bold=True, size=10)
++INFO_FILL = PatternFill("solid", fgColor="DBEAFE")
++INFO_FONT = Font(color="1E40AF", bold=True, size=10)
+ 
+ 
+ def header_row(ws, row: int = 1, *, fill=None, freeze: bool = True,
+diff --git a/backend/services/practice_review.py b/backend/services/practice_review.py
+index d5cd52c..fd76f23 100644
+--- a/backend/services/practice_review.py
++++ b/backend/services/practice_review.py
+@@ -373,40 +373,41 @@ def _em_sections(r: dict, ak: Optional[dict], em: Optional[dict], cfg: Optional[
+     pts, out = _fb_points(feedback, "E/M Level")
+     sections.append(_section("em_level", "E/M Level", "Coding", rows, pts, out))
+ 
+-    # Diagnoses: graded as a SET, so order is shown but not judged.
++    # Diagnoses: ONE section, because E/M grades them as ONE component — a set,
++    # order-blind: (key codes coded anywhere ÷ key codes) × weight, less an
++    # over-coding penalty. Primary is a row, not a section, so the score never
++    # sits beside a position mark and reads as a penalty for order; the first
++    # version did exactly that, and "order only" next to "23.3 of 35" looked
++    # like a deduction the grader never makes.
+     dx_k, dx_c = _codes(r.get("sdx_answer_key")), _codes(r.get("sdx_submitted"))
+     dx_pts, dx_out = _fb_points(feedback, "Dx:")
+-    pd_rows = []
++    dx_rows = []
++    consumed = None
+     if dx_k or dx_c:
+         k1, c1 = (dx_k[0] if dx_k else ""), (dx_c[0] if dx_c else "")
+-        if k1 and c1 and _norm(k1) == _norm(c1):
+-            st, note = "correct", ""
+-        elif k1 and _norm(k1) in [_norm(c) for c in dx_c]:
+-            st, note = "order", "Coded, but not listed first. E/M scores diagnoses as a set, so order costs nothing"
+-        elif k1 and c1:
+-            st, note = "different", ""
+-        else:
+-            st, note = ("missed", "") if k1 else ("extra", "")
+-        pd_rows.append(_row("Primary Dx", k1, c1, st, note))
+-    sections.append(_section("pdx", "Primary Diagnosis", "Coding", pd_rows, dx_pts, dx_out,
+-                             "Primary and secondary share one Dx score, shown here."))
+-    # Secondary: everything except whichever code each side listed first,
+-    # compared as a set — but a key secondary the coder listed FIRST is still
+-    # coded, so pair against the coder's full list minus what Primary consumed.
++        c_norm = [_norm(c) for c in dx_c]
++        if k1 and _norm(k1) in c_norm:
++            consumed = c_norm.index(_norm(k1))
++            if consumed == 0:
++                dx_rows.append(_row("Primary Dx", k1, c1, "correct"))
++            else:
++                dx_rows.append(_row("Primary Dx", k1, dx_c[consumed], "correct",
++                                    "Coded at position %d, not first. Order is not scored on E/M"
++                                    % (consumed + 1)))
++        elif k1:
++            dx_rows.append(_row("Primary Dx", k1, "", "missed"))
+     k_rest = dx_k[1:]
+-    consumed = None
+-    if dx_k and dx_c:
+-        k1n = _norm(dx_k[0])
+-        for i, c in enumerate(dx_c):
+-            if _norm(c) == k1n:
+-                consumed = i
+-                break
+-    if consumed is None and dx_c and pd_rows and pd_rows[0]["status"] in ("different", "extra"):
+-        consumed = 0
+     c_rest = [c for i, c in enumerate(dx_c) if i != consumed]
+-    if k_rest or c_rest:
+-        sections.append(_section("sdx", "Secondary Diagnoses", "Coding",
+-                                 _set_rows("SDx", k_rest, c_rest)))
++    dx_rows += _set_rows("Secondary Dx", k_rest, c_rest)
++    if dx_k:
++        hit = sum(1 for c in dx_k if _norm(c) in [_norm(x) for x in dx_c])
++        over = max(0, len(dx_c) - len(dx_k))
++        dx_note = ("Scored as a set: %d of %d key diagnoses coded%s. "
++                   "Order, including which is listed first, is not scored."
++                   % (hit, len(dx_k), (", %d over-coded" % over) if over else ""))
++    else:
++        dx_note = "The key lists no diagnoses, so this component earns full credit."
++    sections.append(_section("dx", "Diagnoses", "Coding", dx_rows, dx_pts, dx_out, dx_note))
+ 
+     # CPT / procedures
+     cpt_k = normalise_cpts(r.get("cpt_answer_key") or [])
+@@ -476,16 +477,18 @@ def review_workbook(header: dict, charts: List[dict]) -> bytes:
+     click on the Result column rather than a read of the whole sheet.
+     """
+     from openpyxl import Workbook
+-    from openpyxl.styles import Alignment, Font, PatternFill
+-    from services.excel_style import (CELL_BORDER, FAIL_FILL, FAIL_FONT,
+-                                      PASS_FILL, PASS_FONT, finish)
++    from openpyxl.styles import Alignment
++    from services.excel_style import (CELL_BORDER, DIFFER_FILL, DIFFER_FONT,
++                                      EXTRA_FILL, EXTRA_FONT, FAIL_FILL, FAIL_FONT,
++                                      INFO_FILL, INFO_FONT, PASS_FILL, PASS_FONT,
++                                      finish)
+ 
+     status_style = {
+         "correct": (PASS_FILL, PASS_FONT),
+         "missed": (FAIL_FILL, FAIL_FONT),
+-        "extra": (PatternFill("solid", fgColor="FFF7ED"), Font(color="9A3412", bold=True, size=10)),
+-        "different": (PatternFill("solid", fgColor="FFFBEB"), Font(color="92400E", bold=True, size=10)),
+-        "order": (PatternFill("solid", fgColor="EFF6FF"), Font(color="1E40AF", bold=True, size=10)),
++        "extra": (EXTRA_FILL, EXTRA_FONT),
++        "different": (DIFFER_FILL, DIFFER_FONT),
++        "order": (INFO_FILL, INFO_FONT),
+     }
+ 
+     wb = Workbook()
+diff --git a/backend/tests/test_excel_house_style.py b/backend/tests/test_excel_house_style.py
+index c500575..b240621 100644
+--- a/backend/tests/test_excel_house_style.py
++++ b/backend/tests/test_excel_house_style.py
+@@ -24,6 +24,7 @@ WRITERS = [
+     "routers/practicelab_pkg/em_grading.py",
+     "routers/reports.py",
+     "services/audit_export.py",
++    "services/practice_review.py",
+     "services/excel_service.py",
+ ]
+ 
+@@ -31,7 +32,8 @@ WRITERS = [
+ HOUSE = {"1F3864", "2E75B6", "FFFDE7", "FFFFFF"}
+ # Meaning. A passing row and a failing row should not look alike, so these are
+ # deliberately not the header palette and are not drift.
+-SEMANTIC = {"D1FAE5", "FEE2E2", "ECFDF5", "FFF1F2", "DBEAFE", "374151"}
++SEMANTIC = {"D1FAE5", "FEE2E2", "ECFDF5", "FFF1F2", "DBEAFE", "374151",
++            "FFF7ED", "FFFBEB"}   # review: extra, differs (excel_style)
+ 
+ 
+ def _fills(path):
+diff --git a/backend/tests/test_practice_review.py b/backend/tests/test_practice_review.py
+index 89faa57..8f9c09a 100644
+--- a/backend/tests/test_practice_review.py
++++ b/backend/tests/test_practice_review.py
+@@ -112,19 +112,26 @@ def test_each_mdm_table_reports_key_level_against_derived_level():
+ def test_em_is_classified_into_the_sections_a_trainer_reads():
+     _, review = _em_review()
+     keys = [s["key"] for s in review["sections"]]
+-    assert keys == ["em_level", "pdx", "sdx", "copa", "dr", "risk"]
++    assert keys == ["em_level", "dx", "copa", "dr", "risk"]
+     groups = {s["key"]: s["group"] for s in review["sections"]}
+     assert groups["em_level"] == "Coding" and groups["copa"] == "Reasoning"
+ 
+ 
+-def test_dx_order_is_noted_but_never_marked_wrong():
+-    """E/M scores diagnoses as a set. The primary row must not contradict that."""
++def test_dx_is_one_scored_section_and_order_is_never_marked_wrong():
++    """
++    E/M scores diagnoses as a set. The score sits on ONE Diagnoses section with
++    a note naming what it is for, so it can never read as a penalty for order.
++    """
+     _, review = _em_review()
+-    pdx = _row(_sec(review, "pdx"), "Primary Dx")
+-    assert pdx["status"] == "order"
+-    sdx = _sec(review, "sdx")
+-    assert [(r["key"], r["status"]) for r in sdx["rows"]] == [
+-        ("I10", "correct"), ("J45.909", "missed")]
++    dx = _sec(review, "dx")
++    assert (dx["points"], dx["max_points"]) == (23.3, 35.0)
++    assert "2 of 3 key diagnoses coded" in dx["note"]
++    rows = [(r["item"], r["key"], r["coded"], r["status"]) for r in dx["rows"]]
++    assert rows == [("Primary Dx", "E11.9", "E11.9", "correct"),
++                    ("Secondary Dx", "I10", "I10", "correct"),
++                    ("Secondary Dx", "J45.909", "", "missed")]
++    assert "not scored" in dx["rows"][0]["note"]
++    assert not any(r["status"] == "order" for s in review["sections"] for r in s["rows"])
+ 
+ 
+ def test_time_levelled_chart_shows_a_time_section_not_mdm():
+@@ -194,7 +201,7 @@ def _em_chart_with_key(db, number):
+            copa_stable_chronic, copa_chronic_exacerbation, copa_acute_uncomplicated,
+            risk_prescription_drug_mgmt, entered_by)
+         VALUES (:c, '99214', '', :dx, '[]', 'MDM', 'ESTABLISHED',
+-                'Moderate', 'Minimal', 'Moderate', 1, 1, 1, 1, 't')"""),
++                'Moderate', 'Minimal', 'Moderate', 1, 1, 1, TRUE, 't')"""),
+         {"c": chart.id, "dx": json.dumps(["E11.9", "I10"])})
+     db.commit()
+     return chart
+@@ -230,7 +237,7 @@ def test_trainer_export_is_a_two_sheet_workbook_with_every_line(client, db):
+     assert wb.sheetnames == ["Summary", "Review"]
+     review = [[c.value for c in row] for row in wb["Review"].iter_rows(min_row=2)]
+     sections = {r[2] for r in review}
+-    assert {"E/M Level", "Primary Diagnosis", "Problems Addressed (COPA)",
++    assert {"E/M Level", "Diagnoses", "Problems Addressed (COPA)",
+             "Data Reviewed and Analysed", "Risk of Patient Management"} <= sections
+     assert any(r[7] == "Correct" for r in review) and any(r[7] == "Missed" for r in review)
+ 
+-- 
+2.43.0
+

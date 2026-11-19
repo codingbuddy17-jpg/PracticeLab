@@ -1,0 +1,468 @@
+From 78256e8e00750b5f3270c5dce2e6752b5c1b74ca Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 19 Nov 2026 10:19:46 +0000
+Subject: [PATCH] Report a same-family code as a wrong code, not a miss
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Z77.9 entered for Z77.8 was reported as 'Missed Z77.8', and Z77.9 was
+named nowhere unless the coder had also over-coded. Unmatched key codes
+now pair with an unmatched coder code of the same family (ICD-10-CM
+category, PCS section/body system/root operation, CPT first four) and
+are reported as Wrong_Code with both codes — in grading feedback for
+SDx, PCS and CPT and on the review screen and export. PCS names the
+character that differs. Scores do not change.
+
+This also brings the Specificity Drops analytics to secondary
+diagnoses, which it only ever counted on Wrong_Code rows.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01GAgNTxNNybv6W7GXL33G6z
+---
+ backend/services/grading_engine.py           | 108 ++++++++++++++++---
+ backend/services/practice_review.py          |  50 ++++++---
+ backend/tests/test_practice_review.py        |  65 ++++++++++-
+ frontend/src/components/SubmissionReview.tsx |   8 +-
+ scripts/smoke_deployed.py                    |   2 +-
+ 5 files changed, 202 insertions(+), 31 deletions(-)
+
+diff --git a/backend/services/grading_engine.py b/backend/services/grading_engine.py
+index c0b715b..b9a6efb 100644
+--- a/backend/services/grading_engine.py
++++ b/backend/services/grading_engine.py
+@@ -290,6 +290,93 @@ def norm_units(raw) -> int:
+     return n if n >= 1 else 1
+ 
+ 
++
++# ── Near misses: wrong code in the right family ───────────────────────────────
++#
++# A key code the coder did not match was always reported as Missed, and the
++# code the coder DID type was named only when they typed more codes than the
++# key holds. So Z77.9 entered for Z77.8 read "Missed Z77.8" and Z77.9 appeared
++# nowhere: a specificity slip reported as an omission. Display only — scores
++# are computed from matches before any of this runs, and do not change.
++_PCS_AXES = {1: "section", 2: "body system", 3: "root operation", 4: "body part",
++             5: "approach", 6: "device", 7: "qualifier"}
++
++
++def code_family(code, kind: str):
++    """The family a near miss must share: ICD-10-CM category (3), PCS
++    section / body system / root operation (3), CPT/HCPCS first 4."""
++    if kind == "dx":
++        c = norm_dx(code)
++        return c[:3] if len(c) >= 3 else None
++    if kind == "pcs":
++        c = norm_pcs(code)
++        return c[:3] if len(c) >= 3 else None
++    c = norm_cpt(code)
++    return c[:4] if len(c) >= 4 else None
++
++
++def _near_miss_detail(ak_code, cdr_code, kind: str) -> str:
++    if kind == "pcs":
++        a, c = norm_pcs(ak_code), norm_pcs(cdr_code)
++        diff = [i + 1 for i in range(min(len(a), len(c))) if a[i] != c[i]]
++        if diff:
++            names = ", ".join(f"character {i} ({_PCS_AXES.get(i, '?')})" for i in diff)
++            return f"Same root operation — differs at {names}"
++        return "Same root operation — different code"
++    if kind == "dx":
++        return f"Same category {norm_dx(ak_code)[:3]} — wrong code (specificity)"
++    return "Same code family — wrong code"
++
++
++def pair_near_misses(ak_codes: list, cdr_codes: list, kind: str) -> list:
++    """
++    Pair leftover key codes with leftover coder codes of the same family.
++    Each key code takes the unused coder code sharing the longest prefix.
++    Indexes are into the lists given; None/empty entries never pair.
++    """
++    norm = norm_dx if kind == "dx" else norm_pcs if kind == "pcs" else norm_cpt
++    pairs, used = [], set()
++    for ai, a in enumerate(ak_codes):
++        fam = code_family(a, kind) if a else None
++        if not fam:
++            continue
++        na, best, best_len = norm(a), None, -1
++        for ci, c in enumerate(cdr_codes):
++            if ci in used or not c or code_family(c, kind) != fam:
++                continue
++            nc = norm(c)
++            n = next((i for i, (x, y) in enumerate(zip(na, nc)) if x != y), min(len(na), len(nc)))
++            if n > best_len:
++                best, best_len = ci, n
++        if best is not None:
++            used.add(best)
++            pairs.append((ai, best))
++    return pairs
++
++
++def _report_unmatched(section: str, kind: str, ak_codes: list, cdr_codes: list,
++                      ak_used: list, cdr_used: list, feedback: list) -> None:
++    """Unmatched key codes: Wrong_Code when a same-family coder code is left
++    over, else Missed. Paired coder codes are marked used, so they are not
++    listed again as surplus."""
++    ak_idx = [i for i, c in enumerate(ak_codes) if not ak_used[i] and c]
++    cdr_idx = [i for i, c in enumerate(cdr_codes) if not cdr_used[i] and c]
++    pairs = pair_near_misses([ak_codes[i] for i in ak_idx],
++                             [cdr_codes[i] for i in cdr_idx], kind)
++    paired_ak = {}
++    for a, c in pairs:
++        ai, ci = ak_idx[a], cdr_idx[c]
++        paired_ak[ai] = ci
++        ak_used[ai] = True
++        cdr_used[ci] = True
++    for ai in ak_idx:
++        if ai in paired_ak:
++            ci = paired_ak[ai]
++            feedback.append(FeedbackRow(section, "Wrong_Code", ak_codes[ai], cdr_codes[ci],
++                                        _near_miss_detail(ak_codes[ai], cdr_codes[ci], kind)))
++        else:
++            feedback.append(FeedbackRow(section, "Missed", ak_codes[ai], ""))
++
+ # ── Order-independent matching ────────────────────────────────────────────────
+ 
+ def _match_sdx_ip(ak_sdx: list[dict], cdr_sdx: list[dict], penalty: bool,
+@@ -337,9 +424,8 @@ def _match_sdx_ip(ak_sdx: list[dict], cdr_sdx: list[dict], penalty: bool,
+                 cdr_used[ci] = True
+                 break
+ 
+-    for ai, ak in enumerate(ak_sdx):
+-        if not ak_used[ai]:
+-            feedback.append(FeedbackRow("SDx", "Missed", ak.get("code", ""), ""))
++    _report_unmatched("SDx", "dx", [a.get("code", "") for a in ak_sdx],
++                      [c.get("code", "") for c in cdr_sdx], ak_used, cdr_used, feedback)
+ 
+     ak_cnt = len([a for a in ak_sdx if norm_dx(a.get("code", ""))])
+     cdr_cnt = len([c for c in cdr_sdx if norm_dx(c.get("code", ""))])
+@@ -372,9 +458,8 @@ def _match_pcs(ak_pcs: list[dict], cdr_pcs: list[dict], penalty: bool):
+                 cdr_used[ci] = True
+                 break
+ 
+-    for ai, ak in enumerate(ak_pcs):
+-        if not ak_used[ai]:
+-            feedback.append(FeedbackRow("PCS", "Missed", ak.get("code", ""), ""))
++    _report_unmatched("PCS", "pcs", [a.get("code", "") for a in ak_pcs],
++                      [c.get("code", "") for c in cdr_pcs], ak_used, cdr_used, feedback)
+ 
+     ak_cnt = len([a for a in ak_pcs if norm_pcs(a.get("code", ""))])
+     cdr_cnt = len([c for c in cdr_pcs if norm_pcs(c.get("code", ""))])
+@@ -411,9 +496,8 @@ def _match_sdx_op(ak_sdx: list[dict], cdr_sdx: list[dict], penalty: bool):
+                 cdr_used[ci] = True
+                 break
+ 
+-    for ai, ak in enumerate(ak_sdx):
+-        if not ak_used[ai]:
+-            feedback.append(FeedbackRow("SDx", "Missed", ak.get("code", ""), ""))
++    _report_unmatched("SDx", "dx", [a.get("code", "") for a in ak_sdx],
++                      [c.get("code", "") for c in cdr_sdx], ak_used, cdr_used, feedback)
+ 
+     ak_cnt = len([a for a in ak_sdx if norm_dx(a.get("code", ""))])
+     cdr_cnt = len([c for c in cdr_sdx if norm_dx(c.get("code", ""))])
+@@ -596,9 +680,9 @@ def _match_cpt(ak_cpt: list[dict], cdr_cpt: list[dict], penalty: bool,
+                 cdr_used[ci] = True
+                 break
+ 
+-    for ai, (a_code, _a_mod) in enumerate(ak_norm):
+-        if not ak_used[ai] and a_code:
+-            feedback.append(FeedbackRow("CPT", "Missed", ak_cpt[ai].get("code", ""), ""))
++    _report_unmatched("CPT", "cpt", [ak_cpt[i].get("code", "") if ak_norm[i][0] else "" for i in range(len(ak_cpt))],
++                      [cdr_cpt[i].get("code", "") if cdr_norm[i][0] else "" for i in range(len(cdr_cpt))],
++                      ak_used, cdr_used, feedback)
+ 
+     ak_cnt = len([c for c, _ in ak_norm if c])
+     cdr_cnt = len([c for c, _ in cdr_norm if c])
+diff --git a/backend/services/practice_review.py b/backend/services/practice_review.py
+index cb8fb93..fad1358 100644
+--- a/backend/services/practice_review.py
++++ b/backend/services/practice_review.py
+@@ -78,7 +78,7 @@ ELEMENT_LABELS: Dict[str, str] = {
+ COUNT_FIELDS = {"dr_order_tests", "dr_review_test_results", "dr_prior_external_notes"}
+ 
+ STATUS_LABELS = {
+-    "correct": "Correct", "missed": "Missed", "extra": "Extra (not in key)",
++    "correct": "Correct", "wrong": "Wrong code", "missed": "Missed", "extra": "Extra (not in key)",
+     "different": "Differs", "order": "Order only", "info": "",
+ }
+ 
+@@ -122,7 +122,7 @@ def _row(item, key, coded, status, note="") -> dict:
+ 
+ 
+ def _set_rows(item_label: str, key_items: list, coded_items: list,
+-              detail=None) -> List[dict]:
++              detail=None, kind: Optional[str] = None) -> List[dict]:
+     """
+     Compare two code lists as multisets: each key code pairs with the first
+     unused coded code that matches. `detail(k, c)` may return a note when a
+@@ -130,6 +130,7 @@ def _set_rows(item_label: str, key_items: list, coded_items: list,
+     """
+     rows = []
+     used = [False] * len(coded_items)
++    missed_at = []   # (row index, key item) of key codes with no exact match
+     for k in key_items:
+         kc = _norm(_code_of(k))
+         hit = None
+@@ -138,6 +139,7 @@ def _set_rows(item_label: str, key_items: list, coded_items: list,
+                 hit = i
+                 break
+         if hit is None:
++            missed_at.append((len(rows), k))
+             rows.append(_row(item_label, _display(k), "", "missed"))
+             continue
+         used[hit] = True
+@@ -145,6 +147,20 @@ def _set_rows(item_label: str, key_items: list, coded_items: list,
+         note = detail(k, c) if detail else ""
+         rows.append(_row(item_label, _display(k), _display(c),
+                          "different" if note else "correct", note))
++    # A coder code of the same family as a missed key code is a WRONG code
++    # (Z77.9 for Z77.8), not a miss plus an unrelated extra — the grader's own
++    # rule (grading_engine.pair_near_misses), so the screen and the feedback agree.
++    if kind and missed_at:
++        from services.grading_engine import _near_miss_detail, pair_near_misses
++        left = [i for i, c in enumerate(coded_items) if not used[i] and _code_of(c)]
++        pairs = pair_near_misses([_code_of(k) for _, k in missed_at],
++                                 [_code_of(coded_items[i]) for i in left], kind)
++        for a, b in pairs:
++            at, k = missed_at[a]
++            ci = left[b]
++            used[ci] = True
++            rows[at] = _row(item_label, _display(k), _display(coded_items[ci]), "wrong",
++                            _near_miss_detail(_code_of(k), _code_of(coded_items[ci]), kind))
+     for i, c in enumerate(coded_items):
+         if not used[i] and _code_of(c):
+             rows.append(_row(item_label, "", _display(c), "extra"))
+@@ -220,7 +236,7 @@ def _fb_row(feedback: list, prefix: str) -> Optional[dict]:
+ 
+ 
+ def _summarise(sections: List[dict]) -> dict:
+-    out = {"correct": 0, "missed": 0, "extra": 0, "different": 0}
++    out = {"correct": 0, "wrong": 0, "missed": 0, "extra": 0, "different": 0}
+     for sec in sections:
+         for r in sec["rows"]:
+             st = r["status"]
+@@ -235,27 +251,32 @@ def _code_sections(r: dict) -> List[dict]:
+     sections = []
+     pdx_k, pdx_c = (r.get("pdx_answer_key") or ""), (r.get("pdx_submitted") or "")
+     if pdx_k or pdx_c:
++        note = ""
+         if pdx_k and pdx_c:
+-            st = "correct" if _norm(pdx_k) == _norm(pdx_c) else "different"
++            st = "correct" if _norm(pdx_k) == _norm(pdx_c) else "wrong"
++            if st == "wrong":
++                from services.grading_engine import _near_miss_detail, code_family
++                if code_family(pdx_k, "dx") == code_family(pdx_c, "dx"):
++                    note = _near_miss_detail(pdx_k, pdx_c, "dx")
+         else:
+             st = "missed" if pdx_k else "extra"
+         sections.append(_section("pdx", "Principal Diagnosis", "Coding",
+-                                 [_row("PDx", pdx_k, pdx_c, st)]))
++                                 [_row("PDx", pdx_k, pdx_c, st, note)]))
+ 
+     sdx_k, sdx_c = r.get("sdx_answer_key") or [], r.get("sdx_submitted") or []
+     if _codes(sdx_k) or _codes(sdx_c):
+         sections.append(_section("sdx", "Secondary Diagnoses", "Coding",
+-                                 _set_rows("SDx", sdx_k, sdx_c, _poa_note)))
++                                 _set_rows("SDx", sdx_k, sdx_c, _poa_note, kind="dx")))
+ 
+     pcs_k, pcs_c = r.get("pcs_answer_key") or [], r.get("pcs_submitted") or []
+     if _codes(pcs_k) or _codes(pcs_c):
+         sections.append(_section("pcs", "Procedures (ICD-10-PCS)", "Coding",
+-                                 _set_rows("PCS", pcs_k, pcs_c)))
++                                 _set_rows("PCS", pcs_k, pcs_c, kind="pcs")))
+ 
+     cpt_k, cpt_c = r.get("cpt_answer_key") or [], r.get("cpt_submitted") or []
+     if _codes(cpt_k) or _codes(cpt_c):
+         sections.append(_section("cpt", "CPT / HCPCS", "Coding",
+-                                 _set_rows("CPT", cpt_k, cpt_c, _cpt_note)))
++                                 _set_rows("CPT", cpt_k, cpt_c, _cpt_note, kind="cpt")))
+     return sections
+ 
+ 
+@@ -399,9 +420,9 @@ def _em_sections(r: dict, ak: Optional[dict], em: Optional[dict], cfg: Optional[
+                         "The primary must be listed first" % (where + 1))
+             else:
+                 note = "Not coded"
+-            dx_rows.append(_row("Primary Dx", sk1, sc1, "different" if c1 else "missed", note))
++            dx_rows.append(_row("Primary Dx", sk1, sc1, "wrong" if c1 else "missed", note))
+     c_rest = [c for i, c in enumerate(shown_c) if i != consumed]
+-    dx_rows += _set_rows("Secondary Dx", shown_k[1:], c_rest)
++    dx_rows += _set_rows("Secondary Dx", shown_k[1:], c_rest, kind="dx")
+     if dx_k:
+         parts = ["Primary %.1f of %.1f pts (must be listed first)" % (sc["primary_pts"], sc["primary_max"])]
+         if sc["sec_total"]:
+@@ -428,7 +449,7 @@ def _em_sections(r: dict, ak: Optional[dict], em: Optional[dict], cfg: Optional[
+         notes = [f["issue"] for f in feedback
+                  if str(f.get("issue") or "").startswith("Dx pointers on CPT")]
+         sections.append(_section("cpt", "CPT / Procedures", "Coding",
+-                                 _set_rows("CPT", cpt_k, cpt_c, _cpt_note), pts, out,
++                                 _set_rows("CPT", cpt_k, cpt_c, _cpt_note, kind="cpt"), pts, out,
+                                  "; ".join(notes) or None))
+ 
+     # Reasoning
+@@ -546,6 +567,7 @@ def review_workbook(header: dict, charts: List[dict]) -> bytes:
+     status_style = {
+         "correct": (PASS_FILL, PASS_FONT),
+         "missed": (FAIL_FILL, FAIL_FONT),
++        "wrong": (FAIL_FILL, FAIL_FONT),
+         "extra": (EXTRA_FILL, EXTRA_FONT),
+         "different": (DIFFER_FILL, DIFFER_FONT),
+         "order": (INFO_FILL, INFO_FONT),
+@@ -555,13 +577,13 @@ def review_workbook(header: dict, charts: List[dict]) -> bytes:
+     ws = wb.active
+     ws.title = "Summary"
+     ws.append(["Coder", "Specialty", "Submitted", "Chart", "Score %", "Result",
+-               "Correct", "Missed", "Extra", "Differs"])
++               "Correct", "Wrong code", "Missed", "Extra", "Differs"])
+     for c in charts:
+         s = (c.get("review") or {}).get("summary") or {}
+         ws.append([header.get("coder_name"), c.get("specialty") or header.get("specialty"),
+                    header.get("submitted_at"), c.get("chart_number"), c.get("total_score"),
+-                   c.get("pass_fail"), s.get("correct", 0), s.get("missed", 0),
+-                   s.get("extra", 0), s.get("different", 0)])
++                   c.get("pass_fail"), s.get("correct", 0), s.get("wrong", 0),
++                   s.get("missed", 0), s.get("extra", 0), s.get("different", 0)])
+         pf = ws.cell(row=ws.max_row, column=6)
+         if pf.value in ("PASS", "FAIL"):
+             pf.fill, pf.font = (PASS_FILL, PASS_FONT) if pf.value == "PASS" else (FAIL_FILL, FAIL_FONT)
+diff --git a/backend/tests/test_practice_review.py b/backend/tests/test_practice_review.py
+index 7326a5f..f17e5da 100644
+--- a/backend/tests/test_practice_review.py
++++ b/backend/tests/test_practice_review.py
+@@ -124,7 +124,7 @@ def test_primary_coded_second_earns_no_primary_credit_and_says_why():
+     # primary 0 of 17.5 + secondaries 1 of 2 (I10) = 8.75
+     assert (dx["points"], dx["max_points"]) == (8.8, 35.0)
+     rows = [(r["item"], r["key"], r["coded"], r["status"]) for r in dx["rows"]]
+-    assert rows == [("Primary Dx", "E11.9", "I10", "different"),
++    assert rows == [("Primary Dx", "E11.9", "I10", "wrong"),
+                     ("Secondary Dx", "I10", "I10", "correct"),
+                     ("Secondary Dx", "J45.909", "", "missed")]
+     assert "position 2" in dx["rows"][0]["note"]
+@@ -216,7 +216,7 @@ def test_ip_review_lists_correct_missed_extra_and_poa_differences():
+     assert statuses == {"I10  POA Y": "different", "E11.9  POA Y": "missed",
+                         "N17.9  POA Y": "extra"}
+     assert _sec(review, "pcs")["rows"][0]["status"] == "correct"
+-    assert review["summary"] == {"correct": 2, "missed": 1, "extra": 1, "different": 1}
++    assert review["summary"] == {"correct": 2, "wrong": 0, "missed": 1, "extra": 1, "different": 1}
+ 
+ 
+ def test_cpt_modifier_difference_is_reported_as_differs():
+@@ -389,3 +389,64 @@ def test_em_level_and_mdm_rows_are_never_described():
+     _, review = _em_review()
+     assert all("key_desc" not in r for s in review["sections"]
+                if s["key"] in ("em_level", "copa", "dr", "risk") for r in s["rows"])
++
++
++
++# ── near misses: wrong code, not missed (Z77.9 entered for Z77.8) ────────────
++
++def _ipr(sdx_k, sdx_c, pcs_k=(), pcs_c=()):
++    return {"specialty": "IP-DRG", "pdx_submitted": "J18.9", "pdx_answer_key": "J18.9",
++            "sdx_answer_key": [{"code": c, "poa": "Y"} for c in sdx_k],
++            "sdx_submitted": [{"code": c, "poa": "Y"} for c in sdx_c],
++            "pcs_answer_key": [{"code": c} for c in pcs_k], "pcs_submitted": [{"code": c} for c in pcs_c],
++            "cpt_answer_key": [], "cpt_submitted": [], "feedback": []}
++
++
++def test_review_shows_a_same_category_code_as_wrong_code_not_missed():
++    rows = _sec(build_review(_ipr(["Z77.8"], ["Z77.9"])), "sdx")["rows"]
++    assert [(r["key"], r["coded"], r["status"]) for r in rows] == [("Z77.8  POA Y", "Z77.9  POA Y", "wrong")]
++    assert "Same category Z77" in rows[0]["note"]
++
++
++def test_a_different_family_stays_missed_and_extra():
++    rows = _sec(build_review(_ipr(["Z77.8"], ["N39.0"])), "sdx")["rows"]
++    assert [r["status"] for r in rows] == ["missed", "extra"]
++
++
++def test_pcs_near_miss_names_the_character_that_differs():
++    rows = _sec(build_review(_ipr([], [], ["0DTJ4ZZ"], ["0DTJ0ZZ"])), "pcs")["rows"]
++    assert rows[0]["status"] == "wrong" and "character 5 (approach)" in rows[0]["note"]
++
++
++def test_grader_feedback_reports_wrong_code_with_the_coders_code():
++    from services.grading_engine import IPAnswerKey, IPSubmission, grade_ip
++    ak = IPAnswerKey(pdx_code="J18.9", pdx_poa="Y", sdx=[{"code": "Z77.8", "poa": "Y"}])
++    sub = IPSubmission(pdx_code="J18.9", pdx_poa="Y", sdx=[{"code": "Z77.9", "poa": "Y"}])
++    fb = [(f.section, f.issue_type, f.ak_code, f.coder_code) for f in grade_ip(ak, sub).feedback]
++    assert ("SDx", "Wrong_Code", "Z77.8", "Z77.9") in fb
++    assert not any(f[1] == "Missed" for f in fb)
++
++
++def test_reclassifying_never_changes_the_score():
++    from services.grading_engine import IPAnswerKey, IPSubmission, grade_ip
++    ak = IPAnswerKey(pdx_code="J18.9", pdx_poa="Y", sdx=[{"code": "Z77.8", "poa": "Y"}, {"code": "I10", "poa": "Y"}])
++    near = grade_ip(ak, IPSubmission(pdx_code="J18.9", pdx_poa="Y",
++                                     sdx=[{"code": "Z77.9", "poa": "Y"}, {"code": "I10", "poa": "Y"}]))
++    far = grade_ip(ak, IPSubmission(pdx_code="J18.9", pdx_poa="Y",
++                                    sdx=[{"code": "N39.0", "poa": "Y"}, {"code": "I10", "poa": "Y"}]))
++    assert (near.pdx_score, near.sdx_score, near.pcs_score) == (far.pdx_score, far.sdx_score, far.pcs_score)
++
++
++def test_cpt_same_family_is_wrong_code_and_a_new_family_is_missed():
++    from services.grading_engine import _match_cpt
++    _, _, fb = _match_cpt([{"code": "99214"}, {"code": "36415"}], [{"code": "99213"}, {"code": "71046"}], True)
++    kinds = sorted((f.issue_type, f.ak_code, f.coder_code) for f in fb)
++    assert ("Wrong_Code", "99214", "99213") in kinds and ("Missed", "36415", "") in kinds
++
++
++def test_pcs_grader_and_op_sdx_pair_too():
++    from services.grading_engine import _match_pcs, _match_sdx_op
++    _, _, fb = _match_pcs([{"code": "0DTJ4ZZ"}], [{"code": "0DTJ0ZZ"}], True)
++    assert fb[0].issue_type == "Wrong_Code" and "approach" in fb[0].detail
++    _, _, fb = _match_sdx_op([{"code": "E11.22"}], [{"code": "E11.9"}], True)
++    assert (fb[0].issue_type, fb[0].coder_code) == ("Wrong_Code", "E11.9")
+diff --git a/frontend/src/components/SubmissionReview.tsx b/frontend/src/components/SubmissionReview.tsx
+index d501386..bbdc524 100644
+--- a/frontend/src/components/SubmissionReview.tsx
++++ b/frontend/src/components/SubmissionReview.tsx
+@@ -14,7 +14,7 @@ import { downloadPracticeReview, downloadPracticeReviewByToken } from '../api/pr
+  * Risk element by element, or Time.
+  */
+ 
+-export type ReviewStatus = 'correct' | 'missed' | 'extra' | 'different' | 'order' | 'info'
++export type ReviewStatus = 'correct' | 'wrong' | 'missed' | 'extra' | 'different' | 'order' | 'info'
+ 
+ export interface ReviewRow {
+   item: string; key: string; coded: string; status: ReviewStatus; note: string
+@@ -27,11 +27,14 @@ export interface ReviewSection {
+ }
+ export interface ChartReview {
+   sections: ReviewSection[]
+-  summary: { correct: number; missed: number; extra: number; different: number }
++  summary: { correct: number; wrong?: number; missed: number; extra: number; different: number }
+ }
+ 
+ const STATUS: Record<ReviewStatus, { label: string; color: string; bg: string }> = {
+   correct:   { label: '✓ Correct',  color: '#047857', bg: '#ecfdf5' },
++  // A same-family code in place of the key's (Z77.9 for Z77.8): an error, but
++  // not an omission — the coder found the condition and missed the specificity.
++  wrong:     { label: '✗ Wrong code', color: '#b91c1c', bg: '#fef2f2' },
+   missed:    { label: '✗ Missed',   color: '#b91c1c', bg: '#fef2f2' },
+   extra:     { label: '+ Extra',    color: '#9a3412', bg: '#fff7ed' },
+   different: { label: '≠ Differs',  color: '#92400e', bg: '#fffbeb' },
+@@ -81,6 +84,7 @@ export function SubmissionReview({ review }: { review?: ChartReview | null }) {
+     <div style={s.wrap}>
+       <div style={s.summary}>
+         <span style={{ ...s.chip, color: STATUS.correct.color, background: STATUS.correct.bg }}>{summary.correct} correct</span>
++        {!!summary.wrong && <span style={{ ...s.chip, color: STATUS.wrong.color, background: STATUS.wrong.bg }}>{summary.wrong} wrong code</span>}
+         <span style={{ ...s.chip, color: STATUS.missed.color, background: STATUS.missed.bg }}>{summary.missed} missed</span>
+         <span style={{ ...s.chip, color: STATUS.extra.color, background: STATUS.extra.bg }}>{summary.extra} extra</span>
+         <span style={{ ...s.chip, color: STATUS.different.color, background: STATUS.different.bg }}>{summary.different} differ</span>
+diff --git a/scripts/smoke_deployed.py b/scripts/smoke_deployed.py
+index d2509eb..9d4cf79 100644
+--- a/scripts/smoke_deployed.py
++++ b/scripts/smoke_deployed.py
+@@ -182,7 +182,7 @@ def main() -> int:
+ 
+ 
+ 
+-REVIEW_STATUSES = {"correct", "missed", "extra", "different", "order", "info"}
++REVIEW_STATUSES = {"correct", "wrong", "missed", "extra", "different", "order", "info"}
+ 
+ 
+ def _review_checks(s, session_id):
+-- 
+2.43.0
+

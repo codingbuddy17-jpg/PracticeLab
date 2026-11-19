@@ -1,0 +1,313 @@
+From bccf4ffb44c7d5ce74a0c485a65ff5844bbbf706 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 19 Nov 2026 08:42:57 +0000
+Subject: [PATCH] Score the E/M primary diagnosis, and ignore dots in E/M
+ diagnoses
+
+E/M diagnoses were scored as an order-blind set, so a coder who buried
+the right primary at the bottom of the list lost nothing. The primary
+now carries half the Dx weight, all or nothing, earned only when listed
+first (the IP/OP PDx rule); the secondaries share the other half
+wherever listed. Applies to E/M and ED Profee. Stored scores are left
+as graded; the review says when a result predates the rule.
+
+Also: the coder's Dx box says 'dot optional', but E/M compared codes
+with dots, so E119 against a key of E11.9 scored as wrong. Dots are now
+ignored on both sides, as IP/OP grading already does.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01GAgNTxNNybv6W7GXL33G6z
+---
+ backend/routers/practicelab_pkg/em_grading.py | 62 +++++++++++---
+ backend/services/practice_review.py           | 63 +++++++++------
+ backend/tests/test_practice_review.py         | 81 ++++++++++++++++---
+ 3 files changed, 157 insertions(+), 49 deletions(-)
+
+diff --git a/backend/routers/practicelab_pkg/em_grading.py b/backend/routers/practicelab_pkg/em_grading.py
+index fdfffbb..b484425 100644
+--- a/backend/routers/practicelab_pkg/em_grading.py
++++ b/backend/routers/practicelab_pkg/em_grading.py
+@@ -329,7 +329,11 @@ def _j(v):
+ 
+ 
+ def _clean_codes(lst: list) -> list:
+-    return [str(c).strip().upper() for c in lst if c and str(c).strip().lower() not in ("", "none")]
++    # Dots dropped, as IP/OP grading does. The coder's Dx box says "dot
++    # optional", and a code typed without one (E119) used to score as wrong
++    # against a key holding E11.9. CPT codes carry no dots, so are unaffected.
++    return [str(c).strip().upper().replace(".", "") for c in lst
++            if c and str(c).strip().lower() not in ("", "none")]
+ 
+ 
+ # ── Time-based levelling (2021+ office/outpatient E/M) ───────────────────────
+@@ -453,6 +457,48 @@ RISK_FIELDS = [
+ ]
+ 
+ 
++def score_em_dx(ak_dx: list, sub_dx: list, weight: float,
++                overcoding_penalty: bool = True) -> dict:
++    """
++    The E/M diagnosis component. The PRIMARY diagnosis is a scoring factor
++    (user, 2026-11-19): it was order-blind before, so a coder who buried the
++    right primary at the bottom of the list lost nothing.
++
++    - Primary: half the weight, all or nothing, earned only when the coder's
++      FIRST code is the key's first — the IP/OP PDx rule. Coded at another
++      position, it earns no primary credit and is not a secondary either.
++    - Secondaries: the other half, split evenly across the key's remaining
++      codes, credited wherever the coder lists them.
++    - A key with one diagnosis puts the whole weight on the primary, or half
++      the weight would be free.
++    - Over-coding: unchanged — each code beyond the key's count costs one
++      key code's share of the weight, floored at zero.
++    - No key diagnoses: full weight, as before.
++
++    Shared with services/practice_review so the review explains the score
++    with the same rule that produced it.
++    """
++    ak_dx, sub_dx = _clean_codes(ak_dx), _clean_codes(sub_dx)   # idempotent
++    if not ak_dx:
++        return {"score": weight, "primary_ok": None, "primary_pts": 0.0,
++                "primary_max": 0.0, "sec_matched": 0, "sec_total": 0,
++                "sec_pts": 0.0, "sec_max": 0.0, "over": 0, "penalty": 0.0}
++    secondaries = ak_dx[1:]
++    primary_max = weight / 2 if secondaries else weight
++    sec_max = weight - primary_max
++    primary_ok = bool(sub_dx) and sub_dx[0] == ak_dx[0]
++    primary_pts = primary_max if primary_ok else 0.0
++    sec_matched = sum(1 for c in secondaries if c in sub_dx)
++    sec_pts = (sec_max / len(secondaries)) * sec_matched if secondaries else 0.0
++    over = max(0, len(sub_dx) - len(ak_dx)) if overcoding_penalty else 0
++    penalty = over * (weight / len(ak_dx))
++    return {"score": max(0.0, primary_pts + sec_pts - penalty),
++            "primary_ok": primary_ok, "primary_pts": primary_pts,
++            "primary_max": primary_max, "sec_matched": sec_matched,
++            "sec_total": len(secondaries), "sec_pts": sec_pts, "sec_max": sec_max,
++            "over": over, "penalty": penalty}
++
++
+ def grade_em_chart(ak: dict, sub: dict, cfg: dict, overcoding_penalty: bool = True) -> dict:
+     """
+     Grade one E/M chart submission against its answer key.
+@@ -632,20 +678,10 @@ def grade_em_chart(ak: dict, sub: dict, cfg: dict, overcoding_penalty: bool = Tr
+             over = max(0, len(sub_cpt_rows) - len(ak_cpt_rows))
+             cpt_score = max(0.0, cpt_score - over * per_cpt)
+ 
+-    # Dx (proportional, overcoding penalty)
++    # Dx — primary first, then the rest (see score_em_dx)
+     ak_dx = _clean_codes(_j(ak.get("dx_codes", "[]")))
+     sub_dx = _clean_codes(_j(sub.get("sub_dx_codes", "[]")))
+-    dx_score = 0.0
+-    if ak_dx:
+-        per_dx = dx_w_adj / len(ak_dx)
+-        matched_dx = sum(1 for c in ak_dx if c in sub_dx)
+-        dx_score = matched_dx * per_dx
+-        if overcoding_penalty:
+-            over_dx = max(0, len(sub_dx) - len(ak_dx))
+-            dx_score = max(0.0, dx_score - over_dx * per_dx)
+-    # No AK dx → full dx score (chart has no expected dx)
+-    elif dx_w_adj > 0:
+-        dx_score = dx_w_adj
++    dx_score = score_em_dx(ak_dx, sub_dx, dx_w_adj, overcoding_penalty)["score"]
+ 
+     coding_accuracy_total = em_level_score + cpt_score + dx_score
+ 
+diff --git a/backend/services/practice_review.py b/backend/services/practice_review.py
+index fd76f23..45c4bee 100644
+--- a/backend/services/practice_review.py
++++ b/backend/services/practice_review.py
+@@ -343,7 +343,7 @@ def _mdm_section(key: str, title: str, fields: List[str], ak: dict, em: dict,
+ def _em_sections(r: dict, ak: Optional[dict], em: Optional[dict], cfg: Optional[dict]) -> List[dict]:
+     from routers.practicelab_pkg.em_grading import (
+         COPA_FIELDS, DR_FIELDS, RISK_FIELDS,
+-        applicable_weights, normalise_cpts, resolve_category,
++        applicable_weights, normalise_cpts, resolve_category, score_em_dx,
+     )
+     ak, em, feedback = ak or {}, em or {}, r.get("feedback") or []
+     sections = []
+@@ -373,38 +373,49 @@ def _em_sections(r: dict, ak: Optional[dict], em: Optional[dict], cfg: Optional[
+     pts, out = _fb_points(feedback, "E/M Level")
+     sections.append(_section("em_level", "E/M Level", "Coding", rows, pts, out))
+ 
+-    # Diagnoses: ONE section, because E/M grades them as ONE component — a set,
+-    # order-blind: (key codes coded anywhere ÷ key codes) × weight, less an
+-    # over-coding penalty. Primary is a row, not a section, so the score never
+-    # sits beside a position mark and reads as a penalty for order; the first
+-    # version did exactly that, and "order only" next to "23.3 of 35" looked
+-    # like a deduction the grader never makes.
+-    dx_k, dx_c = _codes(r.get("sdx_answer_key")), _codes(r.get("sdx_submitted"))
++    # Diagnoses: one section carrying the one Dx score, broken into its two
++    # parts — the primary (half, all or nothing, must be listed first) and the
++    # secondaries (the other half, wherever listed). Built from score_em_dx,
++    # the grader's own function, so the explanation is the rule that scored it.
++    # Compared as the grader compares (no dots, upper case), displayed as typed.
++    shown_k, shown_c = _codes(r.get("sdx_answer_key")), _codes(r.get("sdx_submitted"))
++    dx_k, dx_c = [_norm(c) for c in shown_k], [_norm(c) for c in shown_c]
+     dx_pts, dx_out = _fb_points(feedback, "Dx:")
++    weight = dx_out if dx_out is not None else 0.0
++    sc = score_em_dx(dx_k, dx_c, weight, bool((cfg or {}).get("overcoding_penalty", True)))
+     dx_rows = []
+     consumed = None
+     if dx_k or dx_c:
+         k1, c1 = (dx_k[0] if dx_k else ""), (dx_c[0] if dx_c else "")
+-        c_norm = [_norm(c) for c in dx_c]
+-        if k1 and _norm(k1) in c_norm:
+-            consumed = c_norm.index(_norm(k1))
+-            if consumed == 0:
+-                dx_rows.append(_row("Primary Dx", k1, c1, "correct"))
+-            else:
+-                dx_rows.append(_row("Primary Dx", k1, dx_c[consumed], "correct",
+-                                    "Coded at position %d, not first. Order is not scored on E/M"
+-                                    % (consumed + 1)))
++        sk1, sc1 = (shown_k[0] if shown_k else ""), (shown_c[0] if shown_c else "")
++        if k1 and c1 == k1:
++            consumed = 0
++            dx_rows.append(_row("Primary Dx", sk1, sc1, "correct"))
+         elif k1:
+-            dx_rows.append(_row("Primary Dx", k1, "", "missed"))
+-    k_rest = dx_k[1:]
+-    c_rest = [c for i, c in enumerate(dx_c) if i != consumed]
+-    dx_rows += _set_rows("Secondary Dx", k_rest, c_rest)
++            where = dx_c.index(k1) if k1 in dx_c else None
++            if where is not None:
++                consumed = where
++                note = ("Coded at position %d, not first: no primary credit. "
++                        "The primary must be listed first" % (where + 1))
++            else:
++                note = "Not coded"
++            dx_rows.append(_row("Primary Dx", sk1, sc1, "different" if c1 else "missed", note))
++    c_rest = [c for i, c in enumerate(shown_c) if i != consumed]
++    dx_rows += _set_rows("Secondary Dx", shown_k[1:], c_rest)
+     if dx_k:
+-        hit = sum(1 for c in dx_k if _norm(c) in [_norm(x) for x in dx_c])
+-        over = max(0, len(dx_c) - len(dx_k))
+-        dx_note = ("Scored as a set: %d of %d key diagnoses coded%s. "
+-                   "Order, including which is listed first, is not scored."
+-                   % (hit, len(dx_k), (", %d over-coded" % over) if over else ""))
++        parts = ["Primary %.1f of %.1f pts (must be listed first)" % (sc["primary_pts"], sc["primary_max"])]
++        if sc["sec_total"]:
++            parts.append("Secondary %d of %d coded, %.1f of %.1f pts"
++                         % (sc["sec_matched"], sc["sec_total"], sc["sec_pts"], sc["sec_max"]))
++        if sc["over"]:
++            parts.append("%d over-coded, -%.1f pts" % (sc["over"], sc["penalty"]))
++        dx_note = " · ".join(parts)
++        if dx_pts is not None and round(dx_pts, 1) != round(sc["score"], 1):
++            # Graded before the primary rule existed; stored scores were left
++            # as they were. Say so rather than show parts that do not add up.
++            dx_note = ("Scored under the earlier rule, where diagnosis order did not count "
++                       "(%.1f pts). Re-grade the session to apply the current rule: %s"
++                       % (dx_pts, dx_note))
+     else:
+         dx_note = "The key lists no diagnoses, so this component earns full credit."
+     sections.append(_section("dx", "Diagnoses", "Coding", dx_rows, dx_pts, dx_out, dx_note))
+diff --git a/backend/tests/test_practice_review.py b/backend/tests/test_practice_review.py
+index 8f9c09a..70d7d51 100644
+--- a/backend/tests/test_practice_review.py
++++ b/backend/tests/test_practice_review.py
+@@ -117,21 +117,72 @@ def test_em_is_classified_into_the_sections_a_trainer_reads():
+     assert groups["em_level"] == "Coding" and groups["copa"] == "Reasoning"
+ 
+ 
+-def test_dx_is_one_scored_section_and_order_is_never_marked_wrong():
+-    """
+-    E/M scores diagnoses as a set. The score sits on ONE Diagnoses section with
+-    a note naming what it is for, so it can never read as a penalty for order.
+-    """
++def test_primary_coded_second_earns_no_primary_credit_and_says_why():
++    """Key E11.9, I10, J45.909; coder I10, E11.9. Primary must be listed first."""
+     _, review = _em_review()
+     dx = _sec(review, "dx")
+-    assert (dx["points"], dx["max_points"]) == (23.3, 35.0)
+-    assert "2 of 3 key diagnoses coded" in dx["note"]
++    # primary 0 of 17.5 + secondaries 1 of 2 (I10) = 8.75
++    assert (dx["points"], dx["max_points"]) == (8.8, 35.0)
+     rows = [(r["item"], r["key"], r["coded"], r["status"]) for r in dx["rows"]]
+-    assert rows == [("Primary Dx", "E11.9", "E11.9", "correct"),
++    assert rows == [("Primary Dx", "E11.9", "I10", "different"),
+                     ("Secondary Dx", "I10", "I10", "correct"),
+                     ("Secondary Dx", "J45.909", "", "missed")]
+-    assert "not scored" in dx["rows"][0]["note"]
+-    assert not any(r["status"] == "order" for s in review["sections"] for r in s["rows"])
++    assert "position 2" in dx["rows"][0]["note"]
++    assert dx["note"].startswith("Primary 0.0 of 17.5 pts (must be listed first)")
++    assert "Secondary 1 of 2 coded, 8.8 of 17.5 pts" in dx["note"]
++
++
++def test_a_result_scored_under_the_old_rule_says_so():
++    """Past scores were left as graded; the review must not pretend otherwise."""
++    _, review = _em_review()
++    r = {"specialty": "E/M", "sdx_submitted": EM["em_dx"],
++         "sdx_answer_key": [{"code": c} for c in json.loads(AK["dx_codes"])],
++         "cpt_submitted": [], "cpt_answer_key": [],
++         "feedback": [{"section": "Coding Accuracy", "issue": "Dx: 23.3/35.0 pts",
++                       "ak_code": "", "coder_code": ""}]}
++    note = _sec(build_review(r, AK, EM, CFG), "dx")["note"]
++    assert "earlier rule" in note and "Re-grade" in note
++
++
++# ── the grader: primary diagnosis is a scoring factor ─────────────────────────
++
++def _dx(sub, key=("E11.9", "I10", "J45.909"), w=35.0, over=True):
++    from routers.practicelab_pkg.em_grading import score_em_dx
++    return round(score_em_dx(list(key), list(sub), w, over)["score"], 2)
++
++
++def test_all_codes_with_the_primary_first_earn_the_full_weight():
++    assert _dx(["E11.9", "J45.909", "I10"]) == 35.0
++
++
++def test_the_same_codes_with_the_primary_not_first_lose_the_primary_half():
++    assert _dx(["I10", "E11.9", "J45.909"]) == 17.5
++
++
++def test_only_the_primary_right_earns_half():
++    assert _dx(["E11.9"]) == 17.5
++
++
++def test_a_single_diagnosis_key_puts_the_whole_weight_on_the_primary():
++    assert _dx(["E11.9"], key=("E11.9",)) == 35.0
++    assert _dx(["I10"], key=("E11.9",)) == 0.0
++
++
++def test_over_coding_still_costs_one_key_code_share():
++    # full 35, one extra code beyond three: -35/3
++    assert _dx(["E11.9", "I10", "J45.909", "R05.9"]) == round(35 - 35 / 3, 2)
++
++
++def test_no_key_diagnoses_still_earns_full_credit():
++    assert _dx(["I10"], key=()) == 35.0
++
++
++def test_the_grader_applies_the_primary_rule_end_to_end():
++    ak = dict(AK)
++    first = grade_em_chart(ak, _em_submission_dict(dict(EM, em_dx=[{"code": "E11.9"}, {"code": "I10"}, {"code": "J45.909"}])), CFG)
++    second = grade_em_chart(ak, _em_submission_dict(dict(EM, em_dx=[{"code": "I10"}, {"code": "E11.9"}, {"code": "J45.909"}])), CFG)
++    assert round(first["dx_score"], 1) == 35.0
++    assert round(second["dx_score"], 1) == 17.5
+ 
+ 
+ def test_time_levelled_chart_shows_a_time_section_not_mdm():
+@@ -218,6 +269,8 @@ def test_em_review_through_the_routes_explains_the_copa_points(client, db):
+     charts = client.get(f"/practicelab/practice-sessions/{session['session_id']}/review").json()["charts"]
+     copa = _sec(charts[0]["review"], "copa")
+     assert copa["points"] == 6.7 and "Matched 2 of 3" in copa["note"]
++    # E11.9 listed first: primary earned
++    assert _sec(charts[0]["review"], "dx")["rows"][0]["status"] == "correct"
+     # The coder's own result screen gets the same review, not a lesser one.
+     assert sub.json()["results"][0]["review"] == charts[0]["review"]
+ 
+@@ -288,3 +341,11 @@ def test_a_builder_fault_never_takes_down_the_results(client, db, monkeypatch):
+     assert res.status_code == 200
+     c = res.json()["charts"][0]
+     assert c["review"] is None and c["total_score"] == 100
++
++
++def test_a_dotless_diagnosis_scores_like_the_dotted_one():
++    """The coder's Dx box says 'dot optional'; the grader must agree."""
++    assert _dx(["E119", "I10", "J45909"]) == 35.0
++    ak = dict(AK)
++    sub = _em_submission_dict(dict(EM, em_dx=[{"code": "E119"}, {"code": "I10"}, {"code": "J45909"}]))
++    assert round(grade_em_chart(ak, sub, CFG)["dx_score"], 1) == 35.0
+-- 
+2.43.0
+
