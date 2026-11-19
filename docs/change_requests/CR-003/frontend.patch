@@ -1,0 +1,455 @@
+diff --git a/frontend/src/components/DescribedCodes.tsx b/frontend/src/components/DescribedCodes.tsx
+new file mode 100644
+index 0000000..1bf6a4b
+--- /dev/null
++++ b/frontend/src/components/DescribedCodes.tsx
+@@ -0,0 +1,22 @@
++import type { ReactNode } from 'react'
++import { useCodeDescriptions } from '../hooks/useCodeDescriptions'
++
++/**
++ * Looks up what a list of codes mean and hands a describe() to its children.
++ *
++ * For summary chips — "most missed: I50.9 (4×)" — where a leader reads codes
++ * as coaching topics. The description goes in a hover title: the chips stay
++ * compact, and the full text is one hover away. A component rather than a
++ * hook at the call site, so it can sit inside a list or a branch without
++ * moving a hook below an early return (React #310).
++ *
++ * No section is given: these lists mix diagnoses and procedures. The code
++ * systems do not overlap in practice, and an unknown code is simply silent.
++ */
++export function DescribedCodes({ codes, children }: {
++  codes: string[]
++  children: (describe: (code: string) => string) => ReactNode
++}) {
++  const lookup = useCodeDescriptions(codes)
++  return <>{children(code => lookup(code)?.description || '')}</>
++}
+diff --git a/frontend/src/components/SubmissionReview.tsx b/frontend/src/components/SubmissionReview.tsx
+index 43a387e..d501386 100644
+--- a/frontend/src/components/SubmissionReview.tsx
++++ b/frontend/src/components/SubmissionReview.tsx
+@@ -16,7 +16,10 @@ import { downloadPracticeReview, downloadPracticeReviewByToken } from '../api/pr
+ 
+ export type ReviewStatus = 'correct' | 'missed' | 'extra' | 'different' | 'order' | 'info'
+ 
+-export interface ReviewRow { item: string; key: string; coded: string; status: ReviewStatus; note: string }
++export interface ReviewRow {
++  item: string; key: string; coded: string; status: ReviewStatus; note: string
++  key_desc?: string; coded_desc?: string
++}
+ export interface ReviewSection {
+   key: string; title: string; group: 'Coding' | 'Reasoning'
+   points: number | null; max_points: number | null; note: string | null
+@@ -48,10 +51,17 @@ const s = {
+   secTitle: { fontSize: 13, fontWeight: 700, color: '#111827', flex: 1 },
+   secPts: { fontSize: 12, fontWeight: 700, color: '#374151' },
+   secNote: { fontSize: 11, color: '#6b7280', padding: '6px 12px', background: '#fcfcfd', borderBottom: '1px solid #f3f4f6' },
+-  table: { width: '100%', borderCollapse: 'collapse' as const, fontSize: 12 },
++  // Fixed layout: columns keep their share however long a description is, so
++  // a ninety-character PCS title wraps inside its cell instead of widening it.
++  table: { width: '100%', borderCollapse: 'collapse' as const, fontSize: 12, tableLayout: 'fixed' as const },
+   th: { textAlign: 'left' as const, fontSize: 10, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' as const, letterSpacing: 0.4, padding: '6px 12px', borderBottom: '1px solid #f3f4f6' },
+   td: { padding: '6px 12px', borderBottom: '1px solid #f3f4f6', verticalAlign: 'top' as const },
+-  code: { fontFamily: 'ui-monospace, monospace', color: '#111827' },
++  code: { fontFamily: 'ui-monospace, monospace', color: '#111827', overflowWrap: 'anywhere' as const },
++  // Two lines at most; the full text is on hover.
++  desc: {
++    fontFamily: 'system-ui, sans-serif', fontSize: 11, lineHeight: 1.35, color: '#6b7280', marginTop: 2,
++    display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const, overflow: 'hidden',
++  },
+   note: { fontSize: 11, color: '#6b7280', marginTop: 2 },
+   empty: { fontSize: 12, color: '#9ca3af', padding: '6px 12px' },
+ }
+@@ -106,10 +116,10 @@ function Section({ sec, accent }: { sec: ReviewSection; accent: string }) {
+         <table style={s.table}>
+           <thead>
+             <tr>
+-              <th style={{ ...s.th, width: '34%' }}>Item</th>
+-              <th style={{ ...s.th, width: '20%' }}>Answer key</th>
+-              <th style={{ ...s.th, width: '20%' }}>Coded</th>
+-              <th style={s.th}>Result</th>
++              <th style={{ ...s.th, width: '24%' }}>Item</th>
++              <th style={{ ...s.th, width: '27%' }}>Answer key</th>
++              <th style={{ ...s.th, width: '27%' }}>Coded</th>
++              <th style={{ ...s.th, width: '22%' }}>Result</th>
+             </tr>
+           </thead>
+           <tbody>
+@@ -118,8 +128,10 @@ function Section({ sec, accent }: { sec: ReviewSection; accent: string }) {
+               return (
+                 <tr key={i}>
+                   <td style={s.td}>{r.item}</td>
+-                  <td style={{ ...s.td, ...s.code }}>{r.key || '—'}</td>
+-                  <td style={{ ...s.td, ...s.code }}>{r.coded || '—'}</td>
++                  <CodeCell code={r.key} desc={r.key_desc} />
++                  {/* Same code both sides: say what it means once, not twice. */}
++                  <CodeCell code={r.coded}
++                    desc={sameCode(r.key, r.coded) ? '' : r.coded_desc} />
+                   <td style={s.td}>
+                     {st.label && <span style={{ ...s.chip, color: st.color, background: st.bg }}>{st.label}</span>}
+                     {r.note && <div style={s.note}>{r.note}</div>}
+@@ -134,6 +146,40 @@ function Section({ sec, accent }: { sec: ReviewSection; accent: string }) {
+   )
+ }
+ 
++/**
++ * A describe() for GradingFeedback, built from descriptions the review already
++ * carries — so the Scoring notes beside a review need no second lookup.
++ */
++export function describeFromReview(review?: ChartReview | null) {
++  const map: Record<string, string> = {}
++  for (const sec of review?.sections || []) {
++    for (const r of sec.rows) {
++      const k = (r.key || '').split('  ')[0].replace(/\./g, '').toUpperCase()
++      const c = (r.coded || '').split('  ')[0].replace(/\./g, '').toUpperCase()
++      if (k && r.key_desc) map[k] = r.key_desc
++      if (c && r.coded_desc) map[c] = r.coded_desc
++    }
++  }
++  return (code: string) => {
++    const d = map[(code || '').replace(/\./g, '').toUpperCase()]
++    return d ? { description: d } : null
++  }
++}
++
++function sameCode(a: string, b: string) {
++  const norm = (x: string) => (x || '').split('  ')[0].replace(/\./g, '').toUpperCase()
++  return !!a && norm(a) === norm(b)
++}
++
++function CodeCell({ code, desc }: { code: string; desc?: string }) {
++  return (
++    <td style={s.td}>
++      <div style={s.code}>{code || '—'}</div>
++      {desc && <div style={s.desc} title={desc}>{desc}</div>}
++    </td>
++  )
++}
++
+ /**
+  * Download the review as a formatted workbook. Two URLs: the trainer's by
+  * session, the coder's by their own access code (refused until results are
+diff --git a/frontend/src/pages/auditor/AuditReview.tsx b/frontend/src/pages/auditor/AuditReview.tsx
+index 028e18a..88bf406 100644
+--- a/frontend/src/pages/auditor/AuditReview.tsx
++++ b/frontend/src/pages/auditor/AuditReview.tsx
+@@ -1,4 +1,5 @@
+ import { useCallback, useEffect, useState } from 'react'
++import { useCodeDescriptions } from '../../hooks/useCodeDescriptions'
+ import toast from 'react-hot-toast'
+ import { AlertTriangle, CheckCircle, ChevronLeft, Circle, XCircle } from 'lucide-react'
+ import { getAuditReview } from '../../api/auditorApi'
+@@ -40,6 +41,36 @@ export function AuditReview({ sessionId, onBack }: {
+   }, [sessionId])
+   useEffect(() => { load() }, [load])
+ 
++  // What the codes in each planting and finding MEAN — the evidence a trainer
++  // weighs when judging the auditor. Only where the field is the code itself:
++  // a POA, modifier or units value is not a code. Above the early return.
++  const codeRows = (data?.charts || []).flatMap((c: any) => (c.outcomes || []).map((o: any) =>
++    o.outcome === 'over_call' ? o.finding || {} : o.planting || {}))
++    .filter((r: any) => !r.field || r.field === 'code')
++  const codesFor = (secs: string[]) => codeRows.filter((r: any) => secs.includes(r.section))
++    .flatMap((r: any) => [r.claim_value, r.correct_value]).filter(Boolean)
++  const describeDx = useCodeDescriptions(codesFor(['PDx', 'SDx']), 'SDx')
++  const describePcs = useCodeDescriptions(codesFor(['PCS']), 'PCS')
++  const describeCpt = useCodeDescriptions(codesFor(['CPT']), 'CPT')
++  const meaning = (r: any) => {
++    if (r.field && r.field !== 'code') return null
++    const fn = r.section === 'PCS' ? describePcs : r.section === 'CPT' ? describeCpt
++      : (r.section === 'PDx' || r.section === 'SDx') ? describeDx : null
++    if (!fn) return null
++    const parts = [r.claim_value, r.correct_value].filter(Boolean)
++      .map((c: string) => ({ c, d: fn(c)?.description || '' })).filter(x => x.d)
++    if (!parts.length) return null
++    return (
++      <div style={s.codeMeaning}>
++        {parts.map(x => (
++          <div key={x.c} title={`${x.c} — ${x.d}`} style={s.codeMeaningLine}>
++            <code>{x.c}</code> {x.d}
++          </div>
++        ))}
++      </div>
++    )
++  }
++
+   if (!data) return <div style={s.empty}>Loading…</div>
+   const sum = data.summary || {}
+ 
+@@ -132,7 +163,7 @@ export function AuditReview({ sessionId, onBack }: {
+                     return (
+                       <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '6px 8px', borderRadius: 6, background: '#fffbeb' }}>
+                         <AlertTriangle size={14} color="#d97706" style={{ flexShrink: 0, marginTop: 2 }} />
+-                        <div style={{ fontSize: 12, lineHeight: 1.5 }}>
++                        <div style={{ fontSize: 12, lineHeight: 1.5, minWidth: 0, flex: 1 }}>
+                           <strong style={{ color: '#b45309' }}>Over-call</strong>{' '}
+                           {f.section}
+                           {f.field && f.field !== 'code' ? ` ${f.field}` : ''}
+@@ -141,6 +172,7 @@ export function AuditReview({ sessionId, onBack }: {
+                           <code>{f.claim_value || '—'}</code>
+                           {f.correct_value ? <> as <code>{f.correct_value}</code></> : null}
+                           <span style={{ color: '#9ca3af' }}> · nothing was wrong here</span>
++                          {meaning(f)}
+                         </div>
+                       </div>
+                     )
+@@ -153,7 +185,7 @@ export function AuditReview({ sessionId, onBack }: {
+                                           padding: '6px 8px', borderRadius: 6,
+                                           background: o.outcome === 'correct' ? '#f8fafc' : '#fffafa' }}>
+                       <Icon size={14} color={cfg.color} style={{ flexShrink: 0, marginTop: 2 }} />
+-                      <div style={{ fontSize: 12, lineHeight: 1.5 }}>
++                      <div style={{ fontSize: 12, lineHeight: 1.5, minWidth: 0, flex: 1 }}>
+                         <strong style={{ color: ACTION_COLORS[p.action] || '#374151' }}>
+                           {p.action}
+                         </strong>{' '}
+@@ -179,6 +211,7 @@ export function AuditReview({ sessionId, onBack }: {
+                         <span style={{ marginLeft: 8, color: cfg.color, fontWeight: 600 }}>
+                           {cfg.label}
+                         </span>
++                        {meaning(p)}
+                       </div>
+                     </div>
+                   )
+diff --git a/frontend/src/pages/auditor/styles.ts b/frontend/src/pages/auditor/styles.ts
+index d14f271..a8f8f6a 100644
+--- a/frontend/src/pages/auditor/styles.ts
++++ b/frontend/src/pages/auditor/styles.ts
+@@ -89,6 +89,11 @@ const auditorOnly: Record<string, CSSProperties> = {
+     padding: '10px 12px', border: '1px solid #f3f4f6', borderRadius: 9,
+     background: '#fcfcfd',
+   },
++  // What the codes in a planting or finding mean. One line each, truncated
++  // inside the row (full text on hover) so a ninety-character PCS title never
++  // widens the review.
++  codeMeaning: { marginTop: 3, paddingLeft: 8, borderLeft: '2px solid #e5e7eb', display: 'flex', flexDirection: 'column', gap: 1 },
++  codeMeaningLine: { fontSize: 11, color: '#6b7280', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
+   observedTag: {
+     marginLeft: 8, fontSize: 10, fontWeight: 700, color: '#059669',
+     background: '#d1fae5', padding: '1px 7px', borderRadius: 5,
+diff --git a/frontend/src/pages/practicelab/AnswerKeysView.tsx b/frontend/src/pages/practicelab/AnswerKeysView.tsx
+index e8e5d38..78693f3 100644
+--- a/frontend/src/pages/practicelab/AnswerKeysView.tsx
++++ b/frontend/src/pages/practicelab/AnswerKeysView.tsx
+@@ -1,4 +1,5 @@
+ import { useState, useEffect, useRef } from 'react'
++import { useCodeDescriptions } from '../../hooks/useCodeDescriptions'
+ import { Download, Upload, Loader, Trash2, X, AlertTriangle, RefreshCw, Plus, ShieldCheck } from 'lucide-react'
+ import toast from 'react-hot-toast'
+ import {
+@@ -59,6 +60,9 @@ export function AnswerKeysView() {
+   const [ccmccIssues, setCcmccIssues] = useState<
+     { chart: string; code: string; claimed: string; published: string }[]>([])
+   const [checking, setChecking] = useState(false)
++  // What a flagged secondary MEANS: the check a trainer needs to decide
++  // whether the key's CC/MCC label or the code itself is the mistake.
++  const describeCc = useCodeDescriptions(ccmccIssues.map(c => c.code), 'SDx')
+ 
+   /**
+    * The upload check only ever saw keys passing through it, which did nothing
+@@ -374,12 +378,21 @@ export function AnswerKeysView() {
+               give them, which affects DRG flags in grading. Keys are not changed by
+               this check — only the trainer knows which value was meant.
+             </div>
+-            <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 6 }}>
+-              {ccmccIssues.map((c, i) => (
+-                <span key={`${c.chart}-${c.code}-${i}`} style={{ fontSize: 12, background: '#ffedd5', color: '#9a3412', border: '1px solid #fdba74', padding: '2px 10px', borderRadius: 20 }}>
+-                  {c.chart} · <b style={{ fontFamily: 'monospace' }}>{c.code}</b> — key says {c.claimed}, CMS says {c.published}
+-                </span>
+-              ))}
++            {/* One line per issue, in fixed columns: the description truncates
++                inside its own column (full text on hover) instead of widening
++                the row, and a long list scrolls inside the panel. */}
++            <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 4, maxHeight: 240, overflowY: 'auto' as const }}>
++              {ccmccIssues.map((c, i) => {
++                const desc = describeCc(c.code)?.description || ''
++                return (
++                  <div key={`${c.chart}-${c.code}-${i}`} style={{ display: 'grid', gridTemplateColumns: '90px 80px minmax(0,1fr) auto', gap: 10, alignItems: 'center', fontSize: 12, background: '#ffedd5', color: '#9a3412', border: '1px solid #fdba74', padding: '4px 10px', borderRadius: 8 }}>
++                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }} title={c.chart}>{c.chart}</span>
++                    <b style={{ fontFamily: 'monospace' }}>{c.code}</b>
++                    <span title={desc} style={{ color: '#7c2d12', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{desc}</span>
++                    <span style={{ whiteSpace: 'nowrap' as const }}>key says {c.claimed}, CMS says {c.published}</span>
++                  </div>
++                )
++              })}
+             </div>
+           </div>
+           <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', padding: 2, flexShrink: 0 }} onClick={() => setCcmccIssues([])}>
+diff --git a/frontend/src/pages/practicelab/BatchDetailView.tsx b/frontend/src/pages/practicelab/BatchDetailView.tsx
+index 1d62566..ead28aa 100644
+--- a/frontend/src/pages/practicelab/BatchDetailView.tsx
++++ b/frontend/src/pages/practicelab/BatchDetailView.tsx
+@@ -1,6 +1,6 @@
+ import { useState, useEffect, useCallback } from 'react'
+ import { GradingFeedback } from '../../components/GradingFeedback'
+-import { SubmissionReview, ReviewExportButton } from '../../components/SubmissionReview'
++import { SubmissionReview, ReviewExportButton, describeFromReview } from '../../components/SubmissionReview'
+ import { Loader, Download, BarChart2, Search, CheckSquare, Square, CheckCircle, Circle, AlertCircle, ChevronDown, ChevronRight, Key, Copy, Eye } from 'lucide-react'
+ import toast from 'react-hot-toast'
+ import RandomisationStatsCard from '../../components/RandomisationStatsCard'
+@@ -1376,6 +1376,7 @@ function ReviewModal({ reviewData, onClose, onRefresh }: { reviewData: any; onCl
+                           feedback={c.feedback}
+                           sdxKey={c.sdx_answer_key}
+                           pdxKey={c.pdx_answer_key ? [{ code: c.pdx_answer_key }] : []}
++                          describe={describeFromReview(c.review)}
+                         />
+                       </details>
+                     )}
+diff --git a/frontend/src/pages/practicelab/DRGReviewView.tsx b/frontend/src/pages/practicelab/DRGReviewView.tsx
+index 1cb1b3f..4a32203 100644
+--- a/frontend/src/pages/practicelab/DRGReviewView.tsx
++++ b/frontend/src/pages/practicelab/DRGReviewView.tsx
+@@ -3,6 +3,7 @@ import { Loader, FileCheck } from 'lucide-react'
+ import toast from 'react-hot-toast'
+ import { getDRGReview, submitDRGDecision } from '../../api'
+ import { trainerName } from './shared'
++import { useCodeDescriptions } from '../../hooks/useCodeDescriptions'
+ import styles from './styles'
+ 
+ export function DRGReviewView({ batchId, onDone }: any) {
+@@ -27,6 +28,16 @@ export function DRGReviewView({ batchId, onDone }: any) {
+     finally { setSubmitting(s => ({ ...s, [resultId]: false })) }
+   }
+ 
++  // The DRG call is a pay-impacting judgement made between two codes; what each
++  // code MEANS is the evidence. Hooks sit above the early return (React #310).
++  const codesIn = (sec: (s: string) => boolean) => rows.flatMap((r: any) =>
++    (r.feedback || []).filter((f: any) => sec(f.section || ''))
++      .flatMap((f: any) => [f.ak_code, f.coder_code])).filter(Boolean)
++  const describeDx = useCodeDescriptions(codesIn(x => x === 'PDx' || x === 'SDx'), 'SDx')
++  const describePcs = useCodeDescriptions(codesIn(x => x === 'PCS'), 'PCS')
++  const describe = (code: string, section: string) =>
++    (section === 'PCS' ? describePcs : describeDx)(code)?.description || ''
++
+   if (loading) return <div style={styles.center}><Loader size={24} /></div>
+ 
+   return (
+@@ -55,12 +66,12 @@ export function DRGReviewView({ batchId, onDone }: any) {
+             {r.feedback?.length > 0 && (
+               <div style={styles.fbList}>
+                 {r.feedback.map((f: any, i: number) => (
+-                  <div key={i} style={styles.fbRow}>
+-                    <span style={styles.fbSection}>{f.section}</span>
+-                    <span style={styles.fbIssue}>{f.issue_type}</span>
+-                    {f.ak_code && <span style={{ fontSize: 12, color: '#374151' }}>AK: {f.ak_code}</span>}
+-                    {f.coder_code && <span style={{ fontSize: 12, color: '#6b7280' }}>Coder: {f.coder_code}</span>}
+-                    {f.detail && <span style={{ fontSize: 12, color: '#6b7280' }}>{f.detail}</span>}
++                  <div key={i} style={styles.fbGrid}>
++                    <span style={{ ...styles.fbSection, justifySelf: 'start' }}>{f.section}</span>
++                    <span style={{ ...styles.fbIssue, justifySelf: 'start' }}>{String(f.issue_type || '').replace(/_/g, ' ')}</span>
++                    <DrgCode label="Answer key" code={f.ak_code} desc={describe(f.ak_code, f.section)} />
++                    <DrgCode label="Coder" code={f.coder_code} desc={describe(f.coder_code, f.section)}
++                      extra={f.detail} />
+                   </div>
+                 ))}
+               </div>
+@@ -81,3 +92,14 @@ export function DRGReviewView({ batchId, onDone }: any) {
+     </div>
+   )
+ }
++
++function DrgCode({ label, code, desc, extra }: { label: string; code?: string; desc: string; extra?: string }) {
++  return (
++    <div style={{ minWidth: 0 }}>
++      <div style={styles.fbCodeLabel}>{label}</div>
++      <div style={styles.fbCode}>{code || '—'}</div>
++      {code && desc && <div style={styles.fbDesc} title={desc}>{desc}</div>}
++      {extra && <div style={{ ...styles.fbDesc, color: '#92400e' }} title={extra}>{extra}</div>}
++    </div>
++  )
++}
+diff --git a/frontend/src/pages/practicelab/InsightsPanel.tsx b/frontend/src/pages/practicelab/InsightsPanel.tsx
+index c966165..4208682 100644
+--- a/frontend/src/pages/practicelab/InsightsPanel.tsx
++++ b/frontend/src/pages/practicelab/InsightsPanel.tsx
+@@ -1,4 +1,5 @@
+ import { useState } from 'react'
++import { DescribedCodes } from '../../components/DescribedCodes'
+ import toast from 'react-hot-toast'
+ import {
+   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+@@ -312,11 +313,11 @@ export function InsightsPanel({ insights, batchId, onClose }: { insights: any; b
+                 <>
+                   <div style={{ fontSize: 11, color: '#6b7280', marginTop: 10, marginBottom: 6 }}>Top missed codes</div>
+                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+-                    {te.top_missed_codes.map((m: any) => (
+-                      <span key={m.code} style={{ fontSize: 11, fontWeight: 700, background: '#fee2e2', color: '#dc2626', padding: '2px 10px', borderRadius: 10 }}>
++                    <DescribedCodes codes={te.top_missed_codes.map((m: any) => m.code)}>{describe => te.top_missed_codes.map((m: any) => (
++                      <span key={m.code} title={describe(m.code) || undefined} style={{ fontSize: 11, fontWeight: 700, background: '#fee2e2', color: '#dc2626', padding: '2px 10px', borderRadius: 10, cursor: describe(m.code) ? 'help' : undefined }}>
+                         {m.code} {m.count}×
+                       </span>
+-                    ))}
++                    ))}</DescribedCodes>
+                   </div>
+                 </>
+               )}
+diff --git a/frontend/src/pages/practicelab/PLAnalyticsView.tsx b/frontend/src/pages/practicelab/PLAnalyticsView.tsx
+index 7c8bc67..cdee91d 100644
+--- a/frontend/src/pages/practicelab/PLAnalyticsView.tsx
++++ b/frontend/src/pages/practicelab/PLAnalyticsView.tsx
+@@ -1,4 +1,5 @@
+ import { useState, useEffect, useRef } from 'react'
++import { DescribedCodes } from '../../components/DescribedCodes'
+ import { Link, useSearchParams } from 'react-router-dom'
+ import { Loader } from 'lucide-react'
+ import toast from 'react-hot-toast'
+@@ -1566,7 +1567,15 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
+                           })}
+                           {r.top_codes.length > 0 && (
+                             <div style={{ fontSize: 11, color: '#6b7280' }}>
+-                              Most missed: {r.top_codes.map((c: any) => `${c.code} (${c.count})`).join(' · ')}
++                              Most missed:{' '}
++                              <DescribedCodes codes={r.top_codes.map((c: any) => c.code)}>{describe => r.top_codes.map((c: any, k: number) => (
++                                <span key={c.code}>
++                                  {k > 0 && ' · '}
++                                  <span title={describe(c.code) || undefined} style={{ cursor: describe(c.code) ? 'help' : undefined, borderBottom: describe(c.code) ? '1px dotted #9ca3af' : undefined }}>
++                                    {c.code}
++                                  </span> ({c.count})
++                                </span>
++                              ))}</DescribedCodes>
+                             </div>
+                           )}
+                         </div>
+diff --git a/frontend/src/pages/practicelab/ResultsView.tsx b/frontend/src/pages/practicelab/ResultsView.tsx
+index 9d6a45b..26860e0 100644
+--- a/frontend/src/pages/practicelab/ResultsView.tsx
++++ b/frontend/src/pages/practicelab/ResultsView.tsx
+@@ -1,4 +1,5 @@
+ import { useState, useEffect, useCallback } from 'react'
++import { DescribedCodes } from '../../components/DescribedCodes'
+ import { Loader, Download, Copy, Check, ChevronDown, ChevronRight } from 'lucide-react'
+ import toast from 'react-hot-toast'
+ import { getBatchResults, downloadBatchResultsExcel, getBatchInsights, setBatchScoring } from '../../api'
+@@ -171,11 +172,11 @@ export function ResultsView({ batchId }: any) {
+               <div>
+                 <div style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase' as const, letterSpacing: 0.5, marginBottom: 6 }}>Top missed codes</div>
+                 <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 6 }}>
+-                  {bs.top_missed_codes.map((m: any) => (
+-                    <span key={m.code} style={{ background: '#fee2e2', color: '#dc2626', border: '1px solid #fecaca', borderRadius: 20, padding: '3px 10px', fontSize: 12, fontWeight: 700 }}>
++                  <DescribedCodes codes={bs.top_missed_codes.map((m: any) => m.code)}>{describe => bs.top_missed_codes.map((m: any) => (
++                    <span key={m.code} title={describe(m.code) || undefined} style={{ background: '#fee2e2', color: '#dc2626', border: '1px solid #fecaca', borderRadius: 20, padding: '3px 10px', fontSize: 12, fontWeight: 700, cursor: describe(m.code) ? 'help' : undefined }}>
+                       {m.code} <span style={{ fontWeight: 400, opacity: 0.7 }}>({m.count}×)</span>
+                     </span>
+-                  ))}
++                  ))}</DescribedCodes>
+                 </div>
+               </div>
+             )}
+diff --git a/frontend/src/pages/practicelab/styles.ts b/frontend/src/pages/practicelab/styles.ts
+index 410b241..1dc5717 100644
+--- a/frontend/src/pages/practicelab/styles.ts
++++ b/frontend/src/pages/practicelab/styles.ts
+@@ -53,6 +53,12 @@ const styles: Record<string, React.CSSProperties> = {
+   chartDetailRow: { display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', gap: 12, padding: '6px 0', borderBottom: '1px solid #e5e7eb' },
+   fbList: { width: '100%', display: 'flex', flexDirection: 'column', gap: 3, marginTop: 4 },
+   fbRow: { display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', padding: '3px 0' },
++  // A feedback row that carries descriptions: fixed columns, so a long PCS
++  // title wraps inside its own cell instead of pushing the row wider.
++  fbGrid: { display: 'grid', gridTemplateColumns: '64px 110px minmax(0,1fr) minmax(0,1fr)', gap: 10, alignItems: 'start', padding: '6px 0', borderTop: '1px solid #f3f4f6' },
++  fbCodeLabel: { fontSize: 10, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.4 },
++  fbCode: { fontSize: 12, fontFamily: 'ui-monospace, monospace', color: '#111827', overflowWrap: 'anywhere' },
++  fbDesc: { fontSize: 11, lineHeight: 1.35, color: '#6b7280', marginTop: 1, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' },
+   fbSection: { fontSize: 11, fontWeight: 700, background: '#dbeafe', color: '#1d4ed8', padding: '2px 8px', borderRadius: 10 },
+   fbIssue: { fontSize: 11, fontWeight: 700, background: '#fee2e2', color: '#dc2626', padding: '2px 8px', borderRadius: 10 },
+   drgCard: { background: '#fff', border: '1.5px solid #e5e7eb', borderRadius: 10, padding: 18, display: 'flex', flexDirection: 'column', gap: 12 },

@@ -1,0 +1,3 @@
+Generated from FastAPI OpenAPI before and after commit 08e8b3a.
+
+No routes added, removed or changed. Review rows gain key_desc/coded_desc (untyped responses, not visible here); see CR-003.md section 3.

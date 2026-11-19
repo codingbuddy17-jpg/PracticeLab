@@ -27,6 +27,13 @@ Kinds: **A** frontend only · **B** backend only · **C** both · **D** schema.
 |---|---|---|---|---|---|---|
 | [001](CR-001/CR-001.md) | Practice review shows right as well as wrong; E/M review classified; Excel export | C | No | None | `db51300, f6198ef` | Backend first, then frontend patch |
 | [002](CR-002/CR-002.md) | E/M primary diagnosis becomes a scoring factor; diagnosis dots ignored | B | Yes | None | `bccf4ff` | After CR-001 |
+| [003](CR-003/CR-003.md) | Code descriptions on review, DRG, key-check, auditor-review and analytics screens | C | No | None | `08e8b3a` | After CR-001; backend first, then frontend patch |
 
 Built 19 November 2026 by `docs/_change_register_build.py`, which also writes `docs/PracticeLab_Change_Register.xlsx` — the detailed version, with one row per file-level change and the columns IT uses to track progress.
+
+**Backlog: proposed, not built**
+
+| Item | Title | Status |
+|---|---|---|
+| B-001 | Auditor results review after submission | Logged at the user's request; design to be proposed before building. |
 <!-- register:end -->

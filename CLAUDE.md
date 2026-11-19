@@ -417,11 +417,15 @@ Two CMS files are easy to take from the wrong place:
 repository is public. CPT lines render bare and the answer-key checks decline
 to judge five-digit numeric codes rather than pretend to have checked them.
 
-Descriptions are wired into the screens where codes are **typed**: coder
-PDx/SDx/PCS, the auditor's claim/revise/add rows, and both trainer key editors
-(`AnswerKeyEditor`, `EMAnswerKeysView`) — plus the trainer freshness note.
-`auditor/AuditKeys.tsx` is not wired yet. Analytics, results screens and the
-PDF exports show codes without them.
+Descriptions are wired where codes are **typed** (coder PDx/SDx/PCS, the
+auditor's claim/revise/add rows, `AnswerKeyEditor`, `EMAnswerKeysView`,
+`auditor/AuditKeys.tsx`) and, since CR-003, where they are **read and judged**:
+the post-submit review and its export (server-side, `describe_review`), the
+trainer's scoring notes, DRG Review, the CC/MCC key check, the trainer's
+auditor review, and hover titles on most-missed codes. A description always
+wraps or truncates inside its own column; a code matching on both sides of a
+review row is described once. Still bare: the coder PDF beyond most-missed,
+and anything CPT.
 
 On a coder screen a description is a study aid; on a **key** screen it is a
 check, and a wrong key is worse than a wrong answer because it silently grades

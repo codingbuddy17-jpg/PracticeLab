@@ -62,6 +62,30 @@ CRS = [
                     "first; secondaries share the other half. E119 now matches E11.9. Stored "
                     "scores are not rescored; Re-grade applies the rule."),
     },
+    {
+        "id": "CR-003",
+        "title": "Code descriptions on review, DRG, key-check, auditor-review and analytics screens",
+        "kind": "C", "module": "PracticeLab + Auditor trainer screens, analytics",
+        "score_impact": "No", "schema": "None",
+        "commits": "08e8b3a", "date": "2026-11-19",
+        "order": "After CR-001; backend first, then frontend patch",
+        "spec": "change_requests/CR-003/CR-003.md",
+        "summary": ("Descriptions where codes are READ and judged, not only where typed: the review "
+                    "and its export, DRG Review, CC/MCC key check, the trainer's auditor review, "
+                    "and hover tooltips on most-missed codes. Wrap or truncate inside their column; "
+                    "no overflow."),
+    },
+]
+
+# Proposed and agreed in principle, NOT built. Listed so nothing raised is
+# lost; an item moves to CRS when it is built.
+BACKLOG = [
+    ("B-001", "2026-11-19", "Auditor results review after submission",
+     "After submitting, an auditor sees only percentages and counts ('2 missed'), never WHICH "
+     "errors they missed, so cannot learn from it. Coders got a full review in CR-001; the "
+     "auditor side has no equivalent. Would show each planted error found / missed / corrected "
+     "wrongly, with code descriptions, when the trainer has released results.",
+     "Logged at the user's request; design to be proposed before building."),
 ]
 
 # One row per file-level change.
@@ -166,6 +190,43 @@ CHANGES = [
     ("CR-002", "Test", "backend/tests/test_practice_review.py", "Dx rule tests", "Added",
      "Primary first / second / only / single-Dx key / over-coding / no key Dx / dotless / end-to-end.",
      "—", "Removing the 'listed first' condition fails three tests.", "None (reference)", "Yes", "CR-002 §5"),
+    # ── CR-003 ──
+    ("CR-003", "Backend", "backend/services/practice_review.py", "describe_review()", "Added",
+     "Adds key_desc / coded_desc to every code row (PDx, SDx, Dx, PCS, CPT) of every chart, one lookup per code system per session.",
+     "Review rows carried codes only.", "Each code row carries what the code means; silent when unknown or CPT.",
+     "Implement in .NET", "No", "CR-003 §3.1"),
+    ("CR-003", "Backend", "backend/routers/practicelab_pkg/practice_sessions.py", "_build_coder_results()", "Modified",
+     "Calls describe_review() after building reviews.", "—", "Review, submit and by-token responses carry descriptions.",
+     "Implement in .NET", "No", "CR-003 §3.1"),
+    ("CR-003", "Backend", "backend/services/practice_review.py", "review_workbook()", "Modified",
+     "Review sheet gains Key description and Coded description columns; Result moves to column 10.",
+     "9 columns, no descriptions.", "11 columns.", "Implement in .NET", "No", "CR-003 §3.2"),
+    ("CR-003", "Frontend", "frontend/src/components/SubmissionReview.tsx", "CodeCell / describeFromReview", "Added",
+     "Description under each code, clamped to 2 lines, full text on hover; fixed table layout so columns never widen.",
+     "Codes only.", "Code + meaning.", "Apply patch", "No", "CR-003 frontend.patch"),
+    ("CR-003", "Frontend", "frontend/src/pages/practicelab/BatchDetailView.tsx", "ReviewModal — Scoring notes", "Modified",
+     "Passes descriptions from the review to the scoring notes.", "Trainer notes had no descriptions.", "Same descriptions as the coder sees.",
+     "Apply patch", "No", "CR-003 frontend.patch"),
+    ("CR-003", "Frontend", "frontend/src/pages/practicelab/DRGReviewView.tsx", "DRG findings", "Modified",
+     "Findings laid out as a fixed grid with code + description for answer key and coder.",
+     "One inline row: 'AK: J18.9  Coder: J15.9'.", "A pay-impacting call made with what each code means.",
+     "Apply patch", "No", "CR-003 frontend.patch"),
+    ("CR-003", "Frontend", "frontend/src/pages/practicelab/AnswerKeysView.tsx", "Check Codes — CC/MCC panel", "Modified",
+     "One fixed-column row per issue with the description; list scrolls inside the panel.",
+     "Wrapping chips with codes only.", "Trainer sees what the flagged code is before fixing the key.",
+     "Apply patch", "No", "CR-003 frontend.patch"),
+    ("CR-003", "Frontend", "frontend/src/pages/auditor/AuditReview.tsx", "Planted errors and over-calls", "Modified",
+     "A line per code (claim and correct value) with its description, only where the field is the code.",
+     "Codes only.", "Trainer judges the auditor with what each code means.",
+     "Apply patch", "No", "CR-003 frontend.patch"),
+    ("CR-003", "Frontend", "frontend/src/components/DescribedCodes.tsx", "DescribedCodes", "Added",
+     "Render-prop lookup used for hover tooltips on most-missed codes (Results, Insights, by-coder analytics).",
+     "Bare codes.", "Description on hover.", "Apply patch", "No", "CR-003 frontend.patch"),
+    ("CR-003", "Frontend", "frontend/src/pages/practicelab/{ResultsView,InsightsPanel,PLAnalyticsView}.tsx · styles.ts · auditor/styles.ts", "Most-missed chips; styles", "Modified",
+     "Tooltips on most-missed chips; shared styles for the new layouts.", "—", "—", "Apply patch", "No", "CR-003 frontend.patch"),
+    ("CR-003", "Test", "backend/tests/test_practice_review.py", "Description tests", "Added",
+     "Descriptions on review rows and export columns; unknown codes silent; E/M level and MDM never described.", "—", "—",
+     "None (reference)", "No", "CR-003 §5"),
     ("CR-002", "Database", "—", "—", "None",
      "No schema change. Stored scores are not rescored; Re-grade applies the rule per session.",
      "—", "—", "None (reference)", "Yes", "CR-002 §3"),
@@ -226,6 +287,7 @@ def build():
         ("What this is", "Every change made to the original PracticeLab application since the migration, for the IT team to carry into the migrated deployment."),
         ("Your deployment", "Kept this React frontend and the restored PostgreSQL database; the backend is .NET. Frontend changes arrive as a patch to apply; backend changes as a specification to implement; database changes as portable DDL."),
         ("Register", "One row per change request (CR). The grey-yellow columns are yours: status, owner, dates, notes."),
+        ("Backlog", "Items raised and agreed in principle but not built yet."),
         ("Change Detail", "One row per file-level change. Filter 'IT action' for what you must build, or 'Score impact' for anything that moves scores."),
         ("Full specification", "docs/change_requests/CR-NNN/CR-NNN.md — the business rules, API contract and acceptance tests. This workbook indexes it; the CR file is the authority."),
         ("Order", "Within a CR marked Kind C, implement the backend before applying the frontend patch: the frontend is shared, and a patch calling new backend behaviour breaks your deployment until it exists. CRs apply in number order."),
@@ -279,6 +341,10 @@ def build():
             cd.cell(row=r, column=11).fill = YES
             cd.cell(row=r, column=11).font = Font(bold=True, color="991B1B")
 
+    bl = wb.create_sheet("Backlog")
+    _title(bl, "Proposed, not built", "Built %s · an item moves to the Register when it is built" % BUILT)
+    _table(bl, 4, ["Item", "Raised", "Title", "What and why", "Status"], BACKLOG, [8, 11, 34, 90, 40])
+
     wb.save(OUT)
     return OUT
 
@@ -301,6 +367,14 @@ def write_register_md():
     lines.append("Built %s by `docs/_change_register_build.py`, which also writes "
                  "`docs/PracticeLab_Change_Register.xlsx` — the detailed version, with one "
                  "row per file-level change and the columns IT uses to track progress." % BUILT)
+    if BACKLOG:
+        lines.append("")
+        lines.append("**Backlog: proposed, not built**")
+        lines.append("")
+        lines.append("| Item | Title | Status |")
+        lines.append("|---|---|---|")
+        for b in BACKLOG:
+            lines.append("| %s | %s | %s |" % (b[0], b[2], b[4]))
     lines.append(END)
     block = "\n".join(lines)
     s = open(REGISTER_MD).read()
