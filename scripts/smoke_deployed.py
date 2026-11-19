@@ -182,7 +182,7 @@ def main() -> int:
 
 
 
-REVIEW_STATUSES = {"correct", "missed", "extra", "different", "order", "info"}
+REVIEW_STATUSES = {"correct", "wrong", "missed", "extra", "different", "order", "info"}
 
 
 def _review_checks(s, session_id):

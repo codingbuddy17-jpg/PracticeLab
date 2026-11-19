@@ -78,7 +78,7 @@ ELEMENT_LABELS: Dict[str, str] = {
 COUNT_FIELDS = {"dr_order_tests", "dr_review_test_results", "dr_prior_external_notes"}
 
 STATUS_LABELS = {
-    "correct": "Correct", "missed": "Missed", "extra": "Extra (not in key)",
+    "correct": "Correct", "wrong": "Wrong code", "missed": "Missed", "extra": "Extra (not in key)",
     "different": "Differs", "order": "Order only", "info": "",
 }
 
@@ -122,7 +122,7 @@ def _row(item, key, coded, status, note="") -> dict:
 
 
 def _set_rows(item_label: str, key_items: list, coded_items: list,
-              detail=None) -> List[dict]:
+              detail=None, kind: Optional[str] = None) -> List[dict]:
     """
     Compare two code lists as multisets: each key code pairs with the first
     unused coded code that matches. `detail(k, c)` may return a note when a
@@ -130,6 +130,7 @@ def _set_rows(item_label: str, key_items: list, coded_items: list,
     """
     rows = []
     used = [False] * len(coded_items)
+    missed_at = []   # (row index, key item) of key codes with no exact match
     for k in key_items:
         kc = _norm(_code_of(k))
         hit = None
@@ -138,6 +139,7 @@ def _set_rows(item_label: str, key_items: list, coded_items: list,
                 hit = i
                 break
         if hit is None:
+            missed_at.append((len(rows), k))
             rows.append(_row(item_label, _display(k), "", "missed"))
             continue
         used[hit] = True
@@ -145,6 +147,20 @@ def _set_rows(item_label: str, key_items: list, coded_items: list,
         note = detail(k, c) if detail else ""
         rows.append(_row(item_label, _display(k), _display(c),
                          "different" if note else "correct", note))
+    # A coder code of the same family as a missed key code is a WRONG code
+    # (Z77.9 for Z77.8), not a miss plus an unrelated extra — the grader's own
+    # rule (grading_engine.pair_near_misses), so the screen and the feedback agree.
+    if kind and missed_at:
+        from services.grading_engine import _near_miss_detail, pair_near_misses
+        left = [i for i, c in enumerate(coded_items) if not used[i] and _code_of(c)]
+        pairs = pair_near_misses([_code_of(k) for _, k in missed_at],
+                                 [_code_of(coded_items[i]) for i in left], kind)
+        for a, b in pairs:
+            at, k = missed_at[a]
+            ci = left[b]
+            used[ci] = True
+            rows[at] = _row(item_label, _display(k), _display(coded_items[ci]), "wrong",
+                            _near_miss_detail(_code_of(k), _code_of(coded_items[ci]), kind))
     for i, c in enumerate(coded_items):
         if not used[i] and _code_of(c):
             rows.append(_row(item_label, "", _display(c), "extra"))
@@ -220,7 +236,7 @@ def _fb_row(feedback: list, prefix: str) -> Optional[dict]:
 
 
 def _summarise(sections: List[dict]) -> dict:
-    out = {"correct": 0, "missed": 0, "extra": 0, "different": 0}
+    out = {"correct": 0, "wrong": 0, "missed": 0, "extra": 0, "different": 0}
     for sec in sections:
         for r in sec["rows"]:
             st = r["status"]
@@ -235,27 +251,32 @@ def _code_sections(r: dict) -> List[dict]:
     sections = []
     pdx_k, pdx_c = (r.get("pdx_answer_key") or ""), (r.get("pdx_submitted") or "")
     if pdx_k or pdx_c:
+        note = ""
         if pdx_k and pdx_c:
-            st = "correct" if _norm(pdx_k) == _norm(pdx_c) else "different"
+            st = "correct" if _norm(pdx_k) == _norm(pdx_c) else "wrong"
+            if st == "wrong":
+                from services.grading_engine import _near_miss_detail, code_family
+                if code_family(pdx_k, "dx") == code_family(pdx_c, "dx"):
+                    note = _near_miss_detail(pdx_k, pdx_c, "dx")
         else:
             st = "missed" if pdx_k else "extra"
         sections.append(_section("pdx", "Principal Diagnosis", "Coding",
-                                 [_row("PDx", pdx_k, pdx_c, st)]))
+                                 [_row("PDx", pdx_k, pdx_c, st, note)]))
 
     sdx_k, sdx_c = r.get("sdx_answer_key") or [], r.get("sdx_submitted") or []
     if _codes(sdx_k) or _codes(sdx_c):
         sections.append(_section("sdx", "Secondary Diagnoses", "Coding",
-                                 _set_rows("SDx", sdx_k, sdx_c, _poa_note)))
+                                 _set_rows("SDx", sdx_k, sdx_c, _poa_note, kind="dx")))
 
     pcs_k, pcs_c = r.get("pcs_answer_key") or [], r.get("pcs_submitted") or []
     if _codes(pcs_k) or _codes(pcs_c):
         sections.append(_section("pcs", "Procedures (ICD-10-PCS)", "Coding",
-                                 _set_rows("PCS", pcs_k, pcs_c)))
+                                 _set_rows("PCS", pcs_k, pcs_c, kind="pcs")))
 
     cpt_k, cpt_c = r.get("cpt_answer_key") or [], r.get("cpt_submitted") or []
     if _codes(cpt_k) or _codes(cpt_c):
         sections.append(_section("cpt", "CPT / HCPCS", "Coding",
-                                 _set_rows("CPT", cpt_k, cpt_c, _cpt_note)))
+                                 _set_rows("CPT", cpt_k, cpt_c, _cpt_note, kind="cpt")))
     return sections
 
 
@@ -399,9 +420,9 @@ def _em_sections(r: dict, ak: Optional[dict], em: Optional[dict], cfg: Optional[
                         "The primary must be listed first" % (where + 1))
             else:
                 note = "Not coded"
-            dx_rows.append(_row("Primary Dx", sk1, sc1, "different" if c1 else "missed", note))
+            dx_rows.append(_row("Primary Dx", sk1, sc1, "wrong" if c1 else "missed", note))
     c_rest = [c for i, c in enumerate(shown_c) if i != consumed]
-    dx_rows += _set_rows("Secondary Dx", shown_k[1:], c_rest)
+    dx_rows += _set_rows("Secondary Dx", shown_k[1:], c_rest, kind="dx")
     if dx_k:
         parts = ["Primary %.1f of %.1f pts (must be listed first)" % (sc["primary_pts"], sc["primary_max"])]
         if sc["sec_total"]:
@@ -428,7 +449,7 @@ def _em_sections(r: dict, ak: Optional[dict], em: Optional[dict], cfg: Optional[
         notes = [f["issue"] for f in feedback
                  if str(f.get("issue") or "").startswith("Dx pointers on CPT")]
         sections.append(_section("cpt", "CPT / Procedures", "Coding",
-                                 _set_rows("CPT", cpt_k, cpt_c, _cpt_note), pts, out,
+                                 _set_rows("CPT", cpt_k, cpt_c, _cpt_note, kind="cpt"), pts, out,
                                  "; ".join(notes) or None))
 
     # Reasoning
@@ -546,6 +567,7 @@ def review_workbook(header: dict, charts: List[dict]) -> bytes:
     status_style = {
         "correct": (PASS_FILL, PASS_FONT),
         "missed": (FAIL_FILL, FAIL_FONT),
+        "wrong": (FAIL_FILL, FAIL_FONT),
         "extra": (EXTRA_FILL, EXTRA_FONT),
         "different": (DIFFER_FILL, DIFFER_FONT),
         "order": (INFO_FILL, INFO_FONT),
@@ -555,13 +577,13 @@ def review_workbook(header: dict, charts: List[dict]) -> bytes:
     ws = wb.active
     ws.title = "Summary"
     ws.append(["Coder", "Specialty", "Submitted", "Chart", "Score %", "Result",
-               "Correct", "Missed", "Extra", "Differs"])
+               "Correct", "Wrong code", "Missed", "Extra", "Differs"])
     for c in charts:
         s = (c.get("review") or {}).get("summary") or {}
         ws.append([header.get("coder_name"), c.get("specialty") or header.get("specialty"),
                    header.get("submitted_at"), c.get("chart_number"), c.get("total_score"),
-                   c.get("pass_fail"), s.get("correct", 0), s.get("missed", 0),
-                   s.get("extra", 0), s.get("different", 0)])
+                   c.get("pass_fail"), s.get("correct", 0), s.get("wrong", 0),
+                   s.get("missed", 0), s.get("extra", 0), s.get("different", 0)])
         pf = ws.cell(row=ws.max_row, column=6)
         if pf.value in ("PASS", "FAIL"):
             pf.fill, pf.font = (PASS_FILL, PASS_FONT) if pf.value == "PASS" else (FAIL_FILL, FAIL_FONT)

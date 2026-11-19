@@ -124,7 +124,7 @@ def test_primary_coded_second_earns_no_primary_credit_and_says_why():
     # primary 0 of 17.5 + secondaries 1 of 2 (I10) = 8.75
     assert (dx["points"], dx["max_points"]) == (8.8, 35.0)
     rows = [(r["item"], r["key"], r["coded"], r["status"]) for r in dx["rows"]]
-    assert rows == [("Primary Dx", "E11.9", "I10", "different"),
+    assert rows == [("Primary Dx", "E11.9", "I10", "wrong"),
                     ("Secondary Dx", "I10", "I10", "correct"),
                     ("Secondary Dx", "J45.909", "", "missed")]
     assert "position 2" in dx["rows"][0]["note"]
@@ -216,7 +216,7 @@ def test_ip_review_lists_correct_missed_extra_and_poa_differences():
     assert statuses == {"I10  POA Y": "different", "E11.9  POA Y": "missed",
                         "N17.9  POA Y": "extra"}
     assert _sec(review, "pcs")["rows"][0]["status"] == "correct"
-    assert review["summary"] == {"correct": 2, "missed": 1, "extra": 1, "different": 1}
+    assert review["summary"] == {"correct": 2, "wrong": 0, "missed": 1, "extra": 1, "different": 1}
 
 
 def test_cpt_modifier_difference_is_reported_as_differs():
@@ -389,3 +389,64 @@ def test_em_level_and_mdm_rows_are_never_described():
     _, review = _em_review()
     assert all("key_desc" not in r for s in review["sections"]
                if s["key"] in ("em_level", "copa", "dr", "risk") for r in s["rows"])
+
+
+
+# ── near misses: wrong code, not missed (Z77.9 entered for Z77.8) ────────────
+
+def _ipr(sdx_k, sdx_c, pcs_k=(), pcs_c=()):
+    return {"specialty": "IP-DRG", "pdx_submitted": "J18.9", "pdx_answer_key": "J18.9",
+            "sdx_answer_key": [{"code": c, "poa": "Y"} for c in sdx_k],
+            "sdx_submitted": [{"code": c, "poa": "Y"} for c in sdx_c],
+            "pcs_answer_key": [{"code": c} for c in pcs_k], "pcs_submitted": [{"code": c} for c in pcs_c],
+            "cpt_answer_key": [], "cpt_submitted": [], "feedback": []}
+
+
+def test_review_shows_a_same_category_code_as_wrong_code_not_missed():
+    rows = _sec(build_review(_ipr(["Z77.8"], ["Z77.9"])), "sdx")["rows"]
+    assert [(r["key"], r["coded"], r["status"]) for r in rows] == [("Z77.8  POA Y", "Z77.9  POA Y", "wrong")]
+    assert "Same category Z77" in rows[0]["note"]
+
+
+def test_a_different_family_stays_missed_and_extra():
+    rows = _sec(build_review(_ipr(["Z77.8"], ["N39.0"])), "sdx")["rows"]
+    assert [r["status"] for r in rows] == ["missed", "extra"]
+
+
+def test_pcs_near_miss_names_the_character_that_differs():
+    rows = _sec(build_review(_ipr([], [], ["0DTJ4ZZ"], ["0DTJ0ZZ"])), "pcs")["rows"]
+    assert rows[0]["status"] == "wrong" and "character 5 (approach)" in rows[0]["note"]
+
+
+def test_grader_feedback_reports_wrong_code_with_the_coders_code():
+    from services.grading_engine import IPAnswerKey, IPSubmission, grade_ip
+    ak = IPAnswerKey(pdx_code="J18.9", pdx_poa="Y", sdx=[{"code": "Z77.8", "poa": "Y"}])
+    sub = IPSubmission(pdx_code="J18.9", pdx_poa="Y", sdx=[{"code": "Z77.9", "poa": "Y"}])
+    fb = [(f.section, f.issue_type, f.ak_code, f.coder_code) for f in grade_ip(ak, sub).feedback]
+    assert ("SDx", "Wrong_Code", "Z77.8", "Z77.9") in fb
+    assert not any(f[1] == "Missed" for f in fb)
+
+
+def test_reclassifying_never_changes_the_score():
+    from services.grading_engine import IPAnswerKey, IPSubmission, grade_ip
+    ak = IPAnswerKey(pdx_code="J18.9", pdx_poa="Y", sdx=[{"code": "Z77.8", "poa": "Y"}, {"code": "I10", "poa": "Y"}])
+    near = grade_ip(ak, IPSubmission(pdx_code="J18.9", pdx_poa="Y",
+                                     sdx=[{"code": "Z77.9", "poa": "Y"}, {"code": "I10", "poa": "Y"}]))
+    far = grade_ip(ak, IPSubmission(pdx_code="J18.9", pdx_poa="Y",
+                                    sdx=[{"code": "N39.0", "poa": "Y"}, {"code": "I10", "poa": "Y"}]))
+    assert (near.pdx_score, near.sdx_score, near.pcs_score) == (far.pdx_score, far.sdx_score, far.pcs_score)
+
+
+def test_cpt_same_family_is_wrong_code_and_a_new_family_is_missed():
+    from services.grading_engine import _match_cpt
+    _, _, fb = _match_cpt([{"code": "99214"}, {"code": "36415"}], [{"code": "99213"}, {"code": "71046"}], True)
+    kinds = sorted((f.issue_type, f.ak_code, f.coder_code) for f in fb)
+    assert ("Wrong_Code", "99214", "99213") in kinds and ("Missed", "36415", "") in kinds
+
+
+def test_pcs_grader_and_op_sdx_pair_too():
+    from services.grading_engine import _match_pcs, _match_sdx_op
+    _, _, fb = _match_pcs([{"code": "0DTJ4ZZ"}], [{"code": "0DTJ0ZZ"}], True)
+    assert fb[0].issue_type == "Wrong_Code" and "approach" in fb[0].detail
+    _, _, fb = _match_sdx_op([{"code": "E11.22"}], [{"code": "E11.9"}], True)
+    assert (fb[0].issue_type, fb[0].coder_code) == ("Wrong_Code", "E11.9")

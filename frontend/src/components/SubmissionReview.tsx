@@ -14,7 +14,7 @@ import { downloadPracticeReview, downloadPracticeReviewByToken } from '../api/pr
  * Risk element by element, or Time.
  */
 
-export type ReviewStatus = 'correct' | 'missed' | 'extra' | 'different' | 'order' | 'info'
+export type ReviewStatus = 'correct' | 'wrong' | 'missed' | 'extra' | 'different' | 'order' | 'info'
 
 export interface ReviewRow {
   item: string; key: string; coded: string; status: ReviewStatus; note: string
@@ -27,11 +27,14 @@ export interface ReviewSection {
 }
 export interface ChartReview {
   sections: ReviewSection[]
-  summary: { correct: number; missed: number; extra: number; different: number }
+  summary: { correct: number; wrong?: number; missed: number; extra: number; different: number }
 }
 
 const STATUS: Record<ReviewStatus, { label: string; color: string; bg: string }> = {
   correct:   { label: '✓ Correct',  color: '#047857', bg: '#ecfdf5' },
+  // A same-family code in place of the key's (Z77.9 for Z77.8): an error, but
+  // not an omission — the coder found the condition and missed the specificity.
+  wrong:     { label: '✗ Wrong code', color: '#b91c1c', bg: '#fef2f2' },
   missed:    { label: '✗ Missed',   color: '#b91c1c', bg: '#fef2f2' },
   extra:     { label: '+ Extra',    color: '#9a3412', bg: '#fff7ed' },
   different: { label: '≠ Differs',  color: '#92400e', bg: '#fffbeb' },
@@ -81,6 +84,7 @@ export function SubmissionReview({ review }: { review?: ChartReview | null }) {
     <div style={s.wrap}>
       <div style={s.summary}>
         <span style={{ ...s.chip, color: STATUS.correct.color, background: STATUS.correct.bg }}>{summary.correct} correct</span>
+        {!!summary.wrong && <span style={{ ...s.chip, color: STATUS.wrong.color, background: STATUS.wrong.bg }}>{summary.wrong} wrong code</span>}
         <span style={{ ...s.chip, color: STATUS.missed.color, background: STATUS.missed.bg }}>{summary.missed} missed</span>
         <span style={{ ...s.chip, color: STATUS.extra.color, background: STATUS.extra.bg }}>{summary.extra} extra</span>
         <span style={{ ...s.chip, color: STATUS.different.color, background: STATUS.different.bg }}>{summary.different} differ</span>

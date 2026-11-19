@@ -290,6 +290,93 @@ def norm_units(raw) -> int:
     return n if n >= 1 else 1
 
 
+
+# ── Near misses: wrong code in the right family ───────────────────────────────
+#
+# A key code the coder did not match was always reported as Missed, and the
+# code the coder DID type was named only when they typed more codes than the
+# key holds. So Z77.9 entered for Z77.8 read "Missed Z77.8" and Z77.9 appeared
+# nowhere: a specificity slip reported as an omission. Display only — scores
+# are computed from matches before any of this runs, and do not change.
+_PCS_AXES = {1: "section", 2: "body system", 3: "root operation", 4: "body part",
+             5: "approach", 6: "device", 7: "qualifier"}
+
+
+def code_family(code, kind: str):
+    """The family a near miss must share: ICD-10-CM category (3), PCS
+    section / body system / root operation (3), CPT/HCPCS first 4."""
+    if kind == "dx":
+        c = norm_dx(code)
+        return c[:3] if len(c) >= 3 else None
+    if kind == "pcs":
+        c = norm_pcs(code)
+        return c[:3] if len(c) >= 3 else None
+    c = norm_cpt(code)
+    return c[:4] if len(c) >= 4 else None
+
+
+def _near_miss_detail(ak_code, cdr_code, kind: str) -> str:
+    if kind == "pcs":
+        a, c = norm_pcs(ak_code), norm_pcs(cdr_code)
+        diff = [i + 1 for i in range(min(len(a), len(c))) if a[i] != c[i]]
+        if diff:
+            names = ", ".join(f"character {i} ({_PCS_AXES.get(i, '?')})" for i in diff)
+            return f"Same root operation — differs at {names}"
+        return "Same root operation — different code"
+    if kind == "dx":
+        return f"Same category {norm_dx(ak_code)[:3]} — wrong code (specificity)"
+    return "Same code family — wrong code"
+
+
+def pair_near_misses(ak_codes: list, cdr_codes: list, kind: str) -> list:
+    """
+    Pair leftover key codes with leftover coder codes of the same family.
+    Each key code takes the unused coder code sharing the longest prefix.
+    Indexes are into the lists given; None/empty entries never pair.
+    """
+    norm = norm_dx if kind == "dx" else norm_pcs if kind == "pcs" else norm_cpt
+    pairs, used = [], set()
+    for ai, a in enumerate(ak_codes):
+        fam = code_family(a, kind) if a else None
+        if not fam:
+            continue
+        na, best, best_len = norm(a), None, -1
+        for ci, c in enumerate(cdr_codes):
+            if ci in used or not c or code_family(c, kind) != fam:
+                continue
+            nc = norm(c)
+            n = next((i for i, (x, y) in enumerate(zip(na, nc)) if x != y), min(len(na), len(nc)))
+            if n > best_len:
+                best, best_len = ci, n
+        if best is not None:
+            used.add(best)
+            pairs.append((ai, best))
+    return pairs
+
+
+def _report_unmatched(section: str, kind: str, ak_codes: list, cdr_codes: list,
+                      ak_used: list, cdr_used: list, feedback: list) -> None:
+    """Unmatched key codes: Wrong_Code when a same-family coder code is left
+    over, else Missed. Paired coder codes are marked used, so they are not
+    listed again as surplus."""
+    ak_idx = [i for i, c in enumerate(ak_codes) if not ak_used[i] and c]
+    cdr_idx = [i for i, c in enumerate(cdr_codes) if not cdr_used[i] and c]
+    pairs = pair_near_misses([ak_codes[i] for i in ak_idx],
+                             [cdr_codes[i] for i in cdr_idx], kind)
+    paired_ak = {}
+    for a, c in pairs:
+        ai, ci = ak_idx[a], cdr_idx[c]
+        paired_ak[ai] = ci
+        ak_used[ai] = True
+        cdr_used[ci] = True
+    for ai in ak_idx:
+        if ai in paired_ak:
+            ci = paired_ak[ai]
+            feedback.append(FeedbackRow(section, "Wrong_Code", ak_codes[ai], cdr_codes[ci],
+                                        _near_miss_detail(ak_codes[ai], cdr_codes[ci], kind)))
+        else:
+            feedback.append(FeedbackRow(section, "Missed", ak_codes[ai], ""))
+
 # ── Order-independent matching ────────────────────────────────────────────────
 
 def _match_sdx_ip(ak_sdx: list[dict], cdr_sdx: list[dict], penalty: bool,
@@ -337,9 +424,8 @@ def _match_sdx_ip(ak_sdx: list[dict], cdr_sdx: list[dict], penalty: bool,
                 cdr_used[ci] = True
                 break
 
-    for ai, ak in enumerate(ak_sdx):
-        if not ak_used[ai]:
-            feedback.append(FeedbackRow("SDx", "Missed", ak.get("code", ""), ""))
+    _report_unmatched("SDx", "dx", [a.get("code", "") for a in ak_sdx],
+                      [c.get("code", "") for c in cdr_sdx], ak_used, cdr_used, feedback)
 
     ak_cnt = len([a for a in ak_sdx if norm_dx(a.get("code", ""))])
     cdr_cnt = len([c for c in cdr_sdx if norm_dx(c.get("code", ""))])
@@ -372,9 +458,8 @@ def _match_pcs(ak_pcs: list[dict], cdr_pcs: list[dict], penalty: bool):
                 cdr_used[ci] = True
                 break
 
-    for ai, ak in enumerate(ak_pcs):
-        if not ak_used[ai]:
-            feedback.append(FeedbackRow("PCS", "Missed", ak.get("code", ""), ""))
+    _report_unmatched("PCS", "pcs", [a.get("code", "") for a in ak_pcs],
+                      [c.get("code", "") for c in cdr_pcs], ak_used, cdr_used, feedback)
 
     ak_cnt = len([a for a in ak_pcs if norm_pcs(a.get("code", ""))])
     cdr_cnt = len([c for c in cdr_pcs if norm_pcs(c.get("code", ""))])
@@ -411,9 +496,8 @@ def _match_sdx_op(ak_sdx: list[dict], cdr_sdx: list[dict], penalty: bool):
                 cdr_used[ci] = True
                 break
 
-    for ai, ak in enumerate(ak_sdx):
-        if not ak_used[ai]:
-            feedback.append(FeedbackRow("SDx", "Missed", ak.get("code", ""), ""))
+    _report_unmatched("SDx", "dx", [a.get("code", "") for a in ak_sdx],
+                      [c.get("code", "") for c in cdr_sdx], ak_used, cdr_used, feedback)
 
     ak_cnt = len([a for a in ak_sdx if norm_dx(a.get("code", ""))])
     cdr_cnt = len([c for c in cdr_sdx if norm_dx(c.get("code", ""))])
@@ -596,9 +680,9 @@ def _match_cpt(ak_cpt: list[dict], cdr_cpt: list[dict], penalty: bool,
                 cdr_used[ci] = True
                 break
 
-    for ai, (a_code, _a_mod) in enumerate(ak_norm):
-        if not ak_used[ai] and a_code:
-            feedback.append(FeedbackRow("CPT", "Missed", ak_cpt[ai].get("code", ""), ""))
+    _report_unmatched("CPT", "cpt", [ak_cpt[i].get("code", "") if ak_norm[i][0] else "" for i in range(len(ak_cpt))],
+                      [cdr_cpt[i].get("code", "") if cdr_norm[i][0] else "" for i in range(len(cdr_cpt))],
+                      ak_used, cdr_used, feedback)
 
     ak_cnt = len([c for c, _ in ak_norm if c])
     cdr_cnt = len([c for c, _ in cdr_norm if c])
