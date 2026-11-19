@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
-import { X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Copy, Check, Search, ChevronUp, ChevronDown, Flag } from 'lucide-react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Copy, Check, Search, ChevronUp, ChevronDown, Flag, Highlighter } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { getChartPages, getChartText, searchInChart, submitFeedback } from '../api'
 import type { Chart } from '../types'
 import { SPECIALTY_COLORS, DIFFICULTY_COLORS } from '../theme'
+import { parseChart, AID_PATTERNS, type Block } from './chartDocument'
 
 interface Props {
   chart: Chart
@@ -16,101 +17,56 @@ function pageImgUrl(path: string) {
   return path.startsWith('http') ? path : `${API_BASE}${path}`
 }
 
-const SECTION_PATTERNS: { label: string; pattern: RegExp }[] = [
-  { label: 'Discharge Summary', pattern: /^(discharge summary|hospital course|discharge diagnosis|discharge diagnoses)\b/i },
-  { label: 'History & Physical', pattern: /^(history and physical|history & physical|h&p|chief complaint|history of present illness|hpi)\b/i },
-  { label: 'Operative Note', pattern: /^(operative report|operative note|procedure performed|preoperative diagnosis|postoperative diagnosis)\b/i },
-  { label: 'Procedure Note', pattern: /^(procedure note|procedures performed|indication for procedure|description of procedure)\b/i },
-  { label: 'Pathology', pattern: /^(pathology|specimen|final diagnosis|microscopic diagnosis)\b/i },
-  { label: 'Radiology', pattern: /^(radiology|imaging|ct\b|mri\b|x-ray|ultrasound|portable chest)\b/i },
-  { label: 'Labs', pattern: /^(laboratory|lab results|labs)\b/i },
-  { label: 'ED Course', pattern: /^(ed course|emergency department course|emergency room course|medical decision making)\b/i },
-  { label: 'Assessment & Plan', pattern: /^(assessment and plan|assessment\/plan|assessment & plan|assessment|plan)\b/i },
-  { label: 'Medication List', pattern: /^(medications|home medications|current medications|medication list)\b/i },
-  { label: 'Consult Note', pattern: /^(consultation|consult note|consultant|reason for consult)\b/i },
-  { label: 'Past Medical History', pattern: /^(past medical history|pmh|medical history)\b/i },
-  { label: 'Past Surgical History', pattern: /^(past surgical history|psh|surgical history)\b/i },
-  { label: 'Review of Systems', pattern: /^(review of systems|ros)\b/i },
-  { label: 'Physical Exam', pattern: /^(physical exam|physical examination|exam)\b/i },
-  { label: 'Allergies', pattern: /^(allergies|allergy)\b/i },
-  { label: 'Vitals', pattern: /^(vitals|vital signs)\b/i },
-]
-
-function sectionBreakers(pages: { page: number; text: string; has_text: boolean }[]) {
-  const seen = new Map<string, number>()
-  for (const page of pages) {
-    if (!page.has_text) continue
-    for (const raw of page.text.replace(/\r\n/g, '\n').split('\n')) {
-      const label = sectionLabelForLine(raw)
-      if (label && !seen.has(label)) {
-        seen.set(label, page.page)
-        break
-      }
-    }
-  }
-  return [...seen.entries()].map(([label, page]) => ({ label, page }))
-}
-
-function sectionLabelForLine(line: string) {
-  const compact = line.trim().replace(/\s+/g, ' ')
-  for (const section of SECTION_PATTERNS) {
-    if (section.pattern.test(compact)) return section.label
-  }
-  return ''
-}
-
-function textBlocks(text: string) {
-  const lines = text.replace(/\r\n/g, '\n').split('\n')
-  const blocks: Array<
-    | { kind: 'heading'; text: string }
-    | { kind: 'field'; label: string; value: string }
-    | { kind: 'text'; text: string }
-    | { kind: 'gap' }
-  > = []
-  let previousGap = false
-
-  for (const raw of lines) {
-    const line = raw.trim()
-    if (!line) {
-      if (!previousGap && blocks.length) blocks.push({ kind: 'gap' })
-      previousGap = true
-      continue
-    }
-    previousGap = false
-
-    const field = line.match(/^([A-Za-z][A-Za-z0-9 /&().,'-]{2,42}):\s*(.+)$/)
-    if (field) {
-      blocks.push({ kind: 'field', label: field[1].trim(), value: field[2].trim() })
-      continue
-    }
-
-    const heading = sectionLabelForLine(line)
-    if (heading && line.length <= 90) {
-      blocks.push({ kind: 'heading', text: heading })
-      continue
-    }
-
-    blocks.push({ kind: 'text', text: line.replace(/\s{3,}/g, '  ') })
-  }
-
-  return blocks
-}
-
 function escapedRegex(raw: string) {
   return raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-function HighlightedText({ text, query }: { text: string; query: string }) {
+const AID_RE = new RegExp(`(${AID_PATTERNS.uncertain.source})|(${AID_PATTERNS.linkage.source})`, 'gi')
+
+/** Search matches always; uncertain / linkage wording only when aids are on. */
+function HighlightedText({ text, query, aids = false }: { text: string; query: string; aids?: boolean }) {
   const q = query.trim()
-  if (!q) return <>{text}</>
+  const withAids = (chunk: string, key: string) => {
+    if (!aids) return <span key={key}>{chunk}</span>
+    const out: React.ReactNode[] = []
+    let last = 0
+    chunk.replace(AID_RE, (m, unc, _u2, link, _l2, offset: number) => {
+      if (offset > last) out.push(chunk.slice(last, offset))
+      out.push(<mark key={`${key}-${offset}`} style={unc ? styles.aidUncertain : styles.aidLinkage}
+        title={unc ? 'Uncertain diagnosis wording' : 'Linkage wording'}>{m}</mark>)
+      last = offset + m.length
+      return m
+    })
+    if (last < chunk.length) out.push(chunk.slice(last))
+    return <span key={key}>{out}</span>
+  }
+  if (!q) return withAids(text, 't')
   const parts = text.split(new RegExp(`(${escapedRegex(q)})`, 'ig'))
   return (
     <>
       {parts.map((part, idx) => part.toLowerCase() === q.toLowerCase()
         ? <mark key={idx} style={styles.searchMark}>{part}</mark>
-        : <span key={idx}>{part}</span>)}
+        : withAids(part, `p${idx}`))}
     </>
   )
+}
+
+function blockText(b: Block) {
+  switch (b.kind) {
+    case 'doc': return b.title
+    case 'heading': return `${b.title} ${b.inline}`
+    case 'field': return `${b.label}: ${b.value}`
+    case 'list': return `${b.marker} ${b.text}`
+    case 'text': case 'signature': return b.text
+    default: return ''
+  }
+}
+
+function readPref(key: string): string | null {
+  try { return localStorage.getItem(key) } catch { return null }
+}
+function writePref(key: string, value: string) {
+  try { localStorage.setItem(key, value) } catch { /* private window: fine */ }
 }
 
 function containsQuery(text: string, query: string) {
@@ -124,7 +80,16 @@ export function ChartViewer({ chart, viewerName = 'anonymous', onClose }: Props)
   const [textLoaded, setTextLoaded] = useState(false)
   const [textLoading, setTextLoading] = useState(false)
   const [textAvailable, setTextAvailable] = useState(false)
-  const [viewMode, setViewMode] = useState<'image' | 'text'>('image')
+  // Image, Text, or Split (scan beside text, kept on the same page) — the last
+  // so a coder can check extracted text against the original.
+  const [viewMode, setViewMode] = useState<'image' | 'text' | 'split'>('image')
+  const [activeSection, setActiveSection] = useState<string | null>(null)
+  // Coding aids are the reader's choice, off unless they turn them on, and
+  // remembered across charts for that reader.
+  const [aidsOn, setAidsOn] = useState(() => readPref('cv:aids') === '1')
+  const textPaneRef = useRef<HTMLDivElement>(null)
+  const restoredRef = useRef(false)
+  const jumpLockRef = useRef<{ id: string; until: number } | null>(null)  // set by a jump, cleared by the reader's own scrolling
   const [currentPage, setCurrentPage] = useState(0)
   const [zoom, setZoom] = useState(1)
   const [loading, setLoading] = useState(true)
@@ -186,7 +151,11 @@ export function ChartViewer({ chart, viewerName = 'anonymous', onClose }: Props)
 
   useEffect(() => {
     setLoading(true)
-    setViewMode('image')
+    const saved = readPref(`cv:pos:${chart.id}`)
+    const savedMode = saved ? saved.split('|')[0] : ''
+    setViewMode(savedMode === 'text' || savedMode === 'split' ? savedMode : 'image')
+    restoredRef.current = false
+    setActiveSection(null)
     setTextPages([])
     setTextLoaded(false)
     setTextAvailable(false)
@@ -196,7 +165,7 @@ export function ChartViewer({ chart, viewerName = 'anonymous', onClose }: Props)
   }, [chart.id, viewerName])
 
   useEffect(() => {
-    if (viewMode !== 'text' || textLoaded || textLoading) return
+    if (viewMode === 'image' || textLoaded || textLoading) return
     setTextLoading(true)
     getChartText(chart.id)
       .then(d => {
@@ -257,7 +226,7 @@ export function ChartViewer({ chart, viewerName = 'anonymous', onClose }: Props)
   }, [currentPage])
 
   useEffect(() => {
-    if (viewMode !== 'text' || targetMatchPage === null || textLoading) return
+    if (viewMode === 'image' || targetMatchPage === null || textLoading) return
     const el = document.getElementById(`chart-text-match-${targetMatchPage}`)
       || document.getElementById(`chart-text-page-${targetMatchPage}`)
     el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
@@ -269,17 +238,100 @@ export function ChartViewer({ chart, viewerName = 'anonymous', onClose }: Props)
       if (e.key === 'ArrowRight' && !showSearch) setCurrentPage(p => Math.min(p + 1, pages.length - 1))
       if (e.key === 'ArrowLeft' && !showSearch) setCurrentPage(p => Math.max(p - 1, 0))
       if ((e.ctrlKey || e.metaKey) && e.key === 'f') { e.preventDefault(); setShowSearch(true); setTimeout(() => searchInputRef.current?.focus(), 50) }
+      const typing = (e.target as HTMLElement)?.tagName === 'INPUT' || (e.target as HTMLElement)?.tagName === 'TEXTAREA'
+      if (e.key === '/' && !typing) { e.preventDefault(); setShowSearch(true); setTimeout(() => searchInputRef.current?.focus(), 50) }
+      if (e.altKey && (e.key === 'ArrowDown' || e.key === 'ArrowUp') && viewModeRef.current !== 'image') {
+        e.preventDefault()
+        stepSectionRef.current(e.key === 'ArrowDown' ? 1 : -1)
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose, pages.length, showSearch])
 
   const isMatchPage = searchResults.includes(currentPage)
-  const sections = sectionBreakers(textPages)
+  const parsed = useMemo(() => parseChart(textPages), [textPages])
+  const flatSections = useMemo(() => parsed.docs.flatMap(d => d.sections), [parsed])
+
+  /** Scroll the text pane so an element sits at its top. */
+  const jumpTo = useCallback((id: string) => {
+    const pane = textPaneRef.current
+    const el = document.getElementById(id)
+    if (!pane || !el) return
+    // Hold the clicked section while the smooth scroll runs: the scroll
+    // tracker would otherwise credit whatever passes under it on the way, or,
+    // near the end of a chart that cannot scroll that far, an earlier section.
+    jumpLockRef.current = { id, until: Infinity }
+    pane.scrollTo({ top: el.offsetTop - 8, behavior: 'smooth' })
+    setActiveSection(id)
+    // The page this heading sits on, so the scan beside it follows at once
+    // rather than waiting for the smooth scroll to arrive.
+    const pageEl = el.closest('[data-page-anchor]') as HTMLElement | null
+    if (pageEl) setCurrentPage(Number(pageEl.dataset.pageAnchor))
+    writePref(`cv:pos:${chart.id}`, `${viewModeRef.current}|${id}`)
+  }, [chart.id])
+
+  // Alt+↓ / Alt+↑ step through sections. Refs, so the key handler registered
+  // once always sees the current chart and mode.
+  const viewModeRef = useRef(viewMode)
+  viewModeRef.current = viewMode
+  const stepSectionRef = useRef<(dir: number) => void>(() => {})
+  stepSectionRef.current = (dir: number) => {
+    if (!flatSections.length) return
+    const i = flatSections.findIndex(x => x.id === activeSection)
+    const next = flatSections[Math.min(flatSections.length - 1, Math.max(0, i + dir))]
+    if (next) jumpTo(next.id)
+  }
+
+  // Which section and page are on screen, as an EHR navigator highlights them.
+  const onTextScroll = useCallback(() => {
+    const pane = textPaneRef.current
+    if (!pane) return
+    // Until the reader scrolls by hand, the section they jumped to stays theirs.
+    if (jumpLockRef.current) return
+    const top = pane.scrollTop + 24
+    let sec: string | null = null
+    const heads = pane.querySelectorAll<HTMLElement>('[data-sec]')
+    heads.forEach(el => { if (el.offsetTop <= top) sec = el.id })
+    // Scrolled to the very end: the last sections can never reach the top of
+    // the pane, so the reader is in the last one.
+    if (pane.scrollTop + pane.clientHeight >= pane.scrollHeight - 4 && heads.length) {
+      sec = heads[heads.length - 1].id
+    }
+    let pg: number | null = null
+    pane.querySelectorAll<HTMLElement>('[data-page-anchor]').forEach(el => {
+      if (el.offsetTop <= top) pg = Number(el.dataset.pageAnchor)
+    })
+    setActiveSection(sec)
+    if (pg !== null) setCurrentPage(pg)
+    writePref(`cv:pos:${chart.id}`, `${viewModeRef.current}|${sec || ''}`)
+  }, [chart.id])
+
+  // Reopen where the reader left off: their mode, and the section they were in.
+  useEffect(() => {
+    if (viewMode === 'image' || restoredRef.current || !textLoaded) return
+    restoredRef.current = true
+    const saved = (readPref(`cv:pos:${chart.id}`) || '').split('|')[1]
+    if (saved && document.getElementById(saved)) setTimeout(() => jumpTo(saved), 60)
+  }, [viewMode, textLoaded, chart.id, jumpTo])
+
+  /** The reader took over scrolling: let the tracker follow them again. */
+  const releaseJump = useCallback(() => { jumpLockRef.current = null }, [])
+
+  /** Change mode and remember it for this chart. Only a reader's choice is
+   *  written — never the mode a first render happens to start in. */
+  function changeMode(m: 'image' | 'text' | 'split') {
+    setViewMode(m)
+    writePref(`cv:pos:${chart.id}`, `${m}|${m === 'image' ? '' : activeSection || ''}`)
+  }
+
+  function toggleAids() {
+    setAidsOn(v => { writePref('cv:aids', v ? '0' : '1'); return !v })
+  }
 
   return (
     <div style={styles.overlay}>
-      <div style={styles.modal}>
+      <div style={{ ...styles.modal, maxWidth: viewMode === 'split' ? 1560 : viewMode === 'text' ? 1240 : 1000 }}>
         {/* Specialty color bar */}
         <div style={{ height: 4, background: specialtyColor.bg, borderRadius: '8px 8px 0 0' }} />
 
@@ -300,19 +352,25 @@ export function ChartViewer({ chart, viewerName = 'anonymous', onClose }: Props)
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={showThumbs ? specialtyColor.bg : '#6b7280'} strokeWidth="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
             </button>
             <div style={styles.viewToggle} aria-label="Chart view mode">
-              <button
-                style={{ ...styles.viewToggleBtn, ...(viewMode === 'image' ? styles.viewToggleActive : {}) }}
-                onClick={() => setViewMode('image')}
-              >
-                Image
-              </button>
-              <button
-                style={{ ...styles.viewToggleBtn, ...(viewMode === 'text' ? styles.viewToggleActive : {}) }}
-                onClick={() => setViewMode('text')}
-              >
-                Text
-              </button>
+              {(['image', 'text', 'split'] as const).map(m => (
+                <button key={m}
+                  style={{ ...styles.viewToggleBtn, ...(viewMode === m ? styles.viewToggleActive : {}) }}
+                  onClick={() => changeMode(m)}
+                  title={m === 'split' ? 'Scanned page beside its text' : undefined}
+                >
+                  {m === 'image' ? 'Image' : m === 'text' ? 'Text' : 'Side by side'}
+                </button>
+              ))}
             </div>
+            {viewMode !== 'image' && (
+              <button
+                style={{ ...styles.iconBtn, gap: 5, fontSize: 12, fontWeight: 700, color: aidsOn ? '#92400e' : '#6b7280', background: aidsOn ? '#fffbeb' : '#fff', borderColor: aidsOn ? '#fcd34d' : '#e5e7eb' }}
+                onClick={toggleAids}
+                title="Highlight uncertain-diagnosis and linkage wording"
+              >
+                <Highlighter size={14} /> Coding aids
+              </button>
+            )}
             <button style={styles.iconBtn} onClick={() => { setShowSearch(s => !s); setTimeout(() => searchInputRef.current?.focus(), 50) }} title="Search in chart (Ctrl+F)">
               <Search size={15} color={showSearch ? specialtyColor.bg : '#6b7280'} />
             </button>
@@ -379,7 +437,7 @@ export function ChartViewer({ chart, viewerName = 'anonymous', onClose }: Props)
                       setSearchIdx(Math.max(0, searchResults.indexOf(item.page)))
                       setCurrentPage(item.page)
                       setTargetMatchPage(item.page)
-                      setViewMode('text')
+                      if (viewMode === 'image') changeMode('text')
                     }}
                   >
                     <span style={styles.snippetPage}>Page {item.page + 1}</span>
@@ -455,92 +513,141 @@ export function ChartViewer({ chart, viewerName = 'anonymous', onClose }: Props)
           )}
 
           {/* Main page */}
-          <div style={styles.body}>
-            {viewMode === 'text' ? (
+          <div style={viewMode === 'image' ? styles.body : styles.bodyDoc}>
+            {viewMode !== 'image' ? (
               textLoading ? (
                 <div style={styles.center}>
                   <div style={styles.spinner} />
                   <span>Loading chart text...</span>
                 </div>
               ) : !textAvailable ? (
-                <div style={styles.center}>Text is not available for this chart.</div>
+                <div style={styles.center}>
+                  Text is not available for this chart — it was uploaded as a scan or image.
+                  <button style={styles.textPageBtn} onClick={() => changeMode('image')}>View the image</button>
+                </div>
               ) : (
-                <div style={styles.textView}>
-                  {sections.length > 0 && (
-                    <div style={styles.sectionBar}>
-                      <span style={styles.sectionBarLabel}>Sections</span>
-                      {sections.map(section => (
-                        <button
-                          key={section.label}
-                          style={styles.sectionChip}
-                          onClick={() => {
-                            setCurrentPage(section.page)
-                            document.getElementById(`chart-text-page-${section.page}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                          }}
-                        >
-                          {section.label}
-                          <span style={styles.sectionPage}>p{section.page + 1}</span>
-                        </button>
-                      ))}
+                <div style={styles.docLayout}>
+                  {/* Navigator: documents, then their sections, in chart order */}
+                  <nav style={styles.navigator} aria-label="Chart contents">
+                    <div style={styles.navHead}>
+                      Contents
+                      <span style={styles.navCount}>{parsed.sectionCount} section{parsed.sectionCount !== 1 ? 's' : ''}</span>
                     </div>
-                  )}
-                  <div style={styles.textPages}>
-                    {textPages.map(page => (
-                      <section
-                        id={`chart-text-page-${page.page}`}
-                        key={page.page}
-                        style={{
-                          ...styles.textPage,
-                          borderColor: page.page === currentPage ? specialtyColor.bg : '#e5e7eb',
-                        }}
-                      >
+                    {parsed.docs.length === 0 && (
+                      <div style={styles.navEmpty}>No section headings recognised. The full text is shown.</div>
+                    )}
+                    {parsed.docs.map(d => (
+                      <div key={d.id} style={{ marginBottom: 8 }}>
+                        <button style={styles.navDoc} onClick={() => jumpTo(d.id)} title={d.title}>
+                          <span style={styles.navDocType}>{d.type}</span>
+                          <span style={styles.navDocTitle}>{d.title !== d.type ? d.title : ''}</span>
+                          <span style={styles.navPage}>p{d.page + 1}</span>
+                        </button>
+                        {d.sections.map(sec => {
+                          const on = sec.id === activeSection
+                          return (
+                            <button key={sec.id} onClick={() => jumpTo(sec.id)} title={sec.title}
+                              style={{ ...styles.navSec, ...(on ? { ...styles.navSecOn, borderLeft: `3px solid ${specialtyColor.bg}`, color: specialtyColor.bg } : {}) }}>
+                              <span style={styles.navSecLabel}>{sec.label}</span>
+                              <span style={styles.navPage}>p{sec.page + 1}</span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    ))}
+                    <div style={styles.navKeys}>Alt+↓ / Alt+↑ next / previous section · / search</div>
+                  </nav>
+
+                  {/* The document, as a note */}
+                  <div ref={textPaneRef} onScroll={onTextScroll} style={styles.docPane}
+                    onWheel={releaseJump} onTouchStart={releaseJump} onMouseDown={releaseJump} onKeyDown={releaseJump}>
+                    {aidsOn && (
+                      <div style={styles.aidLegend}>
+                        <mark style={styles.aidUncertain}>uncertain wording</mark>
+                        <mark style={styles.aidLinkage}>linkage wording</mark>
+                        <span>highlighted to notice, not an answer</span>
+                      </div>
+                    )}
+                    {parsed.pages.map(page => (
+                      <section id={`chart-text-page-${page.page}`} data-page-anchor={page.page} key={page.page} style={{ ...styles.textPage, flexShrink: 0 }}>
                         <div style={styles.textPageHeader}>
                           <span>Page {page.page + 1}</span>
-                          <button style={styles.textPageBtn} onClick={() => { setCurrentPage(page.page); setViewMode('image') }}>
-                            View Image
-                          </button>
+                          {viewMode === 'text' && (
+                            <button style={styles.textPageBtn} onClick={() => { setCurrentPage(page.page); changeMode('image') }}>
+                              View Image
+                            </button>
+                          )}
                         </div>
                         {page.has_text ? (
                           <div style={styles.pageText}>
-                            {textBlocks(page.text).map((block, idx) => {
-                              const blockText = block.kind === 'field'
-                                ? `${block.label}: ${block.value}`
-                                : block.kind === 'heading' || block.kind === 'text'
-                                  ? block.text
-                                  : ''
-                              const matchId = page.page === targetMatchPage && containsQuery(blockText, searchQuery)
-                                ? `chart-text-match-${page.page}`
-                                : undefined
-                              if (block.kind === 'gap') return <div key={idx} style={styles.textGap} />
-                              if (block.kind === 'heading') {
-                                return (
-                                  <div id={matchId} key={idx} style={styles.noteSectionHead}>
-                                    <span style={styles.noteSectionRule} />
-                                    <span><HighlightedText text={block.text} query={searchQuery} /></span>
+                            {page.blocks.map((block, idx) => {
+                              const matchId = page.page === targetMatchPage && containsQuery(blockText(block), searchQuery)
+                                ? `chart-text-match-${page.page}` : undefined
+                              const hl = (t: string) => <HighlightedText text={t} query={searchQuery} aids={aidsOn} />
+                              switch (block.kind) {
+                                case 'gap': return <div key={idx} style={styles.textGap} />
+                                case 'doc': return (
+                                  <div id={block.id} key={idx} style={styles.docBand}>
+                                    <span style={styles.docBandType}>{block.type}</span>
+                                    <span>{hl(block.title)}</span>
                                   </div>
                                 )
-                              }
-                              if (block.kind === 'field') {
-                                return (
+                                case 'heading': return (
+                                  <div key={idx}>
+                                    <div id={block.id} data-sec="1" style={styles.noteSectionHead}>
+                                      <span style={styles.noteSectionRule} />
+                                      <span>{block.label}</span>
+                                      {block.title.toLowerCase() !== block.label.toLowerCase() && (
+                                        <span style={styles.noteSectionAs}>{block.title}</span>
+                                      )}
+                                    </div>
+                                    {block.inline && <p id={matchId} style={styles.noteTextLine}>{hl(block.inline)}</p>}
+                                  </div>
+                                )
+                                case 'field': return (
                                   <div id={matchId} key={idx} style={styles.noteFieldLine}>
-                                    <strong><HighlightedText text={`${block.label}:`} query={searchQuery} /></strong>
-                                    <span><HighlightedText text={block.value} query={searchQuery} /></span>
+                                    <strong>{hl(`${block.label}:`)}</strong>
+                                    <span>{hl(block.value)}</span>
                                   </div>
                                 )
+                                case 'list': return (
+                                  <div id={matchId} key={idx} style={styles.noteListLine}>
+                                    <span style={styles.noteListMarker}>{block.marker}</span>
+                                    <span>{hl(block.text)}</span>
+                                  </div>
+                                )
+                                case 'signature': return (
+                                  <p id={matchId} key={idx} style={styles.noteSignature}>{hl(block.text)}</p>
+                                )
+                                default: return (
+                                  <p id={matchId} key={idx} style={styles.noteTextLine}>{hl(block.text)}</p>
+                                )
                               }
-                              return (
-                                <p id={matchId} key={idx} style={styles.noteTextLine}>
-                                  <HighlightedText text={block.text} query={searchQuery} />
-                                </p>
-                              )
                             })}
                           </div>
                         ) : (
-                          <div style={styles.emptyPageText}>No extracted text on this page.</div>
+                          <div style={styles.emptyPageText}>No extracted text on this page — it is a scan. Use Image or Side by side.</div>
                         )}
                       </section>
                     ))}
                   </div>
+
+                  {/* Side by side: the scan of the page being read */}
+                  {viewMode === 'split' && (
+                    <div style={styles.splitImagePane}>
+                      <div style={styles.splitImageHead}>
+                        <button style={styles.navBtn} disabled={currentPage === 0} onClick={() => setCurrentPage(p => p - 1)}><ChevronLeft size={14} /></button>
+                        <span style={styles.pageLabel}>Page {currentPage + 1} of {pages.length}</span>
+                        <button style={styles.navBtn} disabled={currentPage >= pages.length - 1} onClick={() => setCurrentPage(p => p + 1)}><ChevronRight size={14} /></button>
+                      </div>
+                      <div style={styles.splitImageScroll}>
+                        {pages[currentPage] && (
+                          <img src={pageImgUrl(pages[currentPage].url)} alt={`Page ${currentPage + 1}`}
+                            style={{ ...styles.pageImg, width: `${zoom * 100}%`, maxWidth: 'none' }} />
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )
             ) : loading ? (
@@ -569,8 +676,10 @@ export function ChartViewer({ chart, viewerName = 'anonymous', onClose }: Props)
 
         {/* Footer */}
         <div style={styles.footer}>
-          {viewMode === 'text' && textAvailable ? (
-            <span style={styles.pageLabel}>{textPages.filter(p => p.has_text).length} text page{textPages.filter(p => p.has_text).length !== 1 ? 's' : ''}</span>
+          {viewMode !== 'image' && textAvailable ? (
+            <span style={styles.pageLabel}>
+              {parsed.docs.length} document{parsed.docs.length !== 1 ? 's' : ''} · {parsed.sectionCount} section{parsed.sectionCount !== 1 ? 's' : ''} · {textPages.length} page{textPages.length !== 1 ? 's' : ''}
+            </span>
           ) : pages.length > 1 ? (
             <>
               <button style={styles.navBtn} disabled={currentPage === 0} onClick={() => setCurrentPage(p => p - 1)}>
@@ -586,7 +695,7 @@ export function ChartViewer({ chart, viewerName = 'anonymous', onClose }: Props)
           ) : (
             <span style={styles.pageLabel}>1 page</span>
           )}
-          <span style={styles.keyHint}>← → navigate &nbsp;·&nbsp; Ctrl+F search &nbsp;·&nbsp; Esc close</span>
+          <span style={styles.keyHint}>← → page &nbsp;·&nbsp; Alt+↑↓ section &nbsp;·&nbsp; / or Ctrl+F search &nbsp;·&nbsp; Esc close</span>
         </div>
       </div>
     </div>
@@ -630,6 +739,37 @@ const styles: Record<string, React.CSSProperties> = {
   thumbLabel: { fontSize: 10 },
   thumbMatchDot: { position: 'absolute' as const, top: 4, right: 4, width: 7, height: 7, borderRadius: '50%', background: '#f59e0b' },
   body: { flex: 1, overflowY: 'auto', padding: 20, background: '#f3f4f6' },
+  // Pages inside docPane must not shrink: a flex column squeezes its children
+  // to the pane's height and clips each page's text, instead of scrolling.
+  // Text and side-by-side: the body holds three panes that scroll on their own,
+  // so the navigator stays put while the document moves.
+  bodyDoc: { flex: 1, overflow: 'hidden', background: '#f3f4f6', display: 'flex', minHeight: 0 },
+  docLayout: { flex: 1, display: 'flex', minHeight: 0, minWidth: 0 },
+  navigator: { width: 236, flexShrink: 0, overflowY: 'auto', background: '#fff', borderRight: '1px solid #e5e7eb', padding: '10px 8px 14px' },
+  navHead: { display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', fontSize: 11, fontWeight: 800, color: '#334155', textTransform: 'uppercase' as const, letterSpacing: 0.5, padding: '2px 6px 8px' },
+  navCount: { fontSize: 10, fontWeight: 600, color: '#94a3b8', textTransform: 'none' as const, letterSpacing: 0 },
+  navEmpty: { fontSize: 12, color: '#94a3b8', padding: '4px 6px', lineHeight: 1.4 },
+  navDoc: { width: '100%', display: 'flex', alignItems: 'baseline', gap: 6, border: 'none', background: '#f1f5f9', borderRadius: 6, padding: '6px 8px', cursor: 'pointer', textAlign: 'left' as const, marginBottom: 2, minWidth: 0 },
+  navDocType: { fontSize: 11, fontWeight: 800, color: '#1e293b', whiteSpace: 'nowrap' as const },
+  navDocTitle: { fontSize: 10, color: '#64748b', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const },
+  navSec: { width: '100%', display: 'flex', alignItems: 'center', gap: 6, border: 'none', borderLeft: '3px solid transparent', background: 'transparent', padding: '4px 8px 4px 10px', cursor: 'pointer', textAlign: 'left' as const, color: '#334155', borderRadius: '0 5px 5px 0', minWidth: 0 },
+  navSecOn: { background: '#f5f3ff', fontWeight: 700 },
+  navSecLabel: { fontSize: 12, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const },
+  navPage: { fontSize: 10, color: '#94a3b8', flexShrink: 0 },
+  navKeys: { fontSize: 10, color: '#94a3b8', padding: '10px 6px 0', borderTop: '1px solid #f1f5f9', marginTop: 6, lineHeight: 1.4 },
+  docPane: { flex: 1, minWidth: 0, overflowY: 'auto', padding: 16, position: 'relative' as const, display: 'flex', flexDirection: 'column', gap: 10 },
+  docBand: { display: 'flex', alignItems: 'center', gap: 10, margin: '4px 0 10px', padding: '9px 12px', background: '#1e293b', color: '#fff', borderRadius: 7, fontSize: 13, fontWeight: 700 },
+  docBandType: { fontSize: 10, fontWeight: 800, textTransform: 'uppercase' as const, letterSpacing: 0.6, background: 'rgba(255,255,255,0.15)', borderRadius: 4, padding: '2px 7px', flexShrink: 0 },
+  noteSectionAs: { marginLeft: 'auto', fontSize: 10, fontWeight: 600, color: '#64748b', textTransform: 'none' as const, letterSpacing: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const, maxWidth: '45%' },
+  noteListLine: { display: 'grid', gridTemplateColumns: '26px 1fr', gap: 4, padding: '2px 0', color: '#1f2937', wordBreak: 'break-word' as const },
+  noteListMarker: { color: '#64748b', fontWeight: 700, textAlign: 'right' as const, paddingRight: 4 },
+  noteSignature: { margin: '10px 0 4px', color: '#64748b', fontSize: 12, fontStyle: 'italic', borderTop: '1px dashed #e2e8f0', paddingTop: 6 },
+  aidLegend: { flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: '#64748b', background: '#fff', border: '1px solid #e5e7eb', borderRadius: 7, padding: '6px 10px' },
+  aidUncertain: { background: '#fef3c7', color: '#92400e', borderBottom: '2px solid #f59e0b', borderRadius: 2, padding: '0 1px' },
+  aidLinkage: { background: '#e0f2fe', color: '#075985', borderBottom: '2px solid #0ea5e9', borderRadius: 2, padding: '0 1px' },
+  splitImagePane: { width: '44%', flexShrink: 0, display: 'flex', flexDirection: 'column', borderLeft: '1px solid #e5e7eb', background: '#e5e7eb', minHeight: 0 },
+  splitImageHead: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '6px 8px', background: '#fafafa', borderBottom: '1px solid #e5e7eb' },
+  splitImageScroll: { flex: 1, overflow: 'auto', padding: 12 },
   center: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 200, color: '#9ca3af', gap: 12 },
   spinner: { width: 28, height: 28, border: '3px solid #e5e7eb', borderTopColor: '#4f46e5', borderRadius: '50%', animation: 'spin 0.8s linear infinite' },
   pageImg: { display: 'block', margin: '0 auto', maxWidth: '100%', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', borderRadius: 4, transition: 'outline 0.2s' },
@@ -646,7 +786,7 @@ const styles: Record<string, React.CSSProperties> = {
   pageText: { padding: '16px 18px 18px', color: '#111827', fontSize: 13, lineHeight: 1.55, background: '#fff' },
   noteSectionHead: { display: 'flex', alignItems: 'center', gap: 9, margin: '16px 0 8px', padding: '8px 10px', border: '1px solid #dbeafe', borderLeft: '4px solid #2563eb', borderRadius: 7, background: '#eff6ff', color: '#1e3a8a', fontSize: 12, fontWeight: 900, textTransform: 'uppercase' as const, letterSpacing: 0.4 },
   noteSectionRule: { width: 6, height: 6, borderRadius: '50%', background: '#2563eb', flexShrink: 0 },
-  noteFieldLine: { display: 'grid', gridTemplateColumns: 'minmax(130px, 220px) 1fr', gap: 10, padding: '5px 0', borderBottom: '1px solid #f1f5f9', alignItems: 'start', color: '#1f2937' },
+  noteFieldLine: { display: 'grid', gridTemplateColumns: 'minmax(110px, 200px) minmax(0, 1fr)', wordBreak: 'break-word' as const, gap: 10, padding: '5px 0', borderBottom: '1px solid #f1f5f9', alignItems: 'start', color: '#1f2937' },
   noteTextLine: { margin: '5px 0', color: '#1f2937', whiteSpace: 'pre-wrap' as const, wordBreak: 'break-word' as const },
   textGap: { height: 8 },
   emptyPageText: { padding: 14, color: '#94a3b8', fontSize: 12, fontStyle: 'italic' },
