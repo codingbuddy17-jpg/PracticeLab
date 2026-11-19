@@ -21,6 +21,8 @@ export type CodeInfo = {
   chapter?: string | null
   chapter_no?: number | null
   billable?: boolean
+  /** CMS POA exempt list: true / false, or null when the list is not loaded. */
+  poa_exempt?: boolean | null
 }
 
 export type DescribeResult = {

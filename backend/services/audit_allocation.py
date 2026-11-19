@@ -150,11 +150,13 @@ def build_corpus(answer_keys, db=None) -> Corpus:
                 mods.add(str(row["modifier"]).strip())
     dx_candidates = _icd_specificity_candidates(db, dx)
     valid_pcs, pcs_axes = _real_pcs_neighbours(db, pcs)
+    from services.poa_exempt import exempt_among
     return Corpus(dx_codes=sorted(dx), pcs_codes=sorted(pcs),
                   cpt_codes=sorted(cpt), modifiers=sorted(mods),
                   valid_pcs=valid_pcs,
                   dx_candidates_by_prefix=dx_candidates,
-                  pcs_axes=pcs_axes)
+                  pcs_axes=pcs_axes,
+                  poa_exempt=exempt_among(db, dx))
 
 
 def _icd_specificity_candidates(db, dx_codes) -> dict[str, list[str]]:

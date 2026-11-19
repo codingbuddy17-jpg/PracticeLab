@@ -572,6 +572,8 @@ def _run_migrations():
     _add_col("practice_chart_drafts", "ed_resolution", "TEXT", "TEXT")
     _add_col("practice_chart_drafts", "ed_rationale", "TEXT", "TEXT")
     _add_col("practice_chart_drafts", "em_data", "TEXT", "TEXT")
+    # CMS POA exempt flag on each ICD-10-CM code. NULL = list not loaded.
+    _add_col("code_descriptions", "poa_exempt", "BOOLEAN")
     # Physician query: the coder's judgement that the record is not codeable as
     # documented. Inpatient only — the query text itself goes in coder_notes.
     _add_col("practice_chart_drafts", "query_flag", "BOOLEAN DEFAULT FALSE", "BOOLEAN DEFAULT FALSE")

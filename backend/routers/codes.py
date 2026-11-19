@@ -102,6 +102,9 @@ def describe(codes: str = Query(..., description="comma separated"),
             "chapter": row.chapter,
             "chapter_no": row.chapter_no,
             "billable": row.is_billable,
+            # True / False from the CMS POA exempt list; None when the list is
+            # not loaded — screens grey a POA box only on True.
+            "poa_exempt": getattr(row, "poa_exempt", None),
         })
     # Which systems have ANY rows. Without this a caller cannot tell "that is
     # not a real code" from "nobody ran the ingest" — both look like an absent
@@ -210,7 +213,15 @@ def status(db: Session = Depends(get_db)):
         # being re-derived in the frontend.
         "needs_attention": bool(missing) or any(
             not v["current"] for v in seen.values()),
+        # Whether the CMS POA exempt list is loaded. Without it no POA box is
+        # greyed and no POA is skipped in grading, silently — so say so.
+        "poa_exempt_loaded": _poa_loaded(db),
     }
+
+
+def _poa_loaded(db) -> bool:
+    from services.poa_exempt import list_loaded
+    return list_loaded(db)
 
 
 @router.get("/ingest-job")

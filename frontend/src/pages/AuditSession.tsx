@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { PoaSelect } from '../components/PoaSelect'
 import { useParams } from 'react-router-dom'
 import {
   AlertTriangle, Check, CheckCircle, ChevronRight, Circle, Copy, Plus,
@@ -725,6 +726,7 @@ function SectionBlock({ spec, chart, state, onVerdict, onUpsert }: {
                         autoFocus={field === 'code' && !f.correct_value}
                         required={field === 'code' || field === 'poa'}
                         section={key}
+                        poaExempt={field === 'poa' ? describe(String(f.correct_value || ''))?.poa_exempt : null}
                       />
                     ))}
                     {addComplete(f) && (
@@ -816,6 +818,8 @@ function PdxRow({ chart, spec, open, revisionOf, setRevision, describe }: {
           field={field}
           options={field === 'poa' ? POA_VALUES : undefined}
           describe={describe}
+          poaExempt={field === 'poa' && describe
+            ? describe(revisionOf(0, 'code')?.correct_value || values.code)?.poa_exempt : null}
           onChange={v => setRevision(0, field, values[field] || '', v)}
         />
       ))}
@@ -867,6 +871,10 @@ function LineRow({ index, row, fields, open, deleted, canDelete, revisionOf, set
           field={field}
           options={field === 'poa' ? POA_VALUES : undefined}
           describe={describe}
+          // The code the line will carry: the auditor's revision when there is
+          // one, so revising to an exempt code locks its POA at once.
+          poaExempt={field === 'poa' && describe
+            ? describe(revisionOf(index, 'code')?.correct_value || String(row.code ?? ''))?.poa_exempt : null}
           onChange={v => setRevision(index, field, String(row[field] ?? ''), v)}
         />
       ))}
@@ -895,7 +903,7 @@ function LineRow({ index, row, fields, open, deleted, canDelete, revisionOf, set
 }
 
 function AddField({ field, finding, onChange, onEnter, fieldId, autoFocus, required,
-                   section }: {
+                   section, poaExempt }: {
   field: string
   finding: Finding
   onChange: (v: string) => void
@@ -904,6 +912,7 @@ function AddField({ field, finding, onChange, onEnter, fieldId, autoFocus, requi
   autoFocus?: boolean
   required?: boolean
   section: string
+  poaExempt?: boolean | null
 }) {
   const value = field === 'code'
     ? finding.correct_value || ''
@@ -917,6 +926,11 @@ function AddField({ field, finding, onChange, onEnter, fieldId, autoFocus, requi
     <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
       <span style={s.fieldLabel}>{FIELD_LABEL[field] || field}{required ? ' *' : ''}</span>
       {field === 'poa' ? (
+        poaExempt ? (
+          <PoaSelect value={value} onChange={onChange} exempt
+            options={POA_VALUES.map(v => ({ value: v, label: v }))}
+            style={{ ...s.input, width: Math.max(width, 120), boxSizing: 'border-box' }} />
+        ) : (
         <select
           style={{ ...s.input, width, borderColor: missing ? '#dc2626' : value ? ACTION_COLOR.Add + '66' : '#e5e7eb' }}
           value={value}
@@ -927,6 +941,7 @@ function AddField({ field, finding, onChange, onEnter, fieldId, autoFocus, requi
           <option value="">POA</option>
           {POA_VALUES.map(v => <option key={v} value={v}>{v}</option>)}
         </select>
+        )
       ) : (
         field === 'code' ? (
           <CodeSuggest
@@ -960,7 +975,7 @@ function AddField({ field, finding, onChange, onEnter, fieldId, autoFocus, requi
 }
 
 function Field({ label, value, open, revision, strike, onChange, section, field,
-                describe, options }: {
+                describe, options, poaExempt }: {
   label: string
   value: string
   open: boolean
@@ -972,7 +987,29 @@ function Field({ label, value, open, revision, strike, onChange, section, field,
   describe?: (code: string) => CodeInfo | null
   /** A fixed vocabulary. Present means a select, absent means a text box. */
   options?: string[]
+  /** The line's code is on the CMS POA exempt list (POA field only). */
+  poaExempt?: boolean | null
 }) {
+  // An exempt code's POA is E and nothing to audit — locked, so no auditor
+  // spends a finding on it. Locked only while the claim already says E (or
+  // nothing): a claim generated before this rule may carry a planted POA
+  // error on an exempt code, and locking that would stop the auditor fixing
+  // an error they are scored on. That case stays editable, with the reason.
+  const shown = String(revision?.correct_value ?? value ?? '').toUpperCase()
+  if (field === 'poa' && poaExempt && open && (shown === 'E' || shown === '')) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+        <span style={s.fieldLabel}>{label}</span>
+        <div title="This code is on the CMS POA exempt list — POA is reported as exempt (E)."
+          style={{ ...s.input, width: 150, boxSizing: 'border-box', background: '#f3f4f6',
+                   color: '#6b7280', cursor: 'not-allowed', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <b style={{ color: '#374151' }}>E</b><span style={{ fontSize: 11 }}>POA exempt</span>
+        </div>
+      </div>
+    )
+  }
+  const exemptHint = field === 'poa' && poaExempt && open
+    ? <span style={{ fontSize: 10.5, color: '#b45309' }}>POA exempt — should be E</span> : null
   const changed = !!revision
   // Checked only once the auditor has typed a correction — the claim's own
   // value is whatever it is, and flagging the chart's existing codes would be
@@ -1037,6 +1074,7 @@ function Field({ label, value, open, revision, strike, onChange, section, field,
       )}
       {changed && <span style={s.wasNote}>was {value || '—'}</span>}
       {!check.ok && <span style={s.formatHint}>{check.hint}</span>}
+      {exemptHint}
     </div>
   )
 }

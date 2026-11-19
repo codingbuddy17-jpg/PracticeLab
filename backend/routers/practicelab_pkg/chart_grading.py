@@ -42,7 +42,7 @@ def _dpo_fields(dpo, include_poa: bool):
     }
 
 
-def _grade_chart_for_sp(chart, ak_rec, sub_data, ip_cfg, op_cfg, edsp_cfg=None):
+def _grade_chart_for_sp(chart, ak_rec, sub_data, ip_cfg, op_cfg, edsp_cfg=None, db=None):
     """Grade a single chart submission, return (result_kwargs, feedback_items)."""
     is_ip = chart.specialty in IP_SPECIALTIES
     feedback_items = []
@@ -91,11 +91,13 @@ def _grade_chart_for_sp(chart, ak_rec, sub_data, ip_cfg, op_cfg, edsp_cfg=None):
         return result, feedback_items
 
     if is_ip:
+        from services.poa_exempt import exempt_among
         ak = IPAnswerKey(
             pdx_code=ak_rec.pdx_code or "",
             pdx_poa=ak_rec.pdx_poa or "",
             sdx=ak_rec.sdx or [],
             pcs=ak_rec.pcs or [],
+            poa_exempt=exempt_among(db, [ak_rec.pdx_code] + [x.get("code") for x in (ak_rec.sdx or [])]),
         )
         s = IPSubmission(
             pdx_code=sub_data.get("pdx_code", ""),
@@ -305,7 +307,7 @@ def regrade_chart_everywhere(db, chart_id: int, ip_cfg, op_cfg, edsp_cfg=None,
             "profee_level": entry.profee_level or "",
         }
         result_kwargs, feedback_items = _grade_chart_for_sp(
-            chart, ak_rec, sub_data, ip_cfg, op_cfg, edsp_cfg)
+            chart, ak_rec, sub_data, ip_cfg, op_cfg, edsp_cfg, db=db)
         _upsert_practice_result(db, session_id, entry, chart.specialty, graded=True,
                                 result_kwargs=result_kwargs, feedback_items=feedback_items,
                                 ak_rec=ak_rec)

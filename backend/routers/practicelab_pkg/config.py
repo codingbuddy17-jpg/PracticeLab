@@ -277,6 +277,12 @@ def upload_answer_keys(
             wrong_specialty.append(matched_chart_num)
             continue
 
+        # An exempt code's POA is E, whatever the sheet says — the trainer
+        # never has to check the CMS list (services/poa_exempt).
+        from services.poa_exempt import normalise_key_poa
+        row["pdx_poa"], row["sdx"], _ = normalise_key_poa(
+            db, chart.specialty, row.get("pdx_code", ""), row.get("pdx_poa", ""), row.get("sdx", []))
+
         existing = db.query(AnswerKey).filter(AnswerKey.chart_id == chart.id).first()
         if existing:
             if replace:
@@ -682,6 +688,10 @@ def upsert_answer_key_inline(chart_id: int, payload: AnswerKeyPayload,
             detail=(f"{impact['closed_batches']} closed batch(es) already used this key. "
                     "Re-grading rewrites closed history — resend with regrade_closed=true to proceed."),
         )
+
+    from services.poa_exempt import normalise_key_poa
+    payload.pdx_poa, payload.sdx, _ = normalise_key_poa(
+        db, chart.specialty, payload.pdx_code, payload.pdx_poa or "", payload.sdx)
 
     if existing:
         existing.pdx_code = payload.pdx_code

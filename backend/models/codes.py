@@ -72,6 +72,9 @@ class CodeDescription(Base):
     # for coders and drg_impacting for auditors, so having the published truth
     # to check it against is the point of carrying this.
     cc_mcc_status = Column(String(4), nullable=True)
+    # True / False from the CMS POA exempt list; NULL when no list was loaded,
+    # which every reader treats as "unknown" and never as "not exempt".
+    poa_exempt = Column(Boolean, nullable=True)
     # A header code is a category, not something anyone codes to.
     is_billable = Column(Boolean, nullable=False, default=True)
 

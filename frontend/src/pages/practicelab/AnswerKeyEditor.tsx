@@ -8,11 +8,13 @@ import {
 import { CodeSuggest } from '../../components/CodeSuggest'
 import { CodeCaption } from '../../components/CodeCaption'
 import { useCodeDescriptions } from '../../hooks/useCodeDescriptions'
+import { PoaSelect } from '../../components/PoaSelect'
 import { errorMessage } from '../../api/errors'
 import { trainerName } from './shared'
 import styles from './styles'
 
 const POA_OPTIONS = ['', 'Y', 'N', 'U', 'W', 'E']
+const POA_CHOICES = POA_OPTIONS.filter(Boolean).map(o => ({ value: o, label: o }))
 const CCMCC_OPTIONS = ['', 'MCC', 'CC', '-']
 
 /**
@@ -224,10 +226,9 @@ export function AnswerKeyEditor({ chartId, onClose, onSaved }: {
               if (v.trim() && sdx.length === 0) setSdx([{ code: '', poa: '', ccmcc: '' }])
             }} />
           {detail.is_ip && (
-            <select style={{ ...styles.select, marginBottom: 0, width: 110 }} value={pdxPoa}
-              onChange={e => setPdxPoa(e.target.value)}>
-              {POA_OPTIONS.map(o => <option key={o} value={o}>{o || 'POA'}</option>)}
-            </select>
+            <PoaSelect style={{ ...styles.select, marginBottom: 0, width: 110 }} value={pdxPoa}
+              onChange={setPdxPoa} options={POA_CHOICES} placeholder="POA"
+              exempt={pdx.trim() ? describeDx(pdx)?.poa_exempt : null} />
           )}
         </div>
         <div style={{ marginBottom: 12 }}>
@@ -244,10 +245,10 @@ export function AnswerKeyEditor({ chartId, onClose, onSaved }: {
               onEnter={v => addSdxOnEnter(i, v)} />
             {detail.is_ip && (
               <>
-                <select style={{ ...styles.select, marginBottom: 0, width: 90 }} value={s.poa || ''}
-                  onChange={e => setSdx(sdx.map((x, j) => j === i ? { ...x, poa: e.target.value } : x))}>
-                  {POA_OPTIONS.map(o => <option key={o} value={o}>{o || 'POA'}</option>)}
-                </select>
+                <PoaSelect style={{ ...styles.select, marginBottom: 0, width: 90 }} value={s.poa || ''}
+                  onChange={v => setSdx(prev => prev.map((x, j) => j === i ? { ...x, poa: v } : x))}
+                  options={POA_CHOICES} placeholder="POA"
+                  exempt={s.code.trim() ? describeDx(s.code)?.poa_exempt : null} />
                 <select style={{ ...styles.select, marginBottom: 0, width: 100 }} value={s.ccmcc || ''}
                   onChange={e => setSdx(sdx.map((x, j) => j === i ? { ...x, ccmcc: e.target.value } : x))}>
                   {CCMCC_OPTIONS.map(o => <option key={o} value={o}>{o || 'CC/MCC'}</option>)}

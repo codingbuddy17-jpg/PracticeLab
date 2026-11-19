@@ -728,7 +728,7 @@ def submit_practice_session(session_id: int, payload: SubmitPracticeSession, db:
                 "profee_level": entry.profee_level or "",
             }
             result_kwargs, feedback_items = _grade_chart_for_sp(
-                chart, ak_rec, sub_data, ip_cfg, op_cfg, edsp_cfg)
+                chart, ak_rec, sub_data, ip_cfg, op_cfg, edsp_cfg, db=db)
             _upsert_practice_result(db, session_id, entry, specialty, graded=True,
                                     result_kwargs=result_kwargs, feedback_items=feedback_items,
                                     ak_rec=ak_rec)
@@ -1634,7 +1634,7 @@ def regrade_practice_session(session_id: int, db: Session = Depends(get_db)):
             feedback_items = _em_feedback_items(scoring, em_ak, entry.em_data or {}, em_cfg)
         else:
             result_kwargs, feedback_items = _grade_chart_for_sp(
-                chart, ak_rec, sub_data, ip_cfg, op_cfg, edsp_cfg)
+                chart, ak_rec, sub_data, ip_cfg, op_cfg, edsp_cfg, db=db)
         _upsert_practice_result(db, session_id, entry, specialty, graded=True,
                                 result_kwargs=result_kwargs, feedback_items=feedback_items,
                                 ak_rec=ak_rec)

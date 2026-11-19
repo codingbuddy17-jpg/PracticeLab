@@ -137,6 +137,16 @@ def drg_urls(today=None) -> list:
             f"files-v{year - 1983}.zip" for year in (fy, fy - 1)]
 
 
+def poa_urls(today=None) -> list:
+    """
+    The POA exempt list — the ICD-10-CM codes for which present-on-admission
+    is not reported. Published per fiscal year beside the code descriptions.
+    """
+    fy = fiscal_year(today)
+    return [f"https://www.cms.gov/files/zip/{year}-poa-exempt-codes.zip"
+            for year in (fy, fy - 1)]
+
+
 EDITION = f"FY{fiscal_year()}"
 
 
@@ -152,18 +162,25 @@ def _download(urls: Iterable[str]) -> Optional[bytes]:
     return None
 
 
-def _from_zip(blob: bytes, contains: str, ext: str) -> Optional[bytes]:
+def _from_zip(blob: bytes, contains: str, ext: str,
+              exclude: str = "") -> Optional[bytes]:
     with zipfile.ZipFile(io.BytesIO(blob)) as z:
         for name in z.namelist():
             low = name.lower()
-            if contains in low and low.endswith(ext):
+            if contains in low and low.endswith(ext) and not (exclude and exclude in low):
                 return z.read(name)
     return None
 
 
-def _local(directory: pathlib.Path, contains: str, ext: str) -> Optional[bytes]:
+def _local(directory: pathlib.Path, contains: str, ext: str,
+           exclude: str = "") -> Optional[bytes]:
+    # `exclude` exists because names overlap: the POA exempt list is
+    # "POAexemptCodesFY27.txt", which contains "codes" and sorts before the CM
+    # codes file — so a --from-dir holding both would load the exempt list AS
+    # the code set.
     for path in sorted(directory.rglob(f"*{ext}")):
-        if contains in path.name.lower():
+        low = path.name.lower()
+        if contains in low and not (exclude and exclude in low):
             return path.read_bytes()
     return None
 
@@ -432,6 +449,31 @@ def parse_hcpcs(txt_bytes: bytes) -> tuple[list[dict], list[dict]]:
     return codes, modifiers
 
 
+def parse_poa_exempt(txt_bytes: bytes) -> set:
+    """
+    The CMS POA exempt list: tab-delimited, a header row naming the columns
+    (Order27, POAexemptCode, Description). The code column is found by its
+    header rather than by position, since the order column's name changes
+    every year. Codes come dotted (B90.0) and are stored bare, like the CM set.
+    """
+    text = txt_bytes.decode("utf-8", "replace").replace("\r\n", "\n")
+    lines = [ln for ln in text.split("\n") if ln.strip()]
+    if not lines:
+        return set()
+    header = [h.strip().lower() for h in lines[0].split("\t")]
+    col = next((i for i, h in enumerate(header) if "code" in h and "order" not in h), None)
+    if col is None:
+        return set()
+    out = set()
+    for ln in lines[1:]:
+        parts = ln.split("\t")
+        if len(parts) > col:
+            code = parts[col].strip().upper().replace(".", "")
+            if code:
+                out.add(code)
+    return out
+
+
 def parse_cc_mcc(txt_bytes: bytes) -> dict:
     """
     Appendix C Part 1 of the MS-DRG Definitions Manual: every code that acts as
@@ -557,8 +599,8 @@ def main() -> int:
         print("\nICD-10-CM")
         order = codes = tabular = None
         if src:
-            order = _local(src, "order", ".txt")
-            codes = _local(src, "codes", ".txt")
+            order = _local(src, "order", ".txt", exclude="poa")
+            codes = _local(src, "codes", ".txt", exclude="poa")
             if not order:
                 tabular = _local(src, "tabular", ".xml")
         else:
@@ -624,9 +666,46 @@ def main() -> int:
             else:
                 print("  no source found — skipped, codes load without severity")
 
+            # ── POA exempt ───────────────────────────────────────────────────
+            #
+            # Stamped like severity: a property of the code. Without a list,
+            # every code is left NULL — unknown — rather than False, so no
+            # screen ever greys a POA box on a guess, or claims a code is
+            # reportable because a file was missing.
+            print("\nPOA exempt list")
+            if src:
+                poa = _local(src, "poaexemptcodes", ".txt")
+            else:
+                blob = _download(poa_urls())
+                poa = _from_zip(blob, "poaexemptcodes", ".txt") if blob else None
+                del blob
+            exempt = parse_poa_exempt(poa) if poa else set()
+            del poa
+            if exempt:
+                for row in cm_rows:
+                    row["poa_exempt"] = row["code"] in exempt
+                n = sum(1 for r in cm_rows if r.get("poa_exempt"))
+                print(f"  {n:,} codes are POA exempt")
+                known = {r["code"] for r in cm_rows}
+                orphans = [c for c in exempt if c not in known]
+                if orphans:
+                    print(f"  {len(orphans)} exempt codes are not in this CM edition, "
+                          f"e.g. {sorted(orphans)[:4]} — the list is from a different year.")
+                del known
+            else:
+                print("  no source found — skipped, no code is marked exempt")
+            del exempt
+
             loaded += len(cm_rows)
             if db:
                 _write(db, "ICD10CM", cm_rows, EDITION, args.loaded_by, source_url)
+                # Keys written before the list was known: set E on every exempt
+                # code in an inpatient key, once, now that the list exists.
+                from services.poa_exempt import correct_existing_keys
+                fixed = correct_existing_keys(db)
+                if fixed.get("keys"):
+                    print(f"  POA set to E on {fixed['lines']} exempt line(s) "
+                          f"in {fixed['keys']} inpatient answer key(s)")
         else:
             print("  no source found — skipped")
         del cm_rows

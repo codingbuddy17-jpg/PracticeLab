@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { deviceId } from '../hooks/useDeviceId'
 import { GradingFeedback } from '../components/GradingFeedback'
+import { PoaSelect } from '../components/PoaSelect'
 import { SubmissionReview, ReviewExportButton, type ChartReview } from '../components/SubmissionReview'
 import { checkCpt, checkDx, checkModifier, checkPcs } from '../codeFormat'
 import { useCodeDescriptions } from '../hooks/useCodeDescriptions'
@@ -1412,14 +1413,13 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
           </div>
           {ip && (
             <div style={{ width: 200 }}>
-              <select
+              <PoaSelect
                 style={{ ...s.selectField, borderColor: pdxPOAMissing ? '#fca5a5' : '#e5e7eb' }}
                 value={entry.pdx_poa}
-                onChange={e => onChange({ pdx_poa: e.target.value })}
-              >
-                <option value="">POA…</option>
-                {POA_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
+                onChange={v => onChange({ pdx_poa: v })}
+                exempt={entry.pdx_code.trim() ? describeDx(entry.pdx_code)?.poa_exempt : null}
+                options={POA_OPTIONS}
+              />
               {pdxPOAMissing && <div style={s.warningLine}><AlertTriangle size={11} color="#f59e0b" /> POA required</div>}
             </div>
           )}
@@ -1448,14 +1448,13 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
               <CodeSays info={describeDx(row.code)} />
             </div>
             {ip && (
-              <select
+              <PoaSelect
                 style={{ ...s.selectField, width: 180, marginBottom: 0, borderColor: row.code.trim() && !row.poa ? '#fca5a5' : '#e5e7eb' }}
                 value={row.poa}
-                onChange={e => updateSdx(i, 'poa', e.target.value)}
-              >
-                <option value="">POA…</option>
-                {POA_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
+                onChange={v => updateSdx(i, 'poa', v)}
+                exempt={row.code.trim() ? describeDx(row.code)?.poa_exempt : null}
+                options={POA_OPTIONS}
+              />
             )}
             <button onClick={() => removeSdx(i)} style={s.removeBtn}><X size={14} /></button>
           </div>

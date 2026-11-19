@@ -904,18 +904,25 @@ function KeySection({ spec, answerKey, mutations, setMutations }: {
                     {r.field}: {r.correct_value || '—'} → <strong>{r.claim_value}</strong>
                   </span>
                 ))}
-                {spec.fields.map((f: string) => (
+                {spec.fields.map((f: string) => {
+                  // An exempt code's POA is E and not auditable: a planted POA
+                  // error there teaches a wrong answer, so it cannot be authored.
+                  const poaLocked = f === 'poa' && describe(String(row.code || ''))?.poa_exempt === true
+                  return (
                   <input key={f} style={{
                     ...s.input, width: f === 'code' ? 110 : 68, padding: '4px 8px',
                     fontSize: 12, textTransform: 'uppercase',
                     borderColor: find('Revise', i, f) ? ACTION_COLORS.Revise : '#d1d5db',
+                    ...(poaLocked ? { background: '#f3f4f6', cursor: 'not-allowed' } : {}),
                   }}
-                    placeholder={f === 'code' ? 'wrong code' : `wrong ${f}`}
-                    title={`Show a wrong ${f} on the claim instead of ${row[f] || '—'}`}
-                    disabled={omitted}
+                    placeholder={poaLocked ? 'exempt' : f === 'code' ? 'wrong code' : `wrong ${f}`}
+                    title={poaLocked ? 'POA exempt (CMS) — no POA error can be planted on this code'
+                      : `Show a wrong ${f} on the claim instead of ${row[f] || '—'}`}
+                    disabled={omitted || poaLocked}
                     value={find('Revise', i, f)?.claim_value || ''}
                     onChange={e => setRevision(i, f, e.target.value, String(row[f] ?? ''))} />
-                ))}
+                  )
+                })}
                 {spec.actions.includes('Add') && (
                   <button
                     title={omitted ? 'Keep this code on the claim' : 'Remove it — the auditor must add it back'}

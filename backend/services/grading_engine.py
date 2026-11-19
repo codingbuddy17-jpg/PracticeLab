@@ -75,6 +75,11 @@ class IPAnswerKey:
     pdx_poa: str = ""
     sdx: list[dict] = field(default_factory=list)   # [{code, poa, ccmcc}]
     pcs: list[dict] = field(default_factory=list)   # [{code}]
+    # Bare codes CMS exempts from POA reporting (services/poa_exempt). POA on
+    # one of these is never graded: whatever the key or the coder says, it is
+    # not a coder error. Empty when the list is not loaded — then every POA is
+    # graded as before.
+    poa_exempt: frozenset = field(default_factory=frozenset)
 
 
 @dataclass
@@ -217,6 +222,13 @@ def norm_poa(poa) -> str:
     return "E" if v == "1" else v
 
 
+def poa_same(code, a, b, exempt: frozenset = frozenset()) -> bool:
+    """POA agreement, where a POA-exempt code always agrees — it is not graded."""
+    if norm_dx(code) in exempt:
+        return True
+    return norm_poa(a) == norm_poa(b)
+
+
 def norm_pcs(code) -> str:
     c = _clean(code).replace(" ", "").upper()
     return c.replace("O", "0").replace("I", "1")
@@ -280,7 +292,8 @@ def norm_units(raw) -> int:
 
 # ── Order-independent matching ────────────────────────────────────────────────
 
-def _match_sdx_ip(ak_sdx: list[dict], cdr_sdx: list[dict], penalty: bool):
+def _match_sdx_ip(ak_sdx: list[dict], cdr_sdx: list[dict], penalty: bool,
+                  exempt: frozenset = frozenset()):
     ak_used = [False] * len(ak_sdx)
     cdr_used = [False] * len(cdr_sdx)
     matched = 0
@@ -294,7 +307,7 @@ def _match_sdx_ip(ak_sdx: list[dict], cdr_sdx: list[dict], penalty: bool):
         for ai, ak in enumerate(ak_sdx):
             if ak_used[ai]:
                 continue
-            if norm_dx(ak.get("code", "")) == c_code and norm_poa(ak.get("poa", "")) == c_poa:
+            if norm_dx(ak.get("code", "")) == c_code and poa_same(c_code, ak.get("poa", ""), cs.get("poa", ""), exempt):
                 matched += 1
                 ak_used[ai] = True
                 cdr_used[ci] = True
@@ -644,7 +657,7 @@ def grade_ip(ak: IPAnswerKey, sub: IPSubmission,
 
     # PDx
     pdx_ok = (norm_dx(sub.pdx_code) == norm_dx(ak.pdx_code) and
-               norm_poa(sub.pdx_poa) == norm_poa(ak.pdx_poa))
+               poa_same(ak.pdx_code, sub.pdx_poa, ak.pdx_poa, ak.poa_exempt))
     result.pdx_score = cfg.pdx_weight if pdx_ok else 0
     if not pdx_ok:
         if norm_dx(sub.pdx_code) != norm_dx(ak.pdx_code):
@@ -657,7 +670,7 @@ def grade_ip(ak: IPAnswerKey, sub: IPSubmission,
     ak_sdx_cnt = len([s for s in ak.sdx if norm_dx(s.get("code", ""))])
     cdr_sdx_cnt = len([s for s in sub.sdx if norm_dx(s.get("code", ""))])
     if ak_sdx_cnt > 0:
-        sdx_matched, sdx_extra, sdx_fb = _match_sdx_ip(ak.sdx, sub.sdx, penalty)
+        sdx_matched, sdx_extra, sdx_fb = _match_sdx_ip(ak.sdx, sub.sdx, penalty, ak.poa_exempt)
         sdx_per = cfg.sdx_weight / ak_sdx_cnt
         result.sdx_score = max(0, round((sdx_matched - sdx_extra) * sdx_per))
         feedback.extend(sdx_fb)
@@ -812,13 +825,17 @@ def compute_dpo_ip(ak: IPAnswerKey, sub: IPSubmission, overcoding_penalty: bool)
     poa_opp = 0
     poa_defects = 0
 
-    if pdx_code_ok:
+    # A POA-exempt code is no POA opportunity at all: not graded, so neither
+    # counted as a chance nor as a defect.
+    if pdx_code_ok and norm_dx(ak.pdx_code) not in ak.poa_exempt:
         poa_opp += 1
         if norm_poa(sub.pdx_poa) != norm_poa(ak.pdx_poa):
             poa_defects += 1
 
     cdr_sdx_used_set = {ci for _, ci in sdx_code_matched_idx}
     for ai, ci in sdx_code_matched_idx:
+        if norm_dx(ak_sdx[ai].get("code", "")) in ak.poa_exempt:
+            continue
         poa_opp += 1
         if norm_poa(cdr_sdx[ci].get("poa", "")) != norm_poa(ak_sdx[ai].get("poa", "")):
             poa_defects += 1

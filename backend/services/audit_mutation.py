@@ -153,6 +153,13 @@ class Corpus:
     valid_pcs: set = field(default_factory=set)
     dx_candidates_by_prefix: dict[str, list[str]] = field(default_factory=dict)
     pcs_axes: dict[str, dict] = field(default_factory=dict)
+    # Bare ICD-10-CM codes CMS exempts from POA reporting. A POA error is never
+    # planted on one: its correct POA is E, so flipping Y/N plants an answer
+    # that is wrong twice over. Empty = list not loaded = no exclusion.
+    poa_exempt: frozenset = field(default_factory=frozenset)
+
+    def is_poa_exempt(self, code) -> bool:
+        return str(code or "").strip().upper().replace(".", "") in self.poa_exempt
 
     def dx_family(self, code: str, prefix_len: int = 3) -> list[str]:
         """
@@ -396,8 +403,10 @@ def _feasible(kind: str, claim: dict, specialty: Specialty, corpus: Corpus,
         # that is where a plausible principal candidate actually sits.
         return bool(claim.get("pdx_code")) and len(sdx) >= 3
     if kind == "poa":
-        return _is_ip(specialty) and bool(claim.get("pdx_poa") or
-                                          any(s.get("poa") for s in sdx))
+        # Only lines whose code is not POA exempt can carry a POA error.
+        return _is_ip(specialty) and bool(
+            (claim.get("pdx_poa") and not corpus.is_poa_exempt(claim.get("pdx_code")))
+            or any(s.get("poa") and not corpus.is_poa_exempt(s.get("code")) for s in sdx))
     if kind == "spurious":
         # Always possible — you can always add a code that should not be there.
         # So it never renormalises out, and it grows on sparse charts.
@@ -1009,7 +1018,8 @@ def _apply(kind: str, claim: dict, specialty: Specialty, corpus: Corpus,
         # Prefer a CC/MCC-bearing secondary: a POA flip there can strip the
         # code's severity contribution entirely.
         candidates = [i for i in range(len(sdx))
-                      if (sdx[i] or {}).get("poa") and ("SDx", i) not in used]
+                      if (sdx[i] or {}).get("poa") and ("SDx", i) not in used
+                      and not corpus.is_poa_exempt((sdx[i] or {}).get("code"))]
         if candidates:
             i = _pick_sdx_index([sdx[j] for j in candidates], rng, cfg, set())
             i = candidates[i] if i is not None else rng.choice(candidates)
@@ -1024,7 +1034,8 @@ def _apply(kind: str, claim: dict, specialty: Specialty, corpus: Corpus,
                 "drg_impacting": _is_drg_impacting("SDx", sdx[i], specialty),
                 "revenue_impacting": False,
             }
-        if claim.get("pdx_poa") and ("PDx", 0) not in used:
+        if (claim.get("pdx_poa") and ("PDx", 0) not in used
+                and not corpus.is_poa_exempt(claim.get("pdx_code"))):
             current = str(claim["pdx_poa"]).upper()
             new = "N" if current == "Y" else "Y"
             claim["pdx_poa"] = new
