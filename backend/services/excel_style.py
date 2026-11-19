@@ -39,6 +39,16 @@ PASS_FILL = PatternFill("solid", fgColor="ECFDF5")
 FAIL_FILL = PatternFill("solid", fgColor="FFF1F2")
 PASS_FONT = Font(color="166534", bold=True, size=10)
 FAIL_FONT = Font(color="991B1B", bold=True, size=10)
+# A review line that is neither right nor wrong: coded but not in the key, or
+# present on both sides with a detail that differs (POA, modifier, a count).
+# Distinct from FAIL on purpose — an extra code and a missed one are different
+# coaching conversations. INFO reuses the palette's existing blue.
+EXTRA_FILL = PatternFill("solid", fgColor="FFF7ED")
+EXTRA_FONT = Font(color="9A3412", bold=True, size=10)
+DIFFER_FILL = PatternFill("solid", fgColor="FFFBEB")
+DIFFER_FONT = Font(color="92400E", bold=True, size=10)
+INFO_FILL = PatternFill("solid", fgColor="DBEAFE")
+INFO_FONT = Font(color="1E40AF", bold=True, size=10)
 
 
 def header_row(ws, row: int = 1, *, fill=None, freeze: bool = True,

@@ -24,6 +24,7 @@ WRITERS = [
     "routers/practicelab_pkg/em_grading.py",
     "routers/reports.py",
     "services/audit_export.py",
+    "services/practice_review.py",
     "services/excel_service.py",
 ]
 
@@ -31,7 +32,8 @@ WRITERS = [
 HOUSE = {"1F3864", "2E75B6", "FFFDE7", "FFFFFF"}
 # Meaning. A passing row and a failing row should not look alike, so these are
 # deliberately not the header palette and are not drift.
-SEMANTIC = {"D1FAE5", "FEE2E2", "ECFDF5", "FFF1F2", "DBEAFE", "374151"}
+SEMANTIC = {"D1FAE5", "FEE2E2", "ECFDF5", "FFF1F2", "DBEAFE", "374151",
+            "FFF7ED", "FFFBEB"}   # review: extra, differs (excel_style)
 
 
 def _fills(path):

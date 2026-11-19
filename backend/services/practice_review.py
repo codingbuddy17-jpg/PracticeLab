@@ -373,40 +373,41 @@ def _em_sections(r: dict, ak: Optional[dict], em: Optional[dict], cfg: Optional[
     pts, out = _fb_points(feedback, "E/M Level")
     sections.append(_section("em_level", "E/M Level", "Coding", rows, pts, out))
 
-    # Diagnoses: graded as a SET, so order is shown but not judged.
+    # Diagnoses: ONE section, because E/M grades them as ONE component — a set,
+    # order-blind: (key codes coded anywhere ÷ key codes) × weight, less an
+    # over-coding penalty. Primary is a row, not a section, so the score never
+    # sits beside a position mark and reads as a penalty for order; the first
+    # version did exactly that, and "order only" next to "23.3 of 35" looked
+    # like a deduction the grader never makes.
     dx_k, dx_c = _codes(r.get("sdx_answer_key")), _codes(r.get("sdx_submitted"))
     dx_pts, dx_out = _fb_points(feedback, "Dx:")
-    pd_rows = []
+    dx_rows = []
+    consumed = None
     if dx_k or dx_c:
         k1, c1 = (dx_k[0] if dx_k else ""), (dx_c[0] if dx_c else "")
-        if k1 and c1 and _norm(k1) == _norm(c1):
-            st, note = "correct", ""
-        elif k1 and _norm(k1) in [_norm(c) for c in dx_c]:
-            st, note = "order", "Coded, but not listed first. E/M scores diagnoses as a set, so order costs nothing"
-        elif k1 and c1:
-            st, note = "different", ""
-        else:
-            st, note = ("missed", "") if k1 else ("extra", "")
-        pd_rows.append(_row("Primary Dx", k1, c1, st, note))
-    sections.append(_section("pdx", "Primary Diagnosis", "Coding", pd_rows, dx_pts, dx_out,
-                             "Primary and secondary share one Dx score, shown here."))
-    # Secondary: everything except whichever code each side listed first,
-    # compared as a set — but a key secondary the coder listed FIRST is still
-    # coded, so pair against the coder's full list minus what Primary consumed.
+        c_norm = [_norm(c) for c in dx_c]
+        if k1 and _norm(k1) in c_norm:
+            consumed = c_norm.index(_norm(k1))
+            if consumed == 0:
+                dx_rows.append(_row("Primary Dx", k1, c1, "correct"))
+            else:
+                dx_rows.append(_row("Primary Dx", k1, dx_c[consumed], "correct",
+                                    "Coded at position %d, not first. Order is not scored on E/M"
+                                    % (consumed + 1)))
+        elif k1:
+            dx_rows.append(_row("Primary Dx", k1, "", "missed"))
     k_rest = dx_k[1:]
-    consumed = None
-    if dx_k and dx_c:
-        k1n = _norm(dx_k[0])
-        for i, c in enumerate(dx_c):
-            if _norm(c) == k1n:
-                consumed = i
-                break
-    if consumed is None and dx_c and pd_rows and pd_rows[0]["status"] in ("different", "extra"):
-        consumed = 0
     c_rest = [c for i, c in enumerate(dx_c) if i != consumed]
-    if k_rest or c_rest:
-        sections.append(_section("sdx", "Secondary Diagnoses", "Coding",
-                                 _set_rows("SDx", k_rest, c_rest)))
+    dx_rows += _set_rows("Secondary Dx", k_rest, c_rest)
+    if dx_k:
+        hit = sum(1 for c in dx_k if _norm(c) in [_norm(x) for x in dx_c])
+        over = max(0, len(dx_c) - len(dx_k))
+        dx_note = ("Scored as a set: %d of %d key diagnoses coded%s. "
+                   "Order, including which is listed first, is not scored."
+                   % (hit, len(dx_k), (", %d over-coded" % over) if over else ""))
+    else:
+        dx_note = "The key lists no diagnoses, so this component earns full credit."
+    sections.append(_section("dx", "Diagnoses", "Coding", dx_rows, dx_pts, dx_out, dx_note))
 
     # CPT / procedures
     cpt_k = normalise_cpts(r.get("cpt_answer_key") or [])
@@ -476,16 +477,18 @@ def review_workbook(header: dict, charts: List[dict]) -> bytes:
     click on the Result column rather than a read of the whole sheet.
     """
     from openpyxl import Workbook
-    from openpyxl.styles import Alignment, Font, PatternFill
-    from services.excel_style import (CELL_BORDER, FAIL_FILL, FAIL_FONT,
-                                      PASS_FILL, PASS_FONT, finish)
+    from openpyxl.styles import Alignment
+    from services.excel_style import (CELL_BORDER, DIFFER_FILL, DIFFER_FONT,
+                                      EXTRA_FILL, EXTRA_FONT, FAIL_FILL, FAIL_FONT,
+                                      INFO_FILL, INFO_FONT, PASS_FILL, PASS_FONT,
+                                      finish)
 
     status_style = {
         "correct": (PASS_FILL, PASS_FONT),
         "missed": (FAIL_FILL, FAIL_FONT),
-        "extra": (PatternFill("solid", fgColor="FFF7ED"), Font(color="9A3412", bold=True, size=10)),
-        "different": (PatternFill("solid", fgColor="FFFBEB"), Font(color="92400E", bold=True, size=10)),
-        "order": (PatternFill("solid", fgColor="EFF6FF"), Font(color="1E40AF", bold=True, size=10)),
+        "extra": (EXTRA_FILL, EXTRA_FONT),
+        "different": (DIFFER_FILL, DIFFER_FONT),
+        "order": (INFO_FILL, INFO_FONT),
     }
 
     wb = Workbook()

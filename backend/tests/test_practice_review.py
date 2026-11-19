@@ -112,19 +112,26 @@ def test_each_mdm_table_reports_key_level_against_derived_level():
 def test_em_is_classified_into_the_sections_a_trainer_reads():
     _, review = _em_review()
     keys = [s["key"] for s in review["sections"]]
-    assert keys == ["em_level", "pdx", "sdx", "copa", "dr", "risk"]
+    assert keys == ["em_level", "dx", "copa", "dr", "risk"]
     groups = {s["key"]: s["group"] for s in review["sections"]}
     assert groups["em_level"] == "Coding" and groups["copa"] == "Reasoning"
 
 
-def test_dx_order_is_noted_but_never_marked_wrong():
-    """E/M scores diagnoses as a set. The primary row must not contradict that."""
+def test_dx_is_one_scored_section_and_order_is_never_marked_wrong():
+    """
+    E/M scores diagnoses as a set. The score sits on ONE Diagnoses section with
+    a note naming what it is for, so it can never read as a penalty for order.
+    """
     _, review = _em_review()
-    pdx = _row(_sec(review, "pdx"), "Primary Dx")
-    assert pdx["status"] == "order"
-    sdx = _sec(review, "sdx")
-    assert [(r["key"], r["status"]) for r in sdx["rows"]] == [
-        ("I10", "correct"), ("J45.909", "missed")]
+    dx = _sec(review, "dx")
+    assert (dx["points"], dx["max_points"]) == (23.3, 35.0)
+    assert "2 of 3 key diagnoses coded" in dx["note"]
+    rows = [(r["item"], r["key"], r["coded"], r["status"]) for r in dx["rows"]]
+    assert rows == [("Primary Dx", "E11.9", "E11.9", "correct"),
+                    ("Secondary Dx", "I10", "I10", "correct"),
+                    ("Secondary Dx", "J45.909", "", "missed")]
+    assert "not scored" in dx["rows"][0]["note"]
+    assert not any(r["status"] == "order" for s in review["sections"] for r in s["rows"])
 
 
 def test_time_levelled_chart_shows_a_time_section_not_mdm():
@@ -194,7 +201,7 @@ def _em_chart_with_key(db, number):
            copa_stable_chronic, copa_chronic_exacerbation, copa_acute_uncomplicated,
            risk_prescription_drug_mgmt, entered_by)
         VALUES (:c, '99214', '', :dx, '[]', 'MDM', 'ESTABLISHED',
-                'Moderate', 'Minimal', 'Moderate', 1, 1, 1, 1, 't')"""),
+                'Moderate', 'Minimal', 'Moderate', 1, 1, 1, TRUE, 't')"""),
         {"c": chart.id, "dx": json.dumps(["E11.9", "I10"])})
     db.commit()
     return chart
@@ -230,7 +237,7 @@ def test_trainer_export_is_a_two_sheet_workbook_with_every_line(client, db):
     assert wb.sheetnames == ["Summary", "Review"]
     review = [[c.value for c in row] for row in wb["Review"].iter_rows(min_row=2)]
     sections = {r[2] for r in review}
-    assert {"E/M Level", "Primary Diagnosis", "Problems Addressed (COPA)",
+    assert {"E/M Level", "Diagnoses", "Problems Addressed (COPA)",
             "Data Reviewed and Analysed", "Risk of Patient Management"} <= sections
     assert any(r[7] == "Correct" for r in review) and any(r[7] == "Missed" for r in review)
 

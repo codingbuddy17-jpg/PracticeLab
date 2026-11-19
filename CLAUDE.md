@@ -371,8 +371,10 @@ deployment until that behaviour exists. Backend first.
 (every line, right and wrong) that the trainer Review modal, the coder results
 screen and the Excel export all render; `_build_coder_results` attaches it as
 `review`. It describes grading and never re-scores, so its comparison rules
-must track the grader's: E/M diagnoses are a set (order is shown as `order`,
-never marked wrong), and MDM tables credit only elements the key ticked, so an
+must track the grader's: E/M diagnoses are ONE order-blind set, so they are one
+`Diagnoses` section carrying the one score — the primary is a row, and a
+primary coded second is `correct` with a note (a separate Primary section put
+the Dx points beside an "order" badge and read as a deduction never made); and MDM tables credit only elements the key ticked, so an
 extra tick shows as `extra`, "Not penalised". A new MDM element needs a label in
 `ELEMENT_LABELS`; a test fails per missing field.
 
