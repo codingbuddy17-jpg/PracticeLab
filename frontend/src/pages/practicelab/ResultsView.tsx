@@ -4,6 +4,8 @@ import { Loader, Download, Copy, Check, ChevronDown, ChevronRight } from 'lucide
 import toast from 'react-hot-toast'
 import { getBatchResults, downloadBatchResultsExcel, getBatchInsights, setBatchScoring } from '../../api'
 import { InsightsPanel } from './InsightsPanel'
+import { GradingFeedback } from '../../components/GradingFeedback'
+import { reviewScoreColor } from '../../theme'
 import styles from './styles'
 
 export function ResultsView({ batchId }: any) {
@@ -301,7 +303,7 @@ export function ResultsView({ batchId }: any) {
                             {ch.category || '—'}
                             {ch.specialty && <span style={{ ...styles.badge, marginLeft: 6, fontSize: 10, padding: '1px 6px' }}>{ch.specialty}</span>}
                           </span>
-                          <span style={{ textAlign: 'center', fontWeight: 700, fontSize: 13, color: ch.total_score != null ? scoreColor(ch.total_score) : '#9ca3af' }}>
+                          <span style={{ textAlign: 'center', fontWeight: 700, fontSize: 13, color: reviewScoreColor(ch.total_score) }}>
                             {ch.total_score != null ? `${ch.total_score}%` : '—'}
                             {ch.drg_flag && !ch.drg_reviewed && <span title="DRG review pending" style={{ marginLeft: 4, fontSize: 10, color: '#d97706' }}>⏳</span>}
                             {ch.drg_reviewed && ch.drg_reviewed_by && (
@@ -324,16 +326,12 @@ export function ResultsView({ batchId }: any) {
 
                         {/* Feedback detail */}
                         {chartOpen && ch.feedback?.length > 0 && (
-                          <div style={{ ...styles.fbList, margin: '0 0 4px 24px' }}>
-                            {ch.feedback.map((f: any, fi: number) => (
-                              <div key={fi} style={styles.fbRow}>
-                                <span style={styles.fbSection}>{f.section}</span>
-                                <span style={styles.fbIssue}>{f.issue_type}</span>
-                                {f.ak_code && <span style={{ fontSize: 11 }}>AK:{f.ak_code}</span>}
-                                {f.coder_code && <span style={{ fontSize: 11 }}>Cdr:{f.coder_code}</span>}
-                                {f.detail && <span style={{ fontSize: 11, color: '#6b7280' }}>{f.detail}</span>}
-                              </div>
-                            ))}
+                          // The same grouped renderer the review screens fall
+                          // back to, so a finding reads the same everywhere.
+                          <div style={{ margin: '0 12px 8px 24px' }}>
+                            <GradingFeedback feedback={ch.feedback}
+                              sdxKey={ch.sdx_answer_key || []}
+                              pdxKey={ch.pdx_answer_key ? [{ code: ch.pdx_answer_key }] : []} />
                           </div>
                         )}
                       </div>

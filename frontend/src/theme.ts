@@ -36,3 +36,30 @@ export const DIFFICULTY_COLORS = {
   Intermediate: { bg: '#fef9c3', text: '#854d0e' },
   Advanced:     { bg: '#fee2e2', text: '#991b1b' },
 }
+
+// ── Review screens ────────────────────────────────────────────────────────────
+// One vocabulary of result colours for every screen that marks work against a
+// key: the practice review (trainer modal, coder results, Excel export) and the
+// auditor review. Green is right, red is an error the score paid for, orange is
+// something added that the key lacks, amber is a line that matched but differs
+// in a detail (POA, modifier, pointer, units). Before this the four screens
+// each kept their own greens and reds and a PASS badge in three shades.
+export const REVIEW_STATUS = {
+  correct:   { label: '✓ Correct',      color: '#047857', bg: '#ecfdf5' },
+  wrong:     { label: '✗ Wrong code',   color: '#b91c1c', bg: '#fef2f2' },
+  missed:    { label: '✗ Missed',       color: '#b91c1c', bg: '#fef2f2' },
+  extra:     { label: '+ Extra',        color: '#9a3412', bg: '#fff7ed' },
+  different: { label: '≠ Differs',      color: '#92400e', bg: '#fffbeb' },
+  order:     { label: '↕ Order only',   color: '#1e40af', bg: '#eff6ff' },
+  info:      { label: '',               color: '#6b7280', bg: 'transparent' },
+} as const
+
+/** Score colour on review screens: the 80% pass line, the same everywhere. */
+export function reviewScoreColor(score: number | null | undefined) {
+  if (score === null || score === undefined) return '#9ca3af'
+  return score >= 80 ? REVIEW_STATUS.correct.color : REVIEW_STATUS.missed.color
+}
+
+export function passFailStyle(pf: string | null | undefined) {
+  return pf === 'PASS' ? REVIEW_STATUS.correct : pf === 'FAIL' ? REVIEW_STATUS.missed : REVIEW_STATUS.info
+}

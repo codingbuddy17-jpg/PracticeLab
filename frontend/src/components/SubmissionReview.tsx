@@ -1,4 +1,5 @@
-import { Download } from 'lucide-react'
+import { ChevronDown, ChevronRight, Download, Flag } from 'lucide-react'
+import { REVIEW_STATUS, passFailStyle, reviewScoreColor } from '../theme'
 import { useState } from 'react'
 import toast from 'react-hot-toast'
 import { downloadPracticeReview, downloadPracticeReviewByToken } from '../api/practicelabApi'
@@ -12,6 +13,12 @@ import { downloadPracticeReview, downloadPracticeReviewByToken } from '../api/pr
  * only draws it. Sections arrive already classified: Coding (E/M level, primary
  * and secondary diagnoses, CPT) and, for E/M, Reasoning — COPA, Data Review and
  * Risk element by element, or Time.
+ *
+ * The standard for every specialty (CR-011-Nov): the chart header and the rows
+ * that cost or could cost points are open; correct rows fold behind one line
+ * per section. There is no separate "Scoring notes" block — every fact it held
+ * (POA, pointers, CC/MCC weight, ED level) is on the row it concerns, so the
+ * same finding is never shown twice.
  */
 
 export type ReviewStatus = 'correct' | 'wrong' | 'missed' | 'extra' | 'different' | 'order' | 'info'
@@ -19,6 +26,7 @@ export type ReviewStatus = 'correct' | 'wrong' | 'missed' | 'extra' | 'different
 export interface ReviewRow {
   item: string; key: string; coded: string; status: ReviewStatus; note: string
   key_desc?: string; coded_desc?: string
+  weight?: 'CC' | 'MCC'
 }
 export interface ReviewSection {
   key: string; title: string; group: 'Coding' | 'Reasoning'
@@ -30,17 +38,7 @@ export interface ChartReview {
   summary: { correct: number; wrong?: number; missed: number; extra: number; different: number }
 }
 
-const STATUS: Record<ReviewStatus, { label: string; color: string; bg: string }> = {
-  correct:   { label: '✓ Correct',  color: '#047857', bg: '#ecfdf5' },
-  // A same-family code in place of the key's (Z77.9 for Z77.8): an error, but
-  // not an omission — the coder found the condition and missed the specificity.
-  wrong:     { label: '✗ Wrong code', color: '#b91c1c', bg: '#fef2f2' },
-  missed:    { label: '✗ Missed',   color: '#b91c1c', bg: '#fef2f2' },
-  extra:     { label: '+ Extra',    color: '#9a3412', bg: '#fff7ed' },
-  different: { label: '≠ Differs',  color: '#92400e', bg: '#fffbeb' },
-  order:     { label: '↕ Order only', color: '#1e40af', bg: '#eff6ff' },
-  info:      { label: '',           color: '#6b7280', bg: 'transparent' },
-}
+const STATUS: Record<ReviewStatus, { label: string; color: string; bg: string }> = REVIEW_STATUS
 
 const GROUP_ACCENT = { Coding: '#5b21b6', Reasoning: '#065f46' }
 
@@ -67,7 +65,40 @@ const s = {
   },
   note: { fontSize: 11, color: '#6b7280', marginTop: 2 },
   empty: { fontSize: 12, color: '#9ca3af', padding: '6px 12px' },
+  toggle: { display: 'flex', alignItems: 'center', gap: 4, width: '100%', padding: '6px 12px', background: '#fcfcfd', border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 600, color: STATUS.correct.color, textAlign: 'left' as const },
+  weight: { fontFamily: 'system-ui, sans-serif', fontSize: 9.5, fontWeight: 800, letterSpacing: 0.3, padding: '1px 5px', borderRadius: 4, marginLeft: 6 },
+  mcc: { background: '#fee2e2', color: '#b91c1c', border: '1px solid #fca5a5' },
+  cc: { background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d' },
+  card: { background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: '14px 18px' },
+  head: { display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' as const },
+  badge: { fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6 },
 }
+
+/**
+ * The one header every review card opens with, for every specialty: chart,
+ * score, PASS/FAIL, flag, then whatever that screen adds (status badges, the
+ * E/M coding + reasoning sum). Same sizes and the same colours everywhere.
+ */
+export function ReviewHeader({ chartNumber, score, passFail, flagged, children }: {
+  chartNumber: string; score?: number | null; passFail?: string | null
+  flagged?: boolean; children?: any
+}) {
+  const pf = passFailStyle(passFail)
+  return (
+    <div style={s.head}>
+      <span style={{ fontWeight: 700, fontSize: 14 }}>{chartNumber}</span>
+      {score !== null && score !== undefined && (
+        <span style={{ fontWeight: 800, fontSize: 15, color: reviewScoreColor(score) }}>{Number(score).toFixed(1)}%</span>
+      )}
+      {passFail && <span style={{ ...s.badge, color: pf.color, background: pf.bg }}>{passFail}</span>}
+      {flagged && <span title="Flagged by the coder"><Flag size={13} color="#d97706" /></span>}
+      {children}
+    </div>
+  )
+}
+
+/** The card a chart's review sits in, on every screen. */
+export const reviewCardStyle = s.card
 
 function fmtPts(sec: ReviewSection) {
   if (sec.points === null || sec.points === undefined) return null
@@ -83,11 +114,12 @@ export function SubmissionReview({ review }: { review?: ChartReview | null }) {
   return (
     <div style={s.wrap}>
       <div style={s.summary}>
-        <span style={{ ...s.chip, color: STATUS.correct.color, background: STATUS.correct.bg }}>{summary.correct} correct</span>
-        {!!summary.wrong && <span style={{ ...s.chip, color: STATUS.wrong.color, background: STATUS.wrong.bg }}>{summary.wrong} wrong code</span>}
-        <span style={{ ...s.chip, color: STATUS.missed.color, background: STATUS.missed.bg }}>{summary.missed} missed</span>
-        <span style={{ ...s.chip, color: STATUS.extra.color, background: STATUS.extra.bg }}>{summary.extra} extra</span>
-        <span style={{ ...s.chip, color: STATUS.different.color, background: STATUS.different.bg }}>{summary.different} differ</span>
+        {(['correct', 'wrong', 'missed', 'extra', 'different'] as const).map(k => {
+          const n = (summary as any)[k] || 0
+          if (!n && k !== 'correct') return null
+          const label = { correct: 'correct', wrong: 'wrong code', missed: 'missed', extra: 'extra', different: 'differ' }[k]
+          return <span key={k} style={{ ...s.chip, color: STATUS[k].color, background: STATUS[k].bg }}>{n} {label}</span>
+        })}
       </div>
       {groups.map(g => {
         const secs = review.sections.filter(x => x.group === g)
@@ -107,6 +139,11 @@ export function SubmissionReview({ review }: { review?: ChartReview | null }) {
 
 function Section({ sec, accent }: { sec: ReviewSection; accent: string }) {
   const pts = fmtPts(sec)
+  const [showCorrect, setShowCorrect] = useState(false)
+  const nCorrect = sec.rows.filter(r => r.status === 'correct').length
+  // Correct rows fold away only when something else is left to read; a
+  // section that is all correct still shows one line saying so.
+  const rows = showCorrect ? sec.rows : sec.rows.filter(r => r.status !== 'correct')
   return (
     <div style={{ ...s.section, borderLeft: `3px solid ${accent}` }}>
       <div style={s.secHead}>
@@ -116,7 +153,8 @@ function Section({ sec, accent }: { sec: ReviewSection; accent: string }) {
       {sec.note && <div style={s.secNote}>{sec.note}</div>}
       {sec.rows.length === 0 ? (
         !sec.note && <div style={s.empty}>Nothing coded or expected.</div>
-      ) : (
+      ) : (<>
+        {rows.length > 0 && (
         <table style={s.table}>
           <thead>
             <tr>
@@ -127,12 +165,12 @@ function Section({ sec, accent }: { sec: ReviewSection; accent: string }) {
             </tr>
           </thead>
           <tbody>
-            {sec.rows.map((r, i) => {
+            {rows.map((r, i) => {
               const st = STATUS[r.status] || STATUS.info
               return (
                 <tr key={i}>
                   <td style={s.td}>{r.item}</td>
-                  <CodeCell code={r.key} desc={r.key_desc} />
+                  <CodeCell code={r.key} desc={r.key_desc} weight={r.weight} />
                   {/* Same code both sides: say what it means once, not twice. */}
                   <CodeCell code={r.coded}
                     desc={sameCode(r.key, r.coded) ? '' : r.coded_desc} />
@@ -145,7 +183,14 @@ function Section({ sec, accent }: { sec: ReviewSection; accent: string }) {
             })}
           </tbody>
         </table>
-      )}
+        )}
+        {nCorrect > 0 && (
+          <button onClick={() => setShowCorrect(v => !v)} style={s.toggle}>
+            {showCorrect ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+            {showCorrect ? 'Hide' : 'Show'} {nCorrect} correct {nCorrect === 1 ? 'line' : 'lines'}
+          </button>
+        )}
+      </>)}
     </div>
   )
 }
@@ -175,10 +220,16 @@ function sameCode(a: string, b: string) {
   return !!a && norm(a) === norm(b)
 }
 
-function CodeCell({ code, desc }: { code: string; desc?: string }) {
+function CodeCell({ code, desc, weight }: { code: string; desc?: string; weight?: string }) {
   return (
     <td style={s.td}>
-      <div style={s.code}>{code || '—'}</div>
+      <div style={s.code}>
+        {code || '—'}
+        {weight && (
+          <span title={weight === 'MCC' ? 'Major complication or comorbidity — moves the DRG' : 'Complication or comorbidity — can move the DRG'}
+            style={{ ...s.weight, ...(weight === 'MCC' ? s.mcc : s.cc) }}>{weight}</span>
+        )}
+      </div>
       {desc && <div style={s.desc} title={desc}>{desc}</div>}
     </td>
   )

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { GradingFeedback } from '../../components/GradingFeedback'
-import { SubmissionReview, ReviewExportButton, describeFromReview } from '../../components/SubmissionReview'
+import { SubmissionReview, ReviewExportButton, ReviewHeader, describeFromReview } from '../../components/SubmissionReview'
 import { Loader, Download, BarChart2, Search, CheckSquare, Square, CheckCircle, Circle, AlertCircle, ChevronDown, ChevronRight, Key, Copy, Eye } from 'lucide-react'
 import toast from 'react-hot-toast'
 import RandomisationStatsCard from '../../components/RandomisationStatsCard'
@@ -1142,12 +1142,6 @@ const QUERY_VERDICT_LABELS: Record<string, string> = {
   not_warranted: 'Query was not warranted',
 }
 
-// E/M and ED Profee grade on the E/M path, so their review has no PDx line.
-function isEMReview(sp: string) {
-  const s = (sp || '').toUpperCase().replace(/[\s_]/g, '')
-  return s.includes('E/M') || s.includes('PROFEE')
-}
-
 function isEDSpecialty(sp: string) {
   const s = sp.toUpperCase()
   return s.includes('EDIT') || s.includes('DENIAL')
@@ -1253,16 +1247,12 @@ function ReviewModal({ reviewData, onClose, onRefresh }: { reviewData: any; onCl
               return (
                 <div key={i} style={{ border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
                   {/* chart header */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
-                    <span style={{ fontWeight: 700, fontSize: 14 }}>{c.chart_number}</span>
-                    {c.ed_scored && (
-                      <>
-                        <span style={{ fontWeight: 700, fontSize: 13, color: (c.total_score ?? 0) >= 80 ? '#059669' : '#dc2626' }}>{c.total_score}%</span>
-                        <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: c.pass_fail === 'PASS' ? '#d1fae5' : '#fee2e2', color: c.pass_fail === 'PASS' ? '#059669' : '#dc2626' }}>{c.pass_fail}</span>
-                      </>
-                    )}
-                    {!c.ed_scored && <span style={{ fontSize: 11, background: '#fef3c7', color: '#b45309', borderRadius: 6, padding: '2px 8px' }}>Pending Score</span>}
-                    {c.flagged && <span style={{ fontSize: 11, background: '#fef9c3', color: '#b45309', borderRadius: 6, padding: '1px 6px' }}>Flagged</span>}
+                  <div style={{ padding: '10px 16px', background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
+                    <ReviewHeader chartNumber={c.chart_number}
+                      score={c.ed_scored ? c.total_score : null} passFail={c.ed_scored ? c.pass_fail : null}
+                      flagged={c.flagged}>
+                      {!c.ed_scored && <span style={{ fontSize: 11, fontWeight: 700, background: '#fef3c7', color: '#b45309', borderRadius: 6, padding: '2px 8px' }}>Pending Score</span>}
+                    </ReviewHeader>
                   </div>
 
                   {/* coder responses */}
@@ -1341,20 +1331,16 @@ function ReviewModal({ reviewData, onClose, onRefresh }: { reviewData: any; onCl
             const bg = noAK ? '#fffbeb' : hasDRG && !drgDone ? '#fff5f5' : '#fff'
             return (
               <div key={i} style={{ border: `1px solid ${borderColor}`, borderRadius: 10, padding: '12px 16px', background: bg }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
-                  <span style={{ fontWeight: 700, fontSize: 14 }}>{c.chart_number}</span>
-                  {!noAK && c.total_score !== null && (
-                    <span style={{ fontWeight: 700, fontSize: 13, color: c.total_score >= 80 ? '#059669' : '#dc2626' }}>{c.total_score}%</span>
-                  )}
-                  {!noAK && c.pass_fail && (
-                    <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: c.pass_fail === 'PASS' ? '#d1fae5' : '#fee2e2', color: c.pass_fail === 'PASS' ? '#059669' : '#dc2626' }}>{c.pass_fail}</span>
-                  )}
+                <div style={{ marginBottom: 8 }}>
+                <ReviewHeader chartNumber={c.chart_number}
+                  score={noAK ? null : c.total_score} passFail={noAK ? null : c.pass_fail}
+                  flagged={c.flagged}>
                   {noAK && <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: '#fef3c7', color: '#b45309' }}>⚠ No Answer Key</span>}
-                  {hasDRG && !drgDone && <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: '#fee2e2', color: '#dc2626' }}>⚑ DRG Review Needed</span>}
-                  {hasDRG && drgDone && <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: '#d1fae5', color: '#059669' }}>✓ DRG Reviewed{c.drg_override ? ` — ${c.drg_override}` : ''}</span>}
-                  {c.flagged && <span style={{ fontSize: 11, background: '#fef9c3', color: '#b45309', borderRadius: 6, padding: '1px 6px' }}>Flagged</span>}
+                  {hasDRG && !drgDone && <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: '#fee2e2', color: '#b91c1c' }}>⚑ DRG Review Needed</span>}
+                  {hasDRG && drgDone && <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: '#ecfdf5', color: '#047857' }}>✓ DRG Reviewed{c.drg_override ? ` — ${c.drg_override}` : ''}</span>}
                   {c.query_flag && !c.query_reviewed && <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: '#fef3c7', color: '#b45309' }}>⚑ Query Review Needed</span>}
-                  {c.query_flag && c.query_reviewed && <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: '#d1fae5', color: '#059669' }}>✓ Query Reviewed</span>}
+                  {c.query_flag && c.query_reviewed && <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: '#ecfdf5', color: '#047857' }}>✓ Query Reviewed</span>}
+                </ReviewHeader>
                 </div>
                 {noAK ? (
                   <div style={{ fontSize: 12, color: '#92400e' }}>
@@ -1367,10 +1353,11 @@ function ReviewModal({ reviewData, onClose, onRefresh }: { reviewData: any; onCl
                         for E/M that is level, diagnoses, CPT, then COPA / Data
                         Review / Risk element by element. */}
                     <SubmissionReview review={c.review} />
-                    {/* What lost points, in the grader's words. E/M's are the
-                        score lines the review above already breaks down. */}
-                    {(!isEMReview(c.specialty || reviewData.specialty) || !c.review) && c.feedback?.length > 0 && (
-                      <details open={!c.review} style={{ marginTop: 8 }}>
+                    {/* The grader's own lines only when the review could not
+                        be built for this result — otherwise every fact they
+                        carry is already on a review row (CR-011-Nov). */}
+                    {!c.review && c.feedback?.length > 0 && (
+                      <details open style={{ marginTop: 8 }}>
                         <summary style={{ fontSize: 12, fontWeight: 600, color: '#6b7280', cursor: 'pointer' }}>Scoring notes</summary>
                         <GradingFeedback
                           feedback={c.feedback}

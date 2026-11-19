@@ -493,3 +493,48 @@ def test_a_partial_dx_score_never_claims_full_credit():
          "feedback": [{"section": "Coding Accuracy", "issue": "Dx: 23.3/35.0 pts", "ak_code": "", "coder_code": ""}]}
     note = _sec(build_review(r, {"em_code": "99214"}, {}, CFG), "dx")["note"]
     assert "full credit" not in note
+
+
+# ── CR-011-Nov: the review carries what only the Scoring notes used to ────────
+# The notes block is gone from every screen, so each fact it alone held is
+# asserted here on the review row that now holds it.
+
+def _ip(**kw):
+    r = {"specialty": "IP-DRG", "pdx_answer_key": "J18.9", "pdx_submitted": "J18.9",
+         "sdx_answer_key": [], "sdx_submitted": [], "pcs_answer_key": [], "pcs_submitted": [],
+         "cpt_answer_key": [], "cpt_submitted": [], "feedback": []}
+    r.update(kw)
+    return build_review(r)
+
+
+def test_a_principal_diagnosis_with_the_wrong_poa_does_not_read_correct():
+    rv = _ip(feedback=[{"section": "PDx", "issue_type": "Wrong_POA", "ak_code": "J18.9",
+                        "coder_code": "J18.9", "detail": "POA: Y vs N"}])
+    row = _sec(rv, "pdx")["rows"][0]
+    assert row["status"] == "different"
+    assert row["note"] == "POA: key Y, coded N"
+
+
+def test_a_key_line_carries_its_cc_or_mcc_weight():
+    rv = _ip(sdx_answer_key=[{"code": "I50.21", "poa": "Y", "ccmcc": "MCC"}, {"code": "I10", "poa": "Y"}],
+             sdx_submitted=[{"code": "I10", "poa": "Y"}])
+    rows = {r["key"].split("  ")[0]: r for r in _sec(rv, "sdx")["rows"]}
+    assert rows["I50.21"]["weight"] == "MCC" and rows["I50.21"]["status"] == "missed"
+    assert "weight" not in rows["I10"]
+
+
+def test_a_cpt_line_with_the_wrong_pointers_does_not_read_correct():
+    rv = _ip(specialty="OP", pdx_answer_key="", pdx_submitted="",
+             cpt_answer_key=[{"code": "71046", "pointers": [1]}],
+             cpt_submitted=[{"code": "71046", "pointers": [2]}])
+    row = _sec(rv, "cpt")["rows"][0]
+    assert row["status"] == "different" and "Dx pointers: key 1, coded 2" in row["note"]
+
+
+def test_a_wrong_ed_level_appears_in_the_review():
+    rv = _ip(specialty="ED Single Path", feedback=[
+        {"section": "CPT", "issue_type": "Wrong_Code", "ak_code": "99285",
+         "coder_code": "99284", "detail": "Facility ED level"}])
+    sec = rv["sections"][0]
+    assert sec["key"] == "ed_level"
+    assert sec["rows"][0]["key"] == "99285" and sec["rows"][0]["status"] == "wrong"

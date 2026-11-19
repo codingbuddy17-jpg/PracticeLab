@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { deviceId } from '../hooks/useDeviceId'
 import { GradingFeedback } from '../components/GradingFeedback'
 import { PoaSelect } from '../components/PoaSelect'
-import { SubmissionReview, ReviewExportButton, type ChartReview } from '../components/SubmissionReview'
+import { SubmissionReview, ReviewExportButton, ReviewHeader, reviewCardStyle, type ChartReview } from '../components/SubmissionReview'
 import { checkCpt, checkDx, checkModifier, checkPcs } from '../codeFormat'
 import { useCodeDescriptions } from '../hooks/useCodeDescriptions'
 import { CodeSuggest } from '../components/CodeSuggest'
@@ -1813,13 +1813,8 @@ function parseEMFeedback(feedback: ResultRow['feedback']) {
 function EMResultCard({ r }: { r: ResultRow }) {
   const em = parseEMFeedback(r.feedback || [])
   return (
-    <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: '14px 18px' }}>
-      {/* Header row */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
-        <span style={{ fontWeight: 700, fontSize: 14 }}>{r.chart_number}</span>
-        {r.total_score !== null && (
-          <span style={{ fontSize: 16, fontWeight: 800, color: (r.total_score ?? 0) >= 80 ? '#059669' : '#dc2626' }}>{r.total_score?.toFixed(1)}%</span>
-        )}
+    <div style={reviewCardStyle}>
+      <ReviewHeader chartNumber={r.chart_number} score={r.total_score} passFail={r.pass_fail} flagged={r.flagged}>
         {/* The Coding and Reasoning sections below add up to the score above,
             out of 100. Without this a reader compares the headline against a
             subtotal — 58 points of coding against an 88% chart — and concludes
@@ -1828,9 +1823,7 @@ function EMResultCard({ r }: { r: ResultRow }) {
           {em.ca_total.toFixed(1)} coding + {em.ra_total.toFixed(1)} reasoning
           {' '}= {(em.ca_total + em.ra_total).toFixed(1)} of 100
         </span>
-        <span style={{ fontSize: 12, fontWeight: 700, padding: '2px 10px', borderRadius: 6, background: r.pass_fail === 'PASS' ? '#d1fae5' : '#fee2e2', color: r.pass_fail === 'PASS' ? '#059669' : '#dc2626' }}>{r.pass_fail || '—'}</span>
-        {r.flagged && <Flag size={13} color="#f59e0b" />}
-      </div>
+      </ReviewHeader>
       {/* Classified like IP/OP: E/M level, diagnoses, CPT — then the
           reasoning, COPA / Data Review / Risk element by element, so a
           partial score (6.7 of 10) shows which element it lost. */}
@@ -1882,18 +1875,13 @@ function ResultsView({ results, coderName, token }: { results: ReturnType<typeof
         {results.map((r, i) => {
           if (isEMSession) return <EMResultCard key={i} r={r} />
           return (
-            <div key={i} style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: '14px 18px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: r.feedback?.length ? 10 : 0 }}>
-                <span style={{ fontWeight: 700, fontSize: 14 }}>{r.chart_number}</span>
-                {r.total_score !== null && (
-                  <span style={{ fontSize: 13, fontWeight: 700, color: (r.total_score ?? 0) >= 80 ? '#059669' : '#dc2626' }}>{r.total_score}%</span>
-                )}
-                <span style={{ fontSize: 12, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: r.pass_fail === 'PASS' ? '#d1fae5' : '#fee2e2', color: r.pass_fail === 'PASS' ? '#059669' : '#dc2626' }}>{r.pass_fail || '—'}</span>
-                {r.flagged && <Flag size={13} color="#f59e0b" />}
-              </div>
+            <div key={i} style={reviewCardStyle}>
+              <ReviewHeader chartNumber={r.chart_number} score={r.total_score} passFail={r.pass_fail} flagged={r.flagged} />
               <SubmissionReview review={r.review} />
-              {r.feedback?.length > 0 && (
-                <details open={!r.review} style={{ marginTop: 8 }}>
+              {/* Only when the review could not be built for this result:
+                  otherwise every fact here is already on a review row. */}
+              {!r.review && r.feedback?.length > 0 && (
+                <details open style={{ marginTop: 8 }}>
                   <summary style={{ fontSize: 12, fontWeight: 600, color: '#6b7280', cursor: 'pointer' }}>Scoring notes, with code descriptions</summary>
                   <GradingFeedback
                     feedback={r.feedback as any}

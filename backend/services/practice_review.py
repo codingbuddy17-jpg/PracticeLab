@@ -116,9 +116,18 @@ def _codes(lst) -> List[str]:
     return [c for c in (_code_of(x) for x in (lst or [])) if c]
 
 
-def _row(item, key, coded, status, note="") -> dict:
-    return {"item": item, "key": key or "", "coded": coded or "",
-            "status": status, "note": note}
+def _row(item, key, coded, status, note="", weight="") -> dict:
+    row = {"item": item, "key": key or "", "coded": coded or "",
+           "status": status, "note": note}
+    if weight:
+        row["weight"] = weight
+    return row
+
+
+def _weight(item) -> str:
+    """CC / MCC from the key line: what moves the DRG on an inpatient chart."""
+    v = str((item or {}).get("ccmcc") or "").strip().upper() if isinstance(item, dict) else ""
+    return v if v in ("CC", "MCC") else ""
 
 
 def _set_rows(item_label: str, key_items: list, coded_items: list,
@@ -140,13 +149,13 @@ def _set_rows(item_label: str, key_items: list, coded_items: list,
                 break
         if hit is None:
             missed_at.append((len(rows), k))
-            rows.append(_row(item_label, _display(k), "", "missed"))
+            rows.append(_row(item_label, _display(k), "", "missed", weight=_weight(k)))
             continue
         used[hit] = True
         c = coded_items[hit]
         note = detail(k, c) if detail else ""
         rows.append(_row(item_label, _display(k), _display(c),
-                         "different" if note else "correct", note))
+                         "different" if note else "correct", note, _weight(k)))
     # A coder code of the same family as a missed key code is a WRONG code
     # (Z77.9 for Z77.8), not a miss plus an unrelated extra — the grader's own
     # rule (grading_engine.pair_near_misses), so the screen and the feedback agree.
@@ -160,7 +169,8 @@ def _set_rows(item_label: str, key_items: list, coded_items: list,
             ci = left[b]
             used[ci] = True
             rows[at] = _row(item_label, _display(k), _display(coded_items[ci]), "wrong",
-                            _near_miss_detail(_code_of(k), _code_of(coded_items[ci]), kind))
+                            _near_miss_detail(_code_of(k), _code_of(coded_items[ci]), kind),
+                            _weight(k))
     for i, c in enumerate(coded_items):
         if not used[i] and _code_of(c):
             rows.append(_row(item_label, "", _display(c), "extra"))
@@ -201,6 +211,12 @@ def _cpt_note(k, c) -> str:
     cm = str(c.get("modifier") or "").strip().upper()
     if km != cm:
         notes.append("Modifier: key %s, coded %s" % (km or "(none)", cm or "(none)"))
+    # Pointers are judged only where the key states them — the grader's rule
+    # (grading_engine: `if ak_ptr and ak_ptr != cdr_ptr`, half credit).
+    kp = [str(x) for x in (k.get("pointers") or [])]
+    cp = [str(x) for x in (c.get("pointers") or [])]
+    if kp and kp != cp:
+        notes.append("Dx pointers: key %s, coded %s" % (",".join(kp), ",".join(cp) or "(none)"))
     # Units are judged only where the key states them — the grader's rule.
     if k.get("units") not in (None, ""):
         if norm_units(k.get("units")) != norm_units(c.get("units")):
@@ -258,6 +274,16 @@ def _code_sections(r: dict) -> List[dict]:
                 from services.grading_engine import _near_miss_detail, code_family
                 if code_family(pdx_k, "dx") == code_family(pdx_c, "dx"):
                     note = _near_miss_detail(pdx_k, pdx_c, "dx")
+            else:
+                # Same code, wrong POA: the grader withheld the PDx points, so
+                # the row must not read Correct. The stored lists carry no PDx
+                # POA; the grader's own line does ("POA: Y vs N").
+                fb = next((f for f in (r.get("feedback") or [])
+                           if f.get("section") == "PDx"
+                           and (f.get("issue_type") or f.get("issue")) == "Wrong_POA"), None)
+                m = re.search(r"POA:\s*(\S*)\s*vs\s*(\S*)", str((fb or {}).get("detail") or ""))
+                if m:
+                    st, note = "different", "POA: key %s, coded %s" % (m.group(1) or "(none)", m.group(2) or "(none)")
         else:
             st = "missed" if pdx_k else "extra"
         sections.append(_section("pdx", "Principal Diagnosis", "Coding",
@@ -277,6 +303,15 @@ def _code_sections(r: dict) -> List[dict]:
     if _codes(cpt_k) or _codes(cpt_c):
         sections.append(_section("cpt", "CPT / HCPCS", "Coding",
                                  _set_rows("CPT", cpt_k, cpt_c, _cpt_note, kind="cpt")))
+
+    # ED Single Path levels. The stored result keeps only the grader's line for
+    # a level that was WRONG, so a correct level has nothing to draw from and
+    # is left out rather than guessed at.
+    lv = [_row(f.get("detail"), f.get("ak_code"), f.get("coder_code"), "wrong")
+          for f in (r.get("feedback") or [])
+          if f.get("detail") in ("Facility ED level", "Professional ED level")]
+    if lv:
+        sections.insert(0, _section("ed_level", "ED Level", "Coding", lv))
     return sections
 
 
@@ -622,7 +657,8 @@ def review_workbook(header: dict, charts: List[dict]) -> bytes:
                 if i == 0 and sec.get("note"):
                     note = (sec["note"] + (" | " + note if note else ""))
                 rv.append([c.get("chart_number"), c.get("total_score"), sec["title"],
-                           pts if i == 0 else "", row["item"], row["key"],
+                           pts if i == 0 else "", row["item"],
+                           row["key"] + ("  " + row["weight"] if row.get("weight") else ""),
                            row.get("key_desc") or "", row["coded"], row.get("coded_desc") or "",
                            STATUS_LABELS.get(row["status"], row["status"]), note])
                 st = status_style.get(row["status"])
