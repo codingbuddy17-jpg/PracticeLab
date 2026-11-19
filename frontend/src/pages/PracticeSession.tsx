@@ -255,7 +255,7 @@ const EMPTY_ENTRY = (chart_id: number): CodeEntry => ({
   flagged: false,
   coder_notes: '',
   query_flag: false,
-  em_data: EMPTY_EM_DATA(),
+  // No em_data: only E/M and ED Profee charts carry one (see the loader).
 })
 
 // A raised physician query with no query written is not a submittable chart —
@@ -351,7 +351,14 @@ export function PracticeSession() {
           flagged: draft?.flagged || false,
           coder_notes: draft?.coder_notes || '',
           query_flag: draft?.query_flag || false,
-          em_data: savedEm ? { ...EMPTY_EM_DATA(data.specialty), ...savedEm } : EMPTY_EM_DATA(data.specialty),
+          // The E/M form belongs to E/M and ED Profee charts only. Sending a
+          // blank one with every chart made the backend store empty SDx and
+          // CPT lists for every IP, OP and ED Single Path result (CR-012-Nov),
+          // and drafts saved before then still carry one — so it is dropped
+          // here rather than reloaded.
+          ...(isEM(data.specialty)
+            ? { em_data: savedEm ? { ...EMPTY_EM_DATA(data.specialty), ...savedEm } : EMPTY_EM_DATA(data.specialty) }
+            : {}),
         }
       }
       setEntries(initial)

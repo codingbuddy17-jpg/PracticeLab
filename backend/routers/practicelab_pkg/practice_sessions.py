@@ -27,6 +27,7 @@ from services.grading_engine import (
 from .em_grading import _LEVEL_ORDER, derive_mdm_level, em_code_to_level, normalise_cpts
 from services import session_claim
 from .shared import _is_ip, _is_ed, MASTER_PASSPHRASE, assert_batch_open
+from .em_grading import _is_em
 from .chart_grading import _grade_chart_for_sp
 
 router = APIRouter()
@@ -871,7 +872,12 @@ def _upsert_practice_result(db, session_id, entry, specialty, graded=False,
         pdx_ak = ak_rec.pdx_code if ak_rec else None
         pdx_ok = (entry.pdx_code or "").strip().upper().replace(".", "") == \
                  (pdx_ak or "").strip().upper().replace(".", "") if pdx_ak else None
-        em_dx_sub, em_cpt_sub = _em_result_mirror(entry) if entry.em_data else (None, None)
+        # E/M is a property of the SPECIALTY, never of whether form data
+        # arrived: the coding screen sent a blank E/M form with every chart,
+        # and keying on it stored empty SDx and CPT lists for every IP, OP and
+        # ED Single Path result (CR-012-Nov).
+        is_em_result = _is_em(specialty)
+        em_dx_sub, em_cpt_sub = _em_result_mirror(entry) if is_em_result else (None, None)
         vals = {
             "s": session_id, "c": entry.chart_id, "sp": specialty.value,
             "tot": r.get("weighted_score"), "pf": r.get("pass_fail"),
@@ -879,11 +885,11 @@ def _upsert_practice_result(db, session_id, entry, specialty, graded=False,
             "fb": json.dumps(fb),
             "pdx_sub": entry.pdx_code, "pdx_ak": pdx_ak, "pdx_ok": pdx_ok,
             "sdx_sub": json.dumps(em_dx_sub if em_dx_sub is not None else entry.sdx),
-            "sdx_ak": json.dumps((r.get("em_dx_ak") or []) if entry.em_data else (ak_rec.sdx or []) if ak_rec else []),
+            "sdx_ak": json.dumps((r.get("em_dx_ak") or []) if is_em_result else (ak_rec.sdx or []) if ak_rec else []),
             "pcs_sub": json.dumps(entry.pcs),
             "pcs_ak": json.dumps(ak_rec.pcs or []) if ak_rec else "[]",
             "cpt_sub": json.dumps(em_cpt_sub if em_cpt_sub is not None else entry.cpt),
-            "cpt_ak": json.dumps((r.get("em_cpt_ak") or []) if entry.em_data else (ak_rec.cpt or []) if ak_rec else []),
+            "cpt_ak": json.dumps((r.get("em_cpt_ak") or []) if is_em_result else (ak_rec.cpt or []) if ak_rec else []),
             "qf": bool(entry.query_flag),
         }
     else:
@@ -972,7 +978,7 @@ def _build_coder_results(session_id: int, db) -> list:
                pr.drg_reviewed, pr.drg_override,
                pr.query_flag, pr.query_reviewed, pr.query_verdict,
                pr.query_trainer_note, pr.query_reviewed_by, pr.query_reviewed_at,
-               pcd.em_data
+               pcd.em_data, pcd.sdx, pcd.pcs, pcd.cpt, pcd.pdx_poa
         FROM practice_results pr
         JOIN charts c ON c.id = pr.chart_id
         LEFT JOIN practice_chart_drafts pcd
@@ -1018,7 +1024,28 @@ def _build_coder_results(session_id: int, db) -> list:
     # once here so both review screens and the Excel export render the same
     # thing. E/M needs the key's MDM elements and the coder's ticks, which
     # live outside practice_results, so they are read per chart.
-    from services.practice_review import build_review, is_em_specialty
+    from services.practice_review import build_review, is_em_specialty, is_ed_rubric_specialty
+    from services.practice_result_lists import pick
+    # Code-graded results (IP, OP, ED Single Path): repair lists stored empty
+    # before CR-012-Nov from the coder's draft and the answer key, and carry
+    # the principal diagnosis POA from both sides — practice_results has no
+    # column for it, so the review could never show it.
+    coded_ids = [res["chart_id"] for res in results
+                 if not is_em_specialty(res["specialty"]) and not is_ed_rubric_specialty(res["specialty"])]
+    keys = {k.chart_id: k for k in db.query(AnswerKey).filter(AnswerKey.chart_id.in_(coded_ids))} if coded_ids else {}
+    for res, r in zip(results, rows):
+        if res["chart_id"] not in coded_ids:
+            continue
+        k = keys.get(res["chart_id"])
+        res["sdx_submitted"] = pick(res["sdx_submitted"], r[40])
+        res["pcs_submitted"] = pick(res["pcs_submitted"], r[41])
+        res["cpt_submitted"] = pick(res["cpt_submitted"], r[42])
+        res["pdx_poa_submitted"] = r[43] or ""
+        if k is not None and res["total_score"] is not None:
+            res["sdx_answer_key"] = pick(res["sdx_answer_key"], k.sdx)
+            res["pcs_answer_key"] = pick(res["pcs_answer_key"], k.pcs)
+            res["cpt_answer_key"] = pick(res["cpt_answer_key"], k.cpt)
+            res["pdx_poa_answer_key"] = k.pdx_poa or ""
     em_cfg = None
     for res, r in zip(results, rows):
         ak = em = None

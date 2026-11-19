@@ -2045,24 +2045,29 @@ def analytics_specificity(
 
     # The submitted codes live in the raw-DDL practice tables, which have no
     # ORM model. Read once and indexed, rather than a query per result.
+    import json as _json
+    _json_dump = _json.dumps
     submitted: dict = {}
     try:
         rows = db.execute(text("""
             SELECT s.batch_id, s.coder_name, p.chart_id,
-                   p.pdx_submitted, p.sdx_submitted
+                   p.pdx_submitted, p.sdx_submitted, d.sdx
             FROM practice_results p
             JOIN practice_sessions s ON s.id = p.session_id
+            LEFT JOIN practice_chart_drafts d
+              ON d.session_id = p.session_id AND d.chart_id = p.chart_id
         """)).fetchall()
-        for batch_id, coder_name, chart_id, pdx, sdx in rows:
-            submitted[(batch_id, coder_name, chart_id)] = (pdx, sdx)
+        # Results stored before CR-012-Nov may hold an empty SDx list; the
+        # coder's draft holds what they submitted.
+        from services.practice_result_lists import pick
+        for batch_id, coder_name, chart_id, pdx, sdx, draft_sdx in rows:
+            submitted[(batch_id, coder_name, chart_id)] = (pdx, _json_dump(pick(sdx, draft_sdx)))
     except Exception:
         # No practice tables: an older schema, or a deployment that has only
         # ever used the removed Excel workflow.
         return {"available": False,
                 "reason": "Submitted codes are not recorded for this work.",
                 "team": None, "by_coder": [], "drops": []}
-
-    import json as _json
 
     def _dx_codes(pdx, sdx) -> list:
         out = [pdx] if pdx else []

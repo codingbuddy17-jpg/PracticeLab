@@ -201,15 +201,15 @@ def load_observations_bulk(db, chart_ids, keys) -> dict:
         placeholders = ", ".join(":c%d" % n for n in range(len(chunk)))
         params = {"c%d" % n: cid for n, cid in enumerate(chunk)}
         rows = db.execute(text("""
-            SELECT chart_id, pdx_submitted, sdx_submitted, pcs_submitted, cpt_submitted
-            FROM practice_results
-            WHERE chart_id IN (%s) AND total_score IS NOT NULL
+            SELECT pr.chart_id, pr.pdx_submitted, pr.sdx_submitted, pr.pcs_submitted,
+                   pr.cpt_submitted, d.sdx, d.pcs, d.cpt
+            FROM practice_results pr
+            LEFT JOIN practice_chart_drafts d
+              ON d.session_id = pr.session_id AND d.chart_id = pr.chart_id
+            WHERE pr.chart_id IN (%s) AND pr.total_score IS NOT NULL
         """ % placeholders), params).fetchall()
         for r in rows:
-            grouped[r[0]].append({
-                "pdx_submitted": r[1], "sdx_submitted": r[2],
-                "pcs_submitted": r[3], "cpt_submitted": r[4],
-            })
+            grouped[r[0]].append(_submission(r[1:]))
 
     return {cid: observations_for_chart(subs, keys[cid])
             for cid, subs in grouped.items()}
@@ -228,16 +228,32 @@ def load_observations(db, chart_id: int, key,
     from sqlalchemy import text
 
     rows = db.execute(text("""
-        SELECT pdx_submitted, sdx_submitted, pcs_submitted, cpt_submitted
-        FROM practice_results
-        WHERE chart_id = :c AND total_score IS NOT NULL
+        SELECT pr.pdx_submitted, pr.sdx_submitted, pr.pcs_submitted, pr.cpt_submitted,
+               d.sdx, d.pcs, d.cpt
+        FROM practice_results pr
+        LEFT JOIN practice_chart_drafts d
+          ON d.session_id = pr.session_id AND d.chart_id = pr.chart_id
+        WHERE pr.chart_id = :c AND pr.total_score IS NOT NULL
     """), {"c": chart_id}).fetchall()
 
-    submissions = [{
-        "pdx_submitted": r[0], "sdx_submitted": r[1],
-        "pcs_submitted": r[2], "cpt_submitted": r[3],
-    } for r in rows]
-    return observations_for_chart(submissions, key)
+    return observations_for_chart([_submission(r) for r in rows], key)
+
+
+def _submission(r) -> dict:
+    """
+    (pdx, sdx, pcs, cpt, draft sdx, draft pcs, draft cpt) -> one submission.
+
+    Results stored between late August and CR-012-Nov have EMPTY sdx and cpt
+    lists, and an empty list read as "the coder coded nothing" invents a miss
+    for every code they did code. The draft holds what was submitted.
+    """
+    from services.practice_result_lists import pick
+    return {
+        "pdx_submitted": r[0],
+        "sdx_submitted": pick(r[1], r[4]),
+        "pcs_submitted": pick(r[2], r[5]),
+        "cpt_submitted": pick(r[3], r[6]),
+    }
 
 
 def summarise(observations: list[Observation]) -> dict:

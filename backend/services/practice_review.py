@@ -198,9 +198,23 @@ def _display(item) -> str:
 def _poa_note(k, c) -> str:
     kp = str((k or {}).get("poa") or "").strip().upper() if isinstance(k, dict) else ""
     cp = str((c or {}).get("poa") or "").strip().upper() if isinstance(c, dict) else ""
-    if kp and kp != cp:
+    # An exempt code's POA is E on every key and is never graded
+    # (services/poa_exempt.py), so it never differs here either.
+    if kp and kp != "E" and kp != cp:
         return "POA: key %s, coded %s" % (kp, cp or "(none)")
     return ""
+
+
+_EXEMPT_NOTE = "POA exempt (CMS) — not graded"
+
+
+def _mark_exempt(rows: List[dict]) -> List[dict]:
+    """Say so on a row whose key POA is E: otherwise it reads as an ordinary
+    match and a coder cannot tell the POA was never judged."""
+    for row in rows:
+        if "  POA E" in (row.get("key") or "") and not row.get("note"):
+            row["note"] = _EXEMPT_NOTE
+    return rows
 
 
 def _cpt_note(k, c) -> str:
@@ -266,15 +280,22 @@ def _summarise(sections: List[dict]) -> dict:
 def _code_sections(r: dict) -> List[dict]:
     sections = []
     pdx_k, pdx_c = (r.get("pdx_answer_key") or ""), (r.get("pdx_submitted") or "")
+    # The principal diagnosis POA, where the key states one (inpatient only).
+    kp = str(r.get("pdx_poa_answer_key") or "").strip().upper()
+    cp = str(r.get("pdx_poa_submitted") or "").strip().upper()
     if pdx_k or pdx_c:
         note = ""
         if pdx_k and pdx_c:
             st = "correct" if _norm(pdx_k) == _norm(pdx_c) else "wrong"
+            if st == "correct" and kp == "E":
+                note = _EXEMPT_NOTE
+            elif st == "correct" and kp and kp != cp:
+                st, note = "different", "POA: key %s, coded %s" % (kp, cp or "(none)")
             if st == "wrong":
                 from services.grading_engine import _near_miss_detail, code_family
                 if code_family(pdx_k, "dx") == code_family(pdx_c, "dx"):
                     note = _near_miss_detail(pdx_k, pdx_c, "dx")
-            else:
+            elif st == "correct" and not kp:
                 # Same code, wrong POA: the grader withheld the PDx points, so
                 # the row must not read Correct. The stored lists carry no PDx
                 # POA; the grader's own line does ("POA: Y vs N").
@@ -286,13 +307,15 @@ def _code_sections(r: dict) -> List[dict]:
                     st, note = "different", "POA: key %s, coded %s" % (m.group(1) or "(none)", m.group(2) or "(none)")
         else:
             st = "missed" if pdx_k else "extra"
+        k_disp = pdx_k + ("  POA " + kp if pdx_k and kp else "")
+        c_disp = pdx_c + ("  POA " + cp if pdx_c and kp and cp else "")
         sections.append(_section("pdx", "Principal Diagnosis", "Coding",
-                                 [_row("PDx", pdx_k, pdx_c, st, note)]))
+                                 [_row("PDx", k_disp, c_disp, st, note)]))
 
     sdx_k, sdx_c = r.get("sdx_answer_key") or [], r.get("sdx_submitted") or []
     if _codes(sdx_k) or _codes(sdx_c):
         sections.append(_section("sdx", "Secondary Diagnoses", "Coding",
-                                 _set_rows("SDx", sdx_k, sdx_c, _poa_note, kind="dx")))
+                                 _mark_exempt(_set_rows("SDx", sdx_k, sdx_c, _poa_note, kind="dx"))))
 
     pcs_k, pcs_c = r.get("pcs_answer_key") or [], r.get("pcs_submitted") or []
     if _codes(pcs_k) or _codes(pcs_c):
