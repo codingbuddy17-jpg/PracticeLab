@@ -1,0 +1,1 @@
+No route, parameter or schema change. Two new optional fields on each chart of the review/results responses: pdx_poa_answer_key and pdx_poa_submitted (strings, IP only). Review rows: PDx key/coded text now carries '  POA X'; exempt rows carry the note 'POA exempt (CMS) — not graded'. The OpenAPI document cannot show these because the routes return plain dicts.

@@ -161,6 +161,17 @@ CRS.append({
                 "header and one colour set on every review screen."),
 })
 
+CRS.append({
+    "id": "CR-012-Nov", "title": "Code lists stored per specialty; PDx POA and exempt rule in the review",
+    "kind": "C", "module": "Practice submit/re-grade; review; auditor observed plantings; Specificity Drops",
+    "score_impact": "No", "schema": "None", "commits": "38d8a64", "date": "2026-11-19",
+    "order": "After CR-011-Nov; backend first, then frontend patch",
+    "spec": "change_requests/CR-012-Nov/CR-012-Nov.md",
+    "summary": ("A blank E/M form sent with every chart made IP/OP/ED Single Path results store empty SDx and CPT "
+                "lists (since late Aug 2026): review sections vanished and observed plantings invented misses. "
+                "E/M now decided by specialty; empty lists repaired on read; PDx POA shown; exempt codes marked."),
+})
+
 # What a team running THIS SAME Python backend does instead of rebuilding.
 # Every CR folder carries code.patch (the complete committed change); applied
 # in order to the pre-CR-001 code, all of them reproduce the original app exactly.
@@ -176,6 +187,7 @@ SAME_BACKEND = {
     "CR-009": "git am code.patch (frontend only); deploy.",
     "CR-010-Nov": "git am code.patch; deploy. Past E/M results show their diagnoses without a re-grade.",
     "CR-011-Nov": "git am code.patch; deploy. Display only.",
+    "CR-012-Nov": "git am code.patch; deploy. Past results repaired on read; no re-grade needed.",
 }
 
 # Proposed and agreed in principle, NOT built. Listed so nothing raised is
@@ -438,6 +450,27 @@ CHANGES = [
     ("CR-010-Nov", "Test", "backend/tests/test_practice_review.py", "3 tests", "Added",
      "Blanked-list E/M result shows its rows; re-grade stores lists; partial score never says full credit.", "—", "—",
      "None (reference)", "No", "CR-010-Nov"),
+    # ── CR-012-Nov ──
+    ("CR-012-Nov", "Backend", "backend/routers/practicelab_pkg/practice_sessions.py", "_upsert_practice_result", "Modified",
+     "E/M decided by specialty, not by an E/M form being present.", "Blank form on every chart stored empty SDx/CPT lists.", "Lists stored for every specialty.",
+     "Implement in .NET", "No", "CR-012-Nov rule 1"),
+    ("CR-012-Nov", "Backend", "backend/routers/practicelab_pkg/practice_sessions.py", "_build_coder_results", "Modified",
+     "Empty stored lists repaired from draft and answer key; PDx POA both sides added.", "Review sections absent.", "Sections present for past results.",
+     "Implement in .NET", "No", "CR-012-Nov rules 3-4"),
+    ("CR-012-Nov", "Backend", "backend/services/practice_result_lists.py", "pick", "Added",
+     "One repair rule for every reader of the stored lists.", "—", "—", "Implement in .NET", "No", "CR-012-Nov rule 3"),
+    ("CR-012-Nov", "Backend", "backend/services/audit_observations.py", "load_observations · observations_for_charts", "Modified",
+     "Read the coder's lists through the repair.", "Invented 'missed' plantings for coded CPT; dropped extras.", "Plantings match what coders did.",
+     "Implement in .NET", "No", "CR-012-Nov rule 3"),
+    ("CR-012-Nov", "Backend", "backend/routers/practicelab_pkg/analytics.py", "GET /analytics/specificity", "Modified",
+     "Coder SDx read through the repair.", "Secondary drops missing.", "Counted.", "Implement in .NET", "No", "CR-012-Nov rule 3"),
+    ("CR-012-Nov", "Backend", "backend/services/practice_review.py", "_code_sections · _poa_note · _mark_exempt", "Modified",
+     "PDx POA shown and judged; exempt (POA E) rows never differ and say 'POA exempt (CMS) — not graded'.", "PDx POA never shown; exempt silent.", "Shown.",
+     "Implement in .NET", "No", "CR-012-Nov rules 4-5"),
+    ("CR-012-Nov", "Frontend", "frontend/src/pages/PracticeSession.tsx", "Entry loader", "Modified",
+     "E/M form created only for E/M and ED Profee charts.", "Blank E/M form on every chart.", "Only where it belongs.", "Apply patch", "No", "CR-012-Nov rule 2"),
+    ("CR-012-Nov", "Test", "backend/tests/test_specialty_flow.py", "17 tests", "Added",
+     "Every code specialty with the real screen payload; all fail before the fix.", "—", "—", "None (reference)", "No", "CR-012-Nov"),
     # ── CR-011-Nov ──
     ("CR-011-Nov", "Backend", "backend/services/practice_review.py", "_code_sections · _cpt_note · _set_rows · review_workbook", "Modified",
      "PDx POA mismatch, CPT pointer mismatch and wrong ED level become review rows; key lines carry weight CC/MCC (screen badge, Excel key cell).",

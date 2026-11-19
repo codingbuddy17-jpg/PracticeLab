@@ -34,6 +34,7 @@ Kinds: **A** frontend only · **B** backend only · **C** both · **D** schema �
 | [009](CR-009/CR-009.md) | Nov 2026 | Coding aids: seven quiet cue categories behind one menu | A | No | None | `cd9a0c9` | Any time after CR-004: frontend patch only |
 | [010-Nov](CR-010-Nov/CR-010-Nov.md) | Nov 2026 | E/M review shows the diagnoses behind its Dx score | B | No | None | `cb8667b` | After CR-001 and CR-002 |
 | [011-Nov](CR-011-Nov/CR-011-Nov.md) | Nov 2026 | One review standard for every specialty | C | No | None | `d88e158` | After CR-010-Nov; backend first, then frontend patch |
+| [012-Nov](CR-012-Nov/CR-012-Nov.md) | Nov 2026 | Code lists stored per specialty; PDx POA and exempt rule in the review | C | No | None | `38d8a64` | After CR-011-Nov; backend first, then frontend patch |
 
 Built 19 November 2026 by `docs/_change_register_build.py`, which also writes `docs/PracticeLab_Change_Register.xlsx` — the detailed version, with one row per file-level change and the columns IT uses to track progress.
 

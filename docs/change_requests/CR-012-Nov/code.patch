@@ -1,0 +1,480 @@
+From 38d8a6471e99a3805a0cc8cf8e298bbcc0daf6c3 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 19 Nov 2026 15:55:29 +0000
+Subject: [PATCH] CR-012-Nov - Code lists stored per specialty; PDx POA and
+ exempt rule in review
+
+The coding screen sent a blank E/M form with every chart and the result
+writer keyed E/M on its presence, so every IP, OP and ED Single Path result
+stored empty SDx and CPT lists. E/M is now decided by specialty, the screen
+sends the form only for E/M and ED Profee, and lists stored empty are
+repaired on read from the coder's draft and the answer key - for the review,
+the auditor's observed plantings and Specificity Drops. The review shows the
+principal diagnosis POA and marks POA-exempt codes as not graded.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01GAgNTxNNybv6W7GXL33G6z
+---
+ backend/routers/practicelab_pkg/analytics.py  |  15 ++-
+ .../practicelab_pkg/practice_sessions.py      |  37 +++++-
+ backend/services/audit_observations.py        |  46 +++++---
+ backend/services/practice_result_lists.py     |  37 ++++++
+ backend/services/practice_review.py           |  31 ++++-
+ backend/tests/test_specialty_flow.py          | 111 ++++++++++++++++++
+ frontend/src/pages/PracticeSession.tsx        |  11 +-
+ 7 files changed, 257 insertions(+), 31 deletions(-)
+ create mode 100644 backend/services/practice_result_lists.py
+ create mode 100644 backend/tests/test_specialty_flow.py
+
+diff --git a/backend/routers/practicelab_pkg/analytics.py b/backend/routers/practicelab_pkg/analytics.py
+index 5fabf24..4fb7a10 100644
+--- a/backend/routers/practicelab_pkg/analytics.py
++++ b/backend/routers/practicelab_pkg/analytics.py
+@@ -2045,16 +2045,23 @@ def analytics_specificity(
+ 
+     # The submitted codes live in the raw-DDL practice tables, which have no
+     # ORM model. Read once and indexed, rather than a query per result.
++    import json as _json
++    _json_dump = _json.dumps
+     submitted: dict = {}
+     try:
+         rows = db.execute(text("""
+             SELECT s.batch_id, s.coder_name, p.chart_id,
+-                   p.pdx_submitted, p.sdx_submitted
++                   p.pdx_submitted, p.sdx_submitted, d.sdx
+             FROM practice_results p
+             JOIN practice_sessions s ON s.id = p.session_id
++            LEFT JOIN practice_chart_drafts d
++              ON d.session_id = p.session_id AND d.chart_id = p.chart_id
+         """)).fetchall()
+-        for batch_id, coder_name, chart_id, pdx, sdx in rows:
+-            submitted[(batch_id, coder_name, chart_id)] = (pdx, sdx)
++        # Results stored before CR-012-Nov may hold an empty SDx list; the
++        # coder's draft holds what they submitted.
++        from services.practice_result_lists import pick
++        for batch_id, coder_name, chart_id, pdx, sdx, draft_sdx in rows:
++            submitted[(batch_id, coder_name, chart_id)] = (pdx, _json_dump(pick(sdx, draft_sdx)))
+     except Exception:
+         # No practice tables: an older schema, or a deployment that has only
+         # ever used the removed Excel workflow.
+@@ -2062,8 +2069,6 @@ def analytics_specificity(
+                 "reason": "Submitted codes are not recorded for this work.",
+                 "team": None, "by_coder": [], "drops": []}
+ 
+-    import json as _json
+-
+     def _dx_codes(pdx, sdx) -> list:
+         out = [pdx] if pdx else []
+         try:
+diff --git a/backend/routers/practicelab_pkg/practice_sessions.py b/backend/routers/practicelab_pkg/practice_sessions.py
+index 43ffee5..1f6f228 100644
+--- a/backend/routers/practicelab_pkg/practice_sessions.py
++++ b/backend/routers/practicelab_pkg/practice_sessions.py
+@@ -27,6 +27,7 @@ from services.grading_engine import (
+ from .em_grading import _LEVEL_ORDER, derive_mdm_level, em_code_to_level, normalise_cpts
+ from services import session_claim
+ from .shared import _is_ip, _is_ed, MASTER_PASSPHRASE, assert_batch_open
++from .em_grading import _is_em
+ from .chart_grading import _grade_chart_for_sp
+ 
+ router = APIRouter()
+@@ -871,7 +872,12 @@ def _upsert_practice_result(db, session_id, entry, specialty, graded=False,
+         pdx_ak = ak_rec.pdx_code if ak_rec else None
+         pdx_ok = (entry.pdx_code or "").strip().upper().replace(".", "") == \
+                  (pdx_ak or "").strip().upper().replace(".", "") if pdx_ak else None
+-        em_dx_sub, em_cpt_sub = _em_result_mirror(entry) if entry.em_data else (None, None)
++        # E/M is a property of the SPECIALTY, never of whether form data
++        # arrived: the coding screen sent a blank E/M form with every chart,
++        # and keying on it stored empty SDx and CPT lists for every IP, OP and
++        # ED Single Path result (CR-012-Nov).
++        is_em_result = _is_em(specialty)
++        em_dx_sub, em_cpt_sub = _em_result_mirror(entry) if is_em_result else (None, None)
+         vals = {
+             "s": session_id, "c": entry.chart_id, "sp": specialty.value,
+             "tot": r.get("weighted_score"), "pf": r.get("pass_fail"),
+@@ -879,11 +885,11 @@ def _upsert_practice_result(db, session_id, entry, specialty, graded=False,
+             "fb": json.dumps(fb),
+             "pdx_sub": entry.pdx_code, "pdx_ak": pdx_ak, "pdx_ok": pdx_ok,
+             "sdx_sub": json.dumps(em_dx_sub if em_dx_sub is not None else entry.sdx),
+-            "sdx_ak": json.dumps((r.get("em_dx_ak") or []) if entry.em_data else (ak_rec.sdx or []) if ak_rec else []),
++            "sdx_ak": json.dumps((r.get("em_dx_ak") or []) if is_em_result else (ak_rec.sdx or []) if ak_rec else []),
+             "pcs_sub": json.dumps(entry.pcs),
+             "pcs_ak": json.dumps(ak_rec.pcs or []) if ak_rec else "[]",
+             "cpt_sub": json.dumps(em_cpt_sub if em_cpt_sub is not None else entry.cpt),
+-            "cpt_ak": json.dumps((r.get("em_cpt_ak") or []) if entry.em_data else (ak_rec.cpt or []) if ak_rec else []),
++            "cpt_ak": json.dumps((r.get("em_cpt_ak") or []) if is_em_result else (ak_rec.cpt or []) if ak_rec else []),
+             "qf": bool(entry.query_flag),
+         }
+     else:
+@@ -972,7 +978,7 @@ def _build_coder_results(session_id: int, db) -> list:
+                pr.drg_reviewed, pr.drg_override,
+                pr.query_flag, pr.query_reviewed, pr.query_verdict,
+                pr.query_trainer_note, pr.query_reviewed_by, pr.query_reviewed_at,
+-               pcd.em_data
++               pcd.em_data, pcd.sdx, pcd.pcs, pcd.cpt, pcd.pdx_poa
+         FROM practice_results pr
+         JOIN charts c ON c.id = pr.chart_id
+         LEFT JOIN practice_chart_drafts pcd
+@@ -1018,7 +1024,28 @@ def _build_coder_results(session_id: int, db) -> list:
+     # once here so both review screens and the Excel export render the same
+     # thing. E/M needs the key's MDM elements and the coder's ticks, which
+     # live outside practice_results, so they are read per chart.
+-    from services.practice_review import build_review, is_em_specialty
++    from services.practice_review import build_review, is_em_specialty, is_ed_rubric_specialty
++    from services.practice_result_lists import pick
++    # Code-graded results (IP, OP, ED Single Path): repair lists stored empty
++    # before CR-012-Nov from the coder's draft and the answer key, and carry
++    # the principal diagnosis POA from both sides — practice_results has no
++    # column for it, so the review could never show it.
++    coded_ids = [res["chart_id"] for res in results
++                 if not is_em_specialty(res["specialty"]) and not is_ed_rubric_specialty(res["specialty"])]
++    keys = {k.chart_id: k for k in db.query(AnswerKey).filter(AnswerKey.chart_id.in_(coded_ids))} if coded_ids else {}
++    for res, r in zip(results, rows):
++        if res["chart_id"] not in coded_ids:
++            continue
++        k = keys.get(res["chart_id"])
++        res["sdx_submitted"] = pick(res["sdx_submitted"], r[40])
++        res["pcs_submitted"] = pick(res["pcs_submitted"], r[41])
++        res["cpt_submitted"] = pick(res["cpt_submitted"], r[42])
++        res["pdx_poa_submitted"] = r[43] or ""
++        if k is not None and res["total_score"] is not None:
++            res["sdx_answer_key"] = pick(res["sdx_answer_key"], k.sdx)
++            res["pcs_answer_key"] = pick(res["pcs_answer_key"], k.pcs)
++            res["cpt_answer_key"] = pick(res["cpt_answer_key"], k.cpt)
++            res["pdx_poa_answer_key"] = k.pdx_poa or ""
+     em_cfg = None
+     for res, r in zip(results, rows):
+         ak = em = None
+diff --git a/backend/services/audit_observations.py b/backend/services/audit_observations.py
+index ce2ce16..31359c3 100644
+--- a/backend/services/audit_observations.py
++++ b/backend/services/audit_observations.py
+@@ -201,15 +201,15 @@ def load_observations_bulk(db, chart_ids, keys) -> dict:
+         placeholders = ", ".join(":c%d" % n for n in range(len(chunk)))
+         params = {"c%d" % n: cid for n, cid in enumerate(chunk)}
+         rows = db.execute(text("""
+-            SELECT chart_id, pdx_submitted, sdx_submitted, pcs_submitted, cpt_submitted
+-            FROM practice_results
+-            WHERE chart_id IN (%s) AND total_score IS NOT NULL
++            SELECT pr.chart_id, pr.pdx_submitted, pr.sdx_submitted, pr.pcs_submitted,
++                   pr.cpt_submitted, d.sdx, d.pcs, d.cpt
++            FROM practice_results pr
++            LEFT JOIN practice_chart_drafts d
++              ON d.session_id = pr.session_id AND d.chart_id = pr.chart_id
++            WHERE pr.chart_id IN (%s) AND pr.total_score IS NOT NULL
+         """ % placeholders), params).fetchall()
+         for r in rows:
+-            grouped[r[0]].append({
+-                "pdx_submitted": r[1], "sdx_submitted": r[2],
+-                "pcs_submitted": r[3], "cpt_submitted": r[4],
+-            })
++            grouped[r[0]].append(_submission(r[1:]))
+ 
+     return {cid: observations_for_chart(subs, keys[cid])
+             for cid, subs in grouped.items()}
+@@ -228,16 +228,32 @@ def load_observations(db, chart_id: int, key,
+     from sqlalchemy import text
+ 
+     rows = db.execute(text("""
+-        SELECT pdx_submitted, sdx_submitted, pcs_submitted, cpt_submitted
+-        FROM practice_results
+-        WHERE chart_id = :c AND total_score IS NOT NULL
++        SELECT pr.pdx_submitted, pr.sdx_submitted, pr.pcs_submitted, pr.cpt_submitted,
++               d.sdx, d.pcs, d.cpt
++        FROM practice_results pr
++        LEFT JOIN practice_chart_drafts d
++          ON d.session_id = pr.session_id AND d.chart_id = pr.chart_id
++        WHERE pr.chart_id = :c AND pr.total_score IS NOT NULL
+     """), {"c": chart_id}).fetchall()
+ 
+-    submissions = [{
+-        "pdx_submitted": r[0], "sdx_submitted": r[1],
+-        "pcs_submitted": r[2], "cpt_submitted": r[3],
+-    } for r in rows]
+-    return observations_for_chart(submissions, key)
++    return observations_for_chart([_submission(r) for r in rows], key)
++
++
++def _submission(r) -> dict:
++    """
++    (pdx, sdx, pcs, cpt, draft sdx, draft pcs, draft cpt) -> one submission.
++
++    Results stored between late August and CR-012-Nov have EMPTY sdx and cpt
++    lists, and an empty list read as "the coder coded nothing" invents a miss
++    for every code they did code. The draft holds what was submitted.
++    """
++    from services.practice_result_lists import pick
++    return {
++        "pdx_submitted": r[0],
++        "sdx_submitted": pick(r[1], r[4]),
++        "pcs_submitted": pick(r[2], r[5]),
++        "cpt_submitted": pick(r[3], r[6]),
++    }
+ 
+ 
+ def summarise(observations: list[Observation]) -> dict:
+diff --git a/backend/services/practice_result_lists.py b/backend/services/practice_result_lists.py
+new file mode 100644
+index 0000000..90ec653
+--- /dev/null
++++ b/backend/services/practice_result_lists.py
+@@ -0,0 +1,37 @@
++"""
++The code lists a practice result stored, repaired where they were stored empty.
++
++From late August to CR-012-Nov the coding screen sent a blank E/M form with
++every chart, and the result writer took that as "this is an E/M chart": every
++graded IP, OP and ED Single Path result stored its SDx and CPT lists EMPTY, on
++both the key side and the coder side. Scores were right (the grader saw the
++real codes); only the stored copy was lost.
++
++The truth survives elsewhere: the coder's codes in practice_chart_drafts (the
++submit writes the draft before grading), the key in answer_keys. Every reader
++of the stored lists goes through here, so the review, the auditor's observed
++plantings and Specificity Drops all see the same repaired lists.
++
++A stored list that is non-empty always wins. An empty one is replaced only
++when the fallback has something, so a chart that genuinely had no secondary
++diagnoses still reads as none.
++"""
++import json
++from typing import Any, List
++
++
++def as_list(v: Any) -> List:
++    if v is None or v == "":
++        return []
++    if isinstance(v, str):
++        try:
++            v = json.loads(v)
++        except ValueError:
++            return []
++    return v if isinstance(v, list) else []
++
++
++def pick(stored: Any, fallback: Any) -> List:
++    """The stored list, or the fallback when the stored one is empty."""
++    s = as_list(stored)
++    return s if s else as_list(fallback)
+diff --git a/backend/services/practice_review.py b/backend/services/practice_review.py
+index c396e6b..bf359cb 100644
+--- a/backend/services/practice_review.py
++++ b/backend/services/practice_review.py
+@@ -198,11 +198,25 @@ def _display(item) -> str:
+ def _poa_note(k, c) -> str:
+     kp = str((k or {}).get("poa") or "").strip().upper() if isinstance(k, dict) else ""
+     cp = str((c or {}).get("poa") or "").strip().upper() if isinstance(c, dict) else ""
+-    if kp and kp != cp:
++    # An exempt code's POA is E on every key and is never graded
++    # (services/poa_exempt.py), so it never differs here either.
++    if kp and kp != "E" and kp != cp:
+         return "POA: key %s, coded %s" % (kp, cp or "(none)")
+     return ""
+ 
+ 
++_EXEMPT_NOTE = "POA exempt (CMS) — not graded"
++
++
++def _mark_exempt(rows: List[dict]) -> List[dict]:
++    """Say so on a row whose key POA is E: otherwise it reads as an ordinary
++    match and a coder cannot tell the POA was never judged."""
++    for row in rows:
++        if "  POA E" in (row.get("key") or "") and not row.get("note"):
++            row["note"] = _EXEMPT_NOTE
++    return rows
++
++
+ def _cpt_note(k, c) -> str:
+     if not (isinstance(k, dict) and isinstance(c, dict)):
+         return ""
+@@ -266,15 +280,22 @@ def _summarise(sections: List[dict]) -> dict:
+ def _code_sections(r: dict) -> List[dict]:
+     sections = []
+     pdx_k, pdx_c = (r.get("pdx_answer_key") or ""), (r.get("pdx_submitted") or "")
++    # The principal diagnosis POA, where the key states one (inpatient only).
++    kp = str(r.get("pdx_poa_answer_key") or "").strip().upper()
++    cp = str(r.get("pdx_poa_submitted") or "").strip().upper()
+     if pdx_k or pdx_c:
+         note = ""
+         if pdx_k and pdx_c:
+             st = "correct" if _norm(pdx_k) == _norm(pdx_c) else "wrong"
++            if st == "correct" and kp == "E":
++                note = _EXEMPT_NOTE
++            elif st == "correct" and kp and kp != cp:
++                st, note = "different", "POA: key %s, coded %s" % (kp, cp or "(none)")
+             if st == "wrong":
+                 from services.grading_engine import _near_miss_detail, code_family
+                 if code_family(pdx_k, "dx") == code_family(pdx_c, "dx"):
+                     note = _near_miss_detail(pdx_k, pdx_c, "dx")
+-            else:
++            elif st == "correct" and not kp:
+                 # Same code, wrong POA: the grader withheld the PDx points, so
+                 # the row must not read Correct. The stored lists carry no PDx
+                 # POA; the grader's own line does ("POA: Y vs N").
+@@ -286,13 +307,15 @@ def _code_sections(r: dict) -> List[dict]:
+                     st, note = "different", "POA: key %s, coded %s" % (m.group(1) or "(none)", m.group(2) or "(none)")
+         else:
+             st = "missed" if pdx_k else "extra"
++        k_disp = pdx_k + ("  POA " + kp if pdx_k and kp else "")
++        c_disp = pdx_c + ("  POA " + cp if pdx_c and kp and cp else "")
+         sections.append(_section("pdx", "Principal Diagnosis", "Coding",
+-                                 [_row("PDx", pdx_k, pdx_c, st, note)]))
++                                 [_row("PDx", k_disp, c_disp, st, note)]))
+ 
+     sdx_k, sdx_c = r.get("sdx_answer_key") or [], r.get("sdx_submitted") or []
+     if _codes(sdx_k) or _codes(sdx_c):
+         sections.append(_section("sdx", "Secondary Diagnoses", "Coding",
+-                                 _set_rows("SDx", sdx_k, sdx_c, _poa_note, kind="dx")))
++                                 _mark_exempt(_set_rows("SDx", sdx_k, sdx_c, _poa_note, kind="dx"))))
+ 
+     pcs_k, pcs_c = r.get("pcs_answer_key") or [], r.get("pcs_submitted") or []
+     if _codes(pcs_k) or _codes(pcs_c):
+diff --git a/backend/tests/test_specialty_flow.py b/backend/tests/test_specialty_flow.py
+new file mode 100644
+index 0000000..31936d2
+--- /dev/null
++++ b/backend/tests/test_specialty_flow.py
+@@ -0,0 +1,111 @@
++"""
++CR-012-Nov: every code-graded specialty, end to end, with the payload the
++coding screen ACTUALLY sends.
++
++The per-specialty submit tests elsewhere post entries without an E/M form. The
++real screen sent a blank one with every chart, and the result writer read that
++as "this is E/M": every IP, OP and ED Single Path result stored EMPTY SDx and
++CPT lists, the review lost both sections, and the auditor's observed plantings
++invented misses for codes the coder had coded. 2,867 tests stayed green.
++"""
++import pytest
++from sqlalchemy import text
++
++from conftest import make_chart
++from models import Specialty
++from services.audit_observations import load_observations
++from test_practice_submission_phase3a import (
++    STANDARD_SPECIALTIES, _add_answer_key, _coder_session, _entry,
++)
++from models import AnswerKey
++
++# What PracticeSession.tsx sent with every chart before CR-012-Nov.
++BLANK_EM_FORM = {"copa_self_limited": 0, "dr_order_tests": 0, "risk_low": False,
++                 "em_code": "", "em_modifier": "", "patient_type": "NA",
++                 "em_category": "", "em_dx": [], "em_cpt": []}
++
++
++def _submit(client, db, spec, tag, **entry_kw):
++    chart = make_chart(db, specialty=spec.value, chart_number=f"SF{tag}{spec.name[:6]}")
++    _add_answer_key(db, chart, spec)
++    sess = _coder_session(client, spec, chart.id)
++    # The coder misses the key's SDx (a CC on IP) and adds one of their own.
++    e = _entry(chart.id, spec, sdx=[{"code": "R05.9", "poa": "Y"}], **entry_kw)
++    e["em_data"] = BLANK_EM_FORM
++    r = client.post(f"/practicelab/practice-sessions/{sess['session_id']}/submit",
++                    json={"entries": [e]})
++    assert r.status_code == 200, r.text
++    return chart, sess
++
++
++def _review(client, sess):
++    c = client.get(f"/practicelab/practice-sessions/{sess['session_id']}/review").json()["charts"][0]
++    return {s["key"]: s["rows"] for s in c["review"]["sections"]}
++
++
++@pytest.mark.parametrize("spec", STANDARD_SPECIALTIES, ids=lambda s: s.value)
++def test_the_screen_payload_stores_both_code_lists(client, db, spec):
++    _, sess = _submit(client, db, spec, "S")
++    row = db.execute(text("SELECT sdx_answer_key, sdx_submitted, cpt_answer_key, cpt_submitted "
++                          "FROM practice_results WHERE session_id=:s"),
++                     {"s": sess["session_id"]}).fetchone()
++    assert "I10" in row[0] and "R05.9" in row[1]
++    if spec not in (Specialty.IP_DRG, Specialty.ANCILLARY):
++        assert "11042" in row[2] and "11042" in row[3]
++
++
++@pytest.mark.parametrize("spec", STANDARD_SPECIALTIES, ids=lambda s: s.value)
++def test_the_review_shows_the_missed_and_extra_diagnosis(client, db, spec):
++    _, sess = _submit(client, db, spec, "R")
++    rows = {(r["key"].split("  ")[0], r["coded"].split("  ")[0]): r for r in _review(client, sess)["sdx"]}
++    assert rows[("I10", "")]["status"] == "missed"
++    assert rows[("", "R05.9")]["status"] == "extra"
++    if spec == Specialty.IP_DRG:
++        assert rows[("I10", "")]["weight"] == "CC"
++
++
++def _blank_stored_lists(db, sess):
++    """A result as stored between late August and CR-012-Nov."""
++    db.execute(text("UPDATE practice_results SET sdx_answer_key='[]', sdx_submitted='[]', "
++                    "cpt_answer_key='[]', cpt_submitted='[]' WHERE session_id=:s"),
++               {"s": sess["session_id"]})
++    db.commit()
++
++
++@pytest.mark.parametrize("spec", [Specialty.IP_DRG, Specialty.SDS], ids=lambda s: s.value)
++def test_a_result_stored_empty_is_repaired_on_read(client, db, spec):
++    _, sess = _submit(client, db, spec, "P")
++    _blank_stored_lists(db, sess)
++    secs = _review(client, sess)
++    assert {r["status"] for r in secs["sdx"]} == {"missed", "extra"}
++    if spec == Specialty.SDS:
++        assert secs["cpt"][0]["status"] == "correct"
++
++
++def test_observed_plantings_do_not_invent_misses_from_an_empty_stored_list(client, db):
++    chart, sess = _submit(client, db, Specialty.SDS, "O")
++    _blank_stored_lists(db, sess)
++    key = db.query(AnswerKey).filter_by(chart_id=chart.id).first()
++    obs = {(o.section, o.action, o.code) for o in load_observations(db, chart.id, key)}
++    # The coder coded 11042: no planting may claim they missed it.
++    assert ("CPT", "Add", "11042") not in obs
++    assert ("SDx", "Add", "I10") in obs and ("SDx", "Delete", "R05.9") in obs
++
++
++def test_the_principal_diagnosis_poa_is_shown_and_judged(client, db):
++    _, sess = _submit(client, db, Specialty.IP_DRG, "Q", pdx_poa="N")
++    pdx = _review(client, sess)["pdx"][0]
++    assert pdx["key"] == "J18.9  POA Y" and pdx["coded"] == "J18.9  POA N"
++    assert pdx["status"] == "different" and pdx["note"] == "POA: key Y, coded N"
++
++
++def test_a_poa_exempt_code_says_so_and_is_never_marked_wrong():
++    from services.practice_review import build_review
++    rv = build_review({"specialty": "IP-DRG", "pdx_answer_key": "Z38.00", "pdx_submitted": "Z38.00",
++                       "pdx_poa_answer_key": "E", "pdx_poa_submitted": "",
++                       "sdx_answer_key": [{"code": "Z37.0", "poa": "E"}],
++                       "sdx_submitted": [{"code": "Z37.0", "poa": "Y"}], "feedback": []})
++    secs = {s["key"]: s["rows"] for s in rv["sections"]}
++    for row in (secs["pdx"][0], secs["sdx"][0]):
++        assert row["status"] == "correct"
++        assert "POA exempt" in row["note"]
+diff --git a/frontend/src/pages/PracticeSession.tsx b/frontend/src/pages/PracticeSession.tsx
+index a24b805..be8b85e 100644
+--- a/frontend/src/pages/PracticeSession.tsx
++++ b/frontend/src/pages/PracticeSession.tsx
+@@ -255,7 +255,7 @@ const EMPTY_ENTRY = (chart_id: number): CodeEntry => ({
+   flagged: false,
+   coder_notes: '',
+   query_flag: false,
+-  em_data: EMPTY_EM_DATA(),
++  // No em_data: only E/M and ED Profee charts carry one (see the loader).
+ })
+ 
+ // A raised physician query with no query written is not a submittable chart —
+@@ -351,7 +351,14 @@ export function PracticeSession() {
+           flagged: draft?.flagged || false,
+           coder_notes: draft?.coder_notes || '',
+           query_flag: draft?.query_flag || false,
+-          em_data: savedEm ? { ...EMPTY_EM_DATA(data.specialty), ...savedEm } : EMPTY_EM_DATA(data.specialty),
++          // The E/M form belongs to E/M and ED Profee charts only. Sending a
++          // blank one with every chart made the backend store empty SDx and
++          // CPT lists for every IP, OP and ED Single Path result (CR-012-Nov),
++          // and drafts saved before then still carry one — so it is dropped
++          // here rather than reloaded.
++          ...(isEM(data.specialty)
++            ? { em_data: savedEm ? { ...EMPTY_EM_DATA(data.specialty), ...savedEm } : EMPTY_EM_DATA(data.specialty) }
++            : {}),
+         }
+       }
+       setEntries(initial)
+-- 
+2.43.0
+
