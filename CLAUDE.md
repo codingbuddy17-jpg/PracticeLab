@@ -433,6 +433,18 @@ everyone against it. Key screens come first when extending this, not last.
 
 ---
 
+**POA exempt codes come from CMS, never from a trainer.** The loader stamps
+`code_descriptions.poa_exempt` from the FY POA exempt file (38,399 codes in
+FY2027); NULL means not loaded and every reader then changes nothing.
+`services/poa_exempt.py` is the one rule: an exempt code's POA is E on every
+inpatient key (upload, editor, and a one-time correction when the list
+loads), is never graded, and never receives a planted POA error. Screens use
+`components/PoaSelect.tsx`, which sets E itself and re-checks every render —
+several rows turning exempt at once lost all but one E when it ran on
+dependency change only. In `--from-dir`, `POAexemptCodesFY27.txt` contains
+"codes" and sorts first: the CM lookup excludes "poa" or it loads the exempt
+list as the code set.
+
 ## Conventions that keep biting
 
 **The master passphrase never goes in a URL.** It is the single shared

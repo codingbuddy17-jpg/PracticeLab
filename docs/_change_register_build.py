@@ -91,6 +91,20 @@ CRS.append({
                 "the reader left off."),
 })
 
+CRS.append({
+    "id": "CR-005",
+    "title": "CMS POA exempt list applied everywhere POA is keyed, coded, audited or graded",
+    "kind": "C+D", "module": "Code sets · PracticeLab · Auditor",
+    "score_impact": "Yes", "schema": "code_descriptions.poa_exempt BOOLEAN",
+    "commits": "6e32710", "date": "2026-11-19",
+    "order": "DDL, backend rules, run loader, then frontend patch",
+    "spec": "change_requests/CR-005/CR-005.md",
+    "summary": ("Loads the CMS FY POA exempt list (38,399 codes FY2027). Exempt codes get POA E "
+                "automatically and greyed on coder, key editor and auditor screens; keys store E on "
+                "upload/edit and existing keys are corrected once; POA on exempt codes is not graded; "
+                "the auditor generator never plants POA errors on them."),
+})
+
 # Proposed and agreed in principle, NOT built. Listed so nothing raised is
 # lost; an item moves to CRS when it is built.
 BACKLOG = [
@@ -256,6 +270,47 @@ CHANGES = [
      "Navigator of documents and sections with scroll tracking; jump to the exact heading; note styling; Side by side mode; Coding aids toggle; Alt+Up/Down and '/'; remembers mode and section per chart.",
      "Flat chip row of up to one section per page; Image and Text only.",
      "EHR-style reading view.", "Apply patch", "No", "CR-004 §2"),
+    # ── CR-005 ──
+    ("CR-005", "Database", "code_descriptions", "poa_exempt BOOLEAN (nullable)", "Added",
+     "Per-code CMS POA exempt flag; NULL = list not loaded. Added by _add_col on boot.",
+     "—", "Column present; verified added to a pre-existing table.", "Run DDL", "No", "CR-005 §4"),
+    ("CR-005", "Script", "scripts/ingest_code_sets.py", "poa_urls() / parse_poa_exempt() / stamping", "Added",
+     "Loads {FY}-poa-exempt-codes.zip, finds the code column by header, stamps each CM row, then corrects existing IP keys.",
+     "No exempt list.", "38,399 FY2027 codes stamped; all matched the CM set.", "Run against your DB", "Yes", "CR-005 §2"),
+    ("CR-005", "Script", "scripts/ingest_code_sets.py", "_local() / _from_zip() exclude", "Modified",
+     "The CM codes-file lookup excludes names containing 'poa'.",
+     "POAexemptCodesFY27.txt in the same folder would have been loaded AS the ICD-10-CM set.",
+     "Real CM file read with the POA file beside it.", "Implement in .NET", "No", "CR-005 §2"),
+    ("CR-005", "Backend", "backend/services/poa_exempt.py", "exempt_among / list_loaded / normalise_key_poa / correct_existing_keys", "Added",
+     "Shared lookup and the key rule: an exempt code's POA is E (IP only); nothing changes when the list is not loaded.",
+     "—", "One rule for keys, grading and the generator.", "Implement in .NET", "Yes", "CR-005 §3"),
+    ("CR-005", "Backend", "backend/services/grading_engine.py", "IPAnswerKey.poa_exempt / poa_same / _match_sdx_ip / grade_ip / compute_dpo_ip", "Modified",
+     "POA on an exempt code is not graded: PDx and SDx match on code; no POA opportunity counted.",
+     "A key with Y on an exempt code marked a coder wrong for entering E.",
+     "Never a coder error.", "Implement in .NET", "Yes", "CR-005 §3.1"),
+    ("CR-005", "Backend", "backend/routers/practicelab_pkg/chart_grading.py · practice_sessions.py", "_grade_chart_for_sp(db=)", "Modified",
+     "Builds the key's exempt set from the database; all three callers pass db.", "—", "—",
+     "Implement in .NET", "Yes", "CR-005 §3.1"),
+    ("CR-005", "Backend", "backend/services/audit_mutation.py · audit_allocation.py", "Corpus.poa_exempt; POA planting and feasibility", "Modified",
+     "Never plants a POA error on an exempt code; a chart with only exempt POA lines is not eligible for one.",
+     "On an exempt code keyed Y it planted 'N, should be Y'.", "No POA error on an exempt code over 200 seeds.",
+     "Implement in .NET", "Yes", "CR-005 §3.2"),
+    ("CR-005", "Backend", "backend/routers/practicelab_pkg/config.py", "answer-key upload and editor save", "Modified",
+     "Applies normalise_key_poa before storing.", "Trainers picked E by hand.", "Exempt codes stored as E from Excel upload and editor.",
+     "Implement in .NET", "Yes", "CR-005 §3.3"),
+    ("CR-005", "Backend", "backend/routers/codes.py", "/codes/describe · /codes/status", "Modified",
+     "describe returns poa_exempt per code; status returns poa_exempt_loaded.", "—", "—",
+     "Implement in .NET", "No", "CR-005 §5"),
+    ("CR-005", "Frontend", "frontend/src/components/PoaSelect.tsx", "PoaSelect", "Added",
+     "Greyed auto-E POA box for exempt codes; clears an auto-set E when the code changes; re-checks every render.",
+     "Plain POA select.", "E set automatically; saved draft verified E on three exempt lines.",
+     "Apply patch", "No", "CR-005 §6"),
+    ("CR-005", "Frontend", "frontend/src/pages/{PracticeSession,AuditSession}.tsx · practicelab/AnswerKeyEditor.tsx · auditor/AuditKeys.tsx", "POA inputs", "Modified",
+     "Coder PDx/SDx, key editor PDx/SDx, auditor add rows and claim lines, authored-error editor use the exempt flag.",
+     "Manual E everywhere.", "Auto E, greyed; auditor claim lines follow the revised code.", "Apply patch", "No", "CR-005 §6"),
+    ("CR-005", "Test", "backend/tests/test_poa_exempt.py", "19 tests", "Added",
+     "Parse, loader trap, grading, keys incl. Excel upload, generator over 200 seeds, API.", "—", "—",
+     "None (reference)", "Yes", "CR-005 §7"),
     ("CR-003", "Test", "backend/tests/test_practice_review.py", "Description tests", "Added",
      "Descriptions on review rows and export columns; unknown codes silent; E/M level and MDM never described.", "—", "—",
      "None (reference)", "No", "CR-003 §5"),

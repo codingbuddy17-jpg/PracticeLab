@@ -29,6 +29,7 @@ Kinds: **A** frontend only · **B** backend only · **C** both · **D** schema.
 | [002](CR-002/CR-002.md) | E/M primary diagnosis becomes a scoring factor; diagnosis dots ignored | B | Yes | None | `bccf4ff` | After CR-001 |
 | [003](CR-003/CR-003.md) | Code descriptions on review, DRG, key-check, auditor-review and analytics screens | C | No | None | `08e8b3a` | After CR-001; backend first, then frontend patch |
 | [004](CR-004/CR-004.md) | Chart viewer reads charts as documents and sections, like an EHR | A | No | None | `3846e06` | Any time: frontend patch only |
+| [005](CR-005/CR-005.md) | CMS POA exempt list applied everywhere POA is keyed, coded, audited or graded | C+D | Yes | code_descriptions.poa_exempt BOOLEAN | `6e32710` | DDL, backend rules, run loader, then frontend patch |
 
 Built 19 November 2026 by `docs/_change_register_build.py`, which also writes `docs/PracticeLab_Change_Register.xlsx` — the detailed version, with one row per file-level change and the columns IT uses to track progress.
 

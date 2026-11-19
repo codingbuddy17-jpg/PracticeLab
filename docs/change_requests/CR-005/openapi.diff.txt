@@ -1,0 +1,5 @@
+Generated from FastAPI OpenAPI around commit 6e32710.
+
+No routes added, removed or changed. Two untyped responses gain a field (see CR-005.md section 5):
+  GET /codes/describe   descriptions[code].poa_exempt   true | false | null
+  GET /codes/status     poa_exempt_loaded               true | false

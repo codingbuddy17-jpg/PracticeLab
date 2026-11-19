@@ -1,0 +1,339 @@
+diff --git a/frontend/src/api/codesApi.ts b/frontend/src/api/codesApi.ts
+index ea5244c..eae0b84 100644
+--- a/frontend/src/api/codesApi.ts
++++ b/frontend/src/api/codesApi.ts
+@@ -21,6 +21,8 @@ export type CodeInfo = {
+   chapter?: string | null
+   chapter_no?: number | null
+   billable?: boolean
++  /** CMS POA exempt list: true / false, or null when the list is not loaded. */
++  poa_exempt?: boolean | null
+ }
+ 
+ export type DescribeResult = {
+diff --git a/frontend/src/components/PoaSelect.tsx b/frontend/src/components/PoaSelect.tsx
+new file mode 100644
+index 0000000..209297f
+--- /dev/null
++++ b/frontend/src/components/PoaSelect.tsx
+@@ -0,0 +1,64 @@
++import { useEffect, useRef } from 'react'
++import type { CSSProperties } from 'react'
++
++/**
++ * A POA box that knows the CMS exempt list.
++ *
++ * When the code beside it is POA exempt (`exempt` true, from /codes/describe),
++ * the box shows E, greyed and locked, and sets the value to E itself — nobody
++ * looks the code up in the CMS list or picks E by hand. If the code is then
++ * changed to one that is not exempt, an E this box set is cleared again, so
++ * the person must choose rather than inherit a wrong E.
++ *
++ * `exempt` undefined or null (list not loaded, code unknown, still loading)
++ * leaves the box exactly as it always was: nothing is greyed on a guess.
++ */
++export function PoaSelect({ value, onChange, exempt, options, style, placeholder = 'POA…', disabled }: {
++  value: string
++  onChange: (v: string) => void
++  exempt?: boolean | null
++  options: Array<{ value: string; label: string }>
++  style?: CSSProperties
++  placeholder?: string
++  disabled?: boolean
++}) {
++  const autoSet = useRef(false)
++  // Runs after EVERY render, not on dependency change. Several rows can turn
++  // exempt in one render, and a parent that rebuilds its list from that
++  // render's copy keeps only the last row's E. With dependencies, the lost
++  // rows would never retry — their own value never changed. Checked every
++  // render, a lost E is simply set again; it stops once every row holds E.
++  useEffect(() => {
++    if (disabled) return
++    if (exempt === true && (value || '').toUpperCase() !== 'E') {
++      autoSet.current = true
++      onChange('E')
++    } else if (exempt === false && autoSet.current && (value || '').toUpperCase() === 'E') {
++      autoSet.current = false
++      onChange('')
++    }
++  })
++
++  if (exempt === true) {
++    return (
++      <div
++        title="This code is on the CMS POA exempt list — POA is reported as exempt (E)."
++        style={{
++          ...style,
++          display: 'flex', alignItems: 'center', gap: 6,
++          background: '#f3f4f6', color: '#6b7280', borderColor: '#e5e7eb',
++          cursor: 'not-allowed', userSelect: 'none',
++        }}
++      >
++        <span style={{ fontWeight: 700, color: '#374151' }}>E</span>
++        <span style={{ fontSize: 11, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>POA exempt</span>
++      </div>
++    )
++  }
++  return (
++    <select style={style} value={value} onChange={e => { autoSet.current = false; onChange(e.target.value) }} disabled={disabled}>
++      <option value="">{placeholder}</option>
++      {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
++    </select>
++  )
++}
+diff --git a/frontend/src/pages/AuditSession.tsx b/frontend/src/pages/AuditSession.tsx
+index 9101237..bd144e8 100644
+--- a/frontend/src/pages/AuditSession.tsx
++++ b/frontend/src/pages/AuditSession.tsx
+@@ -1,4 +1,5 @@
+ import { useCallback, useEffect, useRef, useState } from 'react'
++import { PoaSelect } from '../components/PoaSelect'
+ import { useParams } from 'react-router-dom'
+ import {
+   AlertTriangle, Check, CheckCircle, ChevronRight, Circle, Copy, Plus,
+@@ -725,6 +726,7 @@ function SectionBlock({ spec, chart, state, onVerdict, onUpsert }: {
+                         autoFocus={field === 'code' && !f.correct_value}
+                         required={field === 'code' || field === 'poa'}
+                         section={key}
++                        poaExempt={field === 'poa' ? describe(String(f.correct_value || ''))?.poa_exempt : null}
+                       />
+                     ))}
+                     {addComplete(f) && (
+@@ -816,6 +818,8 @@ function PdxRow({ chart, spec, open, revisionOf, setRevision, describe }: {
+           field={field}
+           options={field === 'poa' ? POA_VALUES : undefined}
+           describe={describe}
++          poaExempt={field === 'poa' && describe
++            ? describe(revisionOf(0, 'code')?.correct_value || values.code)?.poa_exempt : null}
+           onChange={v => setRevision(0, field, values[field] || '', v)}
+         />
+       ))}
+@@ -867,6 +871,10 @@ function LineRow({ index, row, fields, open, deleted, canDelete, revisionOf, set
+           field={field}
+           options={field === 'poa' ? POA_VALUES : undefined}
+           describe={describe}
++          // The code the line will carry: the auditor's revision when there is
++          // one, so revising to an exempt code locks its POA at once.
++          poaExempt={field === 'poa' && describe
++            ? describe(revisionOf(index, 'code')?.correct_value || String(row.code ?? ''))?.poa_exempt : null}
+           onChange={v => setRevision(index, field, String(row[field] ?? ''), v)}
+         />
+       ))}
+@@ -895,7 +903,7 @@ function LineRow({ index, row, fields, open, deleted, canDelete, revisionOf, set
+ }
+ 
+ function AddField({ field, finding, onChange, onEnter, fieldId, autoFocus, required,
+-                   section }: {
++                   section, poaExempt }: {
+   field: string
+   finding: Finding
+   onChange: (v: string) => void
+@@ -904,6 +912,7 @@ function AddField({ field, finding, onChange, onEnter, fieldId, autoFocus, requi
+   autoFocus?: boolean
+   required?: boolean
+   section: string
++  poaExempt?: boolean | null
+ }) {
+   const value = field === 'code'
+     ? finding.correct_value || ''
+@@ -917,6 +926,11 @@ function AddField({ field, finding, onChange, onEnter, fieldId, autoFocus, requi
+     <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+       <span style={s.fieldLabel}>{FIELD_LABEL[field] || field}{required ? ' *' : ''}</span>
+       {field === 'poa' ? (
++        poaExempt ? (
++          <PoaSelect value={value} onChange={onChange} exempt
++            options={POA_VALUES.map(v => ({ value: v, label: v }))}
++            style={{ ...s.input, width: Math.max(width, 120), boxSizing: 'border-box' }} />
++        ) : (
+         <select
+           style={{ ...s.input, width, borderColor: missing ? '#dc2626' : value ? ACTION_COLOR.Add + '66' : '#e5e7eb' }}
+           value={value}
+@@ -927,6 +941,7 @@ function AddField({ field, finding, onChange, onEnter, fieldId, autoFocus, requi
+           <option value="">POA</option>
+           {POA_VALUES.map(v => <option key={v} value={v}>{v}</option>)}
+         </select>
++        )
+       ) : (
+         field === 'code' ? (
+           <CodeSuggest
+@@ -960,7 +975,7 @@ function AddField({ field, finding, onChange, onEnter, fieldId, autoFocus, requi
+ }
+ 
+ function Field({ label, value, open, revision, strike, onChange, section, field,
+-                describe, options }: {
++                describe, options, poaExempt }: {
+   label: string
+   value: string
+   open: boolean
+@@ -972,7 +987,29 @@ function Field({ label, value, open, revision, strike, onChange, section, field,
+   describe?: (code: string) => CodeInfo | null
+   /** A fixed vocabulary. Present means a select, absent means a text box. */
+   options?: string[]
++  /** The line's code is on the CMS POA exempt list (POA field only). */
++  poaExempt?: boolean | null
+ }) {
++  // An exempt code's POA is E and nothing to audit — locked, so no auditor
++  // spends a finding on it. Locked only while the claim already says E (or
++  // nothing): a claim generated before this rule may carry a planted POA
++  // error on an exempt code, and locking that would stop the auditor fixing
++  // an error they are scored on. That case stays editable, with the reason.
++  const shown = String(revision?.correct_value ?? value ?? '').toUpperCase()
++  if (field === 'poa' && poaExempt && open && (shown === 'E' || shown === '')) {
++    return (
++      <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
++        <span style={s.fieldLabel}>{label}</span>
++        <div title="This code is on the CMS POA exempt list — POA is reported as exempt (E)."
++          style={{ ...s.input, width: 150, boxSizing: 'border-box', background: '#f3f4f6',
++                   color: '#6b7280', cursor: 'not-allowed', display: 'flex', alignItems: 'center', gap: 6 }}>
++          <b style={{ color: '#374151' }}>E</b><span style={{ fontSize: 11 }}>POA exempt</span>
++        </div>
++      </div>
++    )
++  }
++  const exemptHint = field === 'poa' && poaExempt && open
++    ? <span style={{ fontSize: 10.5, color: '#b45309' }}>POA exempt — should be E</span> : null
+   const changed = !!revision
+   // Checked only once the auditor has typed a correction — the claim's own
+   // value is whatever it is, and flagging the chart's existing codes would be
+@@ -1037,6 +1074,7 @@ function Field({ label, value, open, revision, strike, onChange, section, field,
+       )}
+       {changed && <span style={s.wasNote}>was {value || '—'}</span>}
+       {!check.ok && <span style={s.formatHint}>{check.hint}</span>}
++      {exemptHint}
+     </div>
+   )
+ }
+diff --git a/frontend/src/pages/PracticeSession.tsx b/frontend/src/pages/PracticeSession.tsx
+index 2bcdb56..ab24730 100644
+--- a/frontend/src/pages/PracticeSession.tsx
++++ b/frontend/src/pages/PracticeSession.tsx
+@@ -1,6 +1,7 @@
+ import { useState, useEffect, useCallback, useRef } from 'react'
+ import { deviceId } from '../hooks/useDeviceId'
+ import { GradingFeedback } from '../components/GradingFeedback'
++import { PoaSelect } from '../components/PoaSelect'
+ import { SubmissionReview, ReviewExportButton, type ChartReview } from '../components/SubmissionReview'
+ import { checkCpt, checkDx, checkModifier, checkPcs } from '../codeFormat'
+ import { useCodeDescriptions } from '../hooks/useCodeDescriptions'
+@@ -1412,14 +1413,13 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
+           </div>
+           {ip && (
+             <div style={{ width: 200 }}>
+-              <select
++              <PoaSelect
+                 style={{ ...s.selectField, borderColor: pdxPOAMissing ? '#fca5a5' : '#e5e7eb' }}
+                 value={entry.pdx_poa}
+-                onChange={e => onChange({ pdx_poa: e.target.value })}
+-              >
+-                <option value="">POA…</option>
+-                {POA_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+-              </select>
++                onChange={v => onChange({ pdx_poa: v })}
++                exempt={entry.pdx_code.trim() ? describeDx(entry.pdx_code)?.poa_exempt : null}
++                options={POA_OPTIONS}
++              />
+               {pdxPOAMissing && <div style={s.warningLine}><AlertTriangle size={11} color="#f59e0b" /> POA required</div>}
+             </div>
+           )}
+@@ -1448,14 +1448,13 @@ function CodeEntryForm({ chart, entry, ip, ed, em, onChange, onSave, saving, sav
+               <CodeSays info={describeDx(row.code)} />
+             </div>
+             {ip && (
+-              <select
++              <PoaSelect
+                 style={{ ...s.selectField, width: 180, marginBottom: 0, borderColor: row.code.trim() && !row.poa ? '#fca5a5' : '#e5e7eb' }}
+                 value={row.poa}
+-                onChange={e => updateSdx(i, 'poa', e.target.value)}
+-              >
+-                <option value="">POA…</option>
+-                {POA_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+-              </select>
++                onChange={v => updateSdx(i, 'poa', v)}
++                exempt={row.code.trim() ? describeDx(row.code)?.poa_exempt : null}
++                options={POA_OPTIONS}
++              />
+             )}
+             <button onClick={() => removeSdx(i)} style={s.removeBtn}><X size={14} /></button>
+           </div>
+diff --git a/frontend/src/pages/auditor/AuditKeys.tsx b/frontend/src/pages/auditor/AuditKeys.tsx
+index ed52b66..c950425 100644
+--- a/frontend/src/pages/auditor/AuditKeys.tsx
++++ b/frontend/src/pages/auditor/AuditKeys.tsx
+@@ -904,18 +904,25 @@ function KeySection({ spec, answerKey, mutations, setMutations }: {
+                     {r.field}: {r.correct_value || '—'} → <strong>{r.claim_value}</strong>
+                   </span>
+                 ))}
+-                {spec.fields.map((f: string) => (
++                {spec.fields.map((f: string) => {
++                  // An exempt code's POA is E and not auditable: a planted POA
++                  // error there teaches a wrong answer, so it cannot be authored.
++                  const poaLocked = f === 'poa' && describe(String(row.code || ''))?.poa_exempt === true
++                  return (
+                   <input key={f} style={{
+                     ...s.input, width: f === 'code' ? 110 : 68, padding: '4px 8px',
+                     fontSize: 12, textTransform: 'uppercase',
+                     borderColor: find('Revise', i, f) ? ACTION_COLORS.Revise : '#d1d5db',
++                    ...(poaLocked ? { background: '#f3f4f6', cursor: 'not-allowed' } : {}),
+                   }}
+-                    placeholder={f === 'code' ? 'wrong code' : `wrong ${f}`}
+-                    title={`Show a wrong ${f} on the claim instead of ${row[f] || '—'}`}
+-                    disabled={omitted}
++                    placeholder={poaLocked ? 'exempt' : f === 'code' ? 'wrong code' : `wrong ${f}`}
++                    title={poaLocked ? 'POA exempt (CMS) — no POA error can be planted on this code'
++                      : `Show a wrong ${f} on the claim instead of ${row[f] || '—'}`}
++                    disabled={omitted || poaLocked}
+                     value={find('Revise', i, f)?.claim_value || ''}
+                     onChange={e => setRevision(i, f, e.target.value, String(row[f] ?? ''))} />
+-                ))}
++                  )
++                })}
+                 {spec.actions.includes('Add') && (
+                   <button
+                     title={omitted ? 'Keep this code on the claim' : 'Remove it — the auditor must add it back'}
+diff --git a/frontend/src/pages/practicelab/AnswerKeyEditor.tsx b/frontend/src/pages/practicelab/AnswerKeyEditor.tsx
+index 9ec4413..75edeb8 100644
+--- a/frontend/src/pages/practicelab/AnswerKeyEditor.tsx
++++ b/frontend/src/pages/practicelab/AnswerKeyEditor.tsx
+@@ -8,11 +8,13 @@ import {
+ import { CodeSuggest } from '../../components/CodeSuggest'
+ import { CodeCaption } from '../../components/CodeCaption'
+ import { useCodeDescriptions } from '../../hooks/useCodeDescriptions'
++import { PoaSelect } from '../../components/PoaSelect'
+ import { errorMessage } from '../../api/errors'
+ import { trainerName } from './shared'
+ import styles from './styles'
+ 
+ const POA_OPTIONS = ['', 'Y', 'N', 'U', 'W', 'E']
++const POA_CHOICES = POA_OPTIONS.filter(Boolean).map(o => ({ value: o, label: o }))
+ const CCMCC_OPTIONS = ['', 'MCC', 'CC', '-']
+ 
+ /**
+@@ -224,10 +226,9 @@ export function AnswerKeyEditor({ chartId, onClose, onSaved }: {
+               if (v.trim() && sdx.length === 0) setSdx([{ code: '', poa: '', ccmcc: '' }])
+             }} />
+           {detail.is_ip && (
+-            <select style={{ ...styles.select, marginBottom: 0, width: 110 }} value={pdxPoa}
+-              onChange={e => setPdxPoa(e.target.value)}>
+-              {POA_OPTIONS.map(o => <option key={o} value={o}>{o || 'POA'}</option>)}
+-            </select>
++            <PoaSelect style={{ ...styles.select, marginBottom: 0, width: 110 }} value={pdxPoa}
++              onChange={setPdxPoa} options={POA_CHOICES} placeholder="POA"
++              exempt={pdx.trim() ? describeDx(pdx)?.poa_exempt : null} />
+           )}
+         </div>
+         <div style={{ marginBottom: 12 }}>
+@@ -244,10 +245,10 @@ export function AnswerKeyEditor({ chartId, onClose, onSaved }: {
+               onEnter={v => addSdxOnEnter(i, v)} />
+             {detail.is_ip && (
+               <>
+-                <select style={{ ...styles.select, marginBottom: 0, width: 90 }} value={s.poa || ''}
+-                  onChange={e => setSdx(sdx.map((x, j) => j === i ? { ...x, poa: e.target.value } : x))}>
+-                  {POA_OPTIONS.map(o => <option key={o} value={o}>{o || 'POA'}</option>)}
+-                </select>
++                <PoaSelect style={{ ...styles.select, marginBottom: 0, width: 90 }} value={s.poa || ''}
++                  onChange={v => setSdx(prev => prev.map((x, j) => j === i ? { ...x, poa: v } : x))}
++                  options={POA_CHOICES} placeholder="POA"
++                  exempt={s.code.trim() ? describeDx(s.code)?.poa_exempt : null} />
+                 <select style={{ ...styles.select, marginBottom: 0, width: 100 }} value={s.ccmcc || ''}
+                   onChange={e => setSdx(sdx.map((x, j) => j === i ? { ...x, ccmcc: e.target.value } : x))}>
+                   {CCMCC_OPTIONS.map(o => <option key={o} value={o}>{o || 'CC/MCC'}</option>)}
