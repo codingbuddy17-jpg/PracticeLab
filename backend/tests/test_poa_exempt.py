@@ -193,7 +193,8 @@ def test_describe_says_which_codes_are_exempt(client, db):
 def test_status_reports_whether_the_list_is_loaded(client, db):
     assert client.get("/codes/status").json()["poa_exempt_loaded"] is False
     _load(db)
-    assert client.get("/codes/status").json()["poa_exempt_loaded"] is True
+    st = client.get("/codes/status").json()
+    assert st["poa_exempt_loaded"] is True and st["poa_exempt_codes"] == 3
 
 
 def test_exempt_among_is_one_bare_set(db):

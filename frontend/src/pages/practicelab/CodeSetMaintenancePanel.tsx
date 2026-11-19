@@ -75,7 +75,9 @@ export function CodeSetMaintenancePanel({ onClose }: Props) {
         )}
         {codeSets?.needs_attention && (
           <div style={s.warnBox}>
-            {codeSets.any ? 'Code sets need refreshing.' : 'CMS code sets have not been loaded.'}
+            {!codeSets.any ? 'CMS code sets have not been loaded.'
+              : codeSets.poa_exempt_loaded ? 'Code sets need refreshing.'
+                : 'The POA exempt list is not loaded — run the ingest.'}
           </div>
         )}
 
@@ -89,6 +91,22 @@ export function CodeSetMaintenancePanel({ onClose }: Props) {
               </div>
             </div>
           ))}
+          {/* The POA exempt list rides on the ICD-10-CM load but is its own
+              CMS file, and a load without it looks healthy while greying
+              nothing — so it gets its own tile. */}
+          {codeSets && (
+            <div style={s.mini}>
+              <span style={{ ...s.dot, background: codeSets.poa_exempt_loaded ? '#16a34a' : '#dc2626' }} />
+              <div>
+                <div style={s.miniLabel}>POA exempt list</div>
+                <div style={s.miniSub}>
+                  {codeSets.poa_exempt_loaded
+                    ? `${(codeSets.poa_exempt_codes || 0).toLocaleString()} exempt codes`
+                    : 'not loaded — run the ingest'}
+                </div>
+              </div>
+            </div>
+          )}
           {(codeSets?.missing || []).map((r: any) => (
             <div key={r.code_system} style={s.mini}>
               <span style={{ ...s.dot, background: '#dc2626' }} />

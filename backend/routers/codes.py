@@ -202,6 +202,7 @@ def status(db: Session = Depends(get_db)):
     # only what IS loaded makes a half-loaded installation look complete, which
     # is the failure this endpoint exists to prevent.
     missing = [s for s in ANNUAL_SYSTEMS + QUARTERLY_SYSTEMS if s not in seen]
+    poa_count = _poa_count(db)
 
     return {
         "loaded": list(seen.values()),
@@ -211,17 +212,28 @@ def status(db: Session = Depends(get_db)):
         "expected_edition": current_edition(),
         # One flag for the screen to key on, so the rule lives here rather than
         # being re-derived in the frontend.
+        # A loaded ICD-10-CM set without the POA exempt list looks healthy and
+        # greys nothing — so it counts as needing attention.
         "needs_attention": bool(missing) or any(
-            not v["current"] for v in seen.values()),
-        # Whether the CMS POA exempt list is loaded. Without it no POA box is
-        # greyed and no POA is skipped in grading, silently — so say so.
-        "poa_exempt_loaded": _poa_loaded(db),
+            not v["current"] for v in seen.values())
+            or ("ICD10CM" in seen and not poa_count),
+        # Whether the CMS POA exempt list is loaded, and how many codes it
+        # marks. Without it no POA box is greyed and no POA is skipped in
+        # grading, silently — so the screen says so.
+        "poa_exempt_loaded": poa_count > 0,
+        "poa_exempt_codes": poa_count,
     }
 
 
-def _poa_loaded(db) -> bool:
-    from services.poa_exempt import list_loaded
-    return list_loaded(db)
+def _poa_count(db) -> int:
+    """Codes marked POA exempt — counted in SQL."""
+    from sqlalchemy import func
+    from models.codes import CodeDescription
+    try:
+        return int(db.query(func.count(CodeDescription.id))
+                   .filter(CodeDescription.poa_exempt.is_(True)).scalar() or 0)
+    except Exception:  # noqa: BLE001
+        return 0
 
 
 @router.get("/ingest-job")
