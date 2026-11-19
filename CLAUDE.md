@@ -360,8 +360,12 @@ complete committed change, `git am` onto the same Python app) and the spec plus
 `frontend.patch` for a rebuilt backend. Generate `code.patch` from the CR's
 commits restricted to backend/frontend/scripts, and prove the set applies in
 order to the pre-CR-001 code and reproduces the current tree.
-**From the tenth change on, every change ships as its own pull request**
-(user, 2026-11-19), numbered **by month, restarting each month**, in the
+**Agreed but ON HOLD: one branch and pull request per change.** The user
+said on 2026-11-19 "don't create any branch for now, just put it in your
+memory" — so until they say otherwise, keep working on the session branch and
+pushing to `main` as before, and create no `harish/...` branch or PR. When it
+is switched on, the shape is below. The **numbering** applies regardless:
+changes are numbered **by month, restarting each month**, in the
 user's format `CR-NNN-Mon` (`CR-010-Nov`; December starts at `CR-001-Dec`).
 CR-001 to CR-009 are November 2026's first nine. The ID carries no year, so
 the year goes on the PR description's first line ("Month: November 2026") and
