@@ -141,6 +141,16 @@ CRS.append({
                 "per-category switches and next/previous; setting-aware tooltips; final-diagnosis emphasis."),
 })
 
+CRS.append({
+    "id": "CR-010-Nov", "title": "E/M review shows the diagnoses behind its Dx score",
+    "kind": "B", "module": "PracticeLab E/M & ED Profee review; E/M re-grade", "score_impact": "No",
+    "schema": "None", "commits": "cb8667b", "date": "2026-11-19", "order": "After CR-001 and CR-002",
+    "spec": "change_requests/CR-010-Nov/CR-010-Nov.md",
+    "summary": ("E/M results stored without code lists (submitted before Aug 2026, or re-graded) showed a Dx "
+                "score over an empty section. The review falls back to the E/M key and the coder's form; "
+                "re-grade now stores the lists. Found live on EM007."),
+})
+
 # What a team running THIS SAME Python backend does instead of rebuilding.
 # Every CR folder carries code.patch (the complete committed change); applied
 # in order to the pre-CR-001 code, all of them reproduce the original app exactly.
@@ -154,6 +164,7 @@ SAME_BACKEND = {
     "CR-007": "git am code.patch; deploy.",
     "CR-008": "Nothing to apply — read the updated documents.",
     "CR-009": "git am code.patch (frontend only); deploy.",
+    "CR-010-Nov": "git am code.patch; deploy. Past E/M results show their diagnoses without a re-grade.",
 }
 
 # Proposed and agreed in principle, NOT built. Listed so nothing raised is
@@ -405,6 +416,17 @@ CHANGES = [
     ("CR-009", "Frontend", "frontend/src/components/ChartViewer.tsx", "Coding aids menu · HighlightedText", "Modified",
      "Toolbar menu with per-category counts, switches and previous/next; thin-underline marks; final-diagnosis emphasis; Esc closes the menu first.",
      "One toggle; filled highlights; legend bar in the document.", "Quiet underlines; menu instead of a bar.", "Apply patch", "No", "CR-009"),
+    # ── CR-010-Nov ──
+    ("CR-010-Nov", "Backend", "backend/services/practice_review.py", "_em_sections — Diagnoses and CPT", "Modified",
+     "Falls back to em_answer_keys and the coder's em_data when the stored lists are empty; 'full credit' only when the score agrees.",
+     "Empty section beside 'Dx 23.3 of 35', note claiming full credit.", "Rows shown for old and re-graded results.",
+     "Implement in .NET", "No", "CR-010-Nov rules 1-2"),
+    ("CR-010-Nov", "Backend", "backend/routers/practicelab_pkg/practice_sessions.py", "regrade_practice_session (E/M)", "Modified",
+     "Stores em_dx_ak / em_cpt_ak as submit does.", "Re-grade left the key lists empty.", "Lists stored.",
+     "Implement in .NET", "No", "CR-010-Nov rule 3"),
+    ("CR-010-Nov", "Test", "backend/tests/test_practice_review.py", "3 tests", "Added",
+     "Blanked-list E/M result shows its rows; re-grade stores lists; partial score never says full credit.", "—", "—",
+     "None (reference)", "No", "CR-010-Nov"),
     ("CR-003", "Test", "backend/tests/test_practice_review.py", "Description tests", "Added",
      "Descriptions on review rows and export columns; unknown codes silent; E/M level and MDM never described.", "—", "—",
      "None (reference)", "No", "CR-003 §5"),

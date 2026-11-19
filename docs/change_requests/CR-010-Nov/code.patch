@@ -1,0 +1,131 @@
+From cb8667be71aa58d4d74f53f1634228318b11db00 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 19 Nov 2026 13:36:58 +0000
+Subject: [PATCH] CR-010-Nov - E/M review shows the diagnoses behind its Dx
+ score
+
+An E/M result submitted before code lists were stored, or re-graded by a
+path that never stored them, showed 'Dx 23.3 of 35' over an empty
+section and a note claiming full credit (live: EM007, batch 'Test with
+E/M'). The review now falls back to the E/M key and the coder's saved
+form when the stored lists are empty, only says 'full credit' when the
+score agrees, and Re-grade stores the key's lists as submit does.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01GAgNTxNNybv6W7GXL33G6z
+---
+ .../practicelab_pkg/practice_sessions.py      |  4 ++
+ backend/services/practice_review.py           | 20 +++++++--
+ backend/tests/test_practice_review.py         | 43 +++++++++++++++++++
+ 3 files changed, 63 insertions(+), 4 deletions(-)
+
+diff --git a/backend/routers/practicelab_pkg/practice_sessions.py b/backend/routers/practicelab_pkg/practice_sessions.py
+index 3e3890a..43ffee5 100644
+--- a/backend/routers/practicelab_pkg/practice_sessions.py
++++ b/backend/routers/practicelab_pkg/practice_sessions.py
+@@ -1630,6 +1630,10 @@ def regrade_practice_session(session_id: int, db: Session = Depends(get_db)):
+                 "weighted_score": total,
+                 "pass_fail": "PASS" if total >= em_cfg["pass_threshold"] else "FAIL",
+                 "drg_flag": False,
++                # Stored as submit stores them, or a re-graded result keeps
++                # its score but loses the key's codes from the review.
++                "em_dx_ak": [{"code": c} for c in json.loads(em_ak.get("dx_codes") or "[]") if c],
++                "em_cpt_ak": normalise_cpts(em_ak.get("procedure_cpts", "[]")),
+             }
+             feedback_items = _em_feedback_items(scoring, em_ak, entry.em_data or {}, em_cfg)
+         else:
+diff --git a/backend/services/practice_review.py b/backend/services/practice_review.py
+index fad1358..00560a1 100644
+--- a/backend/services/practice_review.py
++++ b/backend/services/practice_review.py
+@@ -399,7 +399,13 @@ def _em_sections(r: dict, ak: Optional[dict], em: Optional[dict], cfg: Optional[
+     # secondaries (the other half, wherever listed). Built from score_em_dx,
+     # the grader's own function, so the explanation is the rule that scored it.
+     # Compared as the grader compares (no dots, upper case), displayed as typed.
+-    shown_k, shown_c = _codes(r.get("sdx_answer_key")), _codes(r.get("sdx_submitted"))
++    # The stored lists first; when they are empty, the sources. Results
++    # written before the lists were stored (submitted before late Aug 2026),
++    # and results re-graded by a path that did not store them, have empty
++    # lists beside a real Dx score — the section showed no rows next to
++    # "23.3 of 35". The key and the coder's form are both already loaded.
++    shown_k = _codes(r.get("sdx_answer_key")) or _codes(ak.get("dx_codes") or "[]")
++    shown_c = _codes(r.get("sdx_submitted")) or _codes(em.get("em_dx") or [])
+     dx_k, dx_c = [_norm(c) for c in shown_k], [_norm(c) for c in shown_c]
+     dx_pts, dx_out = _fb_points(feedback, "Dx:")
+     weight = dx_out if dx_out is not None else 0.0
+@@ -438,12 +444,18 @@ def _em_sections(r: dict, ak: Optional[dict], em: Optional[dict], cfg: Optional[
+                        "(%.1f pts). Re-grade the session to apply the current rule: %s"
+                        % (dx_pts, dx_note))
+     else:
+-        dx_note = "The key lists no diagnoses, so this component earns full credit."
++        # Only say "full credit" when the score agrees; a partial score with
++        # no key codes on hand means the codes could not be read, not that
++        # there were none.
++        dx_note = ("The key lists no diagnoses, so this component earns full credit."
++                   if dx_pts is None or dx_out is None or round(dx_pts, 1) >= round(dx_out, 1)
++                   else "The diagnoses behind this score could not be read for this result.")
+     sections.append(_section("dx", "Diagnoses", "Coding", dx_rows, dx_pts, dx_out, dx_note))
+ 
+     # CPT / procedures
+-    cpt_k = normalise_cpts(r.get("cpt_answer_key") or [])
+-    cpt_c = normalise_cpts(r.get("cpt_submitted") or [])
++    cpt_k = normalise_cpts(r.get("cpt_answer_key") or []) or normalise_cpts(ak.get("procedure_cpts") or "[]")
++    cpt_c = normalise_cpts(r.get("cpt_submitted") or []) or normalise_cpts(
++        [c for c in (em.get("em_cpt") or []) if (c or {}).get("code")])
+     if cpt_k or cpt_c:
+         pts, out = _fb_points(feedback, "CPT:")
+         notes = [f["issue"] for f in feedback
+diff --git a/backend/tests/test_practice_review.py b/backend/tests/test_practice_review.py
+index f17e5da..3ae321d 100644
+--- a/backend/tests/test_practice_review.py
++++ b/backend/tests/test_practice_review.py
+@@ -450,3 +450,46 @@ def test_pcs_grader_and_op_sdx_pair_too():
+     assert fb[0].issue_type == "Wrong_Code" and "approach" in fb[0].detail
+     _, _, fb = _match_sdx_op([{"code": "E11.22"}], [{"code": "E11.9"}], True)
+     assert (fb[0].issue_type, fb[0].coder_code) == ("Wrong_Code", "E11.9")
++
++
++# ── E/M results stored without code lists (submitted before they were kept) ──
++
++def _blank_lists(db, session_id):
++    db.execute(text("UPDATE practice_results SET sdx_answer_key='[]', sdx_submitted='[]', "
++                    "cpt_answer_key='[]', cpt_submitted='[]' WHERE session_id=:s"), {"s": session_id})
++    db.commit()
++
++
++def test_em_review_reads_the_diagnoses_when_the_stored_lists_are_empty(client, db):
++    """Live case: EM007 showed 'Dx 23.3 of 35' over an empty section."""
++    chart = _em_chart_with_key(db, "RVW-EM-OLD")
++    session = _coder_session(client, Specialty.EM, chart.id)
++    em = dict(EM, em_dx=[{"code": "E11.9"}])        # coded 1 of the key's 2
++    client.post(f"/practicelab/practice-sessions/{session['session_id']}/submit",
++                json={"entries": [{"chart_id": chart.id, "em_data": em, "flagged": False, "coder_notes": ""}]})
++    _blank_lists(db, session["session_id"])
++    dx = _sec(client.get(f"/practicelab/practice-sessions/{session['session_id']}/review").json()["charts"][0]["review"], "dx")
++    rows = [(r["item"], r["key"], r["coded"], r["status"]) for r in dx["rows"]]
++    assert ("Primary Dx", "E11.9", "E11.9", "correct") in rows
++    assert ("Secondary Dx", "I10", "", "missed") in rows
++    assert "full credit" not in (dx["note"] or "")
++
++
++def test_regrade_stores_the_em_code_lists(client, db):
++    chart = _em_chart_with_key(db, "RVW-EM-RG")
++    session = _coder_session(client, Specialty.EM, chart.id)
++    client.post(f"/practicelab/practice-sessions/{session['session_id']}/submit",
++                json={"entries": [{"chart_id": chart.id, "em_data": EM, "flagged": False, "coder_notes": ""}]})
++    _blank_lists(db, session["session_id"])
++    res = client.post(f"/practicelab/practice-sessions/{session['session_id']}/regrade", json={})
++    assert res.status_code == 200, res.text
++    row = db.execute(text("SELECT sdx_answer_key FROM practice_results WHERE session_id=:s"),
++                     {"s": session["session_id"]}).scalar()
++    assert json.loads(row) == [{"code": "E11.9"}, {"code": "I10"}]
++
++
++def test_a_partial_dx_score_never_claims_full_credit():
++    r = {"specialty": "E/M", "sdx_submitted": [], "sdx_answer_key": [], "cpt_submitted": [], "cpt_answer_key": [],
++         "feedback": [{"section": "Coding Accuracy", "issue": "Dx: 23.3/35.0 pts", "ak_code": "", "coder_code": ""}]}
++    note = _sec(build_review(r, {"em_code": "99214"}, {}, CFG), "dx")["note"]
++    assert "full credit" not in note
+-- 
+2.43.0
+

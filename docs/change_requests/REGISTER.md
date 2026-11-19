@@ -32,6 +32,7 @@ Kinds: **A** frontend only · **B** backend only · **C** both · **D** schema �
 | [007](CR-007/CR-007.md) | Nov 2026 | A same-family code is a wrong code, not a miss | C | No | None | `78256e8` | Backend first, then frontend patch |
 | [008](CR-008/CR-008.md) | Nov 2026 | Runbook and container guide updated for the POA exempt list (documentation) | Docs | No | None | `30daf10` | Read with CR-005 |
 | [009](CR-009/CR-009.md) | Nov 2026 | Coding aids: seven quiet cue categories behind one menu | A | No | None | `cd9a0c9` | Any time after CR-004: frontend patch only |
+| [010-Nov](CR-010-Nov/CR-010-Nov.md) | Nov 2026 | E/M review shows the diagnoses behind its Dx score | B | No | None | `cb8667b` | After CR-001 and CR-002 |
 
 Built 19 November 2026 by `docs/_change_register_build.py`, which also writes `docs/PracticeLab_Change_Register.xlsx` — the detailed version, with one row per file-level change and the columns IT uses to track progress.
 
