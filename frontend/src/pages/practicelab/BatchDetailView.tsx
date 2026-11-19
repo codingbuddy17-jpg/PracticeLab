@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { GradingFeedback } from '../../components/GradingFeedback'
+import { SubmissionReview, ReviewExportButton } from '../../components/SubmissionReview'
 import { Loader, Download, BarChart2, Search, CheckSquare, Square, CheckCircle, Circle, AlertCircle, ChevronDown, ChevronRight, Key, Copy, Eye } from 'lucide-react'
 import toast from 'react-hot-toast'
 import RandomisationStatsCard from '../../components/RandomisationStatsCard'
@@ -1141,6 +1142,12 @@ const QUERY_VERDICT_LABELS: Record<string, string> = {
   not_warranted: 'Query was not warranted',
 }
 
+// E/M and ED Profee grade on the E/M path, so their review has no PDx line.
+function isEMReview(sp: string) {
+  const s = (sp || '').toUpperCase().replace(/[\s_]/g, '')
+  return s.includes('E/M') || s.includes('PROFEE')
+}
+
 function isEDSpecialty(sp: string) {
   const s = sp.toUpperCase()
   return s.includes('EDIT') || s.includes('DENIAL')
@@ -1229,7 +1236,10 @@ function ReviewModal({ reviewData, onClose, onRefresh }: { reviewData: any; onCl
             <div style={{ fontWeight: 800, fontSize: 16 }}>{reviewData.coder_name} — Practice Submission</div>
             <div style={{ fontSize: 12, color: '#6b7280' }}>{reviewData.specialty} · Submitted {reviewData.submitted_at ? new Date(reviewData.submitted_at).toLocaleString() : '—'}</div>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: '#6b7280' }}>✕</button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <ReviewExportButton sessionId={reviewData.session_id} coderName={reviewData.coder_name} />
+            <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: '#6b7280' }}>✕</button>
+          </div>
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -1353,17 +1363,21 @@ function ReviewModal({ reviewData, onClose, onRefresh }: { reviewData: any; onCl
                   </div>
                 ) : (
                   <>
-                    <div style={{ fontSize: 12, color: '#374151' }}>
-                      <span style={{ color: '#6b7280' }}>PDx submitted:</span> <code>{c.pdx_submitted || '—'}</code>
-                      {' '}<span style={{ color: '#6b7280' }}>· AK:</span> <code>{c.pdx_answer_key || '—'}</code>
-                      {' '}{c.pdx_correct === true ? <span style={{ color: '#059669' }}>✓</span> : c.pdx_correct === false ? <span style={{ color: '#dc2626' }}>✗</span> : null}
-                    </div>
-                    {c.feedback?.length > 0 && (
-                      <GradingFeedback
-                        feedback={c.feedback}
-                        sdxKey={c.sdx_answer_key}
-                        pdxKey={c.pdx_answer_key ? [{ code: c.pdx_answer_key }] : []}
-                      />
+                    {/* Every line, right and wrong, classified by section —
+                        for E/M that is level, diagnoses, CPT, then COPA / Data
+                        Review / Risk element by element. */}
+                    <SubmissionReview review={c.review} />
+                    {/* What lost points, in the grader's words. E/M's are the
+                        score lines the review above already breaks down. */}
+                    {(!isEMReview(c.specialty || reviewData.specialty) || !c.review) && c.feedback?.length > 0 && (
+                      <details open={!c.review} style={{ marginTop: 8 }}>
+                        <summary style={{ fontSize: 12, fontWeight: 600, color: '#6b7280', cursor: 'pointer' }}>Scoring notes</summary>
+                        <GradingFeedback
+                          feedback={c.feedback}
+                          sdxKey={c.sdx_answer_key}
+                          pdxKey={c.pdx_answer_key ? [{ code: c.pdx_answer_key }] : []}
+                        />
+                      </details>
                     )}
                     {hasDRG && (
                       <div style={{ marginTop: 10, padding: '10px 12px', background: drgDone ? '#f0fdf4' : '#fff1f2', borderRadius: 8, border: `1px solid ${drgDone ? '#bbf7d0' : '#fecaca'}` }}>

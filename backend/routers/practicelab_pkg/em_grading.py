@@ -430,6 +430,29 @@ def _sanitise_level_method(method, em_code) -> str:
     return "TIME" if code_supports_time(em_code) else "MDM"
 
 
+# The MDM elements Reasoning Accuracy is scored on, one list per table. Module
+# level because the grader and the post-submit review (services/practice_review)
+# must read the SAME list: an element the review omitted would make a 6.7 look
+# like arithmetic nobody can reproduce.
+COPA_FIELDS = [
+    "copa_self_limited", "copa_stable_acute", "copa_stable_chronic",
+    "copa_acute_uncomplicated", "copa_chronic_exacerbation",
+    "copa_undiagnosed_new", "copa_acute_systemic",
+    "copa_acute_complicated_injury", "copa_chronic_severe", "copa_threat_to_life",
+]
+DR_FIELDS = [
+    "dr_prior_external_notes", "dr_review_test_results", "dr_order_tests",
+    "dr_independent_historian", "dr_independent_interpretation", "dr_external_discussion",
+]
+RISK_FIELDS = [
+    "risk_low", "risk_prescription_drug_mgmt", "risk_minor_surgery_with_factors",
+    "risk_elective_major_no_factors", "risk_hospitalization", "risk_sdoh",
+    "risk_drug_intensive_monitoring", "risk_elective_major_with_factors",
+    "risk_emergency_major_surgery", "risk_hospitalization_escalation",
+    "risk_dnr_deescalate", "risk_parenteral_controlled",
+]
+
+
 def grade_em_chart(ak: dict, sub: dict, cfg: dict, overcoding_penalty: bool = True) -> dict:
     """
     Grade one E/M chart submission against its answer key.
@@ -627,23 +650,7 @@ def grade_em_chart(ak: dict, sub: dict, cfg: dict, overcoding_penalty: bool = Tr
     coding_accuracy_total = em_level_score + cpt_score + dx_score
 
     # ── Reasoning Accuracy (element proportion) ───────────────────────────────
-    copa_fields = [
-        "copa_self_limited", "copa_stable_acute", "copa_stable_chronic",
-        "copa_acute_uncomplicated", "copa_chronic_exacerbation",
-        "copa_undiagnosed_new", "copa_acute_systemic",
-        "copa_acute_complicated_injury", "copa_chronic_severe", "copa_threat_to_life",
-    ]
-    dr_fields = [
-        "dr_prior_external_notes", "dr_review_test_results", "dr_order_tests",
-        "dr_independent_historian", "dr_independent_interpretation", "dr_external_discussion",
-    ]
-    risk_fields = [
-        "risk_low", "risk_prescription_drug_mgmt", "risk_minor_surgery_with_factors",
-        "risk_elective_major_no_factors", "risk_hospitalization", "risk_sdoh",
-        "risk_drug_intensive_monitoring", "risk_elective_major_with_factors",
-        "risk_emergency_major_surgery", "risk_hospitalization_escalation",
-        "risk_dnr_deescalate", "risk_parenteral_controlled",
-    ]
+    copa_fields, dr_fields, risk_fields = COPA_FIELDS, DR_FIELDS, RISK_FIELDS
 
     def _element_score(fields: list, ak_row: dict, sub_row: dict, weight: float) -> float:
         ak_vals = [int(ak_row.get(f, 0) or 0) for f in fields]

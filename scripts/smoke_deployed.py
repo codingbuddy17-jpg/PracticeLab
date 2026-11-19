@@ -96,6 +96,9 @@ def main() -> int:
                     help="perform one real write per module, then undo it")
     ap.add_argument("--passphrase", default="",
                     help="MASTER_ADMIN_PASSPHRASE, for the write checks")
+    ap.add_argument("--session", type=int, default=0,
+                    help="a SUBMITTED practice session id; checks its review "
+                         "and Excel export (CR-001)")
     args = ap.parse_args()
 
     s = Smoke(args.base)
@@ -154,6 +157,14 @@ def main() -> int:
     s.expect("J18.9 has a description", code == 200 and bool(got.get("J189")),
              "got %s %s" % (code, str(body)[:160]))
 
+    print("\npractice review and export (CR-001)")
+    if args.session:
+        _review_checks(s, args.session)
+    else:
+        # Not a failure: a fresh environment may hold no submitted session.
+        # Named, so a reader does not mistake silence for a pass.
+        print("  note skipped — pass --session <id of a submitted practice session>")
+
     if args.write:
         print("\nWRITES — the half that reads cannot cover")
         if not args.passphrase:
@@ -169,6 +180,38 @@ def main() -> int:
     print("PASS")
     return 0
 
+
+
+REVIEW_STATUSES = {"correct", "missed", "extra", "different", "order", "info"}
+
+
+def _review_checks(s, session_id):
+    """
+    The post-submit review carries every line, right and wrong, per chart —
+    and E/M explains its reasoning points. Shape only: which codes are right
+    depends on the environment's data, the structure does not.
+    """
+    body = s.get_ok("session review", "/practicelab/practice-sessions/%d/review" % session_id)
+    charts = (body or {}).get("charts") if isinstance(body, dict) else None
+    s.expect("review lists charts", bool(charts), "no charts in %s" % str(body)[:120])
+    for c in charts or []:
+        rv = c.get("review") or {}
+        secs = rv.get("sections")
+        label = "chart %s carries a classified review" % c.get("chart_number")
+        bad = [r.get("status") for sec in (secs or []) for r in sec.get("rows", [])
+               if r.get("status") not in REVIEW_STATUSES]
+        s.expect(label, isinstance(secs, list) and bool(secs) and not bad
+                 and set(rv.get("summary", {})) >= {"correct", "missed", "extra", "different"},
+                 "sections=%s bad statuses=%s" % (str(secs)[:80], bad[:3]))
+        mdm = [sec for sec in (secs or []) if sec.get("key") in ("copa", "dr", "risk")]
+        if mdm:
+            s.expect("chart %s explains its MDM points" % c.get("chart_number"),
+                     all("Matched" in (sec.get("note") or "") or "no elements" in (sec.get("note") or "")
+                         or "not earned" in (sec.get("note") or "") for sec in mdm),
+                     "notes: %s" % [sec.get("note") for sec in mdm])
+    code, raw = call(s.base, "/practicelab/practice-sessions/%d/review/export" % session_id)
+    s.expect("review export is an .xlsx", code == 200 and isinstance(raw, str) and raw.startswith("PK"),
+             "got %s %s" % (code, str(raw)[:80]))
 
 def _write_checks(s, passphrase):
     """

@@ -971,7 +971,8 @@ def _build_coder_results(session_id: int, db) -> list:
                pr.ed_resolution_pass, pr.ed_rationale_tier, pr.ed_trainer_note,
                pr.drg_reviewed, pr.drg_override,
                pr.query_flag, pr.query_reviewed, pr.query_verdict,
-               pr.query_trainer_note, pr.query_reviewed_by, pr.query_reviewed_at
+               pr.query_trainer_note, pr.query_reviewed_by, pr.query_reviewed_at,
+               pcd.em_data
         FROM practice_results pr
         JOIN charts c ON c.id = pr.chart_id
         LEFT JOIN practice_chart_drafts pcd
@@ -1012,6 +1013,35 @@ def _build_coder_results(session_id: int, db) -> list:
             "query_reviewed_by": r[37],
             "query_reviewed_at": _iso(r[38]),
         })
+
+    # The full side-by-side — what was right as well as what was wrong — built
+    # once here so both review screens and the Excel export render the same
+    # thing. E/M needs the key's MDM elements and the coder's ticks, which
+    # live outside practice_results, so they are read per chart.
+    from services.practice_review import build_review, is_em_specialty
+    em_cfg = None
+    for res, r in zip(results, rows):
+        ak = em = None
+        if is_em_specialty(res["specialty"]):
+            if em_cfg is None:
+                em_cfg = _em_scoring_cfg(db)
+            ak = _em_answer_key(db, res["chart_id"])
+            raw = r[39]
+            try:
+                em = json.loads(raw) if isinstance(raw, str) else (raw or {})
+            except ValueError:
+                em = {}
+        try:
+            res["review"] = build_review(res, ak, em, em_cfg)
+        except Exception as exc:  # noqa: BLE001
+            # The review is additive. A builder fault on some legacy row must
+            # not take down the results it sits beside, which worked before
+            # it existed; the screens fall back to the scoring notes.
+            import logging
+            logging.getLogger(__name__).warning(
+                "practice review build failed (session %s, chart %s): %s",
+                session_id, res["chart_id"], exc)
+            res["review"] = None
     return results
 
 
@@ -1107,6 +1137,60 @@ def trainer_review_session(session_id: int, db: Session = Depends(get_db)):
         "charts": results,
     }
 
+
+
+# ── Review export (Excel) ─────────────────────────────────────────────────────
+
+def _review_xlsx_response(session_id: int, db):
+    from fastapi.responses import Response
+    from sqlalchemy import text
+    from services.practice_review import review_workbook
+
+    sess = db.execute(text(
+        "SELECT coder_name, specialty, submitted_at FROM practice_sessions WHERE id=:s"
+    ), {"s": session_id}).fetchone()
+    header = {"coder_name": sess[0], "specialty": sess[1], "submitted_at": _iso(sess[2])}
+    data = review_workbook(header, _build_coder_results(session_id, db))
+    safe = "".join(ch if ch.isalnum() else "_" for ch in (sess[0] or "coder")).strip("_")
+    return Response(
+        content=data,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition":
+                 'attachment; filename="PracticeReview_%s_%d.xlsx"' % (safe or "coder", session_id)},
+    )
+
+
+@router.get("/practice-sessions/{session_id}/review/export")
+def export_review_trainer(session_id: int, db: Session = Depends(get_db)):
+    """The trainer's Review screen as a workbook — same content, every line."""
+    from sqlalchemy import text
+    row = db.execute(text(
+        "SELECT status FROM practice_sessions WHERE id=:s"), {"s": session_id}).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if row[0] != "submitted":
+        raise HTTPException(status_code=400, detail="Session not yet submitted")
+    return _review_xlsx_response(session_id, db)
+
+
+@router.get("/practice-sessions/by-token/{token}/review/export")
+def export_review_coder(token: str, db: Session = Depends(get_db)):
+    """
+    The coder's own results as a workbook. Gated exactly as the results screen
+    is: submitted, and released to the coder. A coder whose trainer has not
+    released results must not get them by downloading instead.
+    """
+    from sqlalchemy import text
+    row = db.execute(text(
+        "SELECT id, status, show_results_to_coder FROM practice_sessions WHERE token=:t"
+    ), {"t": token}).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Practice session not found")
+    if row[1] != "submitted":
+        raise HTTPException(status_code=400, detail="Session not yet submitted")
+    if not row[2]:
+        raise HTTPException(status_code=403, detail="Results have not been released")
+    return _review_xlsx_response(row[0], db)
 
 # ── Trainer-facing: batch grid view ──────────────────────────────────────────
 

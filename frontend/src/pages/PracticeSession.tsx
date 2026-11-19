@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { deviceId } from '../hooks/useDeviceId'
 import { GradingFeedback } from '../components/GradingFeedback'
+import { SubmissionReview, ReviewExportButton, type ChartReview } from '../components/SubmissionReview'
 import { checkCpt, checkDx, checkModifier, checkPcs } from '../codeFormat'
 import { useCodeDescriptions } from '../hooks/useCodeDescriptions'
 import { CodeSuggest } from '../components/CodeSuggest'
@@ -513,7 +514,7 @@ export function PracticeSession() {
   // ── Submitted view ──────────────────────────────────────────────────────────
   if (view === 'submitted') {
     if (submitResult?.show_results && submitResult.results) {
-      return <ResultsView results={submitResult.results as ReturnType<typeof _shapeResult>[]} coderName={session.coder_name} />
+      return <ResultsView results={submitResult.results as ReturnType<typeof _shapeResult>[]} coderName={session.coder_name} token={token} />
     }
     return (
       <div style={s.center}>
@@ -1769,6 +1770,7 @@ interface ResultRow {
   feedback: Array<{ section: string; issue: string; ak_code: string; coder_code: string; detail?: string }>
   sdx_answer_key?: Array<{ code: string; poa?: string; ccmcc?: string }>
   flagged: boolean
+  review?: ChartReview
 }
 
 function _shapeResult(r: unknown): ResultRow { return r as ResultRow }
@@ -1811,7 +1813,6 @@ function parseEMFeedback(feedback: ResultRow['feedback']) {
 
 function EMResultCard({ r }: { r: ResultRow }) {
   const em = parseEMFeedback(r.feedback || [])
-  const levelMatch = em.em_level?.ak && em.em_level?.sub && em.em_level.ak === em.em_level.sub
   return (
     <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: '14px 18px' }}>
       {/* Header row */}
@@ -1820,10 +1821,10 @@ function EMResultCard({ r }: { r: ResultRow }) {
         {r.total_score !== null && (
           <span style={{ fontSize: 16, fontWeight: 800, color: (r.total_score ?? 0) >= 80 ? '#059669' : '#dc2626' }}>{r.total_score?.toFixed(1)}%</span>
         )}
-        {/* The two panels below add up to the score above, out of 100. Without
-            this a reader compares the headline against a panel subtotal — 58
-            points of coding against an 88% chart — and concludes one of them
-            is wrong. */}
+        {/* The Coding and Reasoning sections below add up to the score above,
+            out of 100. Without this a reader compares the headline against a
+            subtotal — 58 points of coding against an 88% chart — and concludes
+            one of them is wrong. */}
         <span style={{ fontSize: 11, color: '#6b7280' }}>
           {em.ca_total.toFixed(1)} coding + {em.ra_total.toFixed(1)} reasoning
           {' '}= {(em.ca_total + em.ra_total).toFixed(1)} of 100
@@ -1831,50 +1832,15 @@ function EMResultCard({ r }: { r: ResultRow }) {
         <span style={{ fontSize: 12, fontWeight: 700, padding: '2px 10px', borderRadius: 6, background: r.pass_fail === 'PASS' ? '#d1fae5' : '#fee2e2', color: r.pass_fail === 'PASS' ? '#059669' : '#dc2626' }}>{r.pass_fail || '—'}</span>
         {r.flagged && <Flag size={13} color="#f59e0b" />}
       </div>
-      {/* Two-panel accuracy breakdown */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-        {/* Coding Accuracy */}
-        <div style={{ background: '#f5f3ff', border: '1px solid #ddd6fe', borderRadius: 8, padding: '10px 12px' }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#5b21b6', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-            Coding Accuracy — {em.ca_total.toFixed(1)} of {em.ca_max ?? 70} pts
-          </div>
-          <EMScoreLine label="E/M Level" pts={em.em_level?.pts} ak={em.em_level?.ak} sub={em.em_level?.sub} isMatch={levelMatch === null ? null : !!levelMatch} />
-          <EMScoreLine label="CPT" pts={em.cpt?.pts} />
-          <EMScoreLine label="Dx Coding" pts={em.dx?.pts} />
-        </div>
-        {/* Reasoning Accuracy */}
-        <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '10px 12px' }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#065f46', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-            Reasoning Accuracy — {em.ra_total.toFixed(1)} of {em.ra_max ?? 30} pts
-          </div>
-          <EMScoreLine label="COPA" pts={em.copa?.pts} ak={em.copa?.ak} sub={em.copa?.sub} isMatch={em.copa?.ak === em.copa?.sub && !!em.copa?.ak} />
-          <EMScoreLine label="Data Review" pts={em.dr?.pts} ak={em.dr?.ak} sub={em.dr?.sub} isMatch={em.dr?.ak === em.dr?.sub && !!em.dr?.ak} />
-          <EMScoreLine label="Risk" pts={em.risk?.pts} ak={em.risk?.ak} sub={em.risk?.sub} isMatch={em.risk?.ak === em.risk?.sub && !!em.risk?.ak} />
-        </div>
-      </div>
+      {/* Classified like IP/OP: E/M level, diagnoses, CPT — then the
+          reasoning, COPA / Data Review / Risk element by element, so a
+          partial score (6.7 of 10) shows which element it lost. */}
+      <SubmissionReview review={r.review} />
     </div>
   )
 }
 
-function EMScoreLine({ label, pts, ak, sub, isMatch }: { label: string; pts: number | null | undefined; ak?: string; sub?: string; isMatch?: boolean | null }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
-      {isMatch !== undefined && isMatch !== null && (
-        <span style={{ fontSize: 12, flexShrink: 0 }}>{isMatch ? '✓' : '✗'}</span>
-      )}
-      <span style={{ fontSize: 12, color: '#374151', flex: 1 }}>{label}</span>
-      {pts !== null && pts !== undefined && (
-        <span style={{ fontSize: 12, fontWeight: 700, color: pts > 0 ? '#059669' : '#9ca3af' }}>{pts.toFixed(1)} pts</span>
-      )}
-      {ak && sub && ak !== sub && (
-        <span style={{ fontSize: 10, color: '#dc2626', marginLeft: 2 }}>({sub} ≠ {ak})</span>
-      )}
-    </div>
-  )
-}
-
-
-function ResultsView({ results, coderName }: { results: ReturnType<typeof _shapeResult>[]; coderName: string }) {
+function ResultsView({ results, coderName, token }: { results: ReturnType<typeof _shapeResult>[]; coderName: string; token?: string }) {
   const avg = results.filter(r => r.total_score !== null).reduce((a, r) => a + (r.total_score ?? 0), 0) / (results.filter(r => r.total_score !== null).length || 1)
   const isEMSession = results.some(r => r.specialty && isEM(r.specialty))
 
@@ -1911,6 +1877,7 @@ function ResultsView({ results, coderName }: { results: ReturnType<typeof _shape
           <div style={{ fontSize: 20, fontWeight: 800 }}>Practice Complete — {coderName}</div>
           <div style={{ fontSize: 13, color: '#6b7280' }}>Average score: {avg.toFixed(1)}%</div>
         </div>
+        {token && <div style={{ marginLeft: 'auto' }}><ReviewExportButton token={token} coderName={coderName} /></div>}
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         {results.map((r, i) => {
@@ -1925,13 +1892,17 @@ function ResultsView({ results, coderName }: { results: ReturnType<typeof _shape
                 <span style={{ fontSize: 12, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: r.pass_fail === 'PASS' ? '#d1fae5' : '#fee2e2', color: r.pass_fail === 'PASS' ? '#059669' : '#dc2626' }}>{r.pass_fail || '—'}</span>
                 {r.flagged && <Flag size={13} color="#f59e0b" />}
               </div>
+              <SubmissionReview review={r.review} />
               {r.feedback?.length > 0 && (
-                <GradingFeedback
-                  feedback={r.feedback as any}
-                  sdxKey={r.sdx_answer_key || []}
-                  pdxKey={r.pdx_answer_key ? [{ code: r.pdx_answer_key }] : []}
-                  describe={(code: string, section: string) => describeFor(section)(code)}
-                />
+                <details open={!r.review} style={{ marginTop: 8 }}>
+                  <summary style={{ fontSize: 12, fontWeight: 600, color: '#6b7280', cursor: 'pointer' }}>Scoring notes, with code descriptions</summary>
+                  <GradingFeedback
+                    feedback={r.feedback as any}
+                    sdxKey={r.sdx_answer_key || []}
+                    pdxKey={r.pdx_answer_key ? [{ code: r.pdx_answer_key }] : []}
+                    describe={(code: string, section: string) => describeFor(section)(code)}
+                  />
+                </details>
               )}
             </div>
           )

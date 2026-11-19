@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import api from './client'
-import { downloadFile } from './download'
+import { detailOf, downloadFile, saveBlob } from './download'
 import { adminAuth } from './adminAuth'
 
 export function downloadAnswerKeyTemplate(specialty: string) {
@@ -341,6 +341,32 @@ export async function downloadBatchReportPdf(batchId: number) {
   const url = URL.createObjectURL(res.data as Blob)
   window.open(url, '_blank')
   setTimeout(() => URL.revokeObjectURL(url), 60_000)
+}
+
+/**
+ * The post-submit review as a formatted workbook. Literal paths on purpose:
+ * check_api_contracts.py reads api.get('...') calls statically, and a path
+ * held in a variable is invisible to it.
+ */
+export async function downloadPracticeReview(sessionId: number, filename: string) {
+  try {
+    const res = await api.get(`/practicelab/practice-sessions/${sessionId}/review/export`,
+                              { responseType: 'blob' })
+    saveBlob(res.data as Blob, filename)
+  } catch (e) {
+    throw new Error(await detailOf(e))
+  }
+}
+
+/** The coder's own copy, by access code. Refused until results are released. */
+export async function downloadPracticeReviewByToken(token: string, filename: string) {
+  try {
+    const res = await api.get(`/practicelab/practice-sessions/by-token/${token}/review/export`,
+                              { responseType: 'blob' })
+    saveBlob(res.data as Blob, filename)
+  } catch (e) {
+    throw new Error(await detailOf(e))
+  }
 }
 
 export async function getPLAnalyticsByCategory(f: PLFilters = {}, scope: 'formal' | 'direct' | 'all' = 'formal') {

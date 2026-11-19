@@ -30,7 +30,12 @@ export async function downloadFile(
   } catch (e: any) {
     throw new Error(await detailOf(e))
   }
-  const url = URL.createObjectURL(res.data as Blob)
+  saveBlob(res.data as Blob, filename)
+}
+
+/** Hand a fetched blob to the browser as a download. */
+export function saveBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
   a.download = filename
@@ -45,7 +50,7 @@ export async function downloadFile(
  * `e.response.data.detail` is a Blob rather than a string and reads as
  * "[object Blob]" if used directly.
  */
-async function detailOf(e: any): Promise<string> {
+export async function detailOf(e: any): Promise<string> {
   const data = e?.response?.data
   if (data instanceof Blob) {
     try {
