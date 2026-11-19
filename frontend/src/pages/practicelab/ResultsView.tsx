@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { DescribedCodes } from '../../components/DescribedCodes'
 import { Loader, Download, Copy, Check, ChevronDown, ChevronRight } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { getBatchResults, downloadBatchResultsExcel, getBatchInsights, setBatchScoring } from '../../api'
@@ -171,11 +172,11 @@ export function ResultsView({ batchId }: any) {
               <div>
                 <div style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase' as const, letterSpacing: 0.5, marginBottom: 6 }}>Top missed codes</div>
                 <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 6 }}>
-                  {bs.top_missed_codes.map((m: any) => (
-                    <span key={m.code} style={{ background: '#fee2e2', color: '#dc2626', border: '1px solid #fecaca', borderRadius: 20, padding: '3px 10px', fontSize: 12, fontWeight: 700 }}>
+                  <DescribedCodes codes={bs.top_missed_codes.map((m: any) => m.code)}>{describe => bs.top_missed_codes.map((m: any) => (
+                    <span key={m.code} title={describe(m.code) || undefined} style={{ background: '#fee2e2', color: '#dc2626', border: '1px solid #fecaca', borderRadius: 20, padding: '3px 10px', fontSize: 12, fontWeight: 700, cursor: describe(m.code) ? 'help' : undefined }}>
                       {m.code} <span style={{ fontWeight: 400, opacity: 0.7 }}>({m.count}×)</span>
                     </span>
-                  ))}
+                  ))}</DescribedCodes>
                 </div>
               </div>
             )}

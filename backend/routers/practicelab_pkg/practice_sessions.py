@@ -1042,6 +1042,8 @@ def _build_coder_results(session_id: int, db) -> list:
                 "practice review build failed (session %s, chart %s): %s",
                 session_id, res["chart_id"], exc)
             res["review"] = None
+    from services.practice_review import describe_review
+    describe_review(db, results)
     return results
 
 

@@ -3,6 +3,7 @@ import { Loader, FileCheck } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { getDRGReview, submitDRGDecision } from '../../api'
 import { trainerName } from './shared'
+import { useCodeDescriptions } from '../../hooks/useCodeDescriptions'
 import styles from './styles'
 
 export function DRGReviewView({ batchId, onDone }: any) {
@@ -26,6 +27,16 @@ export function DRGReviewView({ batchId, onDone }: any) {
     } catch { toast.error('Failed to save decision') }
     finally { setSubmitting(s => ({ ...s, [resultId]: false })) }
   }
+
+  // The DRG call is a pay-impacting judgement made between two codes; what each
+  // code MEANS is the evidence. Hooks sit above the early return (React #310).
+  const codesIn = (sec: (s: string) => boolean) => rows.flatMap((r: any) =>
+    (r.feedback || []).filter((f: any) => sec(f.section || ''))
+      .flatMap((f: any) => [f.ak_code, f.coder_code])).filter(Boolean)
+  const describeDx = useCodeDescriptions(codesIn(x => x === 'PDx' || x === 'SDx'), 'SDx')
+  const describePcs = useCodeDescriptions(codesIn(x => x === 'PCS'), 'PCS')
+  const describe = (code: string, section: string) =>
+    (section === 'PCS' ? describePcs : describeDx)(code)?.description || ''
 
   if (loading) return <div style={styles.center}><Loader size={24} /></div>
 
@@ -55,12 +66,12 @@ export function DRGReviewView({ batchId, onDone }: any) {
             {r.feedback?.length > 0 && (
               <div style={styles.fbList}>
                 {r.feedback.map((f: any, i: number) => (
-                  <div key={i} style={styles.fbRow}>
-                    <span style={styles.fbSection}>{f.section}</span>
-                    <span style={styles.fbIssue}>{f.issue_type}</span>
-                    {f.ak_code && <span style={{ fontSize: 12, color: '#374151' }}>AK: {f.ak_code}</span>}
-                    {f.coder_code && <span style={{ fontSize: 12, color: '#6b7280' }}>Coder: {f.coder_code}</span>}
-                    {f.detail && <span style={{ fontSize: 12, color: '#6b7280' }}>{f.detail}</span>}
+                  <div key={i} style={styles.fbGrid}>
+                    <span style={{ ...styles.fbSection, justifySelf: 'start' }}>{f.section}</span>
+                    <span style={{ ...styles.fbIssue, justifySelf: 'start' }}>{String(f.issue_type || '').replace(/_/g, ' ')}</span>
+                    <DrgCode label="Answer key" code={f.ak_code} desc={describe(f.ak_code, f.section)} />
+                    <DrgCode label="Coder" code={f.coder_code} desc={describe(f.coder_code, f.section)}
+                      extra={f.detail} />
                   </div>
                 ))}
               </div>
@@ -78,6 +89,17 @@ export function DRGReviewView({ batchId, onDone }: any) {
           </div>
         ))
       )}
+    </div>
+  )
+}
+
+function DrgCode({ label, code, desc, extra }: { label: string; code?: string; desc: string; extra?: string }) {
+  return (
+    <div style={{ minWidth: 0 }}>
+      <div style={styles.fbCodeLabel}>{label}</div>
+      <div style={styles.fbCode}>{code || '—'}</div>
+      {code && desc && <div style={styles.fbDesc} title={desc}>{desc}</div>}
+      {extra && <div style={{ ...styles.fbDesc, color: '#92400e' }} title={extra}>{extra}</div>}
     </div>
   )
 }

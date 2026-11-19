@@ -53,6 +53,12 @@ const styles: Record<string, React.CSSProperties> = {
   chartDetailRow: { display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', gap: 12, padding: '6px 0', borderBottom: '1px solid #e5e7eb' },
   fbList: { width: '100%', display: 'flex', flexDirection: 'column', gap: 3, marginTop: 4 },
   fbRow: { display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', padding: '3px 0' },
+  // A feedback row that carries descriptions: fixed columns, so a long PCS
+  // title wraps inside its own cell instead of pushing the row wider.
+  fbGrid: { display: 'grid', gridTemplateColumns: '64px 110px minmax(0,1fr) minmax(0,1fr)', gap: 10, alignItems: 'start', padding: '6px 0', borderTop: '1px solid #f3f4f6' },
+  fbCodeLabel: { fontSize: 10, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.4 },
+  fbCode: { fontSize: 12, fontFamily: 'ui-monospace, monospace', color: '#111827', overflowWrap: 'anywhere' },
+  fbDesc: { fontSize: 11, lineHeight: 1.35, color: '#6b7280', marginTop: 1, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' },
   fbSection: { fontSize: 11, fontWeight: 700, background: '#dbeafe', color: '#1d4ed8', padding: '2px 8px', borderRadius: 10 },
   fbIssue: { fontSize: 11, fontWeight: 700, background: '#fee2e2', color: '#dc2626', padding: '2px 8px', borderRadius: 10 },
   drgCard: { background: '#fff', border: '1.5px solid #e5e7eb', borderRadius: 10, padding: 18, display: 'flex', flexDirection: 'column', gap: 12 },

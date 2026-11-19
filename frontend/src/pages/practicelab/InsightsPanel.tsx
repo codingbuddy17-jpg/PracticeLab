@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { DescribedCodes } from '../../components/DescribedCodes'
 import toast from 'react-hot-toast'
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
@@ -312,11 +313,11 @@ export function InsightsPanel({ insights, batchId, onClose }: { insights: any; b
                 <>
                   <div style={{ fontSize: 11, color: '#6b7280', marginTop: 10, marginBottom: 6 }}>Top missed codes</div>
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                    {te.top_missed_codes.map((m: any) => (
-                      <span key={m.code} style={{ fontSize: 11, fontWeight: 700, background: '#fee2e2', color: '#dc2626', padding: '2px 10px', borderRadius: 10 }}>
+                    <DescribedCodes codes={te.top_missed_codes.map((m: any) => m.code)}>{describe => te.top_missed_codes.map((m: any) => (
+                      <span key={m.code} title={describe(m.code) || undefined} style={{ fontSize: 11, fontWeight: 700, background: '#fee2e2', color: '#dc2626', padding: '2px 10px', borderRadius: 10, cursor: describe(m.code) ? 'help' : undefined }}>
                         {m.code} {m.count}×
                       </span>
-                    ))}
+                    ))}</DescribedCodes>
                   </div>
                 </>
               )}

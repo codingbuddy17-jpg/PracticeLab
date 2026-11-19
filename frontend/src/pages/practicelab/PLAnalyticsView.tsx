@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { DescribedCodes } from '../../components/DescribedCodes'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Loader } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -1566,7 +1567,15 @@ export function PLAnalyticsView({ onOpenBatch }: { onOpenBatch?: (batchId: numbe
                           })}
                           {r.top_codes.length > 0 && (
                             <div style={{ fontSize: 11, color: '#6b7280' }}>
-                              Most missed: {r.top_codes.map((c: any) => `${c.code} (${c.count})`).join(' · ')}
+                              Most missed:{' '}
+                              <DescribedCodes codes={r.top_codes.map((c: any) => c.code)}>{describe => r.top_codes.map((c: any, k: number) => (
+                                <span key={c.code}>
+                                  {k > 0 && ' · '}
+                                  <span title={describe(c.code) || undefined} style={{ cursor: describe(c.code) ? 'help' : undefined, borderBottom: describe(c.code) ? '1px dotted #9ca3af' : undefined }}>
+                                    {c.code}
+                                  </span> ({c.count})
+                                </span>
+                              ))}</DescribedCodes>
                             </div>
                           )}
                         </div>

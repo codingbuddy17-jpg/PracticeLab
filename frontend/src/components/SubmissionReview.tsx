@@ -16,7 +16,10 @@ import { downloadPracticeReview, downloadPracticeReviewByToken } from '../api/pr
 
 export type ReviewStatus = 'correct' | 'missed' | 'extra' | 'different' | 'order' | 'info'
 
-export interface ReviewRow { item: string; key: string; coded: string; status: ReviewStatus; note: string }
+export interface ReviewRow {
+  item: string; key: string; coded: string; status: ReviewStatus; note: string
+  key_desc?: string; coded_desc?: string
+}
 export interface ReviewSection {
   key: string; title: string; group: 'Coding' | 'Reasoning'
   points: number | null; max_points: number | null; note: string | null
@@ -48,10 +51,17 @@ const s = {
   secTitle: { fontSize: 13, fontWeight: 700, color: '#111827', flex: 1 },
   secPts: { fontSize: 12, fontWeight: 700, color: '#374151' },
   secNote: { fontSize: 11, color: '#6b7280', padding: '6px 12px', background: '#fcfcfd', borderBottom: '1px solid #f3f4f6' },
-  table: { width: '100%', borderCollapse: 'collapse' as const, fontSize: 12 },
+  // Fixed layout: columns keep their share however long a description is, so
+  // a ninety-character PCS title wraps inside its cell instead of widening it.
+  table: { width: '100%', borderCollapse: 'collapse' as const, fontSize: 12, tableLayout: 'fixed' as const },
   th: { textAlign: 'left' as const, fontSize: 10, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' as const, letterSpacing: 0.4, padding: '6px 12px', borderBottom: '1px solid #f3f4f6' },
   td: { padding: '6px 12px', borderBottom: '1px solid #f3f4f6', verticalAlign: 'top' as const },
-  code: { fontFamily: 'ui-monospace, monospace', color: '#111827' },
+  code: { fontFamily: 'ui-monospace, monospace', color: '#111827', overflowWrap: 'anywhere' as const },
+  // Two lines at most; the full text is on hover.
+  desc: {
+    fontFamily: 'system-ui, sans-serif', fontSize: 11, lineHeight: 1.35, color: '#6b7280', marginTop: 2,
+    display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const, overflow: 'hidden',
+  },
   note: { fontSize: 11, color: '#6b7280', marginTop: 2 },
   empty: { fontSize: 12, color: '#9ca3af', padding: '6px 12px' },
 }
@@ -106,10 +116,10 @@ function Section({ sec, accent }: { sec: ReviewSection; accent: string }) {
         <table style={s.table}>
           <thead>
             <tr>
-              <th style={{ ...s.th, width: '34%' }}>Item</th>
-              <th style={{ ...s.th, width: '20%' }}>Answer key</th>
-              <th style={{ ...s.th, width: '20%' }}>Coded</th>
-              <th style={s.th}>Result</th>
+              <th style={{ ...s.th, width: '24%' }}>Item</th>
+              <th style={{ ...s.th, width: '27%' }}>Answer key</th>
+              <th style={{ ...s.th, width: '27%' }}>Coded</th>
+              <th style={{ ...s.th, width: '22%' }}>Result</th>
             </tr>
           </thead>
           <tbody>
@@ -118,8 +128,10 @@ function Section({ sec, accent }: { sec: ReviewSection; accent: string }) {
               return (
                 <tr key={i}>
                   <td style={s.td}>{r.item}</td>
-                  <td style={{ ...s.td, ...s.code }}>{r.key || '—'}</td>
-                  <td style={{ ...s.td, ...s.code }}>{r.coded || '—'}</td>
+                  <CodeCell code={r.key} desc={r.key_desc} />
+                  {/* Same code both sides: say what it means once, not twice. */}
+                  <CodeCell code={r.coded}
+                    desc={sameCode(r.key, r.coded) ? '' : r.coded_desc} />
                   <td style={s.td}>
                     {st.label && <span style={{ ...s.chip, color: st.color, background: st.bg }}>{st.label}</span>}
                     {r.note && <div style={s.note}>{r.note}</div>}
@@ -131,6 +143,40 @@ function Section({ sec, accent }: { sec: ReviewSection; accent: string }) {
         </table>
       )}
     </div>
+  )
+}
+
+/**
+ * A describe() for GradingFeedback, built from descriptions the review already
+ * carries — so the Scoring notes beside a review need no second lookup.
+ */
+export function describeFromReview(review?: ChartReview | null) {
+  const map: Record<string, string> = {}
+  for (const sec of review?.sections || []) {
+    for (const r of sec.rows) {
+      const k = (r.key || '').split('  ')[0].replace(/\./g, '').toUpperCase()
+      const c = (r.coded || '').split('  ')[0].replace(/\./g, '').toUpperCase()
+      if (k && r.key_desc) map[k] = r.key_desc
+      if (c && r.coded_desc) map[c] = r.coded_desc
+    }
+  }
+  return (code: string) => {
+    const d = map[(code || '').replace(/\./g, '').toUpperCase()]
+    return d ? { description: d } : null
+  }
+}
+
+function sameCode(a: string, b: string) {
+  const norm = (x: string) => (x || '').split('  ')[0].replace(/\./g, '').toUpperCase()
+  return !!a && norm(a) === norm(b)
+}
+
+function CodeCell({ code, desc }: { code: string; desc?: string }) {
+  return (
+    <td style={s.td}>
+      <div style={s.code}>{code || '—'}</div>
+      {desc && <div style={s.desc} title={desc}>{desc}</div>}
+    </td>
   )
 }
 

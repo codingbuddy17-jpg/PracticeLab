@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { useCodeDescriptions } from '../../hooks/useCodeDescriptions'
 import { Download, Upload, Loader, Trash2, X, AlertTriangle, RefreshCw, Plus, ShieldCheck } from 'lucide-react'
 import toast from 'react-hot-toast'
 import {
@@ -59,6 +60,9 @@ export function AnswerKeysView() {
   const [ccmccIssues, setCcmccIssues] = useState<
     { chart: string; code: string; claimed: string; published: string }[]>([])
   const [checking, setChecking] = useState(false)
+  // What a flagged secondary MEANS: the check a trainer needs to decide
+  // whether the key's CC/MCC label or the code itself is the mistake.
+  const describeCc = useCodeDescriptions(ccmccIssues.map(c => c.code), 'SDx')
 
   /**
    * The upload check only ever saw keys passing through it, which did nothing
@@ -374,12 +378,21 @@ export function AnswerKeysView() {
               give them, which affects DRG flags in grading. Keys are not changed by
               this check — only the trainer knows which value was meant.
             </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 6 }}>
-              {ccmccIssues.map((c, i) => (
-                <span key={`${c.chart}-${c.code}-${i}`} style={{ fontSize: 12, background: '#ffedd5', color: '#9a3412', border: '1px solid #fdba74', padding: '2px 10px', borderRadius: 20 }}>
-                  {c.chart} · <b style={{ fontFamily: 'monospace' }}>{c.code}</b> — key says {c.claimed}, CMS says {c.published}
-                </span>
-              ))}
+            {/* One line per issue, in fixed columns: the description truncates
+                inside its own column (full text on hover) instead of widening
+                the row, and a long list scrolls inside the panel. */}
+            <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 4, maxHeight: 240, overflowY: 'auto' as const }}>
+              {ccmccIssues.map((c, i) => {
+                const desc = describeCc(c.code)?.description || ''
+                return (
+                  <div key={`${c.chart}-${c.code}-${i}`} style={{ display: 'grid', gridTemplateColumns: '90px 80px minmax(0,1fr) auto', gap: 10, alignItems: 'center', fontSize: 12, background: '#ffedd5', color: '#9a3412', border: '1px solid #fdba74', padding: '4px 10px', borderRadius: 8 }}>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }} title={c.chart}>{c.chart}</span>
+                    <b style={{ fontFamily: 'monospace' }}>{c.code}</b>
+                    <span title={desc} style={{ color: '#7c2d12', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{desc}</span>
+                    <span style={{ whiteSpace: 'nowrap' as const }}>key says {c.claimed}, CMS says {c.published}</span>
+                  </div>
+                )
+              })}
             </div>
           </div>
           <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', padding: 2, flexShrink: 0 }} onClick={() => setCcmccIssues([])}>

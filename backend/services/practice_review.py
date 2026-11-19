@@ -479,6 +479,55 @@ def build_review(r: dict, ak: Optional[dict] = None, em_data: Optional[dict] = N
     return {"sections": sections, "summary": _summarise(sections)}
 
 
+# ── Descriptions ──────────────────────────────────────────────────────────────
+
+# Which code system each review section's codes belong to, in the spelling
+# services/code_enrichment keys on. E/M level codes and CPT are AMA's and are
+# never described; MDM, time and text sections carry no codes.
+_DESCRIBE_SECTION = {"pdx": "PDx", "sdx": "SDx", "dx": "SDx", "pcs": "PCS", "cpt": "CPT"}
+
+
+def _first_code(display: str) -> str:
+    """The code at the front of a display string such as 'I10  POA Y'."""
+    return (display or "").split("  ")[0].strip()
+
+
+def describe_review(db, charts: List[dict]) -> None:
+    """
+    Add key_desc / coded_desc to every code row of every chart's review, in
+    place: what each code MEANS beside what was expected. One lookup per code
+    system for the whole session, not per row.
+
+    Silent where nothing is known — CPT, an unloaded code set, a code not in
+    the edition — so the row shows the code alone, as everywhere else.
+    """
+    from services.code_enrichment import enrich_codes, lookup
+
+    targets = []
+    for c in charts:
+        for sec in ((c.get("review") or {}).get("sections") or []):
+            section = _DESCRIBE_SECTION.get(sec.get("key"))
+            if not section:
+                continue
+            for row in sec.get("rows") or []:
+                targets.append((section, row))
+    if not targets:
+        return
+    pairs = set()
+    for section, row in targets:
+        for code in (_first_code(row.get("key")), _first_code(row.get("coded"))):
+            if code:
+                pairs.add((section, code))
+    try:
+        enriched = enrich_codes(db, pairs)
+    except Exception:  # noqa: BLE001 — descriptions are an aid, never a failure
+        enriched = {}
+    for section, row in targets:
+        for field, col in (("key", "key_desc"), ("coded", "coded_desc")):
+            info = lookup(enriched, section, _first_code(row.get(field))) if row.get(field) else None
+            row[col] = (info or {}).get("description") or ""
+
+
 # ── Excel ─────────────────────────────────────────────────────────────────────
 
 def review_workbook(header: dict, charts: List[dict]) -> bytes:
@@ -520,7 +569,7 @@ def review_workbook(header: dict, charts: List[dict]) -> bytes:
 
     rv = wb.create_sheet("Review")
     rv.append(["Chart", "Score %", "Section", "Points", "Item", "Answer key",
-               "Coded", "Result", "Note"])
+               "Key description", "Coded", "Coded description", "Result", "Note"])
     for c in charts:
         for sec in (c.get("review") or {}).get("sections") or []:
             if sec.get("points") is None:
@@ -532,25 +581,28 @@ def review_workbook(header: dict, charts: List[dict]) -> bytes:
             rows = sec.get("rows") or []
             if not rows:
                 rv.append([c.get("chart_number"), c.get("total_score"), sec["title"], pts,
-                           "", "", "", "", sec.get("note") or ""])
+                           "", "", "", "", "", "", sec.get("note") or ""])
                 continue
             for i, row in enumerate(rows):
                 note = row.get("note") or ""
                 if i == 0 and sec.get("note"):
                     note = (sec["note"] + (" | " + note if note else ""))
                 rv.append([c.get("chart_number"), c.get("total_score"), sec["title"],
-                           pts if i == 0 else "", row["item"], row["key"], row["coded"],
+                           pts if i == 0 else "", row["item"], row["key"],
+                           row.get("key_desc") or "", row["coded"], row.get("coded_desc") or "",
                            STATUS_LABELS.get(row["status"], row["status"]), note])
                 st = status_style.get(row["status"])
                 if st:
-                    cell = rv.cell(row=rv.max_row, column=8)
+                    cell = rv.cell(row=rv.max_row, column=10)
                     cell.fill, cell.font = st
     for row in rv.iter_rows(min_row=2):
         for cell in row:
             cell.border = CELL_BORDER
-            cell.alignment = Alignment(vertical="top", wrap_text=cell.column == 9)
+            cell.alignment = Alignment(vertical="top", wrap_text=cell.column in (7, 9, 11))
     finish(rv)
-    rv.column_dimensions["I"].width = 60
+    for col in ("G", "I"):
+        rv.column_dimensions[col].width = 40
+    rv.column_dimensions["K"].width = 60
 
     buf = io.BytesIO()
     wb.save(buf)

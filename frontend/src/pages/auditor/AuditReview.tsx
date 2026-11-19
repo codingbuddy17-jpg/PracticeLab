@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useCodeDescriptions } from '../../hooks/useCodeDescriptions'
 import toast from 'react-hot-toast'
 import { AlertTriangle, CheckCircle, ChevronLeft, Circle, XCircle } from 'lucide-react'
 import { getAuditReview } from '../../api/auditorApi'
@@ -39,6 +40,36 @@ export function AuditReview({ sessionId, onBack }: {
     catch { toast.error('Could not load this review') }
   }, [sessionId])
   useEffect(() => { load() }, [load])
+
+  // What the codes in each planting and finding MEAN — the evidence a trainer
+  // weighs when judging the auditor. Only where the field is the code itself:
+  // a POA, modifier or units value is not a code. Above the early return.
+  const codeRows = (data?.charts || []).flatMap((c: any) => (c.outcomes || []).map((o: any) =>
+    o.outcome === 'over_call' ? o.finding || {} : o.planting || {}))
+    .filter((r: any) => !r.field || r.field === 'code')
+  const codesFor = (secs: string[]) => codeRows.filter((r: any) => secs.includes(r.section))
+    .flatMap((r: any) => [r.claim_value, r.correct_value]).filter(Boolean)
+  const describeDx = useCodeDescriptions(codesFor(['PDx', 'SDx']), 'SDx')
+  const describePcs = useCodeDescriptions(codesFor(['PCS']), 'PCS')
+  const describeCpt = useCodeDescriptions(codesFor(['CPT']), 'CPT')
+  const meaning = (r: any) => {
+    if (r.field && r.field !== 'code') return null
+    const fn = r.section === 'PCS' ? describePcs : r.section === 'CPT' ? describeCpt
+      : (r.section === 'PDx' || r.section === 'SDx') ? describeDx : null
+    if (!fn) return null
+    const parts = [r.claim_value, r.correct_value].filter(Boolean)
+      .map((c: string) => ({ c, d: fn(c)?.description || '' })).filter(x => x.d)
+    if (!parts.length) return null
+    return (
+      <div style={s.codeMeaning}>
+        {parts.map(x => (
+          <div key={x.c} title={`${x.c} — ${x.d}`} style={s.codeMeaningLine}>
+            <code>{x.c}</code> {x.d}
+          </div>
+        ))}
+      </div>
+    )
+  }
 
   if (!data) return <div style={s.empty}>Loading…</div>
   const sum = data.summary || {}
@@ -132,7 +163,7 @@ export function AuditReview({ sessionId, onBack }: {
                     return (
                       <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '6px 8px', borderRadius: 6, background: '#fffbeb' }}>
                         <AlertTriangle size={14} color="#d97706" style={{ flexShrink: 0, marginTop: 2 }} />
-                        <div style={{ fontSize: 12, lineHeight: 1.5 }}>
+                        <div style={{ fontSize: 12, lineHeight: 1.5, minWidth: 0, flex: 1 }}>
                           <strong style={{ color: '#b45309' }}>Over-call</strong>{' '}
                           {f.section}
                           {f.field && f.field !== 'code' ? ` ${f.field}` : ''}
@@ -141,6 +172,7 @@ export function AuditReview({ sessionId, onBack }: {
                           <code>{f.claim_value || '—'}</code>
                           {f.correct_value ? <> as <code>{f.correct_value}</code></> : null}
                           <span style={{ color: '#9ca3af' }}> · nothing was wrong here</span>
+                          {meaning(f)}
                         </div>
                       </div>
                     )
@@ -153,7 +185,7 @@ export function AuditReview({ sessionId, onBack }: {
                                           padding: '6px 8px', borderRadius: 6,
                                           background: o.outcome === 'correct' ? '#f8fafc' : '#fffafa' }}>
                       <Icon size={14} color={cfg.color} style={{ flexShrink: 0, marginTop: 2 }} />
-                      <div style={{ fontSize: 12, lineHeight: 1.5 }}>
+                      <div style={{ fontSize: 12, lineHeight: 1.5, minWidth: 0, flex: 1 }}>
                         <strong style={{ color: ACTION_COLORS[p.action] || '#374151' }}>
                           {p.action}
                         </strong>{' '}
@@ -179,6 +211,7 @@ export function AuditReview({ sessionId, onBack }: {
                         <span style={{ marginLeft: 8, color: cfg.color, fontWeight: 600 }}>
                           {cfg.label}
                         </span>
+                        {meaning(p)}
                       </div>
                     </div>
                   )

@@ -292,7 +292,7 @@ def test_trainer_export_is_a_two_sheet_workbook_with_every_line(client, db):
     sections = {r[2] for r in review}
     assert {"E/M Level", "Diagnoses", "Problems Addressed (COPA)",
             "Data Reviewed and Analysed", "Risk of Patient Management"} <= sections
-    assert any(r[7] == "Correct" for r in review) and any(r[7] == "Missed" for r in review)
+    assert any(r[9] == "Correct" for r in review) and any(r[9] == "Missed" for r in review)
 
 
 def test_coder_export_needs_results_released(client, db):
@@ -349,3 +349,43 @@ def test_a_dotless_diagnosis_scores_like_the_dotted_one():
     ak = dict(AK)
     sub = _em_submission_dict(dict(EM, em_dx=[{"code": "E119"}, {"code": "I10"}, {"code": "J45909"}]))
     assert round(grade_em_chart(ak, sub, CFG)["dx_score"], 1) == 35.0
+
+
+# ── descriptions ──────────────────────────────────────────────────────────────
+
+def _describe(db, system, code, text_):
+    from models.codes import CodeDescription
+    db.add(CodeDescription(code_system=system, code=code, description=text_))
+    db.commit()
+
+
+def test_review_rows_carry_what_each_code_means(client, db):
+    _describe(db, "ICD10CM", "J189", "Pneumonia, unspecified organism")
+    _describe(db, "ICD10CM", "I10", "Essential (primary) hypertension")
+    chart = make_chart(db, specialty=Specialty.IP_DRG.value, chart_number="RVW-DESC-1")
+    _add_answer_key(db, chart, Specialty.IP_DRG)
+    session = _coder_session(client, Specialty.IP_DRG, chart.id)
+    client.post(f"/practicelab/practice-sessions/{session['session_id']}/submit",
+                json={"entries": [_entry(chart.id, Specialty.IP_DRG)]})
+    charts = client.get(f"/practicelab/practice-sessions/{session['session_id']}/review").json()["charts"]
+    pdx = _sec(charts[0]["review"], "pdx")["rows"][0]
+    assert pdx["key_desc"] == pdx["coded_desc"] == "Pneumonia, unspecified organism"
+    sdx = _sec(charts[0]["review"], "sdx")["rows"][0]
+    assert sdx["key_desc"] == "Essential (primary) hypertension"
+    # An unknown code is silent, never an error.
+    pcs = _sec(charts[0]["review"], "pcs")["rows"][0]
+    assert pcs["key_desc"] == ""
+
+    wb = load_workbook(io.BytesIO(client.get(
+        f"/practicelab/practice-sessions/{session['session_id']}/review/export").content))
+    header = [c.value for c in wb["Review"][1]]
+    assert header[6] == "Key description" and header[8] == "Coded description"
+    assert any(r[6] == "Pneumonia, unspecified organism"
+               for r in wb["Review"].iter_rows(min_row=2, values_only=True))
+
+
+def test_em_level_and_mdm_rows_are_never_described():
+    """E/M codes are CPT (AMA) and MDM rows are not codes."""
+    _, review = _em_review()
+    assert all("key_desc" not in r for s in review["sections"]
+               if s["key"] in ("em_level", "copa", "dr", "risk") for r in s["rows"])

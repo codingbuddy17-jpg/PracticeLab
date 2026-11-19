@@ -89,6 +89,11 @@ const auditorOnly: Record<string, CSSProperties> = {
     padding: '10px 12px', border: '1px solid #f3f4f6', borderRadius: 9,
     background: '#fcfcfd',
   },
+  // What the codes in a planting or finding mean. One line each, truncated
+  // inside the row (full text on hover) so a ninety-character PCS title never
+  // widens the review.
+  codeMeaning: { marginTop: 3, paddingLeft: 8, borderLeft: '2px solid #e5e7eb', display: 'flex', flexDirection: 'column', gap: 1 },
+  codeMeaningLine: { fontSize: 11, color: '#6b7280', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
   observedTag: {
     marginLeft: 8, fontSize: 10, fontWeight: 700, color: '#059669',
     background: '#d1fae5', padding: '1px 7px', borderRadius: 5,

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { GradingFeedback } from '../../components/GradingFeedback'
-import { SubmissionReview, ReviewExportButton } from '../../components/SubmissionReview'
+import { SubmissionReview, ReviewExportButton, describeFromReview } from '../../components/SubmissionReview'
 import { Loader, Download, BarChart2, Search, CheckSquare, Square, CheckCircle, Circle, AlertCircle, ChevronDown, ChevronRight, Key, Copy, Eye } from 'lucide-react'
 import toast from 'react-hot-toast'
 import RandomisationStatsCard from '../../components/RandomisationStatsCard'
@@ -1376,6 +1376,7 @@ function ReviewModal({ reviewData, onClose, onRefresh }: { reviewData: any; onCl
                           feedback={c.feedback}
                           sdxKey={c.sdx_answer_key}
                           pdxKey={c.pdx_answer_key ? [{ code: c.pdx_answer_key }] : []}
+                          describe={describeFromReview(c.review)}
                         />
                       </details>
                     )}
