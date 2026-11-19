@@ -457,6 +457,15 @@ to server, proxy and CDN logs, and `downloadAnswerKeyExport` puts it in a
 already caused one wrong-units bug. Label whether a figure averages or pools:
 audit accuracy *averages* chart scores, component accuracy *pools* findings.
 
+**An unmatched key code is not automatically "Missed".** The grader pairs it
+with an unmatched coder code of the same family (ICD-10-CM category, PCS
+section/body system/root operation, CPT first four) and reports Wrong_Code
+with both codes (`grading_engine._report_unmatched`); the review uses the same
+function. Before CR-007, Z77.9 for Z77.8 read "Missed Z77.8" and the coder's
+code appeared nowhere — and Specificity Drops, which reads only Wrong_Code,
+silently ignored every secondary diagnosis. Display only: scores come from
+exact matches.
+
 **`NA` is a real value and is not zero.** Nothing of that kind existed. Render
 it as `NA`, never `0%`.
 

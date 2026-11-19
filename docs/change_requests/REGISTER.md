@@ -30,6 +30,8 @@ Kinds: **A** frontend only · **B** backend only · **C** both · **D** schema.
 | [003](CR-003/CR-003.md) | Code descriptions on review, DRG, key-check, auditor-review and analytics screens | C | No | None | `08e8b3a` | After CR-001; backend first, then frontend patch |
 | [004](CR-004/CR-004.md) | Chart viewer reads charts as documents and sections, like an EHR | A | No | None | `3846e06` | Any time: frontend patch only |
 | [005](CR-005/CR-005.md) | CMS POA exempt list applied everywhere POA is keyed, coded, audited or graded | C+D | Yes | code_descriptions.poa_exempt BOOLEAN | `6e32710, 2847e8b` | DDL, backend rules, run loader, then frontend patch |
+| [006](CR-006/CR-006.md) | Report button on each Auditor batch row | A | No | None | `9c443bc` | Any time: frontend patch only |
+| [007](CR-007/CR-007.md) | A same-family code is a wrong code, not a miss | C | No | None | `78256e8` | Backend first, then frontend patch |
 
 Built 19 November 2026 by `docs/_change_register_build.py`, which also writes `docs/PracticeLab_Change_Register.xlsx` — the detailed version, with one row per file-level change and the columns IT uses to track progress.
 

@@ -105,6 +105,22 @@ CRS.append({
                 "the auditor generator never plants POA errors on them."),
 })
 
+CRS.append({
+    "id": "CR-006", "title": "Report button on each Auditor batch row",
+    "kind": "A", "module": "Auditor — Audit Batches list", "score_impact": "No", "schema": "None",
+    "commits": "9c443bc", "date": "2026-11-19", "order": "Any time: frontend patch only",
+    "spec": "change_requests/CR-006/CR-006.md",
+    "summary": "The audit batch list gets PracticeLab's per-row Report (PDF) button, disabled with a reason when nothing is scored.",
+})
+CRS.append({
+    "id": "CR-007", "title": "A same-family code is a wrong code, not a miss",
+    "kind": "C", "module": "PracticeLab grading feedback, review screen/export, analytics", "score_impact": "No",
+    "schema": "None", "commits": "78256e8", "date": "2026-11-19", "order": "Backend first, then frontend patch",
+    "spec": "change_requests/CR-007/CR-007.md",
+    "summary": ("Z77.9 entered for Z77.8 is reported as Wrong code with both codes, not 'Missed Z77.8'. Pairs "
+                "unmatched codes in the same ICD-10-CM category, PCS root operation or CPT first four. Display only."),
+})
+
 # Proposed and agreed in principle, NOT built. Listed so nothing raised is
 # lost; an item moves to CRS when it is built.
 BACKLOG = [
@@ -318,6 +334,28 @@ CHANGES = [
     ("CR-005", "Test", "backend/tests/test_poa_exempt.py", "19 tests", "Added",
      "Parse, loader trap, grading, keys incl. Excel upload, generator over 200 seeds, API.", "—", "—",
      "None (reference)", "Yes", "CR-005 §7"),
+    # ── CR-006 ──
+    ("CR-006", "Frontend", "frontend/src/pages/auditor/AuditBatches.tsx", "Batch list row · Report button", "Modified",
+     "Per-row Report button calling GET /auditor/batches/{id}/report.pdf; row becomes role=button div (click/Enter/Space).",
+     "No report from the list; had to open the batch.", "Same as PracticeLab's batch list.", "Apply patch", "No", "CR-006"),
+    # ── CR-007 ──
+    ("CR-007", "Backend", "backend/services/grading_engine.py", "code_family / pair_near_misses / _report_unmatched", "Added",
+     "Pairs unmatched key and coder codes of the same family and reports Wrong_Code with both codes; PCS names the differing character.",
+     "'Missed Z77.8'; the coder's Z77.9 named nowhere.", "'Wrong code Z77.8 → Z77.9 — same category Z77'.",
+     "Implement in .NET", "No", "CR-007 §2"),
+    ("CR-007", "Backend", "backend/services/grading_engine.py", "_match_sdx_ip / _match_sdx_op / _match_pcs / _match_cpt", "Modified",
+     "Use _report_unmatched instead of reporting every leftover as Missed.", "Missed only.", "Wrong_Code or Missed.",
+     "Implement in .NET", "No", "CR-007 §2"),
+    ("CR-007", "Backend", "backend/services/practice_review.py", "_set_rows(kind=) · summary.wrong · workbook", "Modified",
+     "Review pairs near misses with the grader's function; new 'wrong' status; Wrong code column in the export.",
+     "Missed + unrelated Extra rows.", "One Wrong code row.", "Implement in .NET", "No", "CR-007 §3"),
+    ("CR-007", "Frontend", "frontend/src/components/SubmissionReview.tsx", "wrong status + summary chip", "Modified",
+     "Shows ✗ Wrong code rows and a 'N wrong code' chip.", "—", "—", "Apply patch", "No", "CR-007 §3"),
+    ("CR-007", "Script", "scripts/smoke_deployed.py", "REVIEW_STATUSES", "Modified",
+     "Accepts the 'wrong' status.", "—", "—", "Run against your API", "No", "CR-007 §4"),
+    ("CR-007", "Test", "backend/tests/test_practice_review.py", "near-miss tests", "Added",
+     "Z77.8/Z77.9, cross-family, PCS character, CPT, OP SDx, and scores unchanged.", "—", "—",
+     "None (reference)", "No", "CR-007 §5"),
     ("CR-003", "Test", "backend/tests/test_practice_review.py", "Description tests", "Added",
      "Descriptions on review rows and export columns; unknown codes silent; E/M level and MDM never described.", "—", "—",
      "None (reference)", "No", "CR-003 §5"),

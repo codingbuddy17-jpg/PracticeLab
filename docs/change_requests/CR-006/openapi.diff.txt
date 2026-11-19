@@ -1,0 +1,1 @@
+No routes added, removed or changed. CR-006 is frontend only; it calls the existing GET /auditor/batches/{id}/report.pdf.

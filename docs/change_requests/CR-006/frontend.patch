@@ -1,0 +1,67 @@
+diff --git a/frontend/src/pages/auditor/AuditBatches.tsx b/frontend/src/pages/auditor/AuditBatches.tsx
+index 0ceb6ef..c8cc431 100644
+--- a/frontend/src/pages/auditor/AuditBatches.tsx
++++ b/frontend/src/pages/auditor/AuditBatches.tsx
+@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
+ import toast from 'react-hot-toast'
+ import {
+   AlertTriangle, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, Copy,
+-  Download, Eye, FileSearch, Loader, Plus, RefreshCw, Search, Shuffle, Square,
++  Download, Eye, FileSearch, FileText, Loader, Plus, RefreshCw, Search, Shuffle, Square,
+   Upload, X,
+ } from 'lucide-react'
+ import { AuditReview } from './AuditReview'
+@@ -239,8 +239,17 @@ export function AuditBatches({ trainer }: { trainer: string }) {
+                 {!isCollapsed && (
+                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 4 }}>
+                     {items.map(b => (
+-                      <button key={b.id as number} style={s.listRow}
+-                        onClick={() => { setSelected(b.id as number); setView('detail') }}>
++                      // A row that holds a button cannot itself be a <button>
++                      // (nested buttons are invalid), so it is a row with
++                      // button behaviour: click, Enter or Space opens it.
++                      <div key={b.id as number} style={{ ...s.listRow, cursor: 'pointer', boxSizing: 'border-box' }}
++                        role="button" tabIndex={0}
++                        onClick={() => { setSelected(b.id as number); setView('detail') }}
++                        onKeyDown={e => {
++                          if (e.key === 'Enter' || e.key === ' ') {
++                            e.preventDefault(); setSelected(b.id as number); setView('detail')
++                          }
++                        }}>
+                         <span style={{ fontWeight: 700, fontSize: 14 }}>{b.name as string}</span>
+                         <span style={s.tag}>{b.specialty as string}</span>
+                         <span style={{
+@@ -256,7 +265,32 @@ export function AuditBatches({ trainer }: { trainer: string }) {
+                         <span style={{ marginLeft: 'auto', fontSize: 12, color: '#6b7280' }}>
+                           {b.scored as number} of {b.assigned as number} scored
+                         </span>
+-                      </button>
++                        {/* The same Report button as the PracticeLab batch list.
++                            Disabled with a reason rather than hidden when nothing
++                            is scored: the PDF is built from scored results. */}
++                        <button
++                          title={(b.scored as number) > 0
++                            ? `Audit batch performance report — ${b.scored} scored`
++                            : 'No scored results yet — nothing to report on'}
++                          disabled={!((b.scored as number) > 0)}
++                          onClick={async e => {
++                            e.stopPropagation()
++                            try { await downloadAuditBatchReportPdf(b.id as number) }
++                            catch { toast.error(`No report could be generated for ${b.name}`) }
++                          }}
++                          onKeyDown={e => e.stopPropagation()}
++                          style={{
++                            display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0,
++                            padding: '4px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600,
++                            border: '1px solid', background: '#fff',
++                            ...((b.scored as number) > 0
++                              ? { color: '#be185d', borderColor: '#fbcfe8', cursor: 'pointer' }
++                              : { color: '#d1d5db', borderColor: '#f3f4f6', cursor: 'not-allowed' }),
++                          }}
++                        >
++                          <FileText size={13} /> Report
++                        </button>
++                      </div>
+                     ))}
+                   </div>
+                 )}
