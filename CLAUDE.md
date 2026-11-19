@@ -349,6 +349,33 @@ Coder and trainer guides are split deliberately. The coder guide must not
 describe a trainer screen: it tells a coder what the people grading them can
 see, which is the one thing the split exists to prevent.
 
+
+### Changes for the migrated app go through a change request
+
+The IT team's deployment kept this React frontend and restored the PostgreSQL
+dump, but **reimplemented the backend in .NET** (user, 2026-11-19). A Python
+diff is therefore useless to them for backend work; only behaviour transfers.
+Every change to this app gets a folder in `docs/change_requests/` and a row in
+its `REGISTER.md`: the spec (`CR-NNN.md`), `frontend.patch` (applies as-is),
+`openapi.diff.txt` (generated), and a `smoke_deployed.py` check IT can point at
+their own API. One logical change per commit, so a patch carries nothing else.
+
+Two things learned on CR-001. **The OpenAPI diff cannot see response-shape
+changes** on routes that return plain dicts, which is most of them, so a new
+field must be specified by hand in the CR. And **a Kind C change is ordered**:
+the frontend is shared, so a patch calling new backend behaviour breaks their
+deployment until that behaviour exists. Backend first.
+
+**The post-submit review is built once, server-side.**
+`services/practice_review.build_review` produces the classified side-by-side
+(every line, right and wrong) that the trainer Review modal, the coder results
+screen and the Excel export all render; `_build_coder_results` attaches it as
+`review`. It describes grading and never re-scores, so its comparison rules
+must track the grader's: E/M diagnoses are a set (order is shown as `order`,
+never marked wrong), and MDM tables credit only elements the key ticked, so an
+extra tick shows as `extra`, "Not penalised". A new MDM element needs a label in
+`ELEMENT_LABELS`; a test fails per missing field.
+
 ---
 
 ## Reference code sets are loaded by hand

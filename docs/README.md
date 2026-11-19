@@ -16,6 +16,11 @@ The runbook is the operational one. If you read only part of anything, read
 **§5 (what happens on first boot)** and **§8 (the reference code sets)** — those
 two describe things that will not announce themselves if you skip them.
 
+**After handover:** changes made in this original application since the
+migration are issued as change requests in
+[change_requests/REGISTER.md](change_requests/REGISTER.md), one folder each,
+written for a team that kept this frontend but rebuilt the backend.
+
 ## The Word versions
 
 | File | Same content as |

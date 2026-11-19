@@ -1,0 +1,5 @@
+Generated from FastAPI's OpenAPI before and after commit db51300.
+Response-shape changes on untyped routes do NOT appear here; see CR-001.md section 4.1.
+
+ADDED   GET /practicelab/practice-sessions/by-token/{token}/review/export
+ADDED   GET /practicelab/practice-sessions/{session_id}/review/export
